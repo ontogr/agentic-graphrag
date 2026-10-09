@@ -29,12 +29,6 @@ from agrag.common.data_models.graph_record import (
 from agrag.common.data_models.graph_schema import GraphSchema
 from agrag.common.data_models.relation import Relation
 from agrag.common.data_models.stage_failure import StageFailure, cap_failures
-from agrag.common.data_models.structure import (
-    FIGURE_LABEL,
-    SECTION_LABEL,
-    SOURCE_LABEL,
-    TABLE_LABEL,
-)
 from agrag.common.data_models.vector_record import VectorRecord
 from agrag.cypher.entities import (
     clear_chunk_embedding_query,
@@ -49,14 +43,10 @@ from agrag.graphdb.base import GraphStore
 from agrag.ingestion._lexical_backbone import (
     build_document_record,
     build_next_chunk_records,
-    build_part_of_records,
     distinct_documents,
 )
-from agrag.ingestion._structure import (
-    StructureRecords,
-    build_source_records,
-    build_structure,
-)
+from agrag.ingestion._structure import build_document_structure
+from agrag.ingestion._structure_wiring import write_structure_nodes
 from agrag.ingestion.extract import Extractor
 from agrag.ingestion.merge import (
     apply_merge,
@@ -631,48 +621,9 @@ async def ingest_chunks(  # noqa: PLR0912,PLR0915
         # Document nodes and PART_OF edges: one Document per distinct document
         # in this call, PART_OF linking it to the chunks written above.
         distinct = distinct_documents(documents)
-        documents_by_key = {doc.resolved_document_key: doc for doc in distinct}
-        selected_document_ids = {
-            Document.node_id_for(document_key=document_key)
-            for document_key in documents_by_key
-        }
-        chunks_by_document_id: dict[UUID, list[Chunk]] = defaultdict(list)
-        for ch in chunks:
-            if ch.document_id in selected_document_ids:
-                chunks_by_document_id[ch.document_id].append(ch)
-        documents_by_id = {
-            Document.node_id_for(document_key=document_key): document
-            for document_key, document in documents_by_key.items()
-        }
-        document_records = [
-            build_document_record(doc) for doc in documents_by_id.values()
-        ]
-        structure = StructureRecords()
-        for document_id, document in documents_by_id.items():
-            document_node_id = Document.node_id_for(
-                document_key=document.resolved_document_key
-            )
-            # The version matches chunk versioning's own version_id, so an
-            # identical re-ingest rebuilds the same edge ids and converges.
-            version_id = str(Document.id_for(content_hash=document.content_hash))
-            document_chunks = chunks_by_document_id.get(document_id, [])
-            records = build_structure(document, document_chunks)
-            structure.sections.extend(records.sections)
-            structure.tables.extend(records.tables)
-            structure.figures.extend(records.figures)
-            relation_records.extend(records.relations)
-            relation_records.extend(
-                build_part_of_records(
-                    document_node_id,
-                    [
-                        *(c.id for c in document_chunks if c.id is not None),
-                        *records.node_ids,
-                    ],
-                    version_id=version_id,
-                )
-            )
-        source_nodes, source_relations = build_source_records(distinct)
-        relation_records.extend(source_relations)
+        document_records = [build_document_record(doc) for doc in distinct]
+        structure = build_document_structure(distinct, chunks)
+        relation_records.extend(structure.relations)
         relation_records.extend(build_next_chunk_records(chunks))
 
         # Write chunk nodes
@@ -720,25 +671,12 @@ async def ingest_chunks(  # noqa: PLR0912,PLR0915
         # Write structure nodes: sections, tables, figures and record sources
         with resolved_tracer.start_as_current_span(
             "agrag.storage.upsert_structure",
-            attributes={
-                "agrag.record_count": len(structure.sections)
-                + len(structure.tables)
-                + len(structure.figures)
-                + len(source_nodes)
-            },
+            attributes={"agrag.record_count": structure.node_count},
         ) as span:
             try:
-                for label, records_ in (
-                    (SECTION_LABEL, structure.sections),
-                    (TABLE_LABEL, structure.tables),
-                    (FIGURE_LABEL, structure.figures),
-                    (SOURCE_LABEL, source_nodes),
+                for result in await write_structure_nodes(
+                    graph_store, structure, pending_job_id=job_uuid
                 ):
-                    if not records_:
-                        continue
-                    result = await graph_store.upsert_nodes(
-                        label, records_, pending_job_id=job_uuid
-                    )
                     nodes_written += result.written
                     storage_failures.extend(_upsert_stage_failures(result))
                 span.set_attribute("agrag.nodes_written", nodes_written)

@@ -45,6 +45,19 @@ char_end: int | None = None
 char_start: int | None = None
 ```
 
+## `header` \{#agrag-common-data_models-document-Unit-header}
+
+```python
+header: list[str]
+```
+
+Return the column names of a table, one for each column.
+
+The first `header_rows` rows make the header. When the source marks no
+header rows, the first row makes it. A spanned header cell repeats its text
+in every slot it covers, so each column keeps each text once. Empty when the
+table has no rows.
+
 ## `header_rows` \{#agrag-common-data_models-document-Unit-header_rows}
 
 ```python

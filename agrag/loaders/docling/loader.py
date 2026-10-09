@@ -10,16 +10,26 @@ import hashlib
 import io
 from collections.abc import Iterator
 from importlib.metadata import PackageNotFoundError, version
-from typing import Any, BinaryIO
+from typing import TYPE_CHECKING, BinaryIO
+
+from docling_core.types.doc import DoclingDocument
 
 from agrag.common.data_models.document import Document, DocumentFamily, SourceFormat
 from agrag.loaders.corpus.base import ProseLoader
-from agrag.loaders.corpus.errors import DocumentConversionError, DocumentTooLargeError
-from agrag.loaders.corpus.readers._common import source_title
+from agrag.loaders.corpus.errors import DocumentConversionError
+from agrag.loaders.corpus.readers._common import read_within_limit, source_title
 from agrag.loaders.corpus.types import ReadOptions, SourceRef
 from agrag.loaders.docling._converters import ocr_choice, pdf_converter, slim_converter
 from agrag.loaders.docling._pdf_levels import numbered_depths
-from agrag.loaders.docling._sections import sections_from_docling
+from agrag.loaders.docling._sections import (
+    DocumentBody,
+    read_body,
+    sections_from_docling,
+)
+
+
+if TYPE_CHECKING:
+    from docling.document_converter import DocumentConverter
 
 
 _SLIM_FORMATS: dict[str, SourceFormat] = {
@@ -87,18 +97,7 @@ class DoclingLoader(ProseLoader):
             DocumentConversionError: Docling could not parse or convert the source.
             ValueError: ``opts.max_document_bytes`` is not a positive integer.
         """
-        limit = opts.max_document_bytes
-        if not isinstance(limit, int) or isinstance(limit, bool) or limit <= 0:
-            raise ValueError("max_document_bytes must be a positive integer")
-        if source.byte_size is not None and source.byte_size > limit:
-            raise DocumentTooLargeError(
-                f"{source.uri} is {source.byte_size} bytes, over the {limit} limit"
-            )
-        # A stream with no reported (or a stale) byte_size still must not be read
-        # past the limit, so cap the read itself.
-        raw = stream.read(limit + 1)
-        if len(raw) > limit:
-            raise DocumentTooLargeError(f"{source.uri} is over the {limit} byte limit")
+        raw = read_within_limit(stream, source, opts)
         try:
             document = self._convert(source, raw)
         except Exception as exc:
@@ -110,7 +109,8 @@ class DoclingLoader(ProseLoader):
             loader_version = version("docling")
         except PackageNotFoundError:
             loader_version = None
-        sections = sections_from_docling(document, self._depths(document))
+        body = read_body(document)
+        sections = sections_from_docling(body, self._depths(body))
         title = next((s.heading for s in sections if s.heading), None)
         yield Document(
             text=text if opts.store_text else "",
@@ -126,7 +126,7 @@ class DoclingLoader(ProseLoader):
             sections=sections,
         )
 
-    def _convert(self, source: SourceRef, raw: bytes) -> Any:
+    def _convert(self, source: SourceRef, raw: bytes) -> DoclingDocument:
         """Convert the bytes and return the parsed document."""
         from docling.datamodel.base_models import DocumentStream  # noqa: PLC0415
 
@@ -136,10 +136,10 @@ class DoclingLoader(ProseLoader):
         stream = DocumentStream(name=name, stream=io.BytesIO(raw))
         return self._converter(raw, source).convert(stream).document
 
-    def _converter(self, raw: bytes, source: SourceRef) -> Any:
+    def _converter(self, raw: bytes, source: SourceRef) -> "DocumentConverter":
         return slim_converter()
 
-    def _depths(self, document: Any) -> dict[str, int]:
+    def _depths(self, body: DocumentBody) -> dict[str, int]:
         return {}
 
 
@@ -162,9 +162,9 @@ class DoclingPdfLoader(DoclingLoader):
     extra_module = "docling_ibm_models"
     _formats = _PDF_FORMATS
 
-    def _converter(self, raw: bytes, source: SourceRef) -> Any:
+    def _converter(self, raw: bytes, source: SourceRef) -> "DocumentConverter":
         is_pdf = source.extension == ".pdf"
         return pdf_converter(ocr_choice(raw) if is_pdf else "full")
 
-    def _depths(self, document: Any) -> dict[str, int]:
-        return numbered_depths(document)
+    def _depths(self, body: DocumentBody) -> dict[str, int]:
+        return numbered_depths(body)

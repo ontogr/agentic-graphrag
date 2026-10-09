@@ -106,13 +106,13 @@ Return the settings as plain data.
 ## `size` \{#agrag-chunking-chunker-Chunker-size}
 
 ```python
-size: int = Field(default=600, gt=0)
+size: int = Field(default=DEFAULT_SIZE, gt=0)
 ```
 
 ## `split` \{#agrag-chunking-chunker-Chunker-split}
 
 ```python
-split(text:str) -> list[Any]
+split(text:str) -> list[TextPiece]
 ```
 
 Split a text into pieces of at most `size` tokens.
@@ -123,12 +123,13 @@ Split a text into pieces of at most `size` tokens.
 
 **Returns:**
 
-- <code>list\[Any\]</code> – The pieces. Each has `text`, `start_index`, `end_index` and
-- <code>list\[Any\]</code> – `token_count`, and `text` equals `text[start_index:end_index]`.
+- <code>list\[[TextPiece](TextPiece.md)\]</code> – The pieces in order. `text` of each piece equals the slice of the text
+- <code>list\[[TextPiece](TextPiece.md)\]</code> – from its `start_index` to its `end_index`.
 
 **Raises:**
 
-- <code>[ChunkingError](ChunkingError.md)</code> – The pieces do not join back into the text.
+- <code>[ChunkingError](ChunkingError.md)</code> – A piece does not match its slice, or the pieces do not
+  join back into the text.
 
 ## `tokenizer` \{#agrag-chunking-chunker-Chunker-tokenizer}
 

@@ -105,6 +105,27 @@ class Unit(BaseModel):
     rows: list[list[str]] = Field(default_factory=list)
     header_rows: int = Field(default=0, ge=0)
 
+    @property
+    def header(self) -> list[str]:
+        """Return the column names of a table, one for each column.
+
+        The first ``header_rows`` rows make the header. When the source marks no
+        header rows, the first row makes it. A spanned header cell repeats its text
+        in every slot it covers, so each column keeps each text once. Empty when the
+        table has no rows.
+        """
+        if not self.rows:
+            return []
+        width = max(len(row) for row in self.rows)
+        head = self.rows[: max(self.header_rows, 1)]
+        names: list[str] = []
+        for column in range(width):
+            parts = [
+                row[column] for row in head if column < len(row) and row[column].strip()
+            ]
+            names.append(" ".join(dict.fromkeys(parts)))
+        return names
+
     @model_validator(mode="after")
     def _check_span(self) -> "Unit":
         """Require both offsets or neither, with the start not after the end."""

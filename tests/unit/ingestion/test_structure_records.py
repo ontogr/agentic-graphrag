@@ -14,7 +14,11 @@ from agrag.common.data_models.document import (
     UnitKind,
 )
 from agrag.common.data_models.structure import source_node_id
-from agrag.ingestion._structure import build_source_records, build_structure
+from agrag.ingestion._structure import (
+    build_document_structure,
+    build_source_records,
+    build_structure,
+)
 from tests.unit.chunking._section_support import (
     page_unit,
     paragraph,
@@ -132,6 +136,22 @@ class TestBuildStructure:
         assert len(chunks) == 1
         assert _parents(records.relations)[chunks[0].id] == records.sections[0].id
 
+    def test_a_table_takes_its_columns_from_the_merged_header_rows(self) -> None:
+        """Spanned header rows give one column name for each column."""
+        table = Unit(
+            kind=UnitKind.TABLE,
+            text="",
+            rows=[["Region", "Sales", ""], ["", "Q1", "Q2"], ["north", "1", "2"]],
+            header_rows=2,
+        )
+        document = sectioned_document(
+            [DocumentSection(heading="S", depth=1, units=[table])]
+        )
+
+        records = build_structure(document, [])
+
+        assert records.tables[0].properties["columns"] == ["Region", "Sales Q1", "Q2"]
+
     def test_the_order_property_follows_reading_order(self) -> None:
         """Sibling order is the order of the children in the document."""
         document = _document()
@@ -205,3 +225,25 @@ class TestBuildSourceRecords:
     def test_prose_documents_have_no_source(self) -> None:
         """Only record documents come from a Source."""
         assert build_source_records([_document()]) == ([], [])
+
+
+class TestBuildDocumentStructure:
+    """The structure of one add call covers every document in it."""
+
+    def test_collects_the_nodes_and_edges_of_each_document_and_each_source(
+        self,
+    ) -> None:
+        """Prose sections get PART_OF edges, and a record file gets a Source."""
+        prose = _document()
+        row = record_document("name: ada")
+        chunks = [*Chunker(size=50, min_size=2).chunk(prose), *Chunker().chunk(row)]
+
+        structure = build_document_structure([prose, row], chunks)
+
+        assert len(structure.sections) == 3
+        assert len(structure.tables) == 1
+        assert len(structure.sources) == 1
+        assert structure.node_count == 6
+        relation_types = Counter(r.type for r in structure.relations)
+        assert relation_types["PART_OF"] > 0
+        assert relation_types["HAS_DOCUMENT"] == 1

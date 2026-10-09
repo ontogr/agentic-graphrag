@@ -1,5 +1,7 @@
 """Turn a parsed Docling document into sections and units."""
 
+from dataclasses import dataclass
+
 from docling_core.types.doc import (
     BoundingBox as DoclingBox,
 )
@@ -12,6 +14,7 @@ from docling_core.types.doc import (
     FloatingItem,
     FormulaItem,
     ListItem,
+    NodeItem,
     PictureItem,
     SectionHeaderItem,
     TableItem,
@@ -25,6 +28,58 @@ from agrag.common.data_models.provenance import BoundingBox, PageSpan
 
 _BODY = {ContentLayer.BODY}
 _SKIPPED_LABELS = {DocItemLabel.PAGE_HEADER, DocItemLabel.PAGE_FOOTER}
+
+
+@dataclass(frozen=True, slots=True)
+class DocumentBody:
+    """The body items of a parsed document, read in one walk.
+
+    Attributes:
+        doc: The parsed document. Pages and caption references resolve through it.
+        items: The body items in reading order. Groups are left out.
+        captions: The references of the items that caption a table or picture.
+        floating_members: The references of the items that sit inside a table or
+            picture.
+    """
+
+    doc: DoclingDocument
+    items: list[NodeItem]
+    captions: frozenset[str]
+    floating_members: frozenset[str]
+
+
+def read_body(doc: DoclingDocument) -> DocumentBody:
+    """Walk the body of a parsed document once.
+
+    Args:
+        doc: The parsed document.
+
+    Returns:
+        The body items, with the captions and the members of tables and pictures.
+    """
+    items: list[NodeItem] = []
+    captions: set[str] = set()
+    members: set[str] = set()
+    # The levels of the open tables and pictures. The walk is depth first, so every
+    # item at a deeper level than an open one sits inside it.
+    open_floating: list[int] = []
+    for item, level in doc.iterate_items(
+        with_groups=False, included_content_layers=_BODY
+    ):
+        while open_floating and level <= open_floating[-1]:
+            open_floating.pop()
+        if open_floating:
+            members.add(item.self_ref)
+        items.append(item)
+        if isinstance(item, FloatingItem):
+            open_floating.append(level)
+            captions.update(ref.cref for ref in item.captions)
+    return DocumentBody(
+        doc=doc,
+        items=items,
+        captions=frozenset(captions),
+        floating_members=frozenset(members),
+    )
 
 
 def _top_left(box: DoclingBox, height: float) -> DoclingBox:
@@ -50,16 +105,6 @@ def _pages(item: TextItem | FloatingItem, doc: DoclingDocument) -> list[PageSpan
     return spans
 
 
-def _under_floating(item: TextItem, doc: DoclingDocument) -> bool:
-    """Return whether the item sits inside a table or picture."""
-    parent = item.parent.resolve(doc) if item.parent else None
-    while parent is not None:
-        if isinstance(parent, FloatingItem):
-            return True
-        parent = parent.parent.resolve(doc) if getattr(parent, "parent", None) else None
-    return False
-
-
 def _caption(item: FloatingItem, doc: DoclingDocument) -> str | None:
     texts = []
     for ref in item.captions:
@@ -80,8 +125,70 @@ def _table_rows(table: TableItem) -> tuple[list[list[str]], int]:
     return rows, header_rows
 
 
+def _open_section(
+    sections: list[DocumentSection],
+    open_headings: list[tuple[int, int]],
+    heading: str,
+    depth: int,
+) -> None:
+    """Start a section under the nearest open heading that is shallower than it.
+
+    Args:
+        sections: The sections so far. The new section is appended here.
+        open_headings: The (depth, index) pairs of the headings that contain the
+            next item. Popped to the new section's parent, then pushed.
+        heading: The heading text.
+        depth: The depth of the heading.
+    """
+    while open_headings and open_headings[-1][0] >= depth:
+        open_headings.pop()
+    parent = open_headings[-1][1] if open_headings else None
+    sections.append(DocumentSection(heading=heading, depth=depth, parent=parent))
+    open_headings.append((depth, len(sections) - 1))
+
+
+def _append_list_item(
+    units: list[Unit], item: ListItem, doc: DoclingDocument, group_before: str | None
+) -> str | None:
+    """Add a list item to the list unit that it continues, or start a new one.
+
+    Args:
+        units: The units of the section that holds the item.
+        item: The list item.
+        doc: The parsed document, for the item pages.
+        group_before: The list group of the item before this one.
+
+    Returns:
+        The list group of this item, which the caller passes for the next item.
+    """
+    group = item.parent.cref if item.parent else None
+    last = units[-1] if units else None
+    if last and last.kind == UnitKind.LIST and group and group == group_before:
+        last.text += "\n" + item.text
+        last.pages.extend(_pages(item, doc))
+    else:
+        units.append(Unit(kind=UnitKind.LIST, text=item.text, pages=_pages(item, doc)))
+    return group
+
+
+def _without_empty_root(sections: list[DocumentSection]) -> list[DocumentSection]:
+    """Drop the root section at index 0 when no content went into it.
+
+    No heading section has the root as its parent, so only the parent indexes of the
+    other sections shift.
+    """
+    if sections[0].units:
+        return sections
+    return [
+        section.model_copy(
+            update={"parent": None if section.parent is None else section.parent - 1}
+        )
+        for section in sections[1:]
+    ]
+
+
 def sections_from_docling(
-    doc: DoclingDocument, depths: dict[str, int] | None = None
+    body: DocumentBody, depths: dict[str, int] | None = None
 ) -> list[DocumentSection]:
     """Return the sections of a parsed document, in reading order.
 
@@ -91,7 +198,7 @@ def sections_from_docling(
     page footers and anything outside the document body are left out.
 
     Args:
-        doc: The parsed document.
+        body: The body of the parsed document, from ``read_body``.
         depths: The depth to use for a heading, by item reference, in place of the
             level that Docling gave it.
 
@@ -100,66 +207,34 @@ def sections_from_docling(
         shallower than it.
     """
     depths = depths or {}
-    captioned = {
-        ref.cref
-        for item, _ in doc.iterate_items(
-            with_groups=False, included_content_layers=_BODY
-        )
-        if isinstance(item, FloatingItem)
-        for ref in item.captions
-    }
-    sections: list[DocumentSection] = []
+    doc = body.doc
+    # The root holds the content before the first heading. It is dropped if empty.
+    sections = [DocumentSection(heading="", depth=0)]
     open_headings: list[tuple[int, int]] = []
-    root: int | None = None
     list_group: str | None = None
-
-    def current() -> DocumentSection:
-        nonlocal root
-        if open_headings:
-            return sections[open_headings[-1][1]]
-        if root is None:
-            sections.append(DocumentSection(heading="", depth=0))
-            root = len(sections) - 1
-        return sections[root]
-
-    for item, _ in doc.iterate_items(with_groups=False, included_content_layers=_BODY):
-        if item.self_ref in captioned:
+    for item in body.items:
+        if item.self_ref in body.captions:
             continue
         if isinstance(item, TextItem) and (
-            item.label in _SKIPPED_LABELS or _under_floating(item, doc)
+            item.label in _SKIPPED_LABELS or item.self_ref in body.floating_members
         ):
             continue
         if isinstance(item, TitleItem | SectionHeaderItem):
             depth = 0
             if isinstance(item, SectionHeaderItem):
                 depth = depths.get(item.self_ref, item.level)
-            while open_headings and open_headings[-1][0] >= depth:
-                open_headings.pop()
-            parent = open_headings[-1][1] if open_headings else None
-            sections.append(
-                DocumentSection(heading=item.text, depth=depth, parent=parent)
-            )
-            open_headings.append((depth, len(sections) - 1))
+            _open_section(sections, open_headings, item.text, depth)
             list_group = None
             continue
+        current = sections[open_headings[-1][1]] if open_headings else sections[0]
         if isinstance(item, ListItem):
-            group = item.parent.cref if item.parent else None
-            units = current().units
-            last = units[-1] if units else None
-            if last and last.kind == UnitKind.LIST and group and group == list_group:
-                last.text += "\n" + item.text
-                last.pages.extend(_pages(item, doc))
-            else:
-                units.append(
-                    Unit(kind=UnitKind.LIST, text=item.text, pages=_pages(item, doc))
-                )
-            list_group = group
+            list_group = _append_list_item(current.units, item, doc, list_group)
             continue
         list_group = None
         unit = _unit(item, doc)
         if unit is not None:
-            current().units.append(unit)
-    return sections
+            current.units.append(unit)
+    return _without_empty_root(sections)
 
 
 def _unit(item: object, doc: DoclingDocument) -> Unit | None:

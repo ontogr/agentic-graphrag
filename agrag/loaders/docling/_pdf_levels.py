@@ -2,7 +2,9 @@
 
 import re
 
-from docling_core.types.doc import ContentLayer, DoclingDocument, SectionHeaderItem
+from docling_core.types.doc import SectionHeaderItem
+
+from agrag.loaders.docling._sections import DocumentBody
 
 
 _NUMBERED = re.compile(r"^\s*(\d+(?:\.\d+){0,5})[.)]?\s+\S")
@@ -24,7 +26,7 @@ def numbering_depth(heading: str) -> int | None:
     return None if match is None else match.group(1).count(".") + 1
 
 
-def numbered_depths(doc: DoclingDocument) -> dict[str, int]:
+def numbered_depths(body: DocumentBody) -> dict[str, int]:
     """Return the depth of each numbered heading when numbering is the only signal.
 
     Docling gives a PDF heading a level above 1 only when a bookmark matches it. A
@@ -32,20 +34,14 @@ def numbered_depths(doc: DoclingDocument) -> dict[str, int]:
     in the headings, if at least half of them are numbered.
 
     Args:
-        doc: The parsed document.
+        body: The body of the parsed document, from ``read_body``.
 
     Returns:
         The depth by item reference. Empty when some heading has a level above 1,
         when the document has fewer than three headings, or when fewer than half of
         the headings are numbered.
     """
-    headings = [
-        item
-        for item, _ in doc.iterate_items(
-            with_groups=False, included_content_layers={ContentLayer.BODY}
-        )
-        if isinstance(item, SectionHeaderItem)
-    ]
+    headings = [item for item in body.items if isinstance(item, SectionHeaderItem)]
     if len(headings) < _MIN_HEADINGS or any(h.level != 1 for h in headings):
         return {}
     depths = {h.self_ref: numbering_depth(h.text) for h in headings}

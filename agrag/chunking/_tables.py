@@ -14,17 +14,6 @@ def _line(cells: list[str], width: int) -> str:
     return "| " + " | ".join(_cell(cell) for cell in padded) + " |"
 
 
-def _header_cells(rows: list[list[str]], width: int) -> list[str]:
-    # A spanned header cell repeats its text in every slot it covers.
-    cells: list[str] = []
-    for column in range(width):
-        parts = [
-            row[column] for row in rows if column < len(row) and row[column].strip()
-        ]
-        cells.append(" ".join(dict.fromkeys(parts)))
-    return cells
-
-
 def table_texts(unit: Unit, size: int, count_tokens: Callable[[str], int]) -> list[str]:
     """Return the chunk texts of a table.
 
@@ -46,7 +35,7 @@ def table_texts(unit: Unit, size: int, count_tokens: Callable[[str], int]) -> li
     head_count = max(unit.header_rows, 1)
     width = max(len(row) for row in unit.rows)
     head = [
-        _line(_header_cells(unit.rows[:head_count], width), width),
+        _line(unit.header, width),
         "| " + " | ".join(["---"] * width) + " |",
     ]
     body = [_line(row, width) for row in unit.rows[head_count:]]

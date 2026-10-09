@@ -46,6 +46,9 @@ class Chunk(DataPoint):
             chunk. ``None`` for a chunk written before chunkers were recorded.
         section_ids: The node ids of the sections whose text the chunk holds, in
             reading order. Empty for a document with no sections.
+        parent_section_id: The node id of the lowest section that holds every
+            section in ``section_ids``. ``None`` when only the document holds them.
+            The chunker sets it. The graph does not store it.
         position: The reading-order number of the first unit in the chunk. The
             ingestion code uses it to order the children of a section. The graph
             does not store it.
@@ -62,6 +65,7 @@ class Chunk(DataPoint):
     chunker_hash: str | None = None
     embedding: list[float] | None = None
     section_ids: list[UUID] = Field(default_factory=list)
+    parent_section_id: UUID | None = Field(default=None, exclude=True)
     position: int = Field(default=0, exclude=True)
 
     @model_validator(mode="after")

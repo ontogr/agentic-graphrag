@@ -6,6 +6,7 @@ Nothing here touches ``GraphStore``.
 """
 
 import json
+from collections import defaultdict
 from dataclasses import dataclass, field
 from uuid import UUID
 
@@ -25,7 +26,6 @@ from agrag.common.data_models.structure import (
     SECTION_LABEL,
     SOURCE_LABEL,
     TABLE_LABEL,
-    common_ancestor,
     node_id,
     reading_positions,
     section_keys,
@@ -33,6 +33,7 @@ from agrag.common.data_models.structure import (
     unit_keys,
     version_id,
 )
+from agrag.ingestion._lexical_backbone import build_part_of_records
 from agrag.ingestion.merge import relation_id
 
 
@@ -44,15 +45,27 @@ class StructureRecords:
         sections: One node record for each section.
         tables: One node record for each table.
         figures: One node record for each figure.
-        relations: The ``HAS_CHILD`` edges for sections, tables, figures and chunks.
+        sources: One node record for each record file.
+        relations: The ``HAS_CHILD``, ``PART_OF`` and ``HAS_DOCUMENT`` edges.
         node_ids: The id of every section, table and figure node.
     """
 
     sections: list[NodeRecord] = field(default_factory=list)
     tables: list[NodeRecord] = field(default_factory=list)
     figures: list[NodeRecord] = field(default_factory=list)
+    sources: list[NodeRecord] = field(default_factory=list)
     relations: list[RelationRecord] = field(default_factory=list)
     node_ids: list[UUID] = field(default_factory=list)
+
+    @property
+    def node_count(self) -> int:
+        """Return the number of section, table, figure and source nodes."""
+        return (
+            len(self.sections)
+            + len(self.tables)
+            + len(self.figures)
+            + len(self.sources)
+        )
 
 
 def _page_range(units: list[Unit]) -> dict[str, int]:
@@ -141,7 +154,7 @@ def build_structure(document: Document, chunks: list[Chunk]) -> StructureRecords
             if unit.caption is not None:
                 properties["caption"] = unit.caption
             if unit.kind == UnitKind.TABLE:
-                properties["columns"] = unit.rows[0] if unit.rows else []
+                properties["columns"] = unit.header
                 properties["n_rows"] = len(unit.rows)
                 out.tables.append(
                     NodeRecord(id=unit_id, labels=[TABLE_LABEL], properties=properties)
@@ -154,16 +167,15 @@ def build_structure(document: Document, chunks: list[Chunk]) -> StructureRecords
             out.node_ids.append(unit_id)
             link(section_ids[i], unit_id, unit_positions[i][j])
 
-    index_of = {section_id: i for i, section_id in enumerate(section_ids)}
     for chunk in chunks:
         if chunk.id is None:
             raise ValueError("Chunk.id must be set before building structure records.")
         if chunk.content_kind == "table":
             link(table_by_position[chunk.position], chunk.id, chunk.index)
             continue
-        covered = [index_of[section_id] for section_id in chunk.section_ids]
-        ancestor = common_ancestor(sections, covered) if covered else None
-        parent = document_id if ancestor is None else section_ids[ancestor]
+        parent = (
+            document_id if chunk.parent_section_id is None else chunk.parent_section_id
+        )
         link(parent, chunk.id, chunk.position)
     return out
 
@@ -208,3 +220,61 @@ def build_source_records(
             )
         )
     return list(nodes.values()), relations
+
+
+def build_document_structure(
+    documents: list[Document], chunks: list[Chunk]
+) -> StructureRecords:
+    """Build the structure records for the documents of one ``add`` call.
+
+    Each document contributes its section, table and figure nodes, with the edges
+    from ``build_structure``. Each structure node also gets a ``PART_OF`` edge from
+    its document, and each record file gets a Source node. Chunks of documents that
+    are not in ``documents`` are ignored.
+
+    Args:
+        documents: The distinct documents of the call, as ``distinct_documents``
+            returns them.
+        chunks: The chunks that the chunker made from the documents.
+
+    Returns:
+        The structure records. ``relations`` holds the edges of every document in
+        document order, followed by the edges of the record sources.
+    """
+    selected = {
+        Document.node_id_for(document_key=document.resolved_document_key)
+        for document in documents
+    }
+    chunks_by_document_id: dict[UUID, list[Chunk]] = defaultdict(list)
+    for chunk in chunks:
+        if chunk.document_id in selected:
+            chunks_by_document_id[chunk.document_id].append(chunk)
+
+    out = StructureRecords()
+    for document in documents:
+        document_node_id = Document.node_id_for(
+            document_key=document.resolved_document_key
+        )
+        # The version matches chunk versioning's own version_id, so an
+        # identical re-ingest rebuilds the same edge ids and converges.
+        version = str(Document.id_for(content_hash=document.content_hash))
+        document_chunks = chunks_by_document_id.get(document_node_id, [])
+        records = build_structure(document, document_chunks)
+        out.sections.extend(records.sections)
+        out.tables.extend(records.tables)
+        out.figures.extend(records.figures)
+        out.relations.extend(records.relations)
+        out.relations.extend(
+            build_part_of_records(
+                document_node_id,
+                [
+                    *(c.id for c in document_chunks if c.id is not None),
+                    *records.node_ids,
+                ],
+                version_id=version,
+            )
+        )
+    source_nodes, source_relations = build_source_records(documents)
+    out.sources = source_nodes
+    out.relations.extend(source_relations)
+    return out

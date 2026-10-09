@@ -27,7 +27,10 @@ from agrag.loaders.corpus.errors import (  # noqa: E402
     DocumentTooLargeError,
 )
 from agrag.loaders.corpus.types import ReadOptions, SourceRef  # noqa: E402
-from agrag.loaders.docling._sections import sections_from_docling  # noqa: E402
+from agrag.loaders.docling._sections import (  # noqa: E402
+    read_body,
+    sections_from_docling,
+)
 from agrag.loaders.docling.loader import DoclingLoader, DoclingPdfLoader  # noqa: E402
 
 
@@ -138,7 +141,7 @@ class TestPageBoxes:
         """The new top is the page height minus the old top."""
         box = BoundingBox(l=10, t=190, r=50, b=150, coord_origin=CoordOrigin.BOTTOMLEFT)
 
-        (section,) = sections_from_docling(self._document(box))
+        (section,) = sections_from_docling(read_body(self._document(box)))
 
         span = section.units[0].pages[0]
         assert (span.bbox.y0, span.bbox.y1) == (10, 50)
@@ -148,7 +151,7 @@ class TestPageBoxes:
         """No conversion is needed."""
         box = BoundingBox(l=1, t=2, r=3, b=4, coord_origin=CoordOrigin.TOPLEFT)
 
-        (section,) = sections_from_docling(self._document(box))
+        (section,) = sections_from_docling(read_body(self._document(box)))
 
         assert section.units[0].pages[0].bbox.y0 == 2
 
@@ -162,7 +165,7 @@ class TestPageBoxes:
             prov=ProvenanceItem(page_no=7, bbox=box, charspan=(0, 1)),
         )
 
-        (section,) = sections_from_docling(doc)
+        (section,) = sections_from_docling(read_body(doc))
 
         assert section.units[0].pages == []
 

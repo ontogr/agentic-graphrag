@@ -9,6 +9,7 @@ Stable keys, node ids, reading order and ancestry for the sections of a Document
 
 **Functions:**
 
+- [**ancestors**](ancestors.md) – Return the index of a section and of each section above it.
 - [**chunk_id**](chunk_id.md) – Return the id of a chunk.
 - [**common_ancestor**](common_ancestor.md) – Return the lowest section that contains all the given sections.
 - [**heading_paths**](heading_paths.md) – Return the non-empty headings from the top to each section.

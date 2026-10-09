@@ -1,14 +1,18 @@
 """Tests for the section chunker: packing, splitting, merging and tables."""
 
+from types import SimpleNamespace
+
 import pytest
 
-from agrag.chunking.chunker import Chunker
+from agrag.chunking import chunker as chunker_module
+from agrag.chunking.chunker import Chunker, ChunkingError
 from agrag.common.data_models.document import (
     DocumentSection,
     Unit,
     UnitKind,
 )
 from agrag.common.data_models.provenance import PageProvenance, TextProvenance
+from agrag.common.data_models.structure import node_id, section_keys, version_id
 from tests.unit.chunking._section_support import (
     page_unit,
     paragraph,
@@ -38,6 +42,45 @@ class TestSettings:
         """Equal settings give equal fingerprints."""
         assert Chunker(size=100).fingerprint() == Chunker(size=100).fingerprint()
         assert Chunker(size=100).fingerprint() != Chunker(size=200).fingerprint()
+
+
+class _SplitterThatReturns:
+    """A stand-in for the chonkie splitter that returns fixed pieces."""
+
+    def __init__(self, pieces: list[SimpleNamespace]) -> None:
+        self._pieces = pieces
+
+    def __call__(self, text: str) -> list[SimpleNamespace]:
+        return self._pieces
+
+
+class TestSplit:
+    """Each piece is the slice of the text that it names."""
+
+    def test_each_piece_is_the_slice_of_the_text_at_its_offsets(self) -> None:
+        """Each piece equals the slice of the text between its offsets."""
+        text = _words(300, "alpha")
+
+        pieces = _chunker(size=40).split(text)
+
+        assert len(pieces) > 1
+        for piece in pieces:
+            assert piece.text == text[piece.start_index : piece.end_index]
+
+    def test_raises_when_a_piece_does_not_match_its_offsets(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A piece whose text differs from its slice raises, even if the pieces join."""
+        wrong = SimpleNamespace(text="ab", start_index=0, end_index=0, token_count=1)
+        monkeypatch.setattr(
+            chunker_module,
+            "RecursiveChunker",
+            lambda **_: _SplitterThatReturns([wrong]),
+        )
+        chunker = Chunker(size=40, min_size=10)
+
+        with pytest.raises(ChunkingError, match="offsets"):
+            chunker.split("ab")
 
 
 class TestPacking:
@@ -113,7 +156,7 @@ class TestMerging:
         chunks = _chunker(size=50, min_size=10).chunk(document)
 
         assert len(chunks) == 1
-        assert chunks[0].text.startswith("w w w\n\nB\n\nb b b")
+        assert chunks[0].text.startswith("A\n\nw w w\n\nB\n\nb b b")
         assert len(chunks[0].section_ids) == 2
 
     def test_a_chunk_at_the_minimum_ends_with_its_section(self) -> None:
@@ -153,6 +196,35 @@ class TestMerging:
 
         assert chunks[0].heading_path == ["Top", "One"]
 
+    def test_a_chunk_carries_the_node_of_the_lowest_section_that_holds_it(
+        self,
+    ) -> None:
+        """The parent section node is the lowest section that holds the chunk."""
+        sections = [
+            DocumentSection(heading="Top", depth=1),
+            DocumentSection(heading="One", depth=2, parent=0, units=[paragraph("a b")]),
+            DocumentSection(heading="Two", depth=2, parent=0, units=[paragraph("c d")]),
+        ]
+        document = sectioned_document(sections)
+
+        chunks = _chunker().chunk(document)
+
+        top = node_id(section_keys(document)[0], version_id(document))
+        assert len(chunks) == 1
+        assert chunks[0].parent_section_id == top
+
+    def test_a_chunk_over_top_level_sections_has_no_parent_section(self) -> None:
+        """Top-level sections share no section, so the chunk has no parent section."""
+        sections = [
+            DocumentSection(heading="One", depth=1, units=[paragraph("a b")]),
+            DocumentSection(heading="Two", depth=1, units=[paragraph("c d")]),
+        ]
+
+        chunks = _chunker().chunk(sectioned_document(sections))
+
+        assert len(chunks) == 1
+        assert chunks[0].parent_section_id is None
+
 
 class TestPageSources:
     """A source with page layout has no text offsets."""
@@ -169,6 +241,19 @@ class TestPageSources:
         provenance = chunks[0].provenance
         assert isinstance(provenance, PageProvenance)
         assert [span.page_no for span in provenance.page_spans] == [1, 2]
+
+    def test_a_heading_is_kept_when_the_previous_section_fills_a_chunk(self) -> None:
+        """The heading of each page-layout section starts a chunk after a flush."""
+        sections = [
+            DocumentSection(heading="Alpha", depth=1, units=[paragraph(_words(30))]),
+            DocumentSection(
+                heading="Beta", depth=1, units=[paragraph(_words(30, "b"))]
+            ),
+        ]
+
+        chunks = _chunker(size=50, min_size=10).chunk(sectioned_document(sections))
+
+        assert [c.text.partition("\n\n")[0] for c in chunks] == ["Alpha", "Beta"]
 
     def test_a_source_with_no_pages_gets_empty_page_provenance(self) -> None:
         """A source with no pages gets empty page provenance."""
@@ -199,7 +284,7 @@ class TestTables:
         assert chunks[1].text.startswith("| name | qty |")
         assert [c.index for c in chunks] == [0, 1, 2]
         assert [c.text for c in chunks if c.content_kind == "text"] == [
-            "before",
+            "S\n\nbefore",
             "after",
         ]
 

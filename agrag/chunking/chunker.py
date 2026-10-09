@@ -33,6 +33,7 @@ from agrag.common.data_models.structure import (
 )
 
 
+DEFAULT_SIZE = 600
 DEFAULT_TOKENIZER = "o200k_base"
 CHUNKER_NAME = "section"
 _MIN_CHARACTERS_PER_PIECE = 24
@@ -57,6 +58,29 @@ def fingerprint_of(value: object) -> str:
 
 def _by_page(spans: list[PageSpan]) -> list[PageSpan]:
     return sorted(spans, key=lambda span: span.page_no)
+
+
+def _is_page_layout(section: DocumentSection) -> bool:
+    """Return whether a section's units have pages and no text offsets."""
+    return bool(section.units) and section.units[0].char_start is None
+
+
+@dataclass(frozen=True, slots=True)
+class TextPiece:
+    """A piece of text that ``Chunker.split`` made.
+
+    Attributes:
+        text: The text of the piece. It equals the slice of the source text from
+            ``start_index`` to ``end_index``.
+        start_index: The offset of the first character in the source text.
+        end_index: The offset just past the last character in the source text.
+        token_count: The number of tokens in the piece.
+    """
+
+    text: str
+    start_index: int
+    end_index: int
+    token_count: int
 
 
 @dataclass(slots=True)
@@ -98,7 +122,7 @@ class Chunker(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    size: int = Field(default=600, gt=0)
+    size: int = Field(default=DEFAULT_SIZE, gt=0)
     min_size: int = Field(default=0, ge=0)
     tokenizer: str = DEFAULT_TOKENIZER
 
@@ -111,7 +135,7 @@ class Chunker(BaseModel):
     def _default_min_size(cls, data: Any) -> Any:
         """Set ``min_size`` to a quarter of ``size`` when the caller gives none."""
         if isinstance(data, dict) and not data.get("min_size"):
-            return {**data, "min_size": data.get("size", 600) // 4}
+            return {**data, "min_size": data.get("size", DEFAULT_SIZE) // 4}
         return data
 
     def model_post_init(self, context: Any, /) -> None:
@@ -138,20 +162,31 @@ class Chunker(BaseModel):
         """Return the number of tokens in a text, counted with ``tokenizer``."""
         return self._count(text)
 
-    def split(self, text: str) -> list[Any]:
+    def split(self, text: str) -> list[TextPiece]:
         """Split a text into pieces of at most ``size`` tokens.
 
         Args:
             text: The text to split.
 
         Returns:
-            The pieces. Each has ``text``, ``start_index``, ``end_index`` and
-            ``token_count``, and ``text`` equals ``text[start_index:end_index]``.
+            The pieces in order. ``text`` of each piece equals the slice of the text
+            from its ``start_index`` to its ``end_index``.
 
         Raises:
-            ChunkingError: The pieces do not join back into the text.
+            ChunkingError: A piece does not match its slice, or the pieces do not
+                join back into the text.
         """
-        parts = self._splitter(text)
+        parts = [
+            TextPiece(
+                text=part.text,
+                start_index=part.start_index,
+                end_index=part.end_index,
+                token_count=part.token_count,
+            )
+            for part in self._splitter(text)
+        ]
+        if any(part.text != text[part.start_index : part.end_index] for part in parts):
+            raise ChunkingError("the splitter moved text away from its offsets")
         if "".join(part.text for part in parts) != text:
             raise ChunkingError("the splitter changed or dropped text")
         return parts
@@ -208,7 +243,7 @@ class _Run:
         for i, section in enumerate(self._sections):
             if self._open and self._used >= chunker.min_size:
                 self._flush()
-            if self._open and self._open[0].start is None and section.heading:
+            if section.heading and _is_page_layout(section):
                 heading = Unit(kind=UnitKind.PARAGRAPH, text=section.heading)
                 self._add(self._piece(heading, i, 0))
             for j, unit in enumerate(section.units):
@@ -293,6 +328,10 @@ class _Run:
         ancestor = common_ancestor(self._sections, covered)
         index = len(self._out)
         fingerprint = self._chunker.fingerprint()
+        section_ids = [] if self._whole else [self._section_ids[i] for i in covered]
+        parent_section_id = None
+        if not self._whole and ancestor is not None:
+            parent_section_id = self._section_ids[ancestor]
         self._out.append(
             Chunk(
                 id=chunk_id(self._document_id, self._version, fingerprint, index),
@@ -304,9 +343,8 @@ class _Run:
                 content_kind=kind,
                 chunker=CHUNKER_NAME,
                 chunker_hash=fingerprint,
-                section_ids=[]
-                if self._whole
-                else [self._section_ids[i] for i in covered],
+                section_ids=section_ids,
+                parent_section_id=parent_section_id,
                 position=position,
             )
         )

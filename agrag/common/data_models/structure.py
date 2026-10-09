@@ -36,6 +36,24 @@ def version_id(document: Document) -> str:
     return str(Document.id_for(content_hash=document.content_hash))
 
 
+def ancestors(sections: list[DocumentSection], index: int) -> list[int]:
+    """Return the index of a section and of each section above it.
+
+    Args:
+        sections: The sections of a document.
+        index: The index of the section.
+
+    Returns:
+        The indexes from the outermost ancestor down to the section itself.
+    """
+    found: list[int] = []
+    current: int | None = index
+    while current is not None:
+        found.append(current)
+        current = sections[current].parent
+    return found[::-1]
+
+
 def section_keys(document: Document) -> list[UUID]:
     """Return one stable key for each section.
 
@@ -48,13 +66,12 @@ def section_keys(document: Document) -> list[UUID]:
     Returns:
         The keys, in the order of ``document.sections``.
     """
-    paths: list[tuple[str, ...]] = []
     seen: dict[tuple[str, ...], int] = {}
     keys: list[UUID] = []
-    for section in document.sections:
-        parent = paths[section.parent] if section.parent is not None else ()
-        path = (*parent, section.heading)
-        paths.append(path)
+    for index in range(len(document.sections)):
+        path = tuple(
+            document.sections[i].heading for i in ancestors(document.sections, index)
+        )
         ordinal = seen.get(path, 0)
         seen[path] = ordinal + 1
         keys.append(
@@ -136,11 +153,10 @@ def reading_positions(document: Document) -> tuple[list[int], list[list[int]]]:
 
 def heading_paths(sections: list[DocumentSection]) -> list[list[str]]:
     """Return the non-empty headings from the top to each section."""
-    paths: list[list[str]] = []
-    for section in sections:
-        parent = paths[section.parent] if section.parent is not None else []
-        paths.append([*parent, section.heading] if section.heading else list(parent))
-    return paths
+    return [
+        [sections[i].heading for i in ancestors(sections, index) if sections[i].heading]
+        for index in range(len(sections))
+    ]
 
 
 def common_ancestor(sections: list[DocumentSection], indexes: list[int]) -> int | None:
@@ -153,16 +169,8 @@ def common_ancestor(sections: list[DocumentSection], indexes: list[int]) -> int 
     Returns:
         The index of the section, or ``None`` when only the document contains them.
     """
-
-    def chain(index: int | None) -> list[int]:
-        found: list[int] = []
-        while index is not None:
-            found.append(index)
-            index = sections[index].parent
-        return found[::-1]
-
     common: int | None = None
-    for level in zip(*(chain(i) for i in indexes), strict=False):
+    for level in zip(*(ancestors(sections, i) for i in indexes), strict=False):
         if len(set(level)) != 1:
             break
         common = level[0]
