@@ -643,6 +643,22 @@ def part_of_id(document_node_id: UUID, node_id: UUID, version_id: UUID | str) ->
     return uuid5(NAMESPACE_OID, f"PART_OF:{document_node_id}:{node_id}:{version_id}")
 
 
+def has_child_id(parent_id: UUID, child_id: UUID, version_id: UUID | str) -> UUID:
+    """Return the id for one versioned parent -[:HAS_CHILD]-> child edge.
+
+    Args:
+        parent_id: The id of the parent node (document, section, or table).
+        child_id: The id of the child node.
+        version_id: The identifier for this document version.
+
+    Returns:
+        The edge id. Each document version gets separate edge ids, so an
+        identical re-ingest rebuilds the same ids and converges while a new
+        version shares no edge with the one it supersedes.
+    """
+    return uuid5(NAMESPACE_OID, f"HAS_CHILD:{parent_id}:{child_id}:{version_id}")
+
+
 def next_chunk_id(from_chunk_id: UUID, to_chunk_id: UUID) -> UUID:
     """Return the deterministic id for a Chunk -[:NEXT_CHUNK]-> Chunk edge.
 

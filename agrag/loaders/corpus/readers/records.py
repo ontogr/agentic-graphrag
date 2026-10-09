@@ -10,7 +10,7 @@ from agrag.common.data_models.document import Document, SourceFormat
 from agrag.loaders.corpus.base import RecordLoader
 from agrag.loaders.corpus.decode import decode_text
 from agrag.loaders.corpus.errors import MalformedRecordError
-from agrag.loaders.corpus.readers._common import (
+from agrag.loaders.corpus.readers.common import (
     build_prose_document,
     build_record_document,
     read_within_limit,
@@ -36,7 +36,7 @@ class CsvLoader(RecordLoader):
         opts: ReadOptions,
         *,
         start_at: int = 0,
-    ) -> Iterator:
+    ) -> Iterator[Document]:
         """Yield one record Document per row.
 
         Args:
@@ -107,7 +107,7 @@ class JsonlLoader(RecordLoader):
         opts: ReadOptions,
         *,
         start_at: int = 0,
-    ) -> Iterator:
+    ) -> Iterator[Document]:
         """Yield one record Document per JSON object.
 
         Args:
@@ -149,7 +149,7 @@ class JsonlLoader(RecordLoader):
                 record = json.loads(line)
             except json.JSONDecodeError as exc:
                 raise MalformedRecordError(
-                    f"Failed to parse line {line_no} of {source.uri}: {exc}"
+                    f"Failed to parse line {line_no + 1} of {source.uri}: {exc}"
                 ) from exc
             yield self._document(
                 source, decoded, opts, record_index, record, source_hash
@@ -209,7 +209,7 @@ class JsonLoader(RecordLoader):
         opts: ReadOptions,
         *,
         start_at: int = 0,
-    ) -> Iterator:
+    ) -> Iterator[Document]:
         """Yield documents from a JSON source.
 
         A top-level array becomes one record Document per element, unless ``json_mode``

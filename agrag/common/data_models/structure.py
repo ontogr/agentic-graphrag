@@ -17,15 +17,27 @@ SOURCE_LABEL = "Source"
 HAS_CHILD = "HAS_CHILD"
 HAS_DOCUMENT = "HAS_DOCUMENT"
 
-_PATH_SEPARATOR = "\x1f"
 
-
-def _uuid(*parts: object) -> UUID:
+def _uuid(*parts: str | int | UUID) -> UUID:
     return uuid5(NAMESPACE_OID, json.dumps([str(part) for part in parts]))
+
+
+def version_id_for_hash(*, content_hash: str) -> str:
+    """Return the id of one document version from its content hash.
+
+    Args:
+        content_hash: The document's content hash.
+
+    Returns:
+        The version id, which changes when the content hash changes.
+    """
+    return str(Document.id_for(content_hash=content_hash))
 
 
 def version_id(document: Document) -> str:
     """Return the id of one version of a document, as ``PART_OF`` edges use it.
+
+    Thin wrapper over ``version_id_for_hash``.
 
     Args:
         document: The document.
@@ -33,7 +45,7 @@ def version_id(document: Document) -> str:
     Returns:
         The id, which changes when the content hash changes.
     """
-    return str(Document.id_for(content_hash=document.content_hash))
+    return version_id_for_hash(content_hash=document.content_hash)
 
 
 def ancestors(sections: list[DocumentSection], index: int) -> list[int]:
@@ -45,17 +57,61 @@ def ancestors(sections: list[DocumentSection], index: int) -> list[int]:
 
     Returns:
         The indexes from the outermost ancestor down to the section itself.
+
+    Raises:
+        ValueError: The index is outside ``sections``, or the parent links
+            form a cycle or leave ``sections``.
     """
+    if not 0 <= index < len(sections):
+        raise ValueError(f"section index {index} is outside 0..{len(sections)}")
     found: list[int] = []
+    seen: set[int] = set()
     current: int | None = index
     while current is not None:
+        if current in seen:
+            raise ValueError(f"section {current} links back to itself")
+        seen.add(current)
+        if not 0 <= current < len(sections):
+            raise ValueError(f"section index {current} is outside 0..{len(sections)}")
         found.append(current)
         current = sections[current].parent
     return found[::-1]
 
 
+def section_keys_for(sections: list[DocumentSection], document_key: str) -> list[UUID]:
+    """Return one stable key for each section.
+
+    A key stays the same across versions while the heading path of the
+    section and its place among sections with the same path stay the same.
+
+    Args:
+        sections: The sections of a document, in reading order.
+        document_key: The stable key of the document.
+
+    Returns:
+        The keys, in the order of ``sections``.
+    """
+    seen: dict[tuple[str, ...], int] = {}
+    keys: list[UUID] = []
+    for index in range(len(sections)):
+        path = tuple(sections[i].heading for i in ancestors(sections, index))
+        ordinal = seen.get(path, 0)
+        seen[path] = ordinal + 1
+        keys.append(
+            _uuid(
+                "Section",
+                document_key,
+                json.dumps(list(path)),
+                ordinal,
+            )
+        )
+    return keys
+
+
 def section_keys(document: Document) -> list[UUID]:
     """Return one stable key for each section.
+
+    Thin wrapper over ``section_keys_for``.
 
     A key stays the same across versions while the heading path of the section and
     its place among sections with the same path stay the same.
@@ -66,23 +122,7 @@ def section_keys(document: Document) -> list[UUID]:
     Returns:
         The keys, in the order of ``document.sections``.
     """
-    seen: dict[tuple[str, ...], int] = {}
-    keys: list[UUID] = []
-    for index in range(len(document.sections)):
-        path = tuple(
-            document.sections[i].heading for i in ancestors(document.sections, index)
-        )
-        ordinal = seen.get(path, 0)
-        seen[path] = ordinal + 1
-        keys.append(
-            _uuid(
-                "Section",
-                document.resolved_document_key,
-                _PATH_SEPARATOR.join(path),
-                ordinal,
-            )
-        )
-    return keys
+    return section_keys_for(document.sections, document.resolved_document_key)
 
 
 def unit_keys(document: Document, keys: list[UUID]) -> dict[tuple[int, int], UUID]:
@@ -131,11 +171,13 @@ def source_node_id(uri: str) -> UUID:
     return _uuid("Source", uri)
 
 
-def reading_positions(document: Document) -> tuple[list[int], list[list[int]]]:
-    """Number every heading and unit of a document in reading order.
+def reading_positions_for(
+    sections: list[DocumentSection],
+) -> tuple[list[int], list[list[int]]]:
+    """Number every heading and unit of a section list in reading order.
 
     Args:
-        document: The document.
+        sections: The sections of a document, in reading order.
 
     Returns:
         The position of each section heading, and the position of each unit.
@@ -143,12 +185,26 @@ def reading_positions(document: Document) -> tuple[list[int], list[list[int]]]:
     position = 0
     heading_positions: list[int] = []
     unit_positions: list[list[int]] = []
-    for section in document.sections:
+    for section in sections:
         heading_positions.append(position)
         position += 1
         unit_positions.append(list(range(position, position + len(section.units))))
         position += len(section.units)
     return heading_positions, unit_positions
+
+
+def reading_positions(document: Document) -> tuple[list[int], list[list[int]]]:
+    """Number every heading and unit of a document in reading order.
+
+    Thin wrapper over ``reading_positions_for``.
+
+    Args:
+        document: The document.
+
+    Returns:
+        The position of each section heading, and the position of each unit.
+    """
+    return reading_positions_for(document.sections)
 
 
 def heading_paths(sections: list[DocumentSection]) -> list[list[str]]:
@@ -165,10 +221,16 @@ def common_ancestor(sections: list[DocumentSection], indexes: list[int]) -> int 
     Args:
         sections: The sections of a document.
         indexes: The indexes of the sections to contain. A section contains itself.
+            Must not be empty.
 
     Returns:
         The index of the section, or ``None`` when only the document contains them.
+
+    Raises:
+        ValueError: ``indexes`` is empty, or an index is outside ``sections``.
     """
+    if not indexes:
+        raise ValueError("indexes must hold at least one section")
     common: int | None = None
     for level in zip(*(ancestors(sections, i) for i in indexes), strict=False):
         if len(set(level)) != 1:

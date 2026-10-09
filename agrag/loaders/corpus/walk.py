@@ -7,6 +7,7 @@ Documents. It never exports a public concept.
 import hashlib
 import unicodedata
 from collections.abc import AsyncIterator
+from dataclasses import replace
 from pathlib import Path
 from typing import BinaryIO
 
@@ -17,7 +18,7 @@ from agrag.common.data_models.normalization import Normalization
 from agrag.common.data_models.stage_failure import StageFailure
 from agrag.loaders.corpus.base import Loader
 from agrag.loaders.corpus.errors import IngestionError, UnsupportedFormatError
-from agrag.loaders.corpus.readers._common import text_sections
+from agrag.loaders.corpus.readers.common import build_prose_document, text_sections
 from agrag.loaders.corpus.registry import LoaderRegistry
 from agrag.loaders.corpus.types import (
     ErrorPolicy,
@@ -330,19 +331,21 @@ class _InMemoryWalk:
             One tuple with the single Document, its cursor, and stats.
         """
         content_hash = hashlib.sha256(self._text.encode("utf-8")).hexdigest()
-        document = Document(
-            text=self._text if self._opts.store_text else "",
-            title="inline",
+        source = SourceRef(
             uri=f"inline://{content_hash[:16]}",
-            source_format=SourceFormat.TXT,
-            family=DocumentFamily.PROSE,
-            content_hash=content_hash,
-            loader_name="inline",
+            extension=".txt",
+            byte_size=len(self._text.encode("utf-8")),
+        )
+        document = build_prose_document(
+            source=source,
+            text=self._text,
             encoding="utf-8",
-            char_count=len(self._text),
-            line_count=self._text.count("\n") + 1,
-            normalization=self._normalization,
+            source_format=SourceFormat.TXT,
+            loader_name="inline",
+            opts=replace(self._opts, normalization=self._normalization),
+            title="inline",
             sections=text_sections(self._text) if self._opts.store_text else [],
+            content_hash=content_hash,
         )
         stats = LoadStats(
             documents=1, sources=1, bytes_read=len(self._text.encode("utf-8"))

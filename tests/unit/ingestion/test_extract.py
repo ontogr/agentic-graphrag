@@ -171,6 +171,7 @@ def _chunk(
 ) -> Chunk:
     """Build a minimal Chunk for extraction tests."""
     return Chunk(
+        id=uuid4(),
         document_id=_DOC_ID,
         text=text,
         provenance=TextProvenance(char_start=0, char_end=len(text)),
@@ -1855,6 +1856,7 @@ class TestHeadingContext:
     def _chunk(self, path: list[str]) -> Chunk:
         text = "Ada Lovelace worked here."
         return Chunk(
+            id=uuid4(),
             document_id=_DOC_ID,
             text=text,
             provenance=TextProvenance(char_start=0, char_end=len(text)),

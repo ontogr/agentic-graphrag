@@ -109,7 +109,6 @@ asyncio.run(main())
 ```python
 from agrag.chunking import Chunker
 from agrag.common.data_models.document import Document, DocumentFamily, SourceFormat
-from agrag.loaders.corpus.readers._common import text_sections
 
 text = "First paragraph.\n\nSecond paragraph.\n\n" * 20
 document = Document(
@@ -121,11 +120,10 @@ document = Document(
     content_hash="sample",
     loader_name="text",
     char_count=len(text),
-    sections=text_sections(text),
 )
 
 for size in (50, 200):
-    chunks = Chunker(size=size).chunk(document)
+    chunks = Chunker(size=size).chunk(document).chunks
     print(size, len(chunks))
 ```
 

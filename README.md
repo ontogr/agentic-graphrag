@@ -110,7 +110,7 @@ Ingestion turns a source into a document, then into chunks, mentions, a matched 
 `Graph.add()` is the single entry point for adding content. The pipeline has six stages:
 
 1. Load: Select a loader by format. Decode or parse the source. Preserve source metadata. Apply `RAISE`, `SKIP`, or `QUARANTINE` as the error policy for each source.
-2. Chunk: Pack the sections of every document into chunks of up to 600 tokens with one section-aware chunker. A table becomes its own chunks, and a small chunk carries on into the next section.
+2. Chunk: Pack the sections of every document into chunks with one section-aware chunker, using 600 tokens as the packing budget. Tokenizer context around the joined units can add a few tokens past it. A table becomes its own chunks, and a small chunk carries on into the next section.
 3. Extract: Run GLiNER locally against the active schema. Escalate weak results to a typed BAML extraction function when configured. Validation drops entities and triples that do not conform to the schema.
 4. Resolve: Apply exact, fuzzy, embedding, and LLM-verified comparison tiers. Ambiguous or failed comparisons do not match.
 5. Merge: Combine the mentions of exact matches into one entity. Decide each property value and join the chunk ids that mention it. Fuzzy, embedding, and LLM matches are stored as `MATCHES` edges, not merged.

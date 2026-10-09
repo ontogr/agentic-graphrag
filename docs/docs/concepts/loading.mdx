@@ -60,7 +60,7 @@ Docling reads Markdown, HTML, AsciiDoc, Word, PowerPoint and Excel files without
 
 ### Sections
 
-A section is a heading and the content under it. A PDF gets its heading depth from its bookmarks. A PDF without bookmarks gets it from numbered headings, such as "3.2 Results". Other PDF headings stay at depth 1. A document with no headings has one section with an empty heading. A record row has no sections. A file in Markdown, HTML or Word has no page numbers, so its chunks have no page spans.
+A section is a heading and the content under it. A PDF gets its heading depth from its bookmarks. A PDF without bookmarks gets it from numbered headings, such as "3.2 Results", but only when it has at least three headings and at least half are numbered; otherwise its headings stay at depth 1. A document with no headings has one section with an empty heading. A record row has no sections. A file in Markdown, HTML or Word has no page numbers, so its chunks have no page spans.
 
 ## Example
 
@@ -73,7 +73,7 @@ Why does a document hash depend on the loader? A text loader hashes the decoded 
 
 Why do offsets point into the normalized text? Every chunk offset counts characters in the text after normalization. If you need offsets in the raw source, choose no normalization.
 
-Why does each format have its own winner? Docling reads AsciiDoc structure better than the core reader, which scans for headings only. So docling wins for AsciiDoc. For Markdown, HTML and CSV the core loader wins. A blanket rule such as "installed extras win" chooses the wrong loader for some formats.
+Why does each format have its own winner? Docling reads AsciiDoc structure better than the core reader, which scans for headings only. So docling wins for AsciiDoc, Markdown and HTML. For CSV the core loader wins: it is the only claimant, and a CSV row needs its own identity. A blanket rule such as "installed extras win" chooses the wrong loader for some formats.
 
 Why is docling an extra? Optional formats ship behind extras. A text-only install stays small.
 

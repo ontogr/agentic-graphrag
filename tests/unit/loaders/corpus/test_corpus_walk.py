@@ -27,10 +27,10 @@ from agrag.common.data_models.document import Document, DocumentFamily, SourceFo
 from agrag.common.data_models.normalization import Normalization
 from agrag.common.data_models.stage_failure import StageFailure
 from agrag.loaders.corpus import registry
-from agrag.loaders.corpus._walk import _CorpusWalk, _InMemoryWalk
 from agrag.loaders.corpus.base import Loader
 from agrag.loaders.corpus.errors import DecodeError, MalformedRecordError
 from agrag.loaders.corpus.types import ErrorPolicy, LoaderCursor, ReadOptions, SourceRef
+from agrag.loaders.corpus.walk import _CorpusWalk, _InMemoryWalk
 
 
 _FIXTURES = Path(__file__).parent / "fixtures"

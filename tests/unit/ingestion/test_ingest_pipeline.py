@@ -56,6 +56,7 @@ def _doc(*, key: str, text: str = "hello world") -> Document:
 
 def _chunk(document: Document, *, index: int = 0, text: str = "hello world") -> Chunk:
     return Chunk(
+        id=uuid4(),
         document_id=Document.node_id_for(document_key=document.resolved_document_key),
         index=index,
         text=text,
@@ -433,6 +434,7 @@ class TestHeadingContextEmbedding:
 
     def _chunk(self, path: list[str]) -> Chunk:
         return Chunk(
+            id=uuid4(),
             document_id=Document.node_id_for(document_key="h"),
             text="body text",
             provenance=TextProvenance(char_start=0, char_end=9),

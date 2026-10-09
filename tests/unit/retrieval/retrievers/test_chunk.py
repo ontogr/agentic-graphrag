@@ -140,6 +140,123 @@ class TestChunkRetriever:
         assert chunk.chunker is None
         assert chunk.chunker_hash is None
 
+    async def test_legacy_table_row_kind_loads_as_table(self) -> None:
+        """A stored table_row node loads as a table chunk, not skipped."""
+        ch_id, doc_id = uuid4(), uuid4()
+        gs = AsyncMock()
+        gs.execute_read.return_value = [
+            _node(
+                ch_id,
+                doc_id,
+                "h1 | h2\nv1 | v2",
+                content_kind="table_row",
+                provenance={
+                    "kind": "page",
+                    "page_spans": [
+                        {
+                            "page_no": 1,
+                            "bbox": {"x0": 0.0, "y0": 0.0, "x1": 1.0, "y1": 1.0},
+                        }
+                    ],
+                },
+            )
+        ]
+
+        with patch(
+            "agrag.retrieval.retrievers.chunk.vector_search",
+            new_callable=AsyncMock,
+        ) as mock_vs:
+            mock_vs.return_value = [VectorHit(id=ch_id, score=0.5, payload={})]
+            results = await ChunkRetriever(
+                graph_store=gs, embedder=MockEmbedder()
+            ).retrieve("test")
+
+        assert len(results) == 1
+        chunk = results[0].item
+        assert isinstance(chunk, Chunk)
+        assert chunk.content_kind == "table"
+
+    @pytest.mark.parametrize("legacy_kind", ["code", "heading"])
+    async def test_legacy_text_kinds_load_as_text(self, legacy_kind: str) -> None:
+        """Stored code and heading nodes load as text, not skipped."""
+        ch_id, doc_id = uuid4(), uuid4()
+        gs = AsyncMock()
+        gs.execute_read.return_value = [
+            _node(ch_id, doc_id, "legacy", content_kind=legacy_kind)
+        ]
+
+        with patch(
+            "agrag.retrieval.retrievers.chunk.vector_search",
+            new_callable=AsyncMock,
+        ) as mock_vs:
+            mock_vs.return_value = [VectorHit(id=ch_id, score=0.5, payload={})]
+            results = await ChunkRetriever(
+                graph_store=gs, embedder=MockEmbedder()
+            ).retrieve("test")
+
+        assert len(results) == 1
+        chunk = results[0].item
+        assert isinstance(chunk, Chunk)
+        assert chunk.content_kind == "text"
+
+    async def test_section_ids_survive_loading(self) -> None:
+        """Section ids and chunker fields on the node reach the Chunk."""
+        ch_id, doc_id = uuid4(), uuid4()
+        first, second = uuid4(), uuid4()
+        gs = AsyncMock()
+        gs.execute_read.return_value = [
+            _node(
+                ch_id,
+                doc_id,
+                "section text",
+                chunker="section",
+                chunker_hash="0123456789abcdef",
+                section_ids=[first, second],
+            )
+        ]
+
+        with patch(
+            "agrag.retrieval.retrievers.chunk.vector_search",
+            new_callable=AsyncMock,
+        ) as mock_vs:
+            mock_vs.return_value = [VectorHit(id=ch_id, score=0.5, payload={})]
+            results = await ChunkRetriever(
+                graph_store=gs, embedder=MockEmbedder()
+            ).retrieve("test")
+
+        assert len(results) == 1
+        chunk = results[0].item
+        assert isinstance(chunk, Chunk)
+        assert chunk.section_ids == [first, second]
+        assert chunk.chunker == "section"
+        assert chunk.chunker_hash == "0123456789abcdef"
+
+    async def test_bad_section_id_is_skipped_while_chunk_is_kept(self) -> None:
+        """One unparsable section id does not drop the chunk."""
+        ch_id, doc_id = uuid4(), uuid4()
+        good = uuid4()
+        gs = AsyncMock()
+        row = _node(ch_id, doc_id, "kept", section_ids=[good])
+        props = row["n"]["properties"]
+        assert isinstance(props["section_ids"], list)
+        props["section_ids"].append("not-a-uuid")
+
+        gs.execute_read.return_value = [row]
+
+        with patch(
+            "agrag.retrieval.retrievers.chunk.vector_search",
+            new_callable=AsyncMock,
+        ) as mock_vs:
+            mock_vs.return_value = [VectorHit(id=ch_id, score=0.5, payload={})]
+            results = await ChunkRetriever(
+                graph_store=gs, embedder=MockEmbedder()
+            ).retrieve("test")
+
+        assert len(results) == 1
+        chunk = results[0].item
+        assert isinstance(chunk, Chunk)
+        assert chunk.section_ids == [good]
+
     async def test_skips_missing_chunks(self) -> None:
         """Chunks not found in the store are skipped."""
         gs = AsyncMock()
@@ -254,8 +371,11 @@ class _ChunkProperties(TypedDict):
     document_id: str
     text: str
     provenance: str
-    level: NotRequired[int]
-    parent_id: NotRequired[str]
+    content_kind: NotRequired[str]
+    heading_path: NotRequired[list[str]]
+    chunker: NotRequired[str]
+    chunker_hash: NotRequired[str]
+    section_ids: NotRequired[list[str]]
 
 
 class _ChunkNode(TypedDict):
@@ -276,19 +396,30 @@ def _node(
     document_id: UUID,
     text: str,
     *,
-    level: int = 0,
-    parent_id: UUID | None = None,
+    content_kind: str = "text",
+    heading_path: list[str] | None = None,
+    chunker: str | None = None,
+    chunker_hash: str | None = None,
+    section_ids: list[UUID] | None = None,
+    provenance: dict[str, object] | None = None,
 ) -> _ChunkRow:
     """Build a typed chunk loading row."""
     properties: _ChunkProperties = {
         "document_id": str(document_id),
         "text": text,
         "provenance": json.dumps(
-            {"kind": "text", "char_start": 0, "char_end": len(text)}
+            provenance
+            if provenance is not None
+            else {"kind": "text", "char_start": 0, "char_end": len(text)}
         ),
+        "content_kind": content_kind,
     }
-    if level:
-        properties["level"] = level
-    if parent_id is not None:
-        properties["parent_id"] = str(parent_id)
+    if heading_path is not None:
+        properties["heading_path"] = heading_path
+    if chunker is not None:
+        properties["chunker"] = chunker
+    if chunker_hash is not None:
+        properties["chunker_hash"] = chunker_hash
+    if section_ids is not None:
+        properties["section_ids"] = [str(i) for i in section_ids]
     return {"n": {"id": str(chunk_id), "properties": properties}}

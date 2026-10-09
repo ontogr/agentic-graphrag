@@ -1,6 +1,5 @@
 """The extension-to-loader registry."""
 
-import importlib.util
 from dataclasses import dataclass
 
 from agrag.loaders.corpus.base import Loader
@@ -14,12 +13,6 @@ class _Entry:
 
     loader: Loader
     prefer: bool
-
-
-def _installed(loader: Loader) -> bool:
-    """Return whether the package extra that the loader needs is installed."""
-    module = loader.extra_module or loader.extra
-    return module is None or importlib.util.find_spec(module) is not None
 
 
 class LoaderRegistry:
@@ -44,7 +37,7 @@ class LoaderRegistry:
         loader: Loader,
         *,
         prefer: bool = False,
-        extensions: "set[str] | frozenset[str] | None" = None,
+        extensions: set[str] | frozenset[str] | None = None,
     ) -> None:
         """Add a loader to the registry.
 
@@ -95,13 +88,13 @@ class LoaderRegistry:
         chosen = preferred[-1].loader if preferred else entries[0].loader
 
         extra = chosen.extra
-        if extra is None or _installed(chosen):
+        if chosen.is_available():
             return chosen
 
         for entry in entries:
             if entry.prefer or entry.loader is chosen:
                 continue
-            if _installed(entry.loader):
+            if entry.loader.is_available():
                 return entry.loader
 
         raise MissingExtraError(source.extension, extra)

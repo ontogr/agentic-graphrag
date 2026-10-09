@@ -1,5 +1,6 @@
 """Tests for the sections that the docling loader builds from real small files."""
 
+import hashlib
 import io
 from pathlib import Path
 
@@ -33,13 +34,32 @@ class TestMarkdown:
         """A heading sits under the nearest shallower heading."""
         document = _load("structured.md")
 
+        assert _outline(document) == [
+            (1, ""),
+            (0, "Platform Guide"),
+            (1, "Setup"),
+            (2, "Requirements"),
+            (3, "Python"),
+            (3, "Node"),
+            (2, "Install"),
+            (1, "Usage"),
+            (1, "Setext Heading"),
+            (1, "Appendix"),
+        ]
+        assert [s.parent for s in document.sections] == [
+            None,
+            None,
+            1,
+            2,
+            3,
+            3,
+            2,
+            1,
+            1,
+            1,
+        ]
         assert document.source_format.value == "markdown"
         assert document.loader_name == "docling"
-        by_heading = {s.heading: s for s in document.sections}
-        for section in document.sections:
-            if section.parent is not None:
-                assert document.sections[section.parent].depth < section.depth
-        assert any(s.depth >= 2 for s in by_heading.values())
 
     def test_the_markdown_suffix_is_read_as_markdown(self) -> None:
         """Docling does not know .markdown, so the loader passes it as .md."""
@@ -50,8 +70,6 @@ class TestMarkdown:
 
     def test_content_hash_comes_from_the_raw_bytes(self) -> None:
         """The parsed output can change between versions, so it is not hashed."""
-        import hashlib  # noqa: PLC0415
-
         raw = (FIXTURES / "structured.md").read_bytes()
 
         assert _load("structured.md").content_hash == hashlib.sha256(raw).hexdigest()

@@ -35,8 +35,9 @@ from agrag.graphdb import build_graph_store
 from agrag.graphdb.base import GraphStore
 from agrag.ingestion.extract import Extractor
 from agrag.ingestion.graph import Graph
+from agrag.ingestion.reports import AddResult
 from tests.integration._schema_cleanup import drop_schema_for
-from tests.integration.e2e._artifact import write_artifact
+from tests.integration.e2e._artifact import artifact_dir, write_artifact
 
 
 _MARKDOWN = (
@@ -149,18 +150,20 @@ async def _outline(env: _Env, name: str) -> list[tuple[str, str]]:
     return [(row["heading"], row["parent"]) for row in rows]
 
 
-async def test_structure_is_written_and_versioned(env: _Env) -> None:  # noqa: PLR0915
-    """The tree, the table, the rows and an edit all appear in the graph."""
-    corpus = env.root
-    (corpus / "guide.md").write_text(_MARKDOWN)
-    (corpus / "notes.txt").write_text("First note.\n\nSecond note.\n")
-    (corpus / "rows.csv").write_text("id,text\n1,alpha row\n2,beta row\n")
+async def _seed(env: _Env) -> AddResult:
+    """Write the three corpus files and add them to the graph."""
+    (env.root / "guide.md").write_text(_MARKDOWN)
+    (env.root / "notes.txt").write_text("First note.\n\nSecond note.\n")
+    (env.root / "rows.csv").write_text("id,text\n1,alpha row\n2,beta row\n")
 
-    result = await env.graph.add(corpus, return_chunks=True)
+    return await env.graph.add(env.root, return_chunks=True)
 
-    assert result.chunking.tables == 1
-    guide = await _outline(env, "guide.md")
-    assert guide == [
+
+async def test_outline(env: _Env) -> None:
+    """Sections nest under their container and every node has one parent."""
+    await _seed(env)
+
+    assert await _outline(env, "guide.md") == [
         ("Harbor Guide", "(document)"),
         ("Tides", "Harbor Guide"),
         ("Moorings", "Harbor Guide"),
@@ -170,7 +173,7 @@ async def test_structure_is_written_and_versioned(env: _Env) -> None:  # noqa: P
     parents = await _rows(
         env,
         "MATCH (n) WHERE (n:Section OR n:Table OR n:Chunk) AND "
-        "(n.document_id = n.document_id) "
+        "n.document_id IS NOT NULL "
         "OPTIONAL MATCH (p)-[r:HAS_CHILD]->(n) "
         "WITH n, count(r) AS parents "
         "MATCH (d:Document)-[:PART_OF]->(n) WHERE d.uri STARTS WITH $prefix "
@@ -179,22 +182,6 @@ async def test_structure_is_written_and_versioned(env: _Env) -> None:  # noqa: P
     assert parents
     assert {row["parents"] for row in parents} == {1}
 
-    table_chunks = await _rows(
-        env,
-        "MATCH (d:Document)-[:PART_OF]->(t:Table)-[:HAS_CHILD]->(c:Chunk) "
-        "WHERE d.uri STARTS WITH $prefix "
-        "RETURN t.n_rows AS rows, c.content_kind AS kind",
-    )
-    assert [(row["rows"], row["kind"]) for row in table_chunks] == [(3, "table")]
-
-    sources = await _rows(
-        env,
-        "MATCH (s:Source)-[:HAS_DOCUMENT]->(d:Document)-[:HAS_CHILD]->(c:Chunk) "
-        "WHERE s.uri STARTS WITH $prefix "
-        "RETURN s.uri AS uri, count(DISTINCT d) AS rows, count(c) AS chunks",
-    )
-    assert [(row["rows"], row["chunks"]) for row in sources] == [(2, 2)]
-
     relations = await env.store.execute_read(
         fetch_all_relations_query(), {"skip": 0, "limit": 1000}
     )
@@ -202,6 +189,40 @@ async def test_structure_is_written_and_versioned(env: _Env) -> None:  # noqa: P
         {"HAS_CHILD", "HAS_DOCUMENT", "PART_OF"}
     )
 
+
+async def test_table_chunks(env: _Env) -> None:
+    """A table node holds the table chunks with the table content kind."""
+    result = await _seed(env)
+
+    assert result.chunking.tables == 1
+    table_chunks = await _rows(
+        env,
+        "MATCH (d:Document)-[:PART_OF]->(t:Table)-[:HAS_CHILD]->(c:Chunk) "
+        "WHERE d.uri STARTS WITH $prefix "
+        "RETURN t.n_rows AS rows, c.content_kind AS kind",
+    )
+
+    assert [(row["rows"], row["kind"]) for row in table_chunks] == [(3, "table")]
+
+
+async def test_csv_sources(env: _Env) -> None:
+    """Each CSV row is a document with one chunk under one source."""
+    await _seed(env)
+
+    sources = await _rows(
+        env,
+        "MATCH (s:Source)-[:HAS_DOCUMENT]->(d:Document)-[:HAS_CHILD]->(c:Chunk) "
+        "WHERE s.uri STARTS WITH $prefix "
+        "RETURN s.uri AS uri, count(DISTINCT d) AS rows, count(c) AS chunks",
+    )
+
+    assert [(row["rows"], row["chunks"]) for row in sources] == [(2, 2)]
+
+
+async def test_edit_versions_sections(env: _Env) -> None:
+    """An edit closes the old sections and keeps each section key."""
+    await _seed(env)
+    guide = await _outline(env, "guide.md")
     keys_before = await _rows(
         env,
         "MATCH (d:Document)-[:PART_OF]->(s:Section) "
@@ -209,9 +230,9 @@ async def test_structure_is_written_and_versioned(env: _Env) -> None:  # noqa: P
         "RETURN s.section_key AS key, s.id AS id",
     )
 
-    (corpus / "guide.md").write_text(_EDITED)
+    (env.root / "guide.md").write_text(_EDITED)
     update = await env.graph.update(
-        str(corpus / "guide.md"), source=corpus / "guide.md"
+        str(env.root / "guide.md"), source=env.root / "guide.md"
     )
 
     assert update.no_op is False
@@ -238,16 +259,13 @@ async def test_structure_is_written_and_versioned(env: _Env) -> None:  # noqa: P
     )
     assert closed[0]["closed"] == 3
 
-    outcome = write_artifact(
+    write_artifact(
         "sections",
         {
             "guide_outline": guide,
             "guide_outline_after_edit": edited,
-            "table_chunks": [(row["rows"], row["kind"]) for row in table_chunks],
-            "csv_source": [(row["rows"], row["chunks"]) for row in sources],
             "closed_sections_after_edit": closed[0]["closed"],
             "document_label": DOCUMENT_LABEL,
         },
     )
-    assert outcome["closed_sections_after_edit"] == 3
-    assert outcome["table_chunks"] == [[3, "table"]]
+    assert (artifact_dir() / "sections.json").exists()

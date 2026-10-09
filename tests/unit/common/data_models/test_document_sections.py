@@ -10,6 +10,7 @@ from agrag.common.data_models.document import (
     Unit,
     UnitKind,
 )
+from agrag.common.data_models.provenance import BoundingBox, PageSpan
 
 
 def _document(text: str, sections: list[DocumentSection]) -> Document:
@@ -80,3 +81,100 @@ class TestUnitChecks:
         """Rejects a backward span."""
         with pytest.raises(ValueError, match="char_start <= char_end"):
             Unit(kind=UnitKind.PARAGRAPH, text="a", char_start=3, char_end=1)
+
+    def test_names_section_and_unit_in_a_text_mismatch(self) -> None:
+        """A text mismatch names its section and unit."""
+        unit = Unit(kind=UnitKind.PARAGRAPH, text="xyz", char_start=0, char_end=3)
+        sections = [DocumentSection(heading="", depth=0, units=[unit])]
+
+        with pytest.raises(ValueError, match=r"section 0 unit 0"):
+            _document("abc", sections)
+
+    def test_accepts_a_unit_with_no_provenance_channel(self) -> None:
+        """A unit with neither offsets nor pages locates by section path."""
+        sections = [
+            DocumentSection(
+                heading="", depth=0, units=[Unit(kind=UnitKind.PARAGRAPH, text="a")]
+            )
+        ]
+
+        assert _document("a", sections).sections[0].units[0].text == "a"
+
+    def test_rejects_a_page_number_below_one(self) -> None:
+        """A page number below one raises."""
+        box = BoundingBox(x0=0, y0=0, x1=1, y1=1)
+        unit = Unit(
+            kind=UnitKind.PARAGRAPH,
+            text="a",
+            pages=[PageSpan(page_no=0, bbox=box)],
+        )
+        sections = [DocumentSection(heading="", depth=0, units=[unit])]
+
+        with pytest.raises(ValueError, match=r"section 0 unit 0"):
+            _document("a", sections)
+
+    def test_rejects_pages_out_of_order(self) -> None:
+        """Pages out of order raise."""
+        box = BoundingBox(x0=0, y0=0, x1=1, y1=1)
+        unit = Unit(
+            kind=UnitKind.PARAGRAPH,
+            text="a",
+            pages=[PageSpan(page_no=2, bbox=box), PageSpan(page_no=1, bbox=box)],
+        )
+        sections = [DocumentSection(heading="", depth=0, units=[unit])]
+
+        with pytest.raises(ValueError, match="out of order"):
+            _document("a", sections)
+
+    def test_rejects_a_box_with_start_past_end(self) -> None:
+        """A box with start past end raises."""
+        box = BoundingBox(x0=2, y0=0, x1=1, y1=1)
+        unit = Unit(
+            kind=UnitKind.PARAGRAPH,
+            text="a",
+            pages=[PageSpan(page_no=1, bbox=box)],
+        )
+        sections = [DocumentSection(heading="", depth=0, units=[unit])]
+
+        with pytest.raises(ValueError, match="bbox"):
+            _document("a", sections)
+
+
+class TestUnitTableText:
+    """A table or figure carries its caption as its text."""
+
+    def test_header_is_empty_when_no_header_rows_are_marked(self) -> None:
+        """No marked header rows give no header."""
+        unit = Unit(
+            kind=UnitKind.TABLE,
+            text="",
+            rows=[["h1", "h2"], ["x", "y"]],
+            header_rows=0,
+        )
+
+        assert unit.header == []
+
+    def test_header_merges_marked_rows(self) -> None:
+        """Marked header rows merge into one name for each column."""
+        unit = Unit(
+            kind=UnitKind.TABLE,
+            text="",
+            rows=[["Total", "Total"], ["a", "b"]],
+            header_rows=1,
+        )
+
+        assert unit.header == ["Total", "Total"]
+
+    @pytest.mark.parametrize("kind", [UnitKind.TABLE, UnitKind.FIGURE])
+    def test_rejects_text_that_differs_from_the_caption(self, kind: UnitKind) -> None:
+        """Text that differs from the caption raises."""
+        with pytest.raises(ValueError, match="must equal its caption"):
+            Unit(kind=kind, text="body", caption="cap")
+
+    @pytest.mark.parametrize("kind", [UnitKind.TABLE, UnitKind.FIGURE])
+    def test_accepts_caption_text_and_empty_text_without_a_caption(
+        self, kind: UnitKind
+    ) -> None:
+        """Caption text and empty text without a caption both pass."""
+        assert Unit(kind=kind, text="cap", caption="cap").text == "cap"
+        assert Unit(kind=kind, text="").text == ""

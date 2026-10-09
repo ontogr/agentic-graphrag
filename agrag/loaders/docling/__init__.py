@@ -9,7 +9,7 @@ from agrag.loaders.corpus import registry
 from agrag.loaders.docling.loader import DoclingLoader, DoclingPdfLoader
 
 
-registry.register(DoclingLoader(), prefer=True)
-registry.register(DoclingPdfLoader(), prefer=True)
+registry.register(DoclingLoader())
+registry.register(DoclingPdfLoader())
 
 __all__ = ["DoclingLoader", "DoclingPdfLoader"]

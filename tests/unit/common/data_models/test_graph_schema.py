@@ -128,6 +128,8 @@ class TestEntityTypeReservedLabels:
             COMMUNITY_LABEL,
             RESOLVED_ENTITY_LABEL,
             CUTOVER_JOB_LABEL,
+            "_AgragNode",
+            "_AgragMergeAlias",
         }
 
         assert used == RESERVED_ENTITY_LABELS

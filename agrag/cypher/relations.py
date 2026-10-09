@@ -7,6 +7,7 @@ identifier-validation contract shared by every Cypher builder.
 from collections.abc import Sequence
 from typing import Any, Literal
 
+from agrag.common.data_models.structure import HAS_CHILD, HAS_DOCUMENT
 from agrag.cypher._pending_filter import (
     pending_filter_clause,
     pending_path_filter_clause,
@@ -20,8 +21,13 @@ TraversalDirection = Literal["outgoing", "incoming", "both"]
 # Relationship types that join entities to the document and community structure.
 # The entity graph that communities and neighbor search read leaves them out.
 _NON_ENTITY_RELATIONS = (
-    "['MENTIONED_IN', 'MEMBER_OF', 'PART_OF', 'HAS_CHILD', 'HAS_DOCUMENT']"
+    f"['MENTIONED_IN', 'MEMBER_OF', 'PART_OF', '{HAS_CHILD}', '{HAS_DOCUMENT}']"
 )
+
+# Structure types a BFS traversal skips unless the caller opts in by naming
+# them in ``relation_types``. Document hubs fan out to every chunk and section
+# they own, so crossing these by default drowns entity neighbors in structure.
+_DEFAULT_TRAVERSAL_EXCLUSIONS = f"['PART_OF', '{HAS_CHILD}', '{HAS_DOCUMENT}']"
 
 _DIRECTION_ARROW: dict[TraversalDirection, tuple[str, str]] = {
     "outgoing": ("-", "->"),
@@ -75,6 +81,9 @@ def bfs_expand_query(
     ``relation_types`` restricts which relationships a traversal may
     cross. Neo4j does not accept a parameter for relationship types
     either, so each type is validated and formatted into the pattern.
+    None or empty crosses every type except the structure types
+    (``PART_OF``, ``HAS_CHILD``, ``HAS_DOCUMENT``); pass those explicitly
+    to opt in to crossing them.
 
     ``direction`` picks which way each hop walks: relationships leaving
     the seed (``"outgoing"``), entering it (``"incoming"``), or either
@@ -99,7 +108,8 @@ def bfs_expand_query(
         filters: Optional flat-dict filter applied to neighbor nodes.
             A scalar value means exact match, a list means any of.
         relation_types: Optional relationship types the traversal may
-            cross. None or empty crosses every type.
+            cross. None or empty crosses every type except the structure
+            types, which must be named explicitly to cross.
         direction: Which way a hop walks each relationship. Defaults
             to ``"both"``.
         document_ids: Optional document ids that must mention each result
@@ -131,13 +141,15 @@ def bfs_expand_query(
 
     where_clause, filter_params = filter_clause(filters or {}, node_var="neighbor")
     filter_suffix = f" AND {where_clause[6:]}" if where_clause else ""
+    path_guard = pending_filter_clause("r", "job_id")
+    if not relation_types:
+        path_guard += f" AND NOT type(r) IN {_DEFAULT_TRAVERSAL_EXCLUSIONS}"
     base_where = (
         "neighbor:_AgragNode AND NOT neighbor:Chunk AND NOT neighbor.id IN $seed_ids "
         "AND NOT neighbor:Section AND NOT neighbor:Table AND NOT neighbor:Figure "
         "AND NOT neighbor:Source "
         f"AND {pending_filter_clause('neighbor', 'job_id')} "
-        f"AND ALL(r IN relationships(path) WHERE "
-        f"{pending_filter_clause('r', 'job_id')})"
+        f"AND ALL(r IN relationships(path) WHERE {path_guard})"
     )
     document_suffix = (
         " AND EXISTS { "

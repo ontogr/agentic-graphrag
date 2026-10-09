@@ -66,6 +66,7 @@ class TestTraversal:
         entity = _entity()
         resolved = _resolved([entity.id, uuid4()])
         chunk = Chunk(
+            id=uuid4(),
             document_id=uuid4(),
             text="text",
             provenance=TextProvenance(char_start=0, char_end=4),

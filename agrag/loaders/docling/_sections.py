@@ -1,33 +1,36 @@
 """Turn a parsed Docling document into sections and units."""
 
-from dataclasses import dataclass
+from __future__ import annotations
 
-from docling_core.types.doc import (
-    BoundingBox as DoclingBox,
-)
-from docling_core.types.doc import (
-    CodeItem,
-    ContentLayer,
-    CoordOrigin,
-    DocItemLabel,
-    DoclingDocument,
-    FloatingItem,
-    FormulaItem,
-    ListItem,
-    NodeItem,
-    PictureItem,
-    SectionHeaderItem,
-    TableItem,
-    TextItem,
-    TitleItem,
-)
+import re
+from collections.abc import Mapping
+from dataclasses import dataclass
+from typing import TYPE_CHECKING
+
+
+if TYPE_CHECKING:  # pragma: no cover
+    from docling_core.types.doc import (
+        BoundingBox as DoclingBox,
+    )
+    from docling_core.types.doc import (
+        DoclingDocument,
+        FloatingItem,
+        NodeItem,
+        SectionHeaderItem,
+        TableItem,
+        TextItem,
+        TitleItem,
+    )
 
 from agrag.common.data_models.document import DocumentSection, Unit, UnitKind
 from agrag.common.data_models.provenance import BoundingBox, PageSpan
 
 
-_BODY = {ContentLayer.BODY}
-_SKIPPED_LABELS = {DocItemLabel.PAGE_HEADER, DocItemLabel.PAGE_FOOTER}
+_NUMBERED = re.compile(r"^\s*(\d+(?:\.\d+){0,5})[.)]?\s+\S")
+# Numbering is trusted only when most headings carry it.
+_MIN_NUMBERED_SHARE = 0.5
+# Too few headings to tell signal from coincidence.
+_MIN_HEADINGS = 3
 
 
 @dataclass(frozen=True, slots=True)
@@ -57,6 +60,8 @@ def read_body(doc: DoclingDocument) -> DocumentBody:
     Returns:
         The body items, with the captions and the members of tables and pictures.
     """
+    from docling_core.types.doc import ContentLayer, FloatingItem  # noqa: PLC0415
+
     items: list[NodeItem] = []
     captions: set[str] = set()
     members: set[str] = set()
@@ -64,7 +69,7 @@ def read_body(doc: DoclingDocument) -> DocumentBody:
     # item at a deeper level than an open one sits inside it.
     open_floating: list[int] = []
     for item, level in doc.iterate_items(
-        with_groups=False, included_content_layers=_BODY
+        with_groups=False, included_content_layers={ContentLayer.BODY}
     ):
         while open_floating and level <= open_floating[-1]:
             open_floating.pop()
@@ -82,13 +87,58 @@ def read_body(doc: DoclingDocument) -> DocumentBody:
     )
 
 
+def numbering_depth(heading: str) -> int | None:
+    """Return the number of dotted parts at the start of a heading.
+
+    Args:
+        heading: The heading text, such as ``"3.2.1 Results"``.
+
+    Returns:
+        The number of parts (``3`` for ``"3.2.1 Results"``), or ``None`` when the
+        heading does not start with a number.
+    """
+    match = _NUMBERED.match(heading)
+    return None if match is None else match.group(1).count(".") + 1
+
+
+def numbered_depths(body: DocumentBody) -> dict[str, int]:
+    """Return the depth of each numbered heading when numbering is the only signal.
+
+    Docling gives a PDF heading a level above 1 only when a bookmark matches it. A
+    document where every heading still has level 1 gets its depths from the numbers
+    in the headings, if at least half of them are numbered.
+
+    Args:
+        body: The body of the parsed document, from ``read_body``.
+
+    Returns:
+        The depth by item reference. Empty when some heading has a level above 1,
+        when the document has fewer than three headings, or when fewer than half of
+        the headings are numbered.
+    """
+    from docling_core.types.doc import SectionHeaderItem  # noqa: PLC0415
+
+    headings = [item for item in body.items if isinstance(item, SectionHeaderItem)]
+    if len(headings) < _MIN_HEADINGS or any(h.level != 1 for h in headings):
+        return {}
+    depths = {h.self_ref: numbering_depth(h.text) for h in headings}
+    share = sum(depth is not None for depth in depths.values()) / len(headings)
+    if share < _MIN_NUMBERED_SHARE:
+        return {}
+    return {ref: depth for ref, depth in depths.items() if depth is not None}
+
+
 def _top_left(box: DoclingBox, height: float) -> DoclingBox:
+    from docling_core.types.doc import CoordOrigin  # noqa: PLC0415
+
     if box.coord_origin == CoordOrigin.BOTTOMLEFT:
         return box.to_top_left_origin(height)
     return box
 
 
 def _pages(item: TextItem | FloatingItem, doc: DoclingDocument) -> list[PageSpan]:
+    from docling_core.types.doc import CoordOrigin  # noqa: PLC0415
+
     spans: list[PageSpan] = []
     for prov in item.prov:
         page = doc.pages.get(prov.page_no)
@@ -106,6 +156,8 @@ def _pages(item: TextItem | FloatingItem, doc: DoclingDocument) -> list[PageSpan
 
 
 def _caption(item: FloatingItem, doc: DoclingDocument) -> str | None:
+    from docling_core.types.doc import TextItem  # noqa: PLC0415
+
     texts = []
     for ref in item.captions:
         target = ref.resolve(doc)
@@ -147,48 +199,19 @@ def _open_section(
     open_headings.append((depth, len(sections) - 1))
 
 
-def _append_list_item(
-    units: list[Unit], item: ListItem, doc: DoclingDocument, group_before: str | None
-) -> str | None:
-    """Add a list item to the list unit that it continues, or start a new one.
+def _heading_depth(
+    item: TitleItem | SectionHeaderItem, depths: Mapping[str, int]
+) -> int:
+    from docling_core.types.doc import TitleItem  # noqa: PLC0415
 
-    Args:
-        units: The units of the section that holds the item.
-        item: The list item.
-        doc: The parsed document, for the item pages.
-        group_before: The list group of the item before this one.
-
-    Returns:
-        The list group of this item, which the caller passes for the next item.
-    """
-    group = item.parent.cref if item.parent else None
-    last = units[-1] if units else None
-    if last and last.kind == UnitKind.LIST and group and group == group_before:
-        last.text += "\n" + item.text
-        last.pages.extend(_pages(item, doc))
-    else:
-        units.append(Unit(kind=UnitKind.LIST, text=item.text, pages=_pages(item, doc)))
-    return group
-
-
-def _without_empty_root(sections: list[DocumentSection]) -> list[DocumentSection]:
-    """Drop the root section at index 0 when no content went into it.
-
-    No heading section has the root as its parent, so only the parent indexes of the
-    other sections shift.
-    """
-    if sections[0].units:
-        return sections
-    return [
-        section.model_copy(
-            update={"parent": None if section.parent is None else section.parent - 1}
-        )
-        for section in sections[1:]
-    ]
+    if isinstance(item, TitleItem):
+        return 0
+    return depths.get(item.self_ref, item.level)
 
 
 def sections_from_docling(
-    body: DocumentBody, depths: dict[str, int] | None = None
+    body: DocumentBody,
+    depths: Mapping[str, int] = {},  # noqa: B006
 ) -> list[DocumentSection]:
     """Return the sections of a parsed document, in reading order.
 
@@ -206,38 +229,84 @@ def sections_from_docling(
         The sections. A section sits under the nearest earlier heading that is
         shallower than it.
     """
-    depths = depths or {}
+    from docling_core.types.doc import (  # noqa: PLC0415
+        DocItemLabel,
+        ListItem,
+        SectionHeaderItem,
+        TextItem,
+        TitleItem,
+    )
+
     doc = body.doc
-    # The root holds the content before the first heading. It is dropped if empty.
-    sections = [DocumentSection(heading="", depth=0)]
+    sections: list[DocumentSection] = []
     open_headings: list[tuple[int, int]] = []
     list_group: str | None = None
+    list_texts: list[str] = []
+    list_pages: list[PageSpan] = []
+
+    def _current() -> DocumentSection:
+        # No heading is open before the first one, so the root for content before
+        # it is always index 0.
+        if open_headings:
+            return sections[open_headings[-1][1]]
+        if not sections:
+            sections.append(DocumentSection(heading="", depth=0))
+        return sections[0]
+
+    def _flush_list() -> None:
+        if list_texts:
+            _current().units.append(
+                Unit(
+                    kind=UnitKind.LIST,
+                    text="\n".join(list_texts),
+                    pages=[*list_pages],
+                )
+            )
+        list_texts.clear()
+        list_pages.clear()
+
     for item in body.items:
         if item.self_ref in body.captions:
             continue
         if isinstance(item, TextItem) and (
-            item.label in _SKIPPED_LABELS or item.self_ref in body.floating_members
+            item.label in {DocItemLabel.PAGE_HEADER, DocItemLabel.PAGE_FOOTER}
+            or item.self_ref in body.floating_members
         ):
             continue
         if isinstance(item, TitleItem | SectionHeaderItem):
-            depth = 0
-            if isinstance(item, SectionHeaderItem):
-                depth = depths.get(item.self_ref, item.level)
-            _open_section(sections, open_headings, item.text, depth)
+            _flush_list()
             list_group = None
+            _open_section(
+                sections, open_headings, item.text, _heading_depth(item, depths)
+            )
             continue
-        current = sections[open_headings[-1][1]] if open_headings else sections[0]
         if isinstance(item, ListItem):
-            list_group = _append_list_item(current.units, item, doc, list_group)
+            group = item.parent.cref if item.parent else None
+            if list_texts and (not group or group != list_group):
+                _flush_list()
+            list_group = group
+            list_texts.append(item.text)
+            list_pages.extend(_pages(item, doc))
             continue
+        _flush_list()
         list_group = None
         unit = _unit(item, doc)
         if unit is not None:
-            current.units.append(unit)
-    return _without_empty_root(sections)
+            _current().units.append(unit)
+    _flush_list()
+    return sections
 
 
-def _unit(item: object, doc: DoclingDocument) -> Unit | None:
+def _unit(item: NodeItem, doc: DoclingDocument) -> Unit | None:
+    from docling_core.types.doc import (  # noqa: PLC0415
+        CodeItem,
+        DocItemLabel,
+        FormulaItem,
+        PictureItem,
+        TableItem,
+        TextItem,
+    )
+
     if isinstance(item, TableItem):
         rows, header_rows = _table_rows(item)
         caption = _caption(item, doc)

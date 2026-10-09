@@ -49,6 +49,7 @@ def _chunk(
     start: int = 0,
 ) -> Chunk:
     return Chunk(
+        id=uuid4(),
         document_id=document_id,
         index=index,
         text=text,
@@ -154,6 +155,20 @@ class TestBuildNextChunkRecords:
         assert pairs == [
             (chunks[0].id, chunks[1].id),
             (chunks[1].id, chunks[2].id),
+        ]
+
+    def test_sections_and_table_chunks_share_one_document_chain(self) -> None:
+        """document_id alone decides the chain, not section or content kind."""
+        document_id = uuid4()
+        chunks = [_chunk(document_id, f"c{i}", index=i) for i in range(4)]
+        chunks[2] = chunks[2].model_copy(update={"content_kind": "table"})
+
+        records = build_next_chunk_records([chunks[3], chunks[0], chunks[2], chunks[1]])
+
+        assert [(r.start_id, r.end_id) for r in records] == [
+            (chunks[0].id, chunks[1].id),
+            (chunks[1].id, chunks[2].id),
+            (chunks[2].id, chunks[3].id),
         ]
 
     def test_rejects_unresolved_chunk_ids(self) -> None:

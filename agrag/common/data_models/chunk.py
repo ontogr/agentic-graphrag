@@ -10,7 +10,6 @@ from pydantic import Field, model_validator
 from agrag.common.data_models.data_point import DataPoint
 from agrag.common.data_models.graph_record import NodeRecord
 from agrag.common.data_models.provenance import PageProvenance, TextProvenance
-from agrag.common.data_models.structure import chunk_id
 
 
 # The fixed system label every Chunk node is written with.
@@ -46,12 +45,6 @@ class Chunk(DataPoint):
             chunk. ``None`` for a chunk written before chunkers were recorded.
         section_ids: The node ids of the sections whose text the chunk holds, in
             reading order. Empty for a document with no sections.
-        parent_section_id: The node id of the lowest section that holds every
-            section in ``section_ids``. ``None`` when only the document holds them.
-            The chunker sets it. The graph does not store it.
-        position: The reading-order number of the first unit in the chunk. The
-            ingestion code uses it to order the children of a section. The graph
-            does not store it.
     """
 
     id: UUID | None = None
@@ -65,16 +58,44 @@ class Chunk(DataPoint):
     chunker_hash: str | None = None
     embedding: list[float] | None = None
     section_ids: list[UUID] = Field(default_factory=list)
-    parent_section_id: UUID | None = Field(default=None, exclude=True)
-    position: int = Field(default=0, exclude=True)
+
+    @model_validator(mode="after")
+    def _check_section_refs(self) -> "Chunk":
+        """Require clean headings and distinct section ids."""
+        for heading in self.heading_path:
+            if not heading.strip():
+                raise ValueError("heading_path must not hold a blank heading")
+        if len(set(self.section_ids)) != len(self.section_ids):
+            raise ValueError("section_ids must not repeat a section")
+        return self
+
+    @model_validator(mode="after")
+    def _check_provenance(self) -> "Chunk":
+        """Require ordered offsets, pages, and boxes, with tables on pages."""
+        if isinstance(self.provenance, TextProvenance):
+            start, end = self.provenance.char_start, self.provenance.char_end
+            if not 0 <= start <= end:
+                raise ValueError("text provenance needs 0 <= char_start <= char_end")
+        else:
+            spans = self.provenance.page_spans
+            page_nos = [span.page_no for span in spans]
+            for span in spans:
+                if span.page_no < 1:
+                    raise ValueError("page provenance needs page_no >= 1")
+                box = span.bbox
+                if not (box.x0 <= box.x1 and box.y0 <= box.y1):
+                    raise ValueError("page provenance needs x0 <= x1 and y0 <= y1")
+            if page_nos != sorted(page_nos):
+                raise ValueError("page provenance needs pages in order")
+        if self.content_kind == "table" and isinstance(self.provenance, TextProvenance):
+            raise ValueError("a table chunk must carry page provenance")
+        return self
 
     @model_validator(mode="after")
     def _resolve_id(self) -> "Chunk":
-        """Compute ``id`` from the document, chunker and index unless passed."""
+        """Require the id the chunker computed from the real document version."""
         if self.id is None:
-            self.id = chunk_id(
-                self.document_id, "", self.chunker_hash or "", self.index
-            )
+            raise ValueError("Chunk.id must be set by the chunker.")
         return self
 
     @property

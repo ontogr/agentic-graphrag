@@ -240,7 +240,7 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
-To cut the document between turns, use `TurnWindowChunker` as [Configure chunking](./configure-chunking.mdx) shows.
+A chat file has one section for each message. Short neighbouring messages share a chunk, and a long message is cut at sentence boundaries. Tune this with the chunker `size`, as [Configure chunking](./configure-chunking.mdx) shows.
 
 ## Handle errors per source
 

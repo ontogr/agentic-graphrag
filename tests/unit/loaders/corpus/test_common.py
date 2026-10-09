@@ -16,9 +16,10 @@ import pytest
 
 from agrag.common.data_models.document import Document, DocumentFamily, SourceFormat
 from agrag.loaders.corpus.errors import MalformedRecordError
-from agrag.loaders.corpus.readers._common import (
+from agrag.loaders.corpus.readers.common import (
     build_prose_document,
     build_record_document,
+    paragraph_units,
     read_within_limit,
     record_source_hash,
     resolve_text_column,
@@ -291,3 +292,16 @@ class TestBuildHelpers:
         except MalformedRecordError:
             return
         raise AssertionError("expected MalformedRecordError")
+
+
+class TestParagraphUnits:
+    """Blank lines end a paragraph whatever the line ending."""
+
+    @pytest.mark.parametrize("ending", ["\n", "\r\n", "\r"])
+    def test_blank_lines_split_paragraphs(self, ending: str) -> None:
+        """CRLF and CR blank lines split like LF ones."""
+        text = ending.join(["first", "", "second", "", ""])
+
+        units = paragraph_units(text)
+
+        assert [u.text for u in units] == ["first", "second"]

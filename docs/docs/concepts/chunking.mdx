@@ -12,7 +12,7 @@ The chunker packs the sections of a document into chunks. Each chunk records whe
 
 Search and extraction work on short pieces of text. Where you cut decides what they can find. A cut in the wrong place can separate a name from the fact about it.
 
-A document already has structure: headings, paragraphs and tables. The chunker uses that structure, so a chunk stays inside the section that holds its text. A chunk must also be citable. Each chunk keeps its position in the source, so an answer can point to the exact place.
+A document already has structure: headings, paragraphs and tables. The chunker uses that structure and records every section that a chunk covers. A chunk must also be citable. Each chunk keeps its position in the source, so an answer can point to the exact place.
 
 ## How it works
 
@@ -49,7 +49,7 @@ One `Chunker` serves every format. A `Graph` takes one `Chunker`. There are no p
 
 ### Record rows and chat
 
-A record row, such as one CSV row, has no sections. Its text is one unit, so it is one chunk. A chat file has one section for each message. A window of short messages can share one chunk.
+A record row, such as one CSV row, has no sections. Its text is one unit, split into multiple chunks if it exceeds `size`. A chat file has one section for each message. A window of short messages can share one chunk.
 
 ## Example
 

@@ -17,6 +17,7 @@ from agrag.loaders.corpus.readers.prose import (
     TextLoader,
 )
 from agrag.loaders.corpus.types import ReadOptions, SourceRef
+from agrag.loaders.docling.loader import DoclingLoader
 
 
 _FIXTURES = __import__("pathlib").Path(__file__).parent / "fixtures"
@@ -100,3 +101,22 @@ class TestTextLoader:
         except DocumentTooLargeError:
             return
         raise AssertionError("expected DocumentTooLargeError")
+
+
+class TestDoclingAsciiDocLoader:
+    """AsciiDoc files load with docling sections."""
+
+    def test_adoc_file_gives_nested_sections_with_content(self) -> None:
+        """Headings nest and units hold the section text."""
+        docs = _documents(DoclingLoader(), "sample.adoc", ".adoc")
+
+        assert len(docs) == 1
+        doc = docs[0]
+        assert doc.source_format == SourceFormat.ASCIIDOC
+        assert [(s.heading, s.depth) for s in doc.sections] == [
+            ("Sample Guide", 0),
+            ("Setup", 1),
+            ("Details", 2),
+        ]
+        assert doc.sections[2].parent == 1
+        assert all(s.units for s in doc.sections)

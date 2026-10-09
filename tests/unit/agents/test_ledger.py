@@ -57,6 +57,7 @@ class TestLedger:
 def _chunk_result(text: str) -> SearchResult:
     """Build a chunk search result holding ``text``."""
     chunk = Chunk(
+        id=uuid4(),
         document_id=uuid4(),
         text=text,
         provenance=TextProvenance(char_start=0, char_end=len(text)),
@@ -78,3 +79,16 @@ class TestChunkRendering:
         text = "y" * 5000 + " last words"
 
         assert Ledger().render(_chunk_result(text)) == f"[C1] Chunk: {text}"
+
+    def test_render_chunk_prepends_the_section_label(self) -> None:
+        """A chunk under headings shows its section label above the text."""
+        chunk = Chunk(
+            id=uuid4(),
+            document_id=uuid4(),
+            text="body",
+            provenance=TextProvenance(char_start=0, char_end=4),
+            heading_path=["Intro", "Details"],
+        )
+        result = SearchResult(item=chunk, score=1.0, method="chunk")
+
+        assert Ledger().render(result) == "[C1] Chunk: Intro > Details\n\nbody"

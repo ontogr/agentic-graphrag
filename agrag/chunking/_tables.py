@@ -6,12 +6,41 @@ from agrag.common.data_models.document import Unit
 
 
 def _cell(text: str) -> str:
-    return " ".join(text.split()).replace("|", "\\|")
+    return " ".join(text.split()).replace("\\", "\\\\").replace("|", "\\|")
+
+
+def _header_names(unit: Unit) -> list[str]:
+    """Return one column name per column from the header rows of a table."""
+    if not unit.rows:
+        return []
+    width = max(len(row) for row in unit.rows)
+    head = unit.rows[: max(unit.header_rows, 1)]
+    names: list[str] = []
+    for column in range(width):
+        parts = [
+            row[column] for row in head if column < len(row) and row[column].strip()
+        ]
+        names.append(" ".join(dict.fromkeys(parts)))
+    return names
 
 
 def _line(cells: list[str], width: int) -> str:
     padded = [*cells, *[""] * (width - len(cells))]
     return "| " + " | ".join(_cell(cell) for cell in padded) + " |"
+
+
+def would_exceed(used: int, cost: int, size: int) -> bool:
+    """Return whether one more piece would pass the size.
+
+    Args:
+        used: The tokens already packed in the open chunk or row group.
+        cost: The tokens the next piece adds, separators included.
+        size: The most tokens in a chunk.
+
+    Returns:
+        True when packing the piece would pass ``size``.
+    """
+    return used + cost > size
 
 
 def table_texts(unit: Unit, size: int, count_tokens: Callable[[str], int]) -> list[str]:
@@ -35,7 +64,7 @@ def table_texts(unit: Unit, size: int, count_tokens: Callable[[str], int]) -> li
     head_count = max(unit.header_rows, 1)
     width = max(len(row) for row in unit.rows)
     head = [
-        _line(unit.header, width),
+        _line(_header_names(unit), width),
         "| " + " | ".join(["---"] * width) + " |",
     ]
     body = [_line(row, width) for row in unit.rows[head_count:]]
@@ -47,14 +76,10 @@ def table_texts(unit: Unit, size: int, count_tokens: Callable[[str], int]) -> li
     whole = render(body, True)
     if len(body) <= 1 or count_tokens(whole) <= size:
         return [whole]
-    later_base = count_tokens(render([], False))
     groups: list[list[str]] = [[]]
-    used = count_tokens(render([], True))
     for line in body:
-        cost = count_tokens(line) + 1
-        if groups[-1] and used + cost > size:
+        first = len(groups) == 1
+        if groups[-1] and count_tokens(render([*groups[-1], line], first)) > size:
             groups.append([])
-            used = later_base
         groups[-1].append(line)
-        used += cost
     return [render(group, i == 0) for i, group in enumerate(groups)]

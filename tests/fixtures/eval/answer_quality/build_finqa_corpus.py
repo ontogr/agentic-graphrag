@@ -22,9 +22,11 @@ from agrag.chunking import Chunker
 from agrag.common.data_models.document import (
     Document,
     DocumentFamily,
+    DocumentSection,
     SourceFormat,
+    Unit,
+    UnitKind,
 )
-from agrag.loaders.corpus.readers._common import text_sections
 
 
 _HERE = Path(__file__).parent
@@ -70,6 +72,13 @@ def _answerable_from_chunk(example: dict, text: str) -> bool:
         for number in _NUMBER.findall(evidence)
     }
     figures = {figure for figure in figures if len(figure) >= 2}
+    units = [Unit(kind=UnitKind.PARAGRAPH, text=part) for part in example["pre_text"]]
+    units.append(
+        Unit(kind=UnitKind.TABLE, text="", rows=example["table"], header_rows=1)
+    )
+    units.extend(
+        Unit(kind=UnitKind.PARAGRAPH, text=part) for part in example["post_text"]
+    )
     document = Document(
         text=text,
         title="page",
@@ -79,9 +88,9 @@ def _answerable_from_chunk(example: dict, text: str) -> bool:
         content_hash="page",
         loader_name="text",
         char_count=len(text),
-        sections=text_sections(text),
+        sections=[DocumentSection(heading="", depth=0, units=units)],
     )
-    chunks = [chunk.text for chunk in Chunker().chunk(document)]
+    chunks = [chunk.text for chunk in Chunker().chunk(document).chunks]
     return bool(figures) and any(
         all(figure in chunk for figure in figures) for chunk in chunks
     )

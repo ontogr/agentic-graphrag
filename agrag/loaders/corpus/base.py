@@ -1,5 +1,6 @@
 """The Loader interface: reads one source and yields Document objects."""
 
+import importlib.util
 from abc import ABC, abstractmethod
 from collections.abc import Iterator
 from typing import BinaryIO, ClassVar
@@ -20,18 +21,21 @@ class Loader(ABC):
             the extension alone.
         family: The document family this loader produces.
         extra: The optional package extra required to use this loader. ``None`` for core
-            loaders. The registry raises ``MissingExtraError`` when this extra is not
-            installed.
-        extra_module: The module that only the extra installs. The registry looks for
-            it to tell whether the extra is installed. ``None`` means the module has
-            the same name as the extra.
+            loaders. The registry skips a loader whose extra is not installed.
     """
 
     extensions: ClassVar[frozenset[str]]
     mime_types: ClassVar[frozenset[str]] = frozenset()
     family: ClassVar[DocumentFamily]
     extra: ClassVar[str | None] = None
-    extra_module: ClassVar[str | None] = None
+
+    def is_available(self) -> bool:
+        """Return whether this loader can run in this process.
+
+        A loader with no extra is always available. A loader with an extra is
+        available when its package imports.
+        """
+        return self.extra is None or importlib.util.find_spec(self.extra) is not None
 
     @abstractmethod
     def load(

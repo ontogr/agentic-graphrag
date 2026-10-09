@@ -2,6 +2,18 @@
 
 from pydantic import BaseModel, Field, model_validator
 
+from agrag.common.data_models.chunk import CHUNK_LABEL
+from agrag.common.data_models.community import COMMUNITY_LABEL
+from agrag.common.data_models.cutover_job import CUTOVER_JOB_LABEL
+from agrag.common.data_models.document import DOCUMENT_LABEL
+from agrag.common.data_models.resolved_entity import RESOLVED_ENTITY_LABEL
+from agrag.common.data_models.structure import (
+    FIGURE_LABEL,
+    SECTION_LABEL,
+    SOURCE_LABEL,
+    TABLE_LABEL,
+)
+
 
 # Payload keys every mirrored entity embedding carries: the graph label a
 # SearchFilters label filter matches on, and the embedding text the backends
@@ -12,17 +24,22 @@ _RESERVED_ENTITY_PROPERTY_NAMES = frozenset({"label", "text"})
 
 # Labels the graph writes for its own nodes. An entity type with one of these labels
 # would share nodes with the document structure or the system records.
+# ``_AgragNode`` marks every node the graph writes, and ``_AgragMergeAlias`` holds
+# the merge keys of the exact-match tier: an entity type with either label would
+# read or overwrite the graph's own bookkeeping nodes.
 RESERVED_ENTITY_LABELS = frozenset(
     {
-        "Document",
-        "Chunk",
-        "Section",
-        "Table",
-        "Figure",
-        "Source",
-        "Community",
-        "ResolvedEntity",
-        "CutoverJob",
+        DOCUMENT_LABEL,
+        CHUNK_LABEL,
+        SECTION_LABEL,
+        TABLE_LABEL,
+        FIGURE_LABEL,
+        SOURCE_LABEL,
+        COMMUNITY_LABEL,
+        RESOLVED_ENTITY_LABEL,
+        CUTOVER_JOB_LABEL,
+        "_AgragNode",
+        "_AgragMergeAlias",
     }
 )
 

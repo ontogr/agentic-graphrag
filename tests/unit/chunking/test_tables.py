@@ -9,7 +9,8 @@ def _count(text: str) -> int:
 
 
 def _table(rows: list[list[str]], **fields: object) -> Unit:
-    return Unit(kind=UnitKind.TABLE, text="", rows=rows, **fields)
+    fields.setdefault("text", fields.get("caption", ""))
+    return Unit(kind=UnitKind.TABLE, rows=rows, **fields)
 
 
 class TestTableTexts:
@@ -62,6 +63,9 @@ class TestTableTexts:
 
         assert any(big in text for text in texts)
         assert sum(big in text for text in texts) == 1
+        assert next(text for text in texts if big in text) == (
+            f"| a | b |\n| --- | --- |\n| {big} | 2 |"
+        )
 
     def test_spanned_header_cells_are_written_once(self) -> None:
         """Spanned header cells are written once."""
@@ -77,6 +81,12 @@ class TestTableTexts:
         unit = _table([["h"], ["a|b"]])
 
         assert "a\\|b" in table_texts(unit, 100, _count)[0]
+
+    def test_a_backslash_before_a_pipe_is_escaped_first(self) -> None:
+        """A literal backslash is escaped before the pipe is."""
+        unit = _table([["h"], ["a\\|b"]])
+
+        assert "a\\\\\\|b" in table_texts(unit, 100, _count)[0]
 
     def test_a_table_with_no_rows_gives_no_chunks(self) -> None:
         """A table with no rows gives no chunks."""

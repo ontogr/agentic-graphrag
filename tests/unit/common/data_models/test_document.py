@@ -5,11 +5,15 @@ Covers ``node_id_for``'s collision resistance, ``document_key`` defaulting to
 """
 
 import pytest
+from pydantic import ValidationError
 
 from agrag.common.data_models.document import (
     Document,
     DocumentFamily,
+    DocumentSection,
     SourceFormat,
+    Unit,
+    UnitKind,
 )
 
 
@@ -72,3 +76,60 @@ class TestToNodeRecord:
         """The record never carries the full document body."""
         record = _doc().to_node_record()
         assert "text" not in record.properties
+
+
+class TestRawRecord:
+    """raw_record holds JSON data only."""
+
+    def _doc_with_record(self, raw_record: object) -> Document:
+        data = _doc().model_dump()
+        data["raw_record"] = raw_record
+        return Document.model_validate(data)
+
+    def test_accepts_nested_json_values(self) -> None:
+        """Nested lists and objects pass."""
+        doc = self._doc_with_record({"tags": ["a", 1], "meta": {"n": None}})
+
+        assert doc.raw_record == {"tags": ["a", 1], "meta": {"n": None}}
+
+    def test_rejects_a_non_json_value(self) -> None:
+        """A non-JSON value raises."""
+        with pytest.raises(ValidationError):
+            self._doc_with_record({"when": object()})
+
+
+def _sectioned(text: str, spans: list[tuple[int, int]]) -> Document:
+    units = [
+        Unit(
+            kind=UnitKind.PARAGRAPH,
+            text=text[start:end],
+            char_start=start,
+            char_end=end,
+        )
+        for start, end in spans
+    ]
+    return Document(
+        text=text,
+        title="t",
+        uri="u",
+        source_format=SourceFormat.TXT,
+        family=DocumentFamily.PROSE,
+        content_hash="h",
+        loader_name="text",
+        char_count=len(text),
+        sections=[DocumentSection(heading="", depth=0, units=units)],
+    )
+
+
+class TestSectionSpanOrder:
+    """Unit spans run in reading order inside the document text."""
+
+    def test_rejects_spans_outside_the_text(self) -> None:
+        """A span past the end of the text raises."""
+        with pytest.raises(ValidationError, match="outside the document text"):
+            _sectioned("hello world", [(0, 5), (6, 60)])
+
+    def test_rejects_spans_out_of_reading_order(self) -> None:
+        """A span starting before the previous unit ends raises."""
+        with pytest.raises(ValidationError, match="before the previous unit ends"):
+            _sectioned("one two", [(4, 7), (0, 3)])

@@ -2,14 +2,16 @@
 
 import hashlib
 import json
-from dataclasses import dataclass
+from collections.abc import Callable
+from dataclasses import dataclass, field
+from functools import cached_property
 from typing import Any, Literal
+from uuid import UUID
 
 from chonkie import RecursiveChunker
 from chonkie.tokenizer import AutoTokenizer
-from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, model_validator
 
-from agrag.chunking._tables import table_texts
+from agrag.chunking._tables import table_texts, would_exceed
 from agrag.common.data_models.chunk import Chunk
 from agrag.common.data_models.document import (
     Document,
@@ -29,6 +31,7 @@ from agrag.common.data_models.structure import (
     node_id,
     reading_positions,
     section_keys,
+    unit_keys,
     version_id,
 )
 
@@ -36,6 +39,7 @@ from agrag.common.data_models.structure import (
 DEFAULT_SIZE = 600
 DEFAULT_TOKENIZER = "o200k_base"
 CHUNKER_NAME = "section"
+_SEPARATOR = "\n\n"
 _MIN_CHARACTERS_PER_PIECE = 24
 
 
@@ -58,11 +62,6 @@ def fingerprint_of(value: object) -> str:
 
 def _by_page(spans: list[PageSpan]) -> list[PageSpan]:
     return sorted(spans, key=lambda span: span.page_no)
-
-
-def _is_page_layout(section: DocumentSection) -> bool:
-    """Return whether a section's units have pages and no text offsets."""
-    return bool(section.units) and section.units[0].char_start is None
 
 
 @dataclass(frozen=True, slots=True)
@@ -94,9 +93,42 @@ class _Piece:
     section: int
     position: int
     tokens: int
+    is_heading: bool = False
 
 
-class Chunker(BaseModel):
+@dataclass(frozen=True, slots=True)
+class ChunkPlacement:
+    """Where one chunk hangs in the structure of its document.
+
+    Attributes:
+        chunk_index: The index of the chunk in ``ChunkedDocument.chunks``.
+        parent_node_id: The id of the table node the chunk came from, or of the
+            lowest section that holds its text, or of the document node when no
+            section does.
+        order: The edge order under the parent: the reading position of the first
+            unit in a text chunk, or the chunk index for a table chunk.
+    """
+
+    chunk_index: int
+    parent_node_id: UUID
+    order: int
+
+
+@dataclass(frozen=True, slots=True)
+class ChunkedDocument:
+    """The chunks of one document with where each chunk hangs.
+
+    Attributes:
+        chunks: The chunks in reading order. Their indexes run from 0.
+        placements: One placement per chunk, in the same order as ``chunks``.
+    """
+
+    chunks: list[Chunk]
+    placements: list[ChunkPlacement]
+
+
+@dataclass(frozen=True)
+class Chunker:
     """Packs the sections of a Document into chunks.
 
     The chunker walks the sections in reading order. It packs the units of a
@@ -106,57 +138,59 @@ class Chunker(BaseModel):
     tokens, the chunk goes on into the next section. A table never mixes with text:
     it becomes one chunk, or row groups that each repeat the header row.
 
-    A chunk from a text source is an exact slice of ``Document.text``. A chunk from a
-    source with page layout joins the text of its units with a blank line. A document
-    with no sections, such as one record row, is one unit of text.
-
-    Size counts the text of the units. The blank lines that join units are not counted,
-    so a chunk can pass ``size`` by a few tokens.
+    A chunk joins the text of its pieces with a blank line. Size counts that joined
+    text: every piece plus every blank line between pieces. A document whose units
+    all carry text offsets gives text provenance over the span of its units. A
+    document whose units carry no offsets gives page provenance.
 
     Attributes:
         size: The most tokens in a chunk.
         min_size: A chunk with fewer tokens than this goes on into the next section.
-            Zero, the default, means a quarter of ``size``.
+            ``None``, the default, means a quarter of ``size``.
         tokenizer: The tokenizer that counts tokens. A name that chonkie accepts.
     """
 
-    model_config = ConfigDict(frozen=True, extra="forbid")
-
-    size: int = Field(default=DEFAULT_SIZE, gt=0)
-    min_size: int = Field(default=0, ge=0)
+    size: int = DEFAULT_SIZE
+    min_size: int | None = None
     tokenizer: str = DEFAULT_TOKENIZER
 
-    _count: Any = PrivateAttr(default=None)
-    _splitter: Any = PrivateAttr(default=None)
-    _fingerprint: str = PrivateAttr(default="")
+    _count: Callable[[str], int] = field(init=False, repr=False, compare=False)
+    _splitter: Callable[[str], list[Any]] = field(init=False, repr=False, compare=False)
 
-    @model_validator(mode="before")
-    @classmethod
-    def _default_min_size(cls, data: Any) -> Any:
-        """Set ``min_size`` to a quarter of ``size`` when the caller gives none."""
-        if isinstance(data, dict) and not data.get("min_size"):
-            return {**data, "min_size": data.get("size", DEFAULT_SIZE) // 4}
-        return data
-
-    def model_post_init(self, context: Any, /) -> None:
+    def __post_init__(self) -> None:
         """Check the settings and build the tokenizer and the splitter once."""
-        if self.min_size >= self.size:
+        if self.size <= 0:
+            raise ValueError("size must be a positive integer")
+        if self.effective_min_size >= self.size:
             raise ValueError("min_size must be smaller than size")
-        self._count = AutoTokenizer(self.tokenizer).count_tokens
-        self._splitter = RecursiveChunker(
-            tokenizer=self.tokenizer,
-            chunk_size=self.size,
-            min_characters_per_chunk=_MIN_CHARACTERS_PER_PIECE,
+        object.__setattr__(self, "_count", AutoTokenizer(self.tokenizer).count_tokens)
+        object.__setattr__(
+            self,
+            "_splitter",
+            RecursiveChunker(
+                tokenizer=self.tokenizer,
+                chunk_size=self.size,
+                min_characters_per_chunk=_MIN_CHARACTERS_PER_PIECE,
+            ),
         )
-        self._fingerprint = fingerprint_of(self.settings())
+
+    @property
+    def effective_min_size(self) -> int:
+        """Return the merge threshold: ``min_size``, or a quarter of ``size``."""
+        return self.size // 4 if self.min_size is None else self.min_size
 
     def settings(self) -> dict[str, Any]:
         """Return the settings as plain data."""
-        return self.model_dump()
+        return {
+            "size": self.size,
+            "min_size": self.effective_min_size,
+            "tokenizer": self.tokenizer,
+        }
 
+    @cached_property
     def fingerprint(self) -> str:
         """Return the hash of the settings. Equal settings give equal hashes."""
-        return self._fingerprint
+        return fingerprint_of(self.settings())
 
     def count_tokens(self, text: str) -> int:
         """Return the number of tokens in a text, counted with ``tokenizer``."""
@@ -169,8 +203,7 @@ class Chunker(BaseModel):
             text: The text to split.
 
         Returns:
-            The pieces in order. ``text`` of each piece equals the slice of the text
-            from its ``start_index`` to its ``end_index``.
+            The pieces in order. The text of each piece equals the slice of the
 
         Raises:
             ChunkingError: A piece does not match its slice, or the pieces do not
@@ -191,19 +224,20 @@ class Chunker(BaseModel):
             raise ChunkingError("the splitter changed or dropped text")
         return parts
 
-    def chunk(self, document: Document) -> list[Chunk]:
-        """Split a document into chunks.
+    def chunk(self, document: Document) -> ChunkedDocument:
+        """Split a document into chunks with their placements.
 
         Args:
             document: The document to split.
 
         Returns:
-            The chunks in reading order. Their indexes run from 0 without gaps.
+            The chunks in reading order with one placement per chunk.
 
         Raises:
-            ChunkingError: The splitter changed or dropped text.
+            ChunkingError: The document mixes units that carry text offsets with
+                units that carry none, or the splitter changed or dropped text.
         """
-        return _Run(self, document).chunks()
+        return _Run(self, document).run()
 
 
 class _Run:
@@ -222,40 +256,83 @@ class _Run:
             )
             section = DocumentSection(heading="", depth=0, units=[body])
             document = document.model_copy(update={"sections": [section]})
-        self._document = document
+        units = [unit for section in document.sections for unit in section.units]
+        offsets = [unit.char_start is not None for unit in units]
+        if any(offsets) and not all(offsets):
+            raise ChunkingError(
+                "the document mixes units with text offsets and units with none"
+            )
+        self._is_text = bool(units) and all(offsets)
         self._sections = document.sections
         self._version = version_id(document)
-        self._section_ids = [
-            node_id(key, self._version) for key in section_keys(document)
-        ]
+        keys = section_keys(document)
+        self._section_ids = [node_id(key, self._version) for key in keys]
+        self._unit_ids = {
+            at: node_id(key, self._version)
+            for at, key in unit_keys(document, keys).items()
+        }
         self._paths = heading_paths(self._sections)
+        self._heading_positions, self._unit_positions = reading_positions(document)
         self._document_id = Document.node_id_for(
             document_key=document.resolved_document_key
         )
-        self._out: list[Chunk] = []
+        self._separator_cost = chunker.count_tokens(_SEPARATOR)
+        self._chunks: list[Chunk] = []
+        self._placements: list[ChunkPlacement] = []
         self._open: list[_Piece] = []
         self._used = 0
+        self._taken_orders: set[tuple[UUID, int]] = set()
 
-    def chunks(self) -> list[Chunk]:
-        """Pack every section and return the chunks."""
+    def run(self) -> ChunkedDocument:
+        """Pack every section and return the chunks with their placements."""
         chunker = self._chunker
-        _, unit_positions = reading_positions(self._document)
         for i, section in enumerate(self._sections):
-            if self._open and self._used >= chunker.min_size:
+            if self._open and self._used >= chunker.effective_min_size:
                 self._flush()
-            if section.heading and _is_page_layout(section):
-                heading = Unit(kind=UnitKind.PARAGRAPH, text=section.heading)
-                self._add(self._piece(heading, i, 0))
+            if section.heading:
+                for piece in self._split_heading(section.heading, i):
+                    self._add(piece)
             for j, unit in enumerate(section.units):
-                position = unit_positions[i][j]
+                position = self._unit_positions[i][j]
                 if unit.kind == UnitKind.TABLE:
                     self._flush()
-                    self._table(unit, i, position)
+                    self._table(unit, i, j, position)
                 elif unit.text.strip():
                     for piece in self._split_unit(unit, i, position):
                         self._add(piece)
         self._flush()
-        return self._out
+        return ChunkedDocument(chunks=self._chunks, placements=self._placements)
+
+    def _heading_piece(self, heading: str, section: int) -> _Piece:
+        return _Piece(
+            text=heading,
+            start=None,
+            end=None,
+            pages=[],
+            section=section,
+            position=self._heading_positions[section],
+            tokens=self._chunker.count_tokens(heading),
+            is_heading=True,
+        )
+
+    def _split_heading(self, heading: str, section: int) -> list[_Piece]:
+        """Return the heading as one piece, or as several when it is over size."""
+        whole = self._heading_piece(heading, section)
+        if whole.tokens <= self._chunker.size:
+            return [whole]
+        return [
+            _Piece(
+                text=part.text,
+                start=None,
+                end=None,
+                pages=[],
+                section=section,
+                position=whole.position,
+                tokens=part.token_count,
+                is_heading=True,
+            )
+            for part in self._chunker.split(heading)
+        ]
 
     def _piece(self, unit: Unit, section: int, position: int) -> _Piece:
         return _Piece(
@@ -288,33 +365,57 @@ class _Run:
         ]
 
     def _add(self, piece: _Piece) -> None:
-        if self._open and self._used + piece.tokens > self._chunker.size:
-            self._flush()
-        self._open.append(piece)
-        self._used += piece.tokens
+        if self._open:
+            cost = self._separator_cost + piece.tokens
+            if would_exceed(self._used, cost, self._chunker.size):
+                self._flush()
+                self._open.append(piece)
+                self._used = piece.tokens
+            else:
+                self._open.append(piece)
+                self._used += cost
+        else:
+            self._open.append(piece)
+            self._used = piece.tokens
 
-    def _table(self, unit: Unit, section: int, position: int) -> None:
-        spans = _by_page(unit.pages)
-        for text in table_texts(unit, self._chunker.size, self._chunker.count_tokens):
-            provenance = PageProvenance(page_spans=spans)
-            self._emit(text, provenance, [section], position, "table")
+    def _table(self, unit: Unit, section: int, unit_index: int, position: int) -> None:
+        texts = table_texts(unit, self._chunker.size, self._chunker.count_tokens)
+        table_id = self._unit_ids.get((section, unit_index))
+        if table_id is None:
+            raise ChunkingError("a table chunk has no table unit at its position")
+        # One table keeps the pages of its unit. Row groups each hold a subset of
+        # the rows with no per-row pages, so they claim no pages at all.
+        spans = _by_page(unit.pages) if len(texts) == 1 else []
+        for text in texts:
+            self._emit(
+                text,
+                PageProvenance(page_spans=spans),
+                [section],
+                position,
+                kind="table",
+                table=table_id,
+            )
 
     def _flush(self) -> None:
         pieces = self._open
         if not pieces:
             return
-        first, last = pieces[0], pieces[-1]
+        text = _SEPARATOR.join(piece.text for piece in pieces)
         provenance: TextProvenance | PageProvenance
-        if first.start is not None and last.end is not None:
-            text = self._document.text[first.start : last.end]
-            provenance = TextProvenance(char_start=first.start, char_end=last.end)
+        if self._is_text:
+            starts = [piece.start for piece in pieces if piece.start is not None]
+            ends = [piece.end for piece in pieces if piece.end is not None]
+            if not starts or not ends:
+                raise ChunkingError("a text chunk holds no text offsets")
+            provenance = TextProvenance(char_start=min(starts), char_end=max(ends))
         else:
-            text = "\n\n".join(piece.text for piece in pieces)
             provenance = PageProvenance(
                 page_spans=_by_page([span for piece in pieces for span in piece.pages])
             )
-        covered = sorted({piece.section for piece in pieces})
-        self._emit(text, provenance, covered, first.position)
+        # Headings ride along as context. Only the sections that gave units set
+        # the coverage, so an empty section never pulls the path up to itself.
+        covered = sorted({piece.section for piece in pieces if not piece.is_heading})
+        self._emit(text, provenance, covered, pieces[0].position)
         self._open, self._used = [], 0
 
     def _emit(
@@ -324,15 +425,25 @@ class _Run:
         covered: list[int],
         position: int,
         kind: Literal["text", "table"] = "text",
+        *,
+        table: UUID | None = None,
     ) -> None:
-        ancestor = common_ancestor(self._sections, covered)
-        index = len(self._out)
-        fingerprint = self._chunker.fingerprint()
+        ancestor = None if not covered else common_ancestor(self._sections, covered)
+        index = len(self._chunks)
+        fingerprint = self._chunker.fingerprint
         section_ids = [] if self._whole else [self._section_ids[i] for i in covered]
-        parent_section_id = None
-        if not self._whole and ancestor is not None:
-            parent_section_id = self._section_ids[ancestor]
-        self._out.append(
+        if table is not None:
+            parent, order = table, index
+        elif self._whole or ancestor is None:
+            parent, order = self._document_id, position
+        else:
+            parent, order = self._section_ids[ancestor], position
+        # Pieces split from one unit share its position. Bump the order past
+        # taken values so sibling edges keep the pieces' reading order.
+        while (parent, order) in self._taken_orders:
+            order += 1
+        self._taken_orders.add((parent, order))
+        self._chunks.append(
             Chunk(
                 id=chunk_id(self._document_id, self._version, fingerprint, index),
                 document_id=self._document_id,
@@ -344,7 +455,8 @@ class _Run:
                 chunker=CHUNKER_NAME,
                 chunker_hash=fingerprint,
                 section_ids=section_ids,
-                parent_section_id=parent_section_id,
-                position=position,
             )
+        )
+        self._placements.append(
+            ChunkPlacement(chunk_index=index, parent_node_id=parent, order=order)
         )

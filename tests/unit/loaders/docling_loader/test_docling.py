@@ -76,24 +76,38 @@ class TestSourceLimits:
 class TestConversionFailure:
     """Any failure inside docling is an ingestion error."""
 
-    @pytest.mark.parametrize("error", [RuntimeError("no model"), ValueError("bad")])
+    @pytest.mark.parametrize("error", ["conversion", "os"])
     def test_a_failed_conversion_raises_document_conversion_error(
-        self, error: Exception
+        self, error: str
     ) -> None:
         """Walker policies such as SKIP catch only the wrapped error."""
+        from docling.exceptions import ConversionError  # noqa: PLC0415
+
+        failure = (
+            ConversionError("no model") if error == "conversion" else OSError("disk")
+        )
         with patch("agrag.loaders.docling.loader.slim_converter") as converter:
-            converter.return_value.convert.side_effect = error
+            converter.return_value.convert.side_effect = failure
             with pytest.raises(DocumentConversionError):
+                list(DoclingLoader().load(_source(), BytesIO(_RAW), ReadOptions()))
+
+    def test_an_unexpected_error_is_not_wrapped(self) -> None:
+        """Only conversion and IO failures become ingestion errors."""
+        with patch("agrag.loaders.docling.loader.slim_converter") as converter:
+            converter.return_value.convert.side_effect = ValueError("bad")
+            with pytest.raises(ValueError, match="bad"):
                 list(DoclingLoader().load(_source(), BytesIO(_RAW), ReadOptions()))
 
     def test_a_pdf_failure_is_wrapped_too(self) -> None:
         """The PDF loader wraps the same way."""
+        from docling.exceptions import ConversionError  # noqa: PLC0415
+
         pdf = b"%PDF-1.4 fake"
         with (
             patch("agrag.loaders.docling.loader.ocr_choice", return_value="off"),
             patch("agrag.loaders.docling.loader.pdf_converter") as converter,
         ):
-            converter.return_value.convert.side_effect = RuntimeError("no model")
+            converter.return_value.convert.side_effect = ConversionError("no model")
             with pytest.raises(DocumentConversionError):
                 list(
                     DoclingPdfLoader().load(
@@ -120,8 +134,10 @@ class TestRouting:
     def test_only_the_pdf_loader_needs_the_extra(self) -> None:
         """A bare install reads every format except PDF and images."""
         assert DoclingLoader.extra is None
+        assert DoclingLoader().is_available()
         assert DoclingPdfLoader.extra == "docling"
-        assert DoclingPdfLoader.extra_module == "docling_ibm_models"
+        with patch("importlib.util.find_spec", return_value=None):
+            assert not DoclingPdfLoader().is_available()
 
 
 class TestPageBoxes:

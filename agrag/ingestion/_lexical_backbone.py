@@ -80,6 +80,11 @@ def build_part_of_records(
 def build_next_chunk_records(chunks: list[Chunk]) -> list[RelationRecord]:
     """Return edges joining adjacent chunks within each document.
 
+    Grouping is by ``document_id`` only: every chunk of one document, text
+    and table alike and whatever section holds it, forms a single chain in
+    index order. Section membership never splits the chain, so a document
+    with several sections still yields one ``N-1`` edge sequence.
+
     Records carry no temporal fields: sequencing is version-independent,
     unlike ``PART_OF`` currency.
     """

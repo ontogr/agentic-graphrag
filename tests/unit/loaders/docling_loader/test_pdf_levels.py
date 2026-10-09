@@ -3,8 +3,7 @@
 import pytest
 from docling_core.types.doc import DoclingDocument
 
-from agrag.loaders.docling._pdf_levels import numbered_depths, numbering_depth
-from agrag.loaders.docling._sections import read_body
+from agrag.loaders.docling._sections import numbered_depths, numbering_depth, read_body
 
 
 def _document(headings: list[tuple[str, int]]) -> DoclingDocument:

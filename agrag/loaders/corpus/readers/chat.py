@@ -5,11 +5,11 @@ import unicodedata
 from collections.abc import Iterator
 from typing import Any, BinaryIO
 
-from agrag.common.data_models.document import DocumentSection, SourceFormat
+from agrag.common.data_models.document import Document, DocumentSection, SourceFormat
 from agrag.loaders.corpus.base import ProseLoader
 from agrag.loaders.corpus.decode import decode_text
 from agrag.loaders.corpus.errors import MalformedRecordError
-from agrag.loaders.corpus.readers._common import (
+from agrag.loaders.corpus.readers.common import (
     build_prose_document,
     paragraph_units,
     read_within_limit,
@@ -52,7 +52,7 @@ def _messages(text: str, source: SourceRef) -> list[dict[str, Any]]:
             messages.append(json.loads(line))
         except json.JSONDecodeError as exc:
             raise MalformedRecordError(
-                f"Failed to parse line {line_no} of {source.uri}: {exc}"
+                f"Failed to parse line {line_no + 1} of {source.uri}: {exc}"
             ) from exc
     return messages
 
@@ -83,7 +83,7 @@ class ChatLoader(ProseLoader):
         opts: ReadOptions,
         *,
         start_at: int = 0,
-    ) -> Iterator:
+    ) -> Iterator[Document]:
         """Yield one prose Document that holds every message.
 
         Args:

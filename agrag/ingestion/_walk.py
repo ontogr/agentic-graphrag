@@ -9,12 +9,12 @@ from typing import Union
 from opentelemetry.trace import Tracer
 
 from agrag.chunking import Chunker
-from agrag.common.data_models.chunk import Chunk
+from agrag.chunking.chunker import ChunkedDocument
 from agrag.common.data_models.document import Document
-from agrag.loaders.corpus._walk import _CorpusWalk, _InMemoryWalk
 from agrag.loaders.corpus.base import Loader
 from agrag.loaders.corpus.registry import LoaderRegistry
 from agrag.loaders.corpus.types import ErrorPolicy, LoadStats, ReadOptions
+from agrag.loaders.corpus.walk import _CorpusWalk, _InMemoryWalk
 
 
 SourceType = Union[str, Path]
@@ -114,7 +114,7 @@ async def iter_document_batches(
 
 def chunk_documents(
     documents: list[Document], *, chunker: Chunker, tracer: Tracer
-) -> list[Chunk]:
+) -> list[ChunkedDocument]:
     """Chunk a batch of documents.
 
     Args:
@@ -123,19 +123,20 @@ def chunk_documents(
         tracer: A tracer to record one span for each document.
 
     Returns:
-        The chunks in document then chunk order.
+        One chunked document per input document, in the same order, each with
+        its chunks and their placements.
     """
-    chunks: list[Chunk] = []
+    chunked: list[ChunkedDocument] = []
     for document in documents:
         with tracer.start_as_current_span(
             "agrag.ingestion.chunk_document",
             attributes={
                 "agrag.document_key": document.resolved_document_key,
-                "agrag.chunker.hash": chunker.fingerprint(),
+                "agrag.chunker.hash": chunker.fingerprint,
                 "agrag.chunker.settings": json.dumps(chunker.settings()),
             },
         ) as span:
             document_chunks = chunker.chunk(document)
-            span.set_attribute("agrag.chunks_produced", len(document_chunks))
-        chunks.extend(document_chunks)
-    return chunks
+            span.set_attribute("agrag.chunks_produced", len(document_chunks.chunks))
+        chunked.append(document_chunks)
+    return chunked

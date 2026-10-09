@@ -5,10 +5,10 @@ from typing import BinaryIO
 
 from selectolax.parser import HTMLParser
 
-from agrag.common.data_models.document import SourceFormat
+from agrag.common.data_models.document import Document, SourceFormat
 from agrag.loaders.corpus.base import ProseLoader
 from agrag.loaders.corpus.decode import decode_text
-from agrag.loaders.corpus.readers._common import (
+from agrag.loaders.corpus.readers.common import (
     EXTENSION_FORMAT,
     build_prose_document,
     read_within_limit,
@@ -34,7 +34,7 @@ class TextLoader(ProseLoader):
         opts: ReadOptions,
         *,
         start_at: int = 0,
-    ) -> Iterator:
+    ) -> Iterator[Document]:
         """Yield one prose Document from the source.
 
         Args:
@@ -48,7 +48,7 @@ class TextLoader(ProseLoader):
         """
         raw = read_within_limit(stream, source, opts)
         decoded = decode_text(raw, opts)
-        source_format = EXTENSION_FORMAT.get(source.extension, SourceFormat.TXT)
+        source_format = EXTENSION_FORMAT[source.extension]
         yield build_prose_document(
             source=source,
             text=decoded.text,
@@ -80,7 +80,7 @@ class XmlLoader(ProseLoader):
         opts: ReadOptions,
         *,
         start_at: int = 0,
-    ) -> Iterator:
+    ) -> Iterator[Document]:
         """Yield one prose Document from the text of the elements.
 
         Args:

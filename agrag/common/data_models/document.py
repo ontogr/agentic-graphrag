@@ -2,10 +2,9 @@
 
 from datetime import UTC, datetime
 from enum import StrEnum
-from typing import Any
 from uuid import NAMESPACE_OID, UUID, uuid5
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, JsonValue, model_validator
 
 from agrag.common.data_models.data_point import DataPoint
 from agrag.common.data_models.graph_record import NodeRecord
@@ -109,15 +108,16 @@ class Unit(BaseModel):
     def header(self) -> list[str]:
         """Return the column names of a table, one for each column.
 
-        The first ``header_rows`` rows make the header. When the source marks no
-        header rows, the first row makes it. A spanned header cell repeats its text
-        in every slot it covers, so each column keeps each text once. Empty when the
-        table has no rows.
+        The first ``header_rows`` rows make the header. Empty when the table
+        has no rows or when the source marks no header rows. A spanned header
+        cell repeats its text in every slot it covers, so each column keeps
+        each text once. Table chunk rendering may still treat the first row
+        as the header; see chunking table texts.
         """
-        if not self.rows:
+        if not self.rows or self.header_rows == 0:
             return []
         width = max(len(row) for row in self.rows)
-        head = self.rows[: max(self.header_rows, 1)]
+        head = self.rows[: self.header_rows]
         names: list[str] = []
         for column in range(width):
             parts = [
@@ -136,6 +136,16 @@ class Unit(BaseModel):
             raise ValueError("a unit span must satisfy 0 <= char_start <= char_end")
         return self
 
+    @model_validator(mode="after")
+    def _check_caption_text(self) -> "Unit":
+        """Require the text of a table or figure to equal its caption."""
+        if self.kind in (
+            UnitKind.TABLE,
+            UnitKind.FIGURE,
+        ) and self.text != (self.caption or ""):
+            raise ValueError(f"a {self.kind.value} unit's text must equal its caption")
+        return self
+
 
 class DocumentSection(BaseModel):
     """One heading of a document and the content directly under it.
@@ -149,8 +159,10 @@ class DocumentSection(BaseModel):
             heading.
         depth: The heading depth. A top-level heading has depth 1. A document title
             or a section made for content with no heading has depth 0.
-        parent: The index in ``Document.sections`` of the section that contains this
-            one. ``None`` for a section that sits directly under the document.
+        parent: The positional index in ``Document.sections`` of the section that
+            contains this one. ``None`` for a section that sits directly under
+            the document. The index must come before this section, and the
+            parent must be shallower. Always an int index, never a key or id.
         source_id: The id of the source record, such as a chat message id.
         units: The content directly under the heading, in reading order.
     """
@@ -160,6 +172,29 @@ class DocumentSection(BaseModel):
     parent: int | None = None
     source_id: str | None = None
     units: list[Unit] = Field(default_factory=list)
+
+
+def _check_unit_provenance(unit: Unit, index: int, unit_index: int) -> None:
+    """Require ordered pages and boxes when a unit carries them.
+
+    A unit from a pageless source, such as Markdown read with docling, carries
+    neither character offsets nor pages. Its location is the section path and
+    the chunk order, so the check only validates the spans a unit does carry.
+    """
+    page_nos = [span.page_no for span in unit.pages]
+    for span in unit.pages:
+        if span.page_no < 1:
+            raise ValueError(
+                f"section {index} unit {unit_index} "
+                f"has page_no {span.page_no}, want >= 1"
+            )
+        box = span.bbox
+        if not (box.x0 <= box.x1 and box.y0 <= box.y1):
+            raise ValueError(
+                f"section {index} unit {unit_index} has a bbox with x0 > x1 or y0 > y1"
+            )
+    if page_nos != sorted(page_nos):
+        raise ValueError(f"section {index} unit {unit_index} has pages out of order")
 
 
 class Document(DataPoint):
@@ -205,9 +240,9 @@ class Document(DataPoint):
         raw_record: The original record data. A loader sets this field only when the
             caller asks for it.
         sections: The headings of the document and the content under them, in reading
-            order. A document with no headings has one section with an empty heading.
-            A record row has none: its text is one unit of content. A document read
-            without its text (``store_text`` off) has none either.
+            order. A non-blank document with no headings has one section with an
+            empty heading. A record row has none: its text is one unit of content.
+            A document read without its text (``store_text`` off) has none either.
         document_key: The stable identifier for this document's persisted graph node.
             Independent of ``id``, which changes with every content edit. Defaults to
             ``uri`` when not supplied.
@@ -233,7 +268,7 @@ class Document(DataPoint):
 
     record_index: int | None = None
     record_id: str | None = None
-    raw_record: dict[str, Any] | None = None
+    raw_record: dict[str, JsonValue] | None = None
 
     sections: list[DocumentSection] = Field(default_factory=list)
     document_key: str | None = None
@@ -241,7 +276,8 @@ class Document(DataPoint):
 
     @model_validator(mode="after")
     def _check_sections(self) -> "Document":
-        """Require parents before children and unit spans that match the text."""
+        """Require a valid tree, provenanced units, and text that matches."""
+        last_end = 0
         for index, section in enumerate(self.sections):
             if section.parent is not None:
                 if not 0 <= section.parent < index:
@@ -251,13 +287,30 @@ class Document(DataPoint):
                     )
                 if section.depth <= self.sections[section.parent].depth:
                     raise ValueError(f"section {index} must be deeper than its parent")
-            for unit in section.units:
-                if unit.char_start is None:
-                    continue
-                if self.text[unit.char_start : unit.char_end] != unit.text:
-                    raise ValueError(
-                        f"a unit of section {index} does not match the document text"
-                    )
+            for unit_index, unit in enumerate(section.units):
+                _check_unit_provenance(unit, index, unit_index)
+                if unit.char_start is not None:
+                    if unit.char_end is None:
+                        raise ValueError(
+                            f"section {index} unit {unit_index} "
+                            "has char_start without char_end"
+                        )
+                    if not 0 <= unit.char_start <= unit.char_end <= len(self.text):
+                        raise ValueError(
+                            f"section {index} unit {unit_index} "
+                            "spans outside the document text"
+                        )
+                    if unit.char_start < last_end:
+                        raise ValueError(
+                            f"section {index} unit {unit_index} "
+                            "starts before the previous unit ends"
+                        )
+                    last_end = unit.char_end
+                    if self.text[unit.char_start : unit.char_end] != unit.text:
+                        raise ValueError(
+                            f"section {index} unit {unit_index} "
+                            "does not match the document text"
+                        )
         return self
 
     @model_validator(mode="after")

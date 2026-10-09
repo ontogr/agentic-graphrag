@@ -117,7 +117,6 @@ class ReadOptions:
         json_mode: The JSON reading mode.
         csv_mode: The CSV reading mode.
         csv_delimiter: The column separator. ``None`` infers it from the extension.
-        html_selector: The CSS selector for the main content of an HTML source.
         normalization: How to normalize decoded text: byte-order mark, newline form
             and Unicode form. The default removes the mark, uses LF and applies NFKC.
             Chunk offsets index the normalized text.
@@ -135,8 +134,6 @@ class ReadOptions:
     json_mode: JsonMode = JsonMode.AUTO
     csv_mode: CsvMode = CsvMode.ROWS
     csv_delimiter: str | None = None
-
-    html_selector: str | None = None
 
     normalization: Normalization = field(default_factory=Normalization)
 

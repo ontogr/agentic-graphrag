@@ -20,16 +20,10 @@ from agrag.loaders.corpus.types import DecodedText, ReadOptions, SourceRef
 EXTENSION_FORMAT: dict[str, SourceFormat] = {
     ".txt": SourceFormat.TXT,
     ".log": SourceFormat.LOG,
-    ".xml": SourceFormat.XML,
-    ".json": SourceFormat.JSON,
-    ".jsonl": SourceFormat.JSONL,
-    ".ndjson": SourceFormat.JSONL,
-    ".csv": SourceFormat.CSV,
-    ".tsv": SourceFormat.TSV,
 }
 
 _DEFAULT_TEXT_COLUMNS = ("text", "body", "content", "description")
-_BLANK_LINES = re.compile(r"\n[ \t]*\n+")
+_BLANK_LINES = re.compile(r"(?:\r\n|\r|\n)[ \t]*(?:\r\n|\r|\n)+")
 
 
 def paragraph_units(text: str, offset: int = 0) -> list[Unit]:
@@ -122,6 +116,8 @@ def build_prose_document(
     opts: ReadOptions,
     title: str,
     sections: list[DocumentSection] | None = None,
+    content_hash: str | None = None,
+    loader_version: str | None = None,
 ) -> Document:
     """Build a prose-family Document from final text.
 
@@ -138,19 +134,28 @@ def build_prose_document(
         title: The document title.
         sections: The sections of the document. Dropped when the read options do
             not store text, because their units point into the text.
+        content_hash: The content hash to record. Defaults to the hash of
+            ``text``. A loader whose parsed output is unstable across versions
+            passes the hash of its raw source bytes instead.
+        loader_version: The version of the loader package, when known.
 
     Returns:
         The built Document.
     """
-    content_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()
+    resolved_hash = (
+        content_hash
+        if content_hash is not None
+        else hashlib.sha256(text.encode("utf-8")).hexdigest()
+    )
     return Document(
         text=text if opts.store_text else "",
         title=title,
         uri=source.uri,
         source_format=source_format,
         family=DocumentFamily.PROSE,
-        content_hash=content_hash,
+        content_hash=resolved_hash,
         loader_name=loader_name,
+        loader_version=loader_version,
         encoding=encoding,
         char_count=len(text),
         line_count=text.count("\n") + 1,
@@ -195,18 +200,16 @@ def resolve_text_column(headers: list[str], text_column: str | None) -> str:
     return headers[-1]
 
 
-def source_title(source: SourceRef, fallback: str = "") -> str:
+def source_title(source: SourceRef) -> str:
     """Derive a document title from the source uri.
 
     Args:
         source: The source to name.
-        fallback: The title to use when the uri has no useful name.
 
     Returns:
-        The file stem, or the fallback when the uri is not a file path.
+        The file name of the uri.
     """
-    name = PurePosixPath(source.uri).name
-    return name or fallback
+    return PurePosixPath(source.uri).name
 
 
 def record_source_hash(raw: bytes) -> str:

@@ -11,11 +11,11 @@ from agrag.loaders.corpus.registry import LoaderRegistry
 
 
 registry: LoaderRegistry = LoaderRegistry()
-registry.register(TextLoader(), prefer=True)
-registry.register(XmlLoader(), prefer=True)
-registry.register(CsvLoader(), prefer=True)
-registry.register(JsonlLoader(), prefer=True)
-registry.register(JsonLoader(), prefer=True)
+registry.register(TextLoader())
+registry.register(XmlLoader())
+registry.register(CsvLoader())
+registry.register(JsonlLoader())
+registry.register(JsonLoader())
 
 __all__ = [
     "registry",

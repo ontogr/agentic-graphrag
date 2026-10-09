@@ -13,12 +13,13 @@ from agrag.common.data_models.provenance import TextProvenance
 from agrag.common.data_models.structure import chunk_id
 
 
-def _chunk(**fields: str | None) -> Chunk:
+def _chunk(**fields: object) -> Chunk:
     return Chunk(
+        id=uuid4(),
         document_id=uuid4(),
         text="hello",
         provenance=TextProvenance(char_start=0, char_end=5),
-        **fields,
+        **fields,  # type: ignore[arg-type]
     )
 
 
@@ -54,12 +55,6 @@ class TestSectionIds:
         """A chunk with no sections writes no property."""
         assert "section_ids" not in _chunk().to_node_record().properties
 
-    def test_does_not_store_the_reading_position(self) -> None:
-        """The position only orders edges while a document is written."""
-        record = _chunk().model_copy(update={"position": 7}).to_node_record()
-
-        assert "position" not in record.properties
-
 
 class TestChunkId:
     """A chunk without an id gets one from its document, chunker and index."""
@@ -77,6 +72,7 @@ class TestChunkId:
 
 def _chunk_for(document_id, *, index: int, chunker_hash: str) -> Chunk:
     return Chunk(
+        id=chunk_id(document_id, "", chunker_hash, index),
         document_id=document_id,
         index=index,
         text="hello",
@@ -90,6 +86,7 @@ class TestContextualText:
 
     def _chunk(self, path: list[str], text: str = "body text") -> Chunk:
         return Chunk(
+            id=uuid4(),
             document_id=uuid4(),
             text=text,
             provenance=TextProvenance(char_start=0, char_end=len(text)),

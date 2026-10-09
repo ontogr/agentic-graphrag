@@ -1,8 +1,5 @@
 """Chunk retriever: dense vector search over chunks."""
 
-from collections.abc import Mapping
-from typing import Any, cast
-
 from opentelemetry.trace import Tracer
 
 from agrag.common.data_models.chunk import CHUNK_LABEL, Chunk
@@ -11,6 +8,7 @@ from agrag.cypher.entities import load_chunks_by_id_query
 from agrag.embedding.base import Embedder
 from agrag.graphdb.base import GraphStore
 from agrag.observability import get_tracer
+from agrag.retrieval.chunking import parse_chunk_node
 from agrag.retrieval.filters import SearchFilters
 from agrag.retrieval.methods.vector import vector_search
 from agrag.retrieval.retrievers.base import Retriever
@@ -148,63 +146,4 @@ class ChunkRetriever(Retriever):
     @staticmethod
     def _parse_chunk_node(node: object) -> Chunk | None:
         """Parse a GraphStore node row into a Chunk."""
-        try:
-            props: dict = {}
-            node_id: object = None
-
-            if isinstance(node, dict) and "properties" in node:
-                props = dict(node.get("properties") or {})
-                node_id = node.get("id") or props.get("id")
-            elif isinstance(node, dict) and "id" in node:
-                props = dict(node)
-                node_id = props.get("id")
-            else:
-                if not hasattr(node, "keys"):
-                    return None
-                props = dict(cast(Mapping[str, Any], node))
-                node_id = props.get("id")
-
-            if node_id is None:
-                return None
-
-            import json  # noqa: PLC0415
-            from uuid import UUID  # noqa: PLC0415
-
-            from agrag.common.data_models.provenance import (  # noqa: PLC0415
-                PageProvenance,
-                TextProvenance,
-            )
-
-            prov_raw = props.get("provenance")
-            prov_data: dict[str, Any]
-            if isinstance(prov_raw, str):
-                prov_data = json.loads(prov_raw)
-            elif isinstance(prov_raw, dict):
-                prov_data = prov_raw
-            else:
-                prov_data = {"kind": "text", "char_start": 0, "char_end": 0}
-
-            if prov_data.get("kind") == "page":
-                provenance = PageProvenance(**prov_data)
-            else:
-                provenance = TextProvenance(**prov_data)
-
-            embedding = props.get("embedding")
-
-            chunk = Chunk(
-                id=UUID(str(node_id)),
-                document_id=UUID(props["document_id"]),
-                index=props.get("index", 0),
-                text=props.get("text", ""),
-                provenance=provenance,
-                heading_path=props.get("heading_path", []),
-                content_kind=props.get("content_kind", "text"),
-                chunker=props.get("chunker"),
-                chunker_hash=props.get("chunker_hash"),
-                section_ids=[UUID(str(i)) for i in props.get("section_ids", [])],
-            )
-            if embedding is not None:
-                chunk.embedding = list(embedding)
-            return chunk
-        except Exception:
-            return None
+        return parse_chunk_node(node)

@@ -75,7 +75,7 @@ class Ledger:
         if isinstance(item, (Entity, ResolvedEntity)):
             return f"[{key}] Entity: {item.name} ({item.label})"
         if isinstance(item, Chunk):
-            return f"[{key}] Chunk: {item.text}"
+            return f"[{key}] Chunk: {item.contextual_text}"
         if isinstance(item, Relation):
             return f"[{key}] Relation: {item.type}({item.source_id}, {item.target_id})"
         if isinstance(item, Community):

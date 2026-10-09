@@ -4,23 +4,30 @@ import pytest
 
 from agrag.common.data_models.document import DocumentSection
 from agrag.common.data_models.structure import (
+    ancestors,
     chunk_id,
     common_ancestor,
     heading_paths,
     node_id,
     reading_positions,
+    reading_positions_for,
     section_keys,
+    section_keys_for,
     version_id,
+    version_id_for_hash,
 )
-from tests.unit.chunking._section_support import paragraph, sectioned_document
+from tests.unit.chunking._section_support import page_unit, sectioned_document
 
 
 def _tree() -> list[DocumentSection]:
     return [
-        DocumentSection(heading="Intro", depth=1, units=[paragraph("a")]),
-        DocumentSection(heading="Method", depth=1, units=[paragraph("b")]),
+        DocumentSection(heading="Intro", depth=1, units=[page_unit("a", 1)]),
+        DocumentSection(heading="Method", depth=1, units=[page_unit("b", 1)]),
         DocumentSection(
-            heading="Data", depth=2, parent=1, units=[paragraph("c"), paragraph("d")]
+            heading="Data",
+            depth=2,
+            parent=1,
+            units=[page_unit("c", 1), page_unit("d", 1)],
         ),
         DocumentSection(heading="Model", depth=2, parent=1),
         DocumentSection(heading="Results", depth=1),
@@ -61,6 +68,19 @@ class TestSectionKeys:
 
         assert keys[0] != keys[1]
 
+    def test_a_separator_inside_a_heading_does_not_merge_paths(self) -> None:
+        """A heading holding the old separator still differs from a nested path."""
+        flat = [DocumentSection(heading="A\x1fB", depth=1)]
+        nested = [
+            DocumentSection(heading="A", depth=1),
+            DocumentSection(heading="B", depth=2, parent=0),
+        ]
+
+        assert (
+            section_keys(sectioned_document(flat))[0]
+            != section_keys(sectioned_document(nested))[1]
+        )
+
 
 class TestIds:
     """Node ids change with the version. Keys do not."""
@@ -69,7 +89,6 @@ class TestIds:
         """Node id depends on key and version."""
         key = section_keys(sectioned_document(_tree()))[0]
 
-        assert node_id(key, "v1") == node_id(key, "v1")
         assert node_id(key, "v1") != node_id(key, "v2")
 
     def test_ids_differ_when_a_colon_moves_between_parts(self) -> None:
@@ -92,7 +111,6 @@ class TestIds:
         document_id = node_id(section_keys(sectioned_document(_tree()))[0], "v1")
         base = chunk_id(document_id, "v1", "hash", 0)
 
-        assert base == chunk_id(document_id, "v1", "hash", 0)
         assert base != chunk_id(document_id, "v2", "hash", 0)
         assert base != chunk_id(document_id, "v1", "other", 0)
         assert base != chunk_id(document_id, "v1", "hash", 1)
@@ -141,3 +159,54 @@ class TestCommonAncestor:
     ) -> None:
         """Finds the lowest container."""
         assert common_ancestor(_tree(), indexes) == expected
+
+    def test_rejects_empty_indexes(self) -> None:
+        """Empty indexes raise."""
+        with pytest.raises(ValueError, match="at least one"):
+            common_ancestor(_tree(), [])
+
+
+class TestAncestorsGuards:
+    """Ancestors rejects a bad index and a parent cycle."""
+
+    def test_rejects_an_index_outside_the_sections(self) -> None:
+        """An index outside the sections raises."""
+        with pytest.raises(ValueError, match="outside"):
+            ancestors(_tree(), 99)
+
+    def test_rejects_a_parent_cycle(self) -> None:
+        """A parent cycle raises."""
+        sections = [
+            DocumentSection(heading="A", depth=1, parent=1),
+            DocumentSection(heading="B", depth=2, parent=0),
+        ]
+
+        with pytest.raises(ValueError, match="links back"):
+            ancestors(sections, 0)
+
+
+class TestScalarHelpers:
+    """The scalar helpers match the Document wrappers."""
+
+    def test_version_id_matches_its_hash_helper(self) -> None:
+        """Version id equals the hash helper."""
+        document = sectioned_document(_tree(), content_hash="v1")
+
+        assert version_id(document) == version_id_for_hash(content_hash="v1")
+        assert version_id_for_hash(content_hash="a") != version_id_for_hash(
+            content_hash="b"
+        )
+
+    def test_section_keys_match_the_scalar_helper(self) -> None:
+        """Section keys equal the scalar helper."""
+        document = sectioned_document(_tree())
+
+        assert section_keys(document) == section_keys_for(
+            document.sections, document.resolved_document_key
+        )
+
+    def test_reading_positions_match_the_scalar_helper(self) -> None:
+        """Reading positions equal the scalar helper."""
+        document = sectioned_document(_tree())
+
+        assert reading_positions(document) == reading_positions_for(document.sections)
