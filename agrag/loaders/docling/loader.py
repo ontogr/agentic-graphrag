@@ -86,9 +86,9 @@ class DoclingLoader(ProseLoader):
         Raises:
             DocumentTooLargeError: The source is larger than the configured byte
                 limit.
-            DocumentConversionError: Docling, its export, or the PDF text check
-                failed on the source, for any reason. Walker policies such as SKIP
-                and QUARANTINE catch this error.
+            DocumentConversionError: Docling or its export failed on the source,
+                for any reason. Walker policies such as SKIP and QUARANTINE catch
+                this error.
             ValueError: ``opts.max_document_bytes`` is not a positive integer.
         """
         raw = read_within_limit(stream, source, opts)
