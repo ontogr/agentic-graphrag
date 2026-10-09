@@ -24,7 +24,7 @@ from agrag.graphdb.base import GraphStore
 from agrag.graphdb.entities import load_entities
 from agrag.llm.retry import NO_RETRY, call_with_retry
 from agrag.observability import get_tracer
-from agrag.retrieval.chunking import parse_chunk_node
+from agrag.retrieval.chunking import is_chunk_node, parse_chunk_node
 from agrag.retrieval.filters import SearchFilters
 from agrag.retrieval.retrievers.base import Retriever
 from agrag.retrieval.settings import RetrievalSettings
@@ -576,13 +576,13 @@ class Text2CypherRetriever(Retriever):
     def _extract_chunk(row: dict) -> Chunk | None:
         for key in ("c", "chunk"):
             val = row.get(key)
-            if val is None:
+            if val is None or not is_chunk_node(val):
                 continue
             chunk = parse_chunk_node(val)
             if chunk is not None:
                 return chunk
         for key, val in row.items():
-            if key == "id":
+            if key in ("id", "c", "chunk") or not is_chunk_node(val):
                 continue
             chunk = parse_chunk_node(val)
             if chunk is not None:
