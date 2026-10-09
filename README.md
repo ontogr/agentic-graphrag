@@ -72,17 +72,13 @@ An entity node carries its schema type as a label, for example `:Person`. You ca
 
 Documents keep their source URI, format, loader, content hash, and record identity. Text formats use content-based identities. Binary Docling formats use raw-byte hashes. A document holds a tree of sections, tables, and figures. Chunks keep stable links into that tree and source provenance:
 
-- A section keeps its heading, depth, and a stable `section_key`. It holds no text.
-- Text chunks record character spans plus their heading path, and are exact slices of the document text.
-- Chunks from PDF and slides record page numbers and bounding boxes.
-- Record formats such as CSV, TSV, JSON, and JSON Lines preserve row identity.
-- A new document version writes a new tree. The old tree stays as history.
+A section keeps its heading, depth, and a stable `section_key`, and it holds no text. Text chunks record character spans plus their heading path, and they are exact slices of the document text. Chunks from PDF and slides record page numbers and bounding boxes. Record formats such as CSV, TSV, JSON, and JSON Lines preserve row identity. A new document version writes a new tree, and the old tree stays as history.
 
 ### Entities and relations
 
 Extraction produces mentions first, not graph nodes. Each mention keeps its source chunk, label, text span, confidence, and extractor provenance. Resolution then decides which mentions name the same thing. Mentions with the same label and the same normalized text share one entity node.
 
-Relations are directed subject–predicate–object triples. The active schema constrains valid source type, relation type, and target type combinations. Validation removes invalid triples before they reach the graph.
+Relations are directed subject-predicate-object triples. The active schema constrains valid source type, relation type, and target type combinations. Validation removes invalid triples before they reach the graph.
 
 ### Matches and resolved entities
 
@@ -107,10 +103,7 @@ Use the `GENERIC` preset for open-domain data or provide a schema for a specific
 
 Agentic GraphRAG has two main data flows:
 
-```text
-Ingestion: source -> document -> chunk -> mentions -> matched graph -> indexes
-Query:     question -> plan -> research -> verify -> cited answer
-```
+Ingestion turns a source into a document, then into chunks, mentions, a matched graph, and indexes. A query turns a question into a plan, research, verification, and a cited answer.
 
 ## Ingestion Pipeline
 

@@ -60,15 +60,15 @@ Suppose you change `size` from 600 to 400 and call `Graph.update` for the file. 
 <details>
 <summary>Design choices</summary>
 
-Why one chunker for all formats? Every loader gives the same input: sections made of units. A single packer then behaves the same for every format. A per-format choice would also make loading harder to predict.
+One chunker serves all formats. Every loader gives the same input: sections made of units. A single packer then behaves the same for every format. A per-format choice would also make loading harder to predict.
 
-Why one level of chunk? Extraction and search use the same chunk. The agent gets wider context by walking from the chunk to its section in the graph. A second, larger level would double the embeddings.
+There is one level of chunk. Extraction and search use the same chunk. The agent gets wider context by walking from the chunk to its section in the graph. A second, larger level would double the embeddings.
 
-Why 600 tokens? Smaller chunks gave more entities per token in the Microsoft GraphRAG study, and they make search results sharper. The default is a starting point. The benchmark harness compares it with 1,000 tokens.
+The default size is 600 tokens. Smaller chunks gave more entities per token in the Microsoft GraphRAG study, and they make search results sharper. Treat the default as a starting point. The benchmark runner compares it with 1,000 tokens.
 
-Why does a small chunk carry on into the next section? Sections that hold a line or two make chunks that embed badly and cost an extraction call each. Carrying on removes most of them.
+A small chunk carries on into the next section. Sections that hold a line or two make chunks that embed badly and cost an extraction call each. Carrying on removes most of them.
 
-Why record the chunker on each chunk? `Graph.update` compares its fingerprint with the current one. If the settings changed, the document is chunked again even when its text did not change.
+Each chunk records its chunker. `Graph.update` compares its fingerprint with the current one. If the settings changed, the document is chunked again even when its text did not change.
 
 </details>
 

@@ -23,7 +23,7 @@ Each question has a question type, a gold answer, and a list of evidence sentenc
 - Contextual Summarize: a summary of one topic.
 - Creative Generation: a writing task that uses facts from the text, such as a news article or a discharge summary.
 
-The harness reads the text and the questions from the Hugging Face dataset [`GraphRAG-Bench/GraphRAG-Bench`](https://huggingface.co/datasets/GraphRAG-Bench/GraphRAG-Bench) at a pinned revision. It makes sure that the hash of every file and every document matches before it uses them. The text stays exactly as the dataset gives it. A novel is one document. A Medical extract is one document. The harness finds the extracts by splitting the Medical text on its newlines.
+The benchmark runner reads the text and the questions from the Hugging Face dataset [`GraphRAG-Bench/GraphRAG-Bench`](https://huggingface.co/datasets/GraphRAG-Bench/GraphRAG-Bench) at a pinned revision. It makes sure that the hash of every file and every document matches before it uses them. The text stays exactly as the dataset gives it. A novel is one document. A Medical extract is one document. The benchmark runner finds the extracts by splitting the Medical text on its newlines.
 
 ### Lite and full
 
@@ -38,7 +38,7 @@ The full set has 130 Medical questions and 120 Novel questions, sampled with a f
 
 The two corpora never share a graph. Each corpus is ingested alone into its own Neo4j service, so a question about a novel cannot find text from another book.
 
-Three Medical extracts occur twice in the Medical text, which is 5.4% of its tokens. The harness keeps them, because the benchmark does, and gives each extract its own document uri. Lite has none of them.
+Three Medical extracts occur twice in the Medical text, which is 5.4% of its tokens. The benchmark runner keeps them, because the benchmark does, and gives each extract its own document uri. Lite has none of them.
 
 ## The graph schemas
 
@@ -65,7 +65,7 @@ The port of `official_accuracy` differs from the scorer in these ways:
 
 - The judge is the judge model of the run, not the scorer's OpenAI model.
 - The embedder is the embedder of the run (`ibm-granite/granite-embedding-small-english-r2`), not the scorer's BGE model. The embedding term therefore does not compare with published numbers.
-- The harness removes a code fence from around a judge reply before it reads the JSON. A reply that still does not parse takes the scorer's fallback, and the question gets the flag `parse_error`.
+- The benchmark runner removes a code fence from around a judge reply before it reads the JSON. A reply that still does not parse takes the scorer's fallback, and the question gets the flag `parse_error`.
 
 The embedding term sets a floor. An answer that is wrong or empty still scores about 0.2, because unrelated texts have a similar embedding. Read `official_accuracy` next to `correctness`.
 
