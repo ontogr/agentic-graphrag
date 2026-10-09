@@ -63,10 +63,6 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
-## Child chunks and their parents
-
-When you chunk with `ParentChildChunker`, a chunk search returns child chunks. Each `SearchResult` has the parent chunk in `SearchResult.parent`. It is `None` for every other result. The agent sees the parent text under the citation key of the first child hit, for example `[C1]`. A later child of the same parent shows its own text and the note `(part of [C1])`. A citation always names the child. See [Configure chunking](./configure-chunking.mdx) for the setup.
-
 ## Using build_agent
 
 {/* pmd-metadata: fixture:llm_env */}

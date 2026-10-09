@@ -48,16 +48,16 @@ from agrag.ingestion._ingest_pipeline import (
     _delete_vectors,
     _embed_and_upsert_chunks,
     _embed_and_upsert_survivors,
-    _global_relation_lookup,
     _upsert_vectors,
 )
+from agrag.ingestion._merge_stage import _global_relation_lookup
 from agrag.ingestion._resolution_maintenance import all_entities_by_label
 from agrag.ingestion._walk import resolve_paths
 from agrag.ingestion.extract import Extractor
 from agrag.ingestion.graph import Graph
 from agrag.ingestion.reports import AddResult
 from agrag.ingestion.resolved_entities import RebuildResult
-from agrag.loaders.corpus.types import ErrorPolicy
+from agrag.loaders.types import ErrorPolicy
 from agrag.retrieval.settings import RetrievalSettings
 from agrag.vectordb.base import VectorStore
 from tests.unit.ingestion._lease_fake import CutoverJobLeaseFake
@@ -468,21 +468,31 @@ class TestGlobalRelationLookup:
             ],
             [],
         ]
-        result = await _global_relation_lookup(triples, graph_store=store)
+        result = await _global_relation_lookup(
+            triples,
+            graph_store=store,
+            error_policy=ErrorPolicy.RAISE,
+            failures=[],
+        )
         assert (s1, t1, "WORKS_AT") in result
         assert result[(s1, t1, "WORKS_AT")][0] == rel_id
         assert (s2, t2, "WORKS_AT") not in result
         assert len(store.execute_read_calls) == 2
 
-    async def test_skips_malformed_rows(self) -> None:
-        """Malformed rows are skipped."""
+    async def test_raises_on_malformed_row_instead_of_hiding_its_edge(self) -> None:
+        """A malformed row fails the lookup, so no duplicate edge is written."""
         store = MockStore()
         s, t = uuid4(), uuid4()
         store.execute_read_responses = [
             [{"source_id": "bad-uuid", "target_id": str(t), "id": str(uuid4())}]
         ]
-        result = await _global_relation_lookup([(s, t, "WORKS_AT")], graph_store=store)
-        assert result == {}
+        with pytest.raises(ValueError):
+            await _global_relation_lookup(
+                [(s, t, "WORKS_AT")],
+                graph_store=store,
+                error_policy=ErrorPolicy.RAISE,
+                failures=[],
+            )
 
 
 class _GuardedNodeStore(MockStore):
@@ -1296,7 +1306,7 @@ class TestGraphAddPipeline:
 
     async def test_loader_requires_single_file(self, tmp_path: Path) -> None:
         """Loader with directory/glob raises."""
-        from agrag.loaders.corpus.readers.prose import TextLoader  # noqa: PLC0415
+        from agrag.loaders.prose import TextLoader  # noqa: PLC0415
 
         (tmp_path / "a.txt").write_text("a")
         store, embed, extractor = MockStore(), MockEmbedder(), MockExtractor()
@@ -1423,7 +1433,8 @@ class TestGraphAddPipeline:
             for rec in batch
             if rec.type == "PART_OF"
         ]
-        assert len(part_of_records) == chunk_count
+        # One edge for each chunk and one for the section that holds the text.
+        assert len(part_of_records) == chunk_count + 1
         document_node_id = document_calls[0][0].id
         assert all(record.start_id == document_node_id for record in part_of_records)
         assert all(record.properties["valid_at"] for record in part_of_records)
@@ -1431,8 +1442,8 @@ class TestGraphAddPipeline:
             record.properties["invalid_at"] is None for record in part_of_records
         )
         assert all(record.properties["version_id"] for record in part_of_records)
-        assert {record.end_id for record in part_of_records} == {
-            chunk.id for chunk in result.chunks
+        assert {chunk.id for chunk in result.chunks} <= {
+            record.end_id for record in part_of_records
         }
 
     async def test_add_two_documents_writes_two_document_records(self) -> None:
@@ -1572,18 +1583,16 @@ class TestGraphAddPipeline:
         with pytest.raises(ValueError):
             await graph.add(text="hi", error_policy=ErrorPolicy.RAISE)
 
-    async def test_empty_chunks_early_return(self) -> None:
-        """No chunks yields early AddResult with no embeddings."""
+    async def test_empty_chunks_writes_only_document_and_section_nodes(self) -> None:
+        """No chunks writes the Document and Section nodes and no embeddings."""
         store, embed, extractor = MockStore(), MockEmbedder(), MockExtractor()
         graph = await Graph.open(
             schema=GENERIC, graph_store=store, embedder=embed, extractor=extractor
         )
-        with mock.patch(
-            "agrag.ingestion._ingest.chunk_documents", return_value=([], [])
-        ):
+        with mock.patch("agrag.ingestion._ingest.chunk_documents", return_value=[]):
             result = await graph.add(text="hi", on_progress=lambda _: None)
             assert result.extraction.chunks_processed == 0
-            assert result.storage.nodes_written == 0
+            assert result.storage.nodes_written == 2
             assert result.chunks == []
 
     async def test_global_exact_match_integration(self) -> None:
@@ -1780,7 +1789,7 @@ class TestGraphAddPipeline:
             extractor=RelExtractor(),
         )
 
-        import agrag.ingestion._ingest_pipeline as gmod  # noqa: PLC0415
+        import agrag.ingestion._merge_stage as gmod  # noqa: PLC0415
 
         async def fake_compute(  # type: ignore[no-untyped-def]
             *, existing_entities, mentions, schema, **kw
@@ -1875,7 +1884,7 @@ class TestGraphAddPipeline:
             extractor=AliceExtractor(),
         )
 
-        import agrag.ingestion._ingest_pipeline as gmod  # noqa: PLC0415
+        import agrag.ingestion._merge_stage as gmod  # noqa: PLC0415
 
         async def fake_compute(  # type: ignore[no-untyped-def]
             *, existing_entities, mentions, schema, **kw

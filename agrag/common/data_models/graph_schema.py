@@ -2,6 +2,18 @@
 
 from pydantic import BaseModel, Field, model_validator
 
+from agrag.common.data_models.chunk import CHUNK_LABEL
+from agrag.common.data_models.community import COMMUNITY_LABEL
+from agrag.common.data_models.cutover_job import CUTOVER_JOB_LABEL
+from agrag.common.data_models.document import DOCUMENT_LABEL
+from agrag.common.data_models.resolved_entity import RESOLVED_ENTITY_LABEL
+from agrag.common.data_models.structure import (
+    FIGURE_LABEL,
+    SECTION_LABEL,
+    SOURCE_LABEL,
+    TABLE_LABEL,
+)
+
 
 # Payload keys every mirrored entity embedding carries: the graph label a
 # SearchFilters label filter matches on, and the embedding text the backends
@@ -9,6 +21,22 @@ from pydantic import BaseModel, Field, model_validator
 # that key in the VectorStore payload while the GraphStore-native path keeps
 # it as an ordinary node property, so the two retrieval paths would disagree.
 _RESERVED_ENTITY_PROPERTY_NAMES = frozenset({"label", "text"})
+
+RESERVED_ENTITY_LABELS = frozenset(
+    {
+        DOCUMENT_LABEL,
+        CHUNK_LABEL,
+        SECTION_LABEL,
+        TABLE_LABEL,
+        FIGURE_LABEL,
+        SOURCE_LABEL,
+        COMMUNITY_LABEL,
+        RESOLVED_ENTITY_LABEL,
+        CUTOVER_JOB_LABEL,
+        "_AgragNode",
+        "_AgragMergeAlias",
+    }
+)
 
 
 def _format_patterns(patterns: list[tuple[str, str]]) -> str:
@@ -32,6 +60,18 @@ class EntityType(BaseModel):
     description: str
     properties: dict[str, str] = Field(default_factory=dict)
     subtypes: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _reject_reserved_labels(self) -> "EntityType":
+        reserved = sorted(RESERVED_ENTITY_LABELS & {self.label, *self.subtypes})
+        if reserved:
+            raise ValueError(
+                f"Entity type '{self.label}' uses reserved label(s) {reserved}; "
+                f"the graph writes its own nodes with "
+                f"{sorted(RESERVED_ENTITY_LABELS)}. Rename the entity type, "
+                "for example 'LegalSection' for 'Section'."
+            )
+        return self
 
     @model_validator(mode="after")
     def _reject_reserved_property_names(self) -> "EntityType":

@@ -28,7 +28,7 @@ A plain vector search finds passages that look like your question. It cannot joi
 </p>
 
 - One ingestion API for raw text, files, directories, globs, and prebuilt documents.
-- Structure-aware loading and chunking with core text readers, Docling for rich documents, and Chonkie for text chunking.
+- Structure-aware loading with Docling for rich documents and core readers for text, XML, and records. Sections, tables, and figures go into the graph, and one section-aware chunker packs every format.
 - Schema-driven extraction with runtime-defined entity types, relation types, and valid graph patterns.
 - Local-first extraction cascade using GLiNER 2.5 with type-safe BAML/LLM fallback for weak or ambiguous chunks. You need no LLM key to build a graph.
 - Tiered entity resolution combining exact, fuzzy, embedding, and LLM-verified matching. An unsure comparison never matches.
@@ -40,7 +40,7 @@ A plain vector search finds passages that look like your question. It cannot joi
 
 The system uses:
 
-- [Docling](https://github.com/docling-project/docling) and [Chonkie](https://github.com/chonkie-inc/chonkie) for document parsing and chunking.
+- [Docling](https://github.com/docling-project/docling) for document parsing and [Chonkie](https://github.com/chonkie-inc/chonkie) to split long paragraphs.
 - [GLiNER 2.5](https://github.com/urchade/GLiNER) for local schema-guided entity and relation extraction.
 - [BAML](https://boundaryml.com/) for typed LLM functions and provider-independent client routing.
 - [Neo4j](https://neo4j.com/) for the property graph and optional native vector search.
@@ -53,7 +53,11 @@ The system uses:
 Agentic GraphRAG stores source material, extracted knowledge, and graph summaries in one typed property graph:
 
 ```text
-(:Chunk)-[:PART_OF]->(:Document)
+(:Document)-[:HAS_CHILD]->(:Section)
+(:Section)-[:HAS_CHILD]->(:Section|:Chunk|:Table|:Figure)
+(:Table)-[:HAS_CHILD]->(:Chunk)
+(:Document)-[:PART_OF]->(:Section|:Chunk|:Table|:Figure)
+(:Source)-[:HAS_DOCUMENT]->(:Document)
 (:Chunk)-[:NEXT_CHUNK]->(:Chunk)
 (:Chunk)-[:MENTIONED_IN]->(entity)
 (entity)-[:<RELATION_TYPE>]->(entity)
@@ -64,19 +68,17 @@ Agentic GraphRAG stores source material, extracted knowledge, and graph summarie
 
 An entity node carries its schema type as a label, for example `:Person`. You can walk from any answer back to its source document.
 
-### Documents and chunks
+### Documents, sections, and chunks
 
-Documents keep their source URI, format, loader, content hash, and record identity. Text formats use content-based identities. Binary Docling formats use raw-byte hashes. Chunks keep stable document links and source provenance:
+Documents keep their source URI, format, loader, content hash, and record identity. Text formats use content-based identities. Binary Docling formats use raw-byte hashes. A document holds a tree of sections, tables, and figures. Chunks keep stable links into that tree and source provenance:
 
-- Text chunks record character and line spans plus their heading path.
-- Layout-aware chunks record page numbers and bounding boxes.
-- Record formats such as CSV, TSV, JSON, and JSON Lines preserve row identity.
+A section keeps its heading, depth, and a stable `section_key`, and it holds no text. Text chunks record character spans plus their heading path, and they are exact slices of the document text. Chunks from PDF and slides record page numbers and bounding boxes. Record formats such as CSV, TSV, JSON, and JSON Lines preserve row identity. A new document version writes a new tree, and the old tree stays as history.
 
 ### Entities and relations
 
 Extraction produces mentions first, not graph nodes. Each mention keeps its source chunk, label, text span, confidence, and extractor provenance. Resolution then decides which mentions name the same thing. Mentions with the same label and the same normalized text share one entity node.
 
-Relations are directed subject–predicate–object triples. The active schema constrains valid source type, relation type, and target type combinations. Validation removes invalid triples before they reach the graph.
+Relations are directed subject-predicate-object triples. The active schema constrains valid source type, relation type, and target type combinations. Validation removes invalid triples before they reach the graph.
 
 ### Matches and resolved entities
 
@@ -101,17 +103,14 @@ Use the `GENERIC` preset for open-domain data or provide a schema for a specific
 
 Agentic GraphRAG has two main data flows:
 
-```text
-Ingestion: source -> document -> chunk -> mentions -> matched graph -> indexes
-Query:     question -> plan -> research -> verify -> cited answer
-```
+Ingestion turns a source into a document, then into chunks, mentions, a matched graph, and indexes. A query turns a question into a plan, research, verification, and a cited answer.
 
 ## Ingestion Pipeline
 
 `Graph.add()` is the single entry point for adding content. The pipeline has six stages:
 
 1. Load: Select a loader by format. Decode or parse the source. Preserve source metadata. Apply `RAISE`, `SKIP`, or `QUARANTINE` as the error policy for each source.
-2. Chunk: Use Docling layout-aware chunking for documents that Docling read. Use Chonkie chunkers for text and record documents. Rules pick the chunker for each document.
+2. Chunk: Pack the sections of every document into chunks with one section-aware chunker, using 600 tokens as the packing budget. Tokenizer context around the joined units can add a few tokens past it. A table becomes its own chunks, and a small chunk carries on into the next section.
 3. Extract: Run GLiNER locally against the active schema. Escalate weak results to a typed BAML extraction function when configured. Validation drops entities and triples that do not conform to the schema.
 4. Resolve: Apply exact, fuzzy, embedding, and LLM-verified comparison tiers. Ambiguous or failed comparisons do not match.
 5. Merge: Combine the mentions of exact matches into one entity. Decide each property value and join the chunk ids that mention it. Fuzzy, embedding, and LLM matches are stored as `MATCHES` edges, not merged.
@@ -245,7 +244,7 @@ uv pip install "agentic-graphrag[community]"
 
 | Extra | Adds |
 | --- | --- |
-| `docling` | PDF, DOCX, PPTX, image, XML, and layout-aware parsing |
+| `docling` | The layout and table models for PDF and image files |
 | `extract` | Local GLiNER 2.5 extraction |
 | `llm` | BAML-powered extraction and match verification |
 | `agents` | The LangGraph runtime for the question-answering agent |
@@ -257,7 +256,6 @@ uv pip install "agentic-graphrag[community]"
 | `observability` | OpenTelemetry SDK and OTLP export |
 | `community` | Leiden community detection |
 | `eval` | The DeepEval and AgentEvals metrics in `agrag.eval` |
-| `chunk-semantic`, `chunk-neural`, `chunk-code` | The semantic, neural, and code chunkers |
 
 ## Quickstart
 
@@ -439,28 +437,29 @@ See the [documentation](https://ontogr.github.io/agentic-graphrag/) for guides a
 | Format | Extension(s) | Loader |
 | --- | --- | --- |
 | Plain text and logs | `.txt`, `.log` | Core |
-| Markdown | `.md`, `.markdown` | Core |
-| AsciiDoc | `.adoc`, `.asciidoc` | Docling, with core fallback |
-| HTML | `.html`, `.htm` | Core |
+| XML | `.xml` | Core |
+| Markdown | `.md`, `.markdown` | Docling |
+| AsciiDoc | `.adoc`, `.asciidoc` | Docling |
+| HTML | `.html`, `.htm` | Docling |
 | CSV / TSV | `.csv`, `.tsv` | Core, one document per row or one for the table |
 | JSON | `.json` | Core, record-aware |
 | JSON Lines | `.jsonl`, `.ndjson` | Core, one document per row |
-| PDF | `.pdf` | Docling |
+| PDF | `.pdf` | Docling, needs the `docling` extra |
 | Word | `.docx` | Docling |
 | PowerPoint | `.pptx` | Docling |
-| Images | `.png`, `.jpg`, `.jpeg`, `.tif`, `.tiff`, `.bmp` | Docling |
-| XML | `.xml` | Docling |
+| Excel | `.xlsx` | Docling |
+| Images | `.png`, `.jpg`, `.jpeg`, `.tif`, `.tiff`, `.bmp` | Docling, needs the `docling` extra |
 | Chat exports | `.json`, `.jsonl`, `.ndjson` | Chat loader, which you pass for a single file |
 
-Core loaders remain the default for Markdown, HTML, CSV, TSV, and JSON records. Docling takes precedence for layout-rich documents and AsciiDoc when installed.
+Docling reads every rich format. The core readers keep plain text, XML, and the record formats, so a CSV row keeps its identity. Docling without the `docling` extra reads Markdown, HTML, AsciiDoc, Word, PowerPoint, and Excel files. The extra adds the layout and table models for PDF and image files.
 
 ## Project Structure
 
 ```text
 agrag/
 ├── common/data_models/   # documents, chunks, schemas, extraction and storage records
-├── chunking/             # Chonkie and Docling chunk adapters
-├── loaders/              # core corpus readers and optional Docling loader
+├── chunking/             # the section chunker
+├── loaders/              # core corpus readers and the Docling loaders
 ├── ingestion/            # Graph API, extraction, resolution, community detection and pipeline stages
 ├── embedding/            # dense and sparse embedding interfaces
 ├── graphdb/              # graph-store interface and Neo4j backend

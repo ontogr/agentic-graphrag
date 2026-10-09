@@ -6,6 +6,7 @@ asserts identical summaries. ``extract_chunks()`` is covered for its
 cross-batch index threading.
 """
 
+import asyncio
 from collections.abc import Mapping, Sequence
 from contextlib import asynccontextmanager
 from typing import Any
@@ -14,7 +15,13 @@ from unittest.mock import AsyncMock
 from uuid import UUID, uuid4
 
 import pytest
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
+    InMemorySpanExporter,
+)
 
+from agrag.chunking.chunker import ChunkPlacement
 from agrag.common.data_models.chunk import Chunk
 from agrag.common.data_models.document import Document, DocumentFamily, SourceFormat
 from agrag.common.data_models.entity import Entity
@@ -23,18 +30,26 @@ from agrag.common.data_models.extraction import (
     ExtractedRelation,
     ExtractionResult,
 )
-from agrag.common.data_models.graph_record import UpsertResult
+from agrag.common.data_models.graph_record import UpsertFailure, UpsertResult
 from agrag.common.data_models.graph_schema import GENERIC, GraphSchema
 from agrag.common.data_models.provenance import TextProvenance
+from agrag.common.data_models.stage_failure import StageFailure
 from agrag.common.data_models.vector_record import VectorHit
 from agrag.embedding.base import Embedder
-from agrag.ingestion._ingest_pipeline import extract_chunks, ingest_chunks
+from agrag.ingestion._ingest_pipeline import (
+    embed_chunks_stage,
+    extract_chunks,
+    ingest_chunks,
+)
+from agrag.ingestion._stage_context import StageContext
+from agrag.ingestion._storage import WriteOutcome
 from agrag.ingestion.extract import Extractor
 from agrag.ingestion.graph import Graph
 from agrag.ingestion.resolve import ResolutionResult
 from agrag.ingestion.resolve.candidate_source import GraphCandidateSource
-from agrag.ingestion.stats import IngestStats
-from agrag.loaders.corpus.types import ErrorPolicy
+from agrag.ingestion.stats import IngestStats, MergeStats
+from agrag.loaders.types import ErrorPolicy
+from agrag.observability import get_tracer
 from agrag.retrieval.settings import RetrievalSettings
 from tests.unit.ingestion._lease_fake import CutoverJobLeaseFake
 
@@ -56,11 +71,25 @@ def _doc(*, key: str, text: str = "hello world") -> Document:
 
 def _chunk(document: Document, *, index: int = 0, text: str = "hello world") -> Chunk:
     return Chunk(
+        id=uuid4(),
         document_id=Document.node_id_for(document_key=document.resolved_document_key),
         index=index,
         text=text,
         provenance=TextProvenance(char_start=0, char_end=len(text)),
     )
+
+
+def _placements(chunks: list[Chunk]) -> dict[UUID, ChunkPlacement]:
+    """Place each chunk directly under its document node, in index order."""
+    return {
+        chunk.id: ChunkPlacement(
+            chunk_index=chunk.index,
+            parent_node_id=chunk.document_id,
+            order=chunk.index,
+        )
+        for chunk in chunks
+        if chunk.id is not None
+    }
 
 
 class _ZeroEmbedder(Embedder):
@@ -143,12 +172,13 @@ async def _ingest(
         schema=GENERIC,
         error_policy=ErrorPolicy.RAISE,
     )
-    return await ingest_chunks(
+    batch = await ingest_chunks(
         chunks,
         documents,
         entities,
         relations,
         failures,
+        placements=_placements(chunks),
         graph_store=store,
         embedder=_ZeroEmbedder(),
         vector_store=None,
@@ -158,6 +188,7 @@ async def _ingest(
         ingestion=ingestion or IngestStats(documents=len(documents)),
         return_chunks=return_chunks,
     )
+    return batch.add_result
 
 
 class TestIngestChunks:
@@ -185,16 +216,162 @@ class TestIngestChunks:
         ]
         assert len(part_of) == 2
 
-    async def test_empty_chunks_returns_zero_stages(self) -> None:
-        """No chunks still writes the document node and reports zero stages."""
+    async def test_empty_chunks_writes_only_the_document_node(self) -> None:
+        """No chunks still writes the document node and counts no chunk work."""
         store, _ = _store()
         doc = _doc(key="a")
 
         result = await _ingest([doc], [], store)
 
         assert result.extraction.chunks_processed == 0
-        assert result.storage.nodes_written == 0
+        assert result.merge == MergeStats()
+        assert result.storage.nodes_written == 1
         assert result.chunks == []
+
+    async def test_empty_chunks_reports_structure_write_failures(self) -> None:
+        """A failed document write shows in storage failures, not silently."""
+        store, _ = _store()
+        store.upsert_nodes.side_effect = None
+        store.upsert_nodes.return_value = UpsertResult(
+            failures=[
+                UpsertFailure(id="d", error_type="WriteError", error_message="boom")
+            ]
+        )
+
+        result = await _ingest([_doc(key="a")], [], store)
+
+        assert [f.item_id for f in result.storage.failures] == ["d"]
+
+    async def test_raise_policy_cancels_extractions_still_running(self) -> None:
+        """The first failure under RAISE stops the other chunks."""
+        finished: list[str] = []
+
+        class _Failing(Extractor):
+            async def extract(
+                self, chunk: Chunk, schema: GraphSchema
+            ) -> ExtractionResult:
+                if chunk.text == "bad":
+                    raise RuntimeError("boom")
+                await asyncio.sleep(0.5)
+                finished.append(chunk.text)
+                return ExtractionResult(entities=[], relations=[], extractor_name="f")
+
+        doc = _doc(key="a")
+        chunks = [_chunk(doc, text=t) for t in ("bad", "slow-1", "slow-2")]
+
+        with pytest.raises(RuntimeError, match="boom"):
+            await extract_chunks(
+                chunks,
+                start_index=0,
+                extractor=_Failing(),
+                schema=GENERIC,
+                error_policy=ErrorPolicy.RAISE,
+            )
+
+        await asyncio.sleep(0.6)
+        assert finished == []
+
+    async def test_a_failed_relation_remap_opens_its_own_span(self) -> None:
+        """Under a non-RAISE policy a bad relation is recorded, not raised."""
+        exporter = InMemorySpanExporter()
+        provider = TracerProvider()
+        provider.add_span_processor(SimpleSpanProcessor(exporter))
+        doc = _doc(key="a")
+        chunk = _chunk(doc)
+
+        class _BadRelation(Extractor):
+            async def extract(
+                self, chunk: Chunk, schema: GraphSchema
+            ) -> ExtractionResult:
+                entity = ExtractedEntity(
+                    chunk_id=chunk.id,
+                    label="Person",
+                    text="Ada",
+                    char_start=0,
+                    char_end=3,
+                )
+                loop = ExtractedRelation.model_construct(
+                    chunk_id=chunk.id, label="KNOWS", source_index=0, target_index=0
+                )
+                return ExtractionResult.model_construct(
+                    entities=[entity], relations=[loop], extractor_name="bad"
+                )
+
+        _, relations, failures = await extract_chunks(
+            [chunk],
+            start_index=0,
+            extractor=_BadRelation(),
+            schema=GENERIC,
+            error_policy=ErrorPolicy.SKIP,
+            tracer=provider.get_tracer("test"),
+        )
+
+        names = [span.name for span in exporter.get_finished_spans()]
+        assert relations == []
+        assert [f.item_id for f in failures] == [str(chunk.id)]
+        assert "agrag.extraction.remap_relations" in names
+
+    async def test_structure_nodes_are_written_under_their_own_span(self) -> None:
+        """Ingest writes the section tree under agrag.storage.upsert_structure."""
+        exporter = InMemorySpanExporter()
+        provider = TracerProvider()
+        provider.add_span_processor(SimpleSpanProcessor(exporter))
+        store, _ = _store()
+        doc = _doc(key="a")
+
+        chunks = [_chunk(doc)]
+        await ingest_chunks(
+            chunks,
+            [doc],
+            [],
+            [],
+            [],
+            graph_store=store,
+            embedder=_ZeroEmbedder(),
+            vector_store=None,
+            graph_schema=GENERIC,
+            retrieval_settings=RetrievalSettings(),
+            error_policy=ErrorPolicy.RAISE,
+            ingestion=IngestStats(documents=1),
+            placements=_placements(chunks),
+            return_chunks=False,
+            tracer=provider.get_tracer("test"),
+        )
+
+        spans = {span.name: span for span in exporter.get_finished_spans()}
+        assert "agrag.storage.upsert_structure" in spans
+        assert spans["agrag.storage.upsert_structure"].attributes is not None
+
+    async def test_runs_at_most_the_extractor_max_concurrency_at_once(self) -> None:
+        """The extractor's limit caps how many chunks are in flight."""
+        in_flight = 0
+        peak = 0
+
+        class _Limited(Extractor):
+            max_concurrency = 2
+
+            async def extract(
+                self, chunk: Chunk, schema: GraphSchema
+            ) -> ExtractionResult:
+                nonlocal in_flight, peak
+                in_flight += 1
+                peak = max(peak, in_flight)
+                await asyncio.sleep(0.01)
+                in_flight -= 1
+                return ExtractionResult(entities=[], relations=[], extractor_name="x")
+
+        doc = _doc(key="limit")
+        chunks = [_chunk(doc, index=i) for i in range(6)]
+
+        await extract_chunks(
+            chunks,
+            start_index=0,
+            extractor=_Limited(),
+            schema=GENERIC,
+            error_policy=ErrorPolicy.RAISE,
+        )
+
+        assert peak == 2
 
     async def test_global_candidate_writes_no_mentioned_in(
         self, monkeypatch: pytest.MonkeyPatch
@@ -227,7 +404,7 @@ class TestIngestChunks:
             "agrag.ingestion.resolve.resolution.Resolver",
             return_value=resolver_instance,
         ):
-            result = await ingest_chunks(
+            outcome = await ingest_chunks(
                 [chunk],
                 [doc],
                 [
@@ -241,6 +418,7 @@ class TestIngestChunks:
                 ],
                 [],
                 [],
+                placements=_placements([chunk]),
                 graph_store=store,
                 embedder=_ZeroEmbedder(),
                 vector_store=None,
@@ -250,7 +428,7 @@ class TestIngestChunks:
                 ingestion=IngestStats(documents=1),
                 return_chunks=False,
             )
-        assert result.merge.failures == []
+        assert outcome.add_result.merge.failures == []
         assert consulted == ["Ada Lovelace"]
         mentioned = [
             rec
@@ -289,12 +467,13 @@ class TestIngestChunks:
             )
             for text, start in (("Ada", 0), ("Grace", 8))
         ]
-        return await ingest_chunks(
+        outcome = await ingest_chunks(
             [chunk],
             [doc],
             mentions,
             [],
             [],
+            placements=_placements([chunk]),
             graph_store=store,
             embedder=_ZeroEmbedder(),
             vector_store=None,
@@ -303,6 +482,7 @@ class TestIngestChunks:
             error_policy=error_policy,
             ingestion=IngestStats(documents=1),
         )
+        return outcome.add_result
 
     async def test_failed_candidate_read_is_recorded_and_mention_not_stored(
         self, monkeypatch: pytest.MonkeyPatch
@@ -350,6 +530,7 @@ class TestIngestChunks:
                 [entity],
                 [],
                 [],
+                placements=_placements([chunk]),
                 graph_store=store,
                 embedder=_ZeroEmbedder(),
                 vector_store=None,
@@ -391,107 +572,6 @@ class TestIngestMatchesAdd:
         assert core_result.merge == add_result.merge
 
 
-class TestParentChildLevels:
-    """Extraction runs on parents, embedding on children."""
-
-    def _family(self) -> tuple[Document, Chunk, Chunk]:
-        document = _doc(key="pc")
-        parent = Chunk(
-            document_id=Document.node_id_for(document_key="pc"),
-            index=0,
-            text="parent text",
-            provenance=TextProvenance(char_start=0, char_end=11),
-            level=1,
-        )
-        child = Chunk(
-            document_id=parent.document_id,
-            index=0,
-            text="child",
-            provenance=TextProvenance(char_start=0, char_end=5),
-            parent_id=parent.id,
-        )
-        return document, parent, child
-
-    async def test_extractor_sees_only_the_parent(self) -> None:
-        """A child chunk is never sent to the extractor."""
-        seen: list[str] = []
-
-        class _Recorder(Extractor):
-            async def extract(
-                self, chunk: Chunk, schema: GraphSchema
-            ) -> ExtractionResult:
-                seen.append(chunk.text)
-                return ExtractionResult(entities=[], relations=[], extractor_name="r")
-
-        _, parent, child = self._family()
-
-        await extract_chunks(
-            [parent, child],
-            start_index=0,
-            extractor=_Recorder(),
-            schema=GENERIC,
-            error_policy=ErrorPolicy.RAISE,
-        )
-
-        assert seen == ["parent text"]
-
-    async def test_only_the_child_is_embedded_and_processed_count_is_parents(
-        self,
-    ) -> None:
-        """The parent gets no embedding; chunks_processed counts parents."""
-        store, calls = _store()
-        document, parent, child = self._family()
-        embedded: list[str] = []
-
-        class _Recorder(_ZeroEmbedder):
-            async def embed(self, texts: Sequence[str]) -> list[list[float]]:
-                embedded.extend(texts)
-                return await super().embed(texts)
-
-        entities, relations, failures = await extract_chunks(
-            [parent, child],
-            start_index=0,
-            extractor=_NoopExtractor(),
-            schema=GENERIC,
-            error_policy=ErrorPolicy.RAISE,
-        )
-        result = await ingest_chunks(
-            [parent, child],
-            [document],
-            entities,
-            relations,
-            failures,
-            graph_store=store,
-            embedder=_Recorder(),
-            vector_store=None,
-            graph_schema=GENERIC,
-            retrieval_settings=RetrievalSettings(),
-            error_policy=ErrorPolicy.RAISE,
-            ingestion=IngestStats(documents=1),
-        )
-
-        assert embedded == ["child"]
-        assert parent.embedding is None
-        assert child.embedding is not None
-        assert result.extraction.chunks_processed == 1
-        part_of = [
-            rec
-            for batch in calls["relations"]
-            for rec in batch
-            if rec.type == "PART_OF"
-        ]
-        assert {rec.end_id for rec in part_of} == {parent.id, child.id}
-        chunk_records = [
-            node
-            for label, nodes in calls["nodes"]
-            if label == "Chunk"
-            for node in nodes
-        ]
-        by_id = {node.id: node.properties for node in chunk_records}
-        assert by_id[child.id]["parent_id"] == str(parent.id)
-        assert by_id[parent.id]["level"] == 1
-
-
 class TestHeadingContextEmbedding:
     """embed_heading_path decides whether the embedder sees the heading path."""
 
@@ -521,6 +601,7 @@ class TestHeadingContextEmbedding:
             [],
             [],
             [],
+            placements=_placements([chunk]),
             graph_store=store,
             embedder=_Recorder(),
             vector_store=None,
@@ -534,6 +615,7 @@ class TestHeadingContextEmbedding:
 
     def _chunk(self, path: list[str]) -> Chunk:
         return Chunk(
+            id=uuid4(),
             document_id=Document.node_id_for(document_key="h"),
             text="body text",
             provenance=TextProvenance(char_start=0, char_end=9),
@@ -582,6 +664,7 @@ class TestHeadingContextEmbedding:
             [],
             [],
             [],
+            placements=_placements([chunk]),
             graph_store=store,
             embedder=_ZeroEmbedder(),
             vector_store=vector_store,
@@ -806,3 +889,122 @@ class TestResolutionContextWiring:
         assert kwargs["similarity_by_pair"] == {(0, 2): 0.91}
         assert kwargs["neighbors_by_index"][2] == ["WORKS_AT Acme"]
         assert fetch_neighbors.await_args.args[0] == [candidate_id]
+
+
+class _RecordingEmbedder(Embedder):
+    """Fake embedder that records the texts it was asked to embed."""
+
+    model = "fake"
+
+    def __init__(self) -> None:
+        self.texts: list[str] = []
+
+    async def dimensions(self) -> int:
+        """Return a small fixed dimension."""
+        return 4
+
+    async def embed(self, texts: Sequence[str]) -> list[list[float]]:
+        """Record the texts and return a zero vector per text."""
+        self.texts.extend(texts)
+        return [[0.0] * 4 for _ in texts]
+
+
+class TestEmbedChunksStage:
+    """Chunk embedding covers the chunks the graph holds after the node write."""
+
+    @staticmethod
+    async def _embed(
+        chunks: list[Chunk], store: AsyncMock, writes: WriteOutcome
+    ) -> tuple[list[str], list[StageFailure]]:
+        embedder = _RecordingEmbedder()
+        result = await embed_chunks_stage(
+            chunks,
+            {chunk.id for chunk in chunks if chunk.id is not None},
+            writes,
+            StageContext(
+                graph_store=store,
+                embedder=embedder,
+                vector_store=None,
+                error_policy=ErrorPolicy.SKIP,
+                tracer=get_tracer(None),
+                job_id=None,
+            ),
+            vector_collection="chunks",
+            embed_heading_path=False,
+        )
+        return embedder.texts, result.failures
+
+    async def test_skips_chunks_whose_node_write_failed(self) -> None:
+        """A chunk the node write reported as failed is not embedded."""
+        document = _doc(key="a")
+        failed, landed = (
+            _chunk(document, text="failed"),
+            _chunk(document, text="landed"),
+        )
+        writes = WriteOutcome(failed_ids={failed.id}, wrote_any=True)
+
+        texts, failures = await self._embed([failed, landed], _store()[0], writes)
+
+        assert texts == ["landed"]
+        assert failures == []
+
+    async def test_embeds_only_chunks_the_graph_holds_when_nothing_was_written(
+        self,
+    ) -> None:
+        """With no node write sent, the graph read decides which chunks landed."""
+        document = _doc(key="a")
+        landed = _chunk(document, text="landed")
+        missing = _chunk(document, text="missing")
+        store, _ = _store()
+        store.execute_read.return_value = [{"n": {"id": str(landed.id)}}]
+
+        texts, _ = await self._embed(
+            [landed, missing], store, WriteOutcome(wrote_any=False)
+        )
+
+        assert texts == ["landed"]
+
+    @staticmethod
+    def _context(store: AsyncMock, error_policy: ErrorPolicy) -> StageContext:
+        return StageContext(
+            graph_store=store,
+            embedder=_RecordingEmbedder(),
+            vector_store=None,
+            error_policy=error_policy,
+            tracer=get_tracer(None),
+            job_id=None,
+        )
+
+    async def test_failed_chunk_lookup_skips_embedding_under_skip(self) -> None:
+        """A failed read records a failure and embeds nothing under SKIP."""
+        chunk = _chunk(_doc(key="a"), text="unread")
+        store = AsyncMock()
+        store.execute_read.side_effect = RuntimeError("read unavailable")
+
+        result = await embed_chunks_stage(
+            [chunk],
+            {chunk.id},
+            WriteOutcome(wrote_any=False),
+            self._context(store, ErrorPolicy.SKIP),
+            vector_collection="chunks",
+            embed_heading_path=False,
+        )
+
+        assert [failure.item_id for failure in result.failures] == ["chunk_lookup"]
+        store.execute_write.assert_not_called()
+
+    async def test_failed_chunk_lookup_raises_under_raise(self) -> None:
+        """A failed read propagates under RAISE instead of skipping the embed."""
+        chunk = _chunk(_doc(key="a"), text="unread")
+        store = AsyncMock()
+        store.execute_read.side_effect = RuntimeError("read unavailable")
+
+        with pytest.raises(RuntimeError, match="read unavailable"):
+            await embed_chunks_stage(
+                [chunk],
+                {chunk.id},
+                WriteOutcome(wrote_any=False),
+                self._context(store, ErrorPolicy.RAISE),
+                vector_collection="chunks",
+                embed_heading_path=False,
+            )

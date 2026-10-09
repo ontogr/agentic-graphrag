@@ -247,6 +247,7 @@ class TestResearchAttemptLimiter:
 def _cited_chunk(ledger: Ledger, text: str) -> str:
     """Cite a chunk holding ``text`` in ``ledger`` and return its key."""
     chunk = Chunk(
+        id=uuid4(),
         document_id=uuid4(),
         text=text,
         provenance=TextProvenance(char_start=0, char_end=len(text)),

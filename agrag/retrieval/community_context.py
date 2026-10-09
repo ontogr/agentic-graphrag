@@ -1,14 +1,13 @@
 """Community-report enrichment: local-search-style budget-capped context."""
 
 import logging
-from collections.abc import Mapping
-from typing import Any, cast
 from uuid import UUID
 
 from opentelemetry.trace import Tracer
 
 from agrag.common.data_models.community import Community
 from agrag.common.data_models.search_result import SearchResult
+from agrag.common.graph_rows import node_properties
 from agrag.cypher.community_read import communities_for_entities_query
 from agrag.graphdb.base import GraphStore
 from agrag.observability import get_tracer, record_swallowed_exception
@@ -23,19 +22,8 @@ logger = logging.getLogger(__name__)
 def _parse_community_node(node: object) -> Community | None:
     """Parse a GraphStore node row into a Community, or None on failure."""
     try:
-        props: dict = {}
-        node_id: object = None
-        if isinstance(node, dict) and "properties" in node:
-            props = dict(node.get("properties") or {})
-            node_id = node.get("id") or props.get("id")
-        elif isinstance(node, dict) and "id" in node:
-            props = dict(node)
-            node_id = props.get("id")
-        else:
-            if not hasattr(node, "keys"):
-                return None
-            props = dict(cast(Mapping[str, Any], node))
-            node_id = props.get("id")
+        props = node_properties(node)
+        node_id = props.get("id")
         if node_id is None:
             return None
 

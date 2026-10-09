@@ -20,6 +20,7 @@ AsyncMock store's ``execute_read`` side effects.
 """
 
 import json
+import logging
 import sys
 import types
 from unittest.mock import AsyncMock, patch
@@ -512,6 +513,143 @@ class TestText2CypherRowAliases:
             results = await retriever.retrieve("how many?")
 
         assert results[0].item.value == {"total": 7}
+
+
+class _LabelledNode(dict):
+    """A property dict that carries driver-style node labels."""
+
+    def __init__(self, labels: frozenset[str], properties: dict) -> None:
+        super().__init__(properties)
+        self.labels = labels
+
+
+class TestText2CypherChunkDetection:
+    """Only chunk nodes are parsed as chunks, and only broken ones warn."""
+
+    @staticmethod
+    async def _retrieve(rows: list[dict]) -> list:
+        gs = AsyncMock()
+        gs.execute_read.return_value = rows
+        retriever = Text2CypherRetriever(graph_store=gs, schema=GENERIC)
+
+        with patch.object(
+            retriever,
+            "_generate_cypher",
+            return_value="MATCH (n) WHERE n._pending_job_id IS NULL RETURN n",
+        ):
+            return await retriever.retrieve("query")
+
+    @staticmethod
+    def _skip_warnings(caplog: pytest.LogCaptureFixture) -> list[str]:
+        return [
+            record.getMessage()
+            for record in caplog.records
+            if record.getMessage().startswith("Skipping chunk")
+        ]
+
+    @pytest.mark.parametrize(
+        "row",
+        [
+            {"n": {"id": str(uuid4()), "name": "Ada", "merge_key": "Person:ada"}},
+            {
+                "r": {
+                    "id": str(uuid4()),
+                    "type": "KNOWS",
+                    "start_id": "a",
+                    "end_id": "b",
+                }
+            },
+            {"total": 7},
+            {"names": ["Ada", "Grace"]},
+        ],
+        ids=["entity", "relationship", "scalar", "list"],
+    )
+    async def test_non_chunk_values_produce_no_chunk_and_no_warning(
+        self, caplog: pytest.LogCaptureFixture, row: dict
+    ) -> None:
+        """Entities, relationships, scalars and lists never warn as chunks."""
+        with caplog.at_level(logging.WARNING):
+            results = await self._retrieve([row])
+
+        assert not any(isinstance(result.item, Chunk) for result in results)
+        assert self._skip_warnings(caplog) == []
+
+    async def test_entity_dict_with_chunk_fields_is_not_warned_about(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A node labelled as something other than Chunk is never parsed as one."""
+        node = _LabelledNode(
+            frozenset({"Person"}),
+            {"document_id": str(uuid4()), "provenance": "{}"},
+        )
+
+        with caplog.at_level(logging.WARNING):
+            results = await self._retrieve([{"passage": node}])
+
+        assert not any(isinstance(result.item, Chunk) for result in results)
+        assert self._skip_warnings(caplog) == []
+
+    async def test_valid_chunk_node_becomes_a_chunk(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A driver node labelled Chunk with valid data is parsed as a Chunk."""
+        chunk_id, doc_id = uuid4(), uuid4()
+        node = _LabelledNode(
+            frozenset({"Chunk"}),
+            {
+                "id": str(chunk_id),
+                "document_id": str(doc_id),
+                "index": 0,
+                "text": "Hello",
+                "provenance": json.dumps(
+                    {"kind": "text", "char_start": 0, "char_end": 5}
+                ),
+            },
+        )
+
+        with caplog.at_level(logging.WARNING):
+            results = await self._retrieve([{"c": node}])
+
+        assert len(results) == 1
+        assert isinstance(results[0].item, Chunk)
+        assert results[0].item.id == chunk_id
+        assert self._skip_warnings(caplog) == []
+
+    async def test_chunk_labelled_node_with_invalid_data_warns_once_with_id(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A Chunk-labelled node that fails validation logs one warning with its id."""
+        chunk_id = uuid4()
+        node = _LabelledNode(frozenset({"Chunk"}), {"id": str(chunk_id), "text": "x"})
+
+        with caplog.at_level(logging.WARNING):
+            results = await self._retrieve([{"c": node}])
+
+        assert not any(isinstance(result.item, Chunk) for result in results)
+        warnings = self._skip_warnings(caplog)
+        assert len(warnings) == 1
+        assert str(chunk_id) in warnings[0]
+
+    async def test_chunk_shaped_dict_that_fails_validation_still_warns(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A plain dict with the chunk-only fields is warned about when invalid."""
+        chunk_id = uuid4()
+        row = {
+            "c": {
+                "id": str(chunk_id),
+                "document_id": str(uuid4()),
+                "provenance": "not json",
+            }
+        }
+
+        with caplog.at_level(logging.WARNING):
+            results = await self._retrieve([row])
+
+        assert not any(isinstance(result.item, Chunk) for result in results)
+        warnings = self._skip_warnings(caplog)
+        assert len(warnings) == 1
+        assert str(chunk_id) in warnings[0]
 
 
 class TestText2CypherRetry:

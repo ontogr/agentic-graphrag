@@ -39,6 +39,17 @@ uv run pre-commit install
 - Write Google-style docstrings on public functions and classes.
 - Add type annotations on public signatures.
 
+## Third-party code
+
+Do not copy code from another project unless its licence allows it and the licence is compatible with Apache-2.0. When you copy code, or adapt it with small changes:
+
+- Keep the original copyright line and licence notice in the file header. Name the source project, the file and the commit that you copied from, and list what you changed.
+- Add a comment above a copied function that says where it came from.
+- Put the full text of the licence in a file under `licenses/` and list that file in `license-files` in `pyproject.toml`, so the wheel and the source distribution carry it.
+- Mention the code in the pull request.
+
+Code that you write from an idea in another project needs no notice. Name the project in a comment when it helps a reader.
+
 ## Docs
 
 - The docs website is at `docs/`, served at `ontogr.github.io/agentic-graphrag`. Guides live as Markdown/MDX under `docs/docs/`. Link to other pages with relative file paths such as `../concepts/chunking.mdx`, so a link in a versioned copy of the docs stays in that version. `make docs-build` fails on Markdown links and `href` attributes that start with `/`.

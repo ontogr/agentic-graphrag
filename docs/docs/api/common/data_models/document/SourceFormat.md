@@ -28,6 +28,7 @@ is a Python builtin, and this project's lint rules reject builtin names for fiel
 - [**PPTX**](#agrag-common-data_models-document-SourceFormat-PPTX) –
 - [**TSV**](#agrag-common-data_models-document-SourceFormat-TSV) –
 - [**TXT**](#agrag-common-data_models-document-SourceFormat-TXT) –
+- [**XLSX**](#agrag-common-data_models-document-SourceFormat-XLSX) –
 - [**XML**](#agrag-common-data_models-document-SourceFormat-XML) –
 
 ## `ASCIIDOC` \{#agrag-common-data_models-document-SourceFormat-ASCIIDOC}
@@ -106,6 +107,12 @@ TSV = 'tsv'
 
 ```python
 TXT = 'txt'
+```
+
+## `XLSX` \{#agrag-common-data_models-document-SourceFormat-XLSX}
+
+```python
+XLSX = 'xlsx'
 ```
 
 ## `XML` \{#agrag-common-data_models-document-SourceFormat-XML}

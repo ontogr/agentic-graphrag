@@ -11,9 +11,10 @@ The Document model: one unit of source text, before chunking.
 
 - [**Document**](Document-ref.md) – One unit of source text, before chunking.
 - [**DocumentFamily**](DocumentFamily.md) – The shape of a document's source.
-- [**HeadingRef**](HeadingRef.md) – One heading in a document outline.
+- [**DocumentSection**](DocumentSection.md) – One heading of a document and the content directly under it.
 - [**SourceFormat**](SourceFormat.md) – A source format that a loader can read.
-- [**TurnRef**](TurnRef.md) – One speaker turn in a chat document.
+- [**Unit**](Unit.md) – One piece of content in a section, such as a paragraph or a table.
+- [**UnitKind**](UnitKind.md) – The kind of content in a unit.
 
 **Attributes:**
 

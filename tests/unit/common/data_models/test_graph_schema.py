@@ -10,11 +10,23 @@ explicit empty markers.
 import pytest
 from pydantic import ValidationError
 
+from agrag.common.data_models.chunk import CHUNK_LABEL
+from agrag.common.data_models.community import COMMUNITY_LABEL
+from agrag.common.data_models.cutover_job import CUTOVER_JOB_LABEL
+from agrag.common.data_models.document import DOCUMENT_LABEL
 from agrag.common.data_models.graph_schema import (
     GENERIC,
+    RESERVED_ENTITY_LABELS,
     EntityType,
     GraphSchema,
     RelationType,
+)
+from agrag.common.data_models.resolved_entity import RESOLVED_ENTITY_LABEL
+from agrag.common.data_models.structure import (
+    FIGURE_LABEL,
+    SECTION_LABEL,
+    SOURCE_LABEL,
+    TABLE_LABEL,
 )
 
 
@@ -88,6 +100,43 @@ class TestEntityTypeReservedPropertyNames:
                 description="A named individual.",
                 properties={"role": "str", "label": "str"},
             )
+
+
+class TestEntityTypeReservedLabels:
+    """EntityType rejects labels that the graph uses for its own nodes."""
+
+    @pytest.mark.parametrize("label", sorted(RESERVED_ENTITY_LABELS))
+    def test_rejects_a_reserved_label(self, label: str) -> None:
+        """An entity type cannot take over a structure or system label."""
+        with pytest.raises(ValidationError, match="reserved label"):
+            EntityType(label=label, description="x")
+
+    def test_rejects_a_reserved_subtype(self) -> None:
+        """A subtype label is a node label too."""
+        with pytest.raises(ValidationError, match="reserved label"):
+            EntityType(label="Clause", description="x", subtypes=["Section"])
+
+    def test_the_reserved_set_holds_every_label_constant(self) -> None:
+        """A new graph label must be added to the reserved set."""
+        used = {
+            DOCUMENT_LABEL,
+            CHUNK_LABEL,
+            SECTION_LABEL,
+            TABLE_LABEL,
+            FIGURE_LABEL,
+            SOURCE_LABEL,
+            COMMUNITY_LABEL,
+            RESOLVED_ENTITY_LABEL,
+            CUTOVER_JOB_LABEL,
+            "_AgragNode",
+            "_AgragMergeAlias",
+        }
+
+        assert used == RESERVED_ENTITY_LABELS
+
+    def test_the_generic_schema_uses_no_reserved_label(self) -> None:
+        """The shipped schema must stay valid."""
+        assert not {e.label for e in GENERIC.entities} & RESERVED_ENTITY_LABELS
 
 
 class TestPromptSerialization:

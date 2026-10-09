@@ -105,30 +105,3 @@ class TestFuse:
         # ties the rank-0 + rank-0 RRF contribution.
         assert len(fused) == 1
         assert fused[0].score == 2 / 61
-
-
-class TestFuseKeepsParent:
-    """A fused chunk result keeps the parent that its retriever attached."""
-
-    def test_parent_survives_fusion(self) -> None:
-        """Fusion rebuilds each result, so it must copy the parent across."""
-        from agrag.common.data_models.chunk import Chunk  # noqa: PLC0415
-        from agrag.common.data_models.provenance import TextProvenance  # noqa: PLC0415
-
-        parent = Chunk(
-            document_id=uuid4(),
-            text="parent",
-            provenance=TextProvenance(char_start=0, char_end=6),
-            level=1,
-        )
-        child = Chunk(
-            document_id=parent.document_id,
-            text="par",
-            provenance=TextProvenance(char_start=0, char_end=3),
-            parent_id=parent.id,
-        )
-        result = SearchResult(item=child, score=1.0, method="chunk", parent=parent)
-
-        fused = fuse({"chunk": [result]})
-
-        assert fused[0].parent == parent

@@ -34,6 +34,7 @@ class TestLedgerCitationLifecycle:
         """Chunk citation keys start with 'C'."""
         ledger = Ledger()
         ch = Chunk(
+            id=uuid4(),
             document_id=uuid4(),
             index=0,
             text="Some text",
@@ -85,6 +86,7 @@ class TestLedgerCitationLifecycle:
         ledger = Ledger()
         ent = Entity(id=uuid4(), label="Person", name="Alice")
         ch = Chunk(
+            id=uuid4(),
             document_id=uuid4(),
             index=0,
             text="Some text",
@@ -133,6 +135,7 @@ class TestLedgerCitationLifecycle:
         """render() for a chunk includes a text preview."""
         ledger = Ledger()
         ch = Chunk(
+            id=uuid4(),
             document_id=uuid4(),
             index=0,
             text="Aspirin treats headaches effectively",
@@ -190,6 +193,7 @@ class TestLedgerCitationLifecycle:
         ledger = Ledger()
         ent = Entity(id=uuid4(), label="Person", name="Alice")
         ch = Chunk(
+            id=uuid4(),
             document_id=uuid4(),
             index=0,
             text="Some text",

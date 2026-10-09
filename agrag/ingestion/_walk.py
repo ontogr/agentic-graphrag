@@ -8,14 +8,13 @@ from typing import Union
 
 from opentelemetry.trace import Tracer
 
-from agrag.chunking import Chunking
-from agrag.common.data_models.chunk import Chunk
+from agrag.chunking import Chunker
+from agrag.chunking.chunker import ChunkedDocument
 from agrag.common.data_models.document import Document
-from agrag.ingestion.stats import ChunkingMatch
-from agrag.loaders.corpus._walk import _CorpusWalk, _InMemoryWalk
-from agrag.loaders.corpus.base import Loader
-from agrag.loaders.corpus.registry import LoaderRegistry
-from agrag.loaders.corpus.types import ErrorPolicy, LoadStats, ReadOptions
+from agrag.loaders.base import Loader
+from agrag.loaders.loader_registry import LoaderRegistry
+from agrag.loaders.types import ErrorPolicy, LoadStats, ReadOptions
+from agrag.loaders.walk import _CorpusWalk, _InMemoryWalk
 
 
 SourceType = Union[str, Path]
@@ -114,48 +113,19 @@ async def iter_document_batches(
 
 
 def chunk_documents(
-    documents: list[Document], *, chunking: Chunking, tracer: Tracer
-) -> tuple[list[Chunk], list[ChunkingMatch]]:
-    """Chunk a batch of documents, each with the chunker its rule picks.
-
-    Args:
-        documents: The documents to chunk.
-        chunking: The rules that pick a chunker for each document.
-        tracer: A tracer to record one span for each document.
-
-    Returns:
-        The chunks in document then chunk order, and one match per document
-        that records the rule and chunker it got.
-    """
-    chunks: list[Chunk] = []
-    matches: list[ChunkingMatch] = []
+    documents: list[Document], *, chunker: Chunker, tracer: Tracer
+) -> list[ChunkedDocument]:
+    chunked: list[ChunkedDocument] = []
     for document in documents:
-        rule, chunker = chunking.select(document)
         with tracer.start_as_current_span(
             "agrag.ingestion.chunk_document",
             attributes={
                 "agrag.document_key": document.resolved_document_key,
-                "agrag.chunker.strategy": chunker.strategy,
-                "agrag.chunker.hash": chunker.fingerprint(),
+                "agrag.chunker.hash": chunker.fingerprint,
                 "agrag.chunker.settings": json.dumps(chunker.settings()),
-                "agrag.chunker.rule": "fallback" if rule is None else str(rule),
             },
         ) as span:
             document_chunks = chunker.chunk(document)
-            span.set_attribute("agrag.chunks_produced", len(document_chunks))
-        chunks.extend(document_chunks)
-        by_chunker: dict[str, int] = {}
-        for chunk in document_chunks:
-            name = chunk.chunker or chunker.strategy
-            by_chunker[name] = by_chunker.get(name, 0) + 1
-        matches.append(
-            ChunkingMatch(
-                document_key=document.resolved_document_key,
-                rule=rule,
-                strategy=chunker.strategy,
-                chunker_hash=chunker.fingerprint(),
-                chunks=len(document_chunks),
-                chunks_by_chunker=by_chunker,
-            )
-        )
-    return chunks, matches
+            span.set_attribute("agrag.chunks_produced", len(document_chunks.chunks))
+        chunked.append(document_chunks)
+    return chunked

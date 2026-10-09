@@ -181,7 +181,7 @@ async def resolve_description(
     settings: Any | None = None,
     client: Any | None = None,
     tracer: Tracer | None = None,
-) -> tuple[object, bool, Any | None]:
+) -> tuple[object, bool, StageFailure | None]:
     """Resolve a description field, trying LLM summarization.
 
     A single distinct candidate needs no LLM call. Multiple candidates try
@@ -265,7 +265,7 @@ async def merge_properties(
     description_settings: Any | None = None,
     description_client: Any | None = None,
     tracer: Tracer | None = None,
-) -> tuple[dict[str, object], list[ConflictRecord], list[Any]]:
+) -> tuple[dict[str, object], list[ConflictRecord], list[StageFailure]]:
     """Return field-resolved properties and records of every real conflict.
 
     Args:
@@ -281,7 +281,7 @@ async def merge_properties(
     fields = {key for source in property_sources for key in source}
     resolved: dict[str, object] = {}
     conflicts: list[ConflictRecord] = []
-    failures: list[Any] = []
+    failures: list[StageFailure] = []
     for field_name in fields:
         candidates = [
             source[field_name]
@@ -347,7 +347,7 @@ async def compute_merge(  # noqa: PLR0912
     description_client: Any | None = None,
     job_id: UUID | str | None = None,
     tracer: Tracer | None = None,
-) -> tuple[MergePlan, list[Any]]:
+) -> tuple[MergePlan, list[StageFailure]]:
     """Compute how existing_entities and mentions combine into one Entity.
 
     No storage is touched. Zero existing entities produces a brand-new Entity.
@@ -629,18 +629,34 @@ def relation_id(source_id: UUID, target_id: UUID, rel_type: str) -> UUID:
     return uuid5(NAMESPACE_OID, f"{rel_type}:{source_id}:{target_id}")
 
 
-def part_of_id(document_node_id: UUID, chunk_id: UUID, version_id: UUID | str) -> UUID:
-    """Return the id for one versioned Document -[:PART_OF]-> Chunk edge.
+def part_of_id(document_node_id: UUID, node_id: UUID, version_id: UUID | str) -> UUID:
+    """Return the id for one versioned Document -[:PART_OF]-> node edge.
 
     Args:
         document_node_id: The id of the Document graph node.
-        chunk_id: The id of the Chunk.
+        node_id: The id of the Chunk, Section, Table or Figure.
         version_id: The identifier for this document version.
 
     Returns:
         The edge id. Each document version gets a separate relationship id.
     """
-    return uuid5(NAMESPACE_OID, f"PART_OF:{document_node_id}:{chunk_id}:{version_id}")
+    return uuid5(NAMESPACE_OID, f"PART_OF:{document_node_id}:{node_id}:{version_id}")
+
+
+def has_child_id(parent_id: UUID, child_id: UUID, version_id: UUID | str) -> UUID:
+    """Return the id for one versioned parent -[:HAS_CHILD]-> child edge.
+
+    Args:
+        parent_id: The id of the parent node (document, section, or table).
+        child_id: The id of the child node.
+        version_id: The identifier for this document version.
+
+    Returns:
+        The edge id. Each document version gets separate edge ids, so an
+        identical re-ingest rebuilds the same ids and converges while a new
+        version shares no edge with the one it supersedes.
+    """
+    return uuid5(NAMESPACE_OID, f"HAS_CHILD:{parent_id}:{child_id}:{version_id}")
 
 
 def next_chunk_id(from_chunk_id: UUID, to_chunk_id: UUID) -> UUID:

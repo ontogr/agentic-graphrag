@@ -9,7 +9,7 @@ sidebar_label: ExtractorMissingExtraError
 ExtractorMissingExtraError(component:str, extra:str) -> None
 ```
 
-Bases: <code>[IngestionError](../../loaders/corpus/errors/IngestionError.md)</code>
+Bases: <code>[IngestionError](../../loaders/errors/IngestionError.md)</code>
 
 An Extractor needs a package extra that is not installed.
 

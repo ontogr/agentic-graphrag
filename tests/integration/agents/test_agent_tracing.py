@@ -204,6 +204,7 @@ class TestAgentTracing:
     async def _seed_chunk(self, index: int, text: str) -> None:
         """Write one chunk in this test's document partition."""
         chunk = Chunk(
+            id=uuid4(),
             document_id=UUID(self.document_id),
             index=index,
             text=text,

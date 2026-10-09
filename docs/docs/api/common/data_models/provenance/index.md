@@ -16,3 +16,7 @@ provenance depends on which chunker made the chunk.
 - [**PageProvenance**](PageProvenance.md) – The location of a chunk across one or more pages.
 - [**PageSpan**](PageSpan.md) – One page's part of a chunk.
 - [**TextProvenance**](TextProvenance.md) – The location of a chunk inside flattened document text.
+
+**Functions:**
+
+- [**check_page_spans**](check_page_spans.md) – Check that page spans number from 1, have ordered boxes, and are in order.

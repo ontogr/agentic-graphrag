@@ -67,7 +67,7 @@ The agent sees evidence text that starts with a key. The letter of the key names
 | `G1` | A community report |
 | `V1` | A value from a graph query |
 
-A run hands out keys in order and never changes one. Each call to the agent starts with an empty ledger, so two questions never share keys. If a chunk has a parent chunk, the first hit shows the parent text under its key. Later hits from the same parent show their own text and name the first key.
+A run hands out keys in order and never changes one. Each call to the agent starts with an empty ledger, so two questions never share keys.
 
 ## Limits
 
@@ -82,11 +82,11 @@ The full loop needs the `agents` extra. Without it, `build_agent` returns a simp
 <details>
 <summary>Design choices</summary>
 
-Why does the verdict have three values? More searching cannot fix two sources that disagree. `CONTRADICTORY` stops the retries and moves the conflict into the answer. `INSUFFICIENT` is the only verdict that starts another search.
+The verdict has three values. More searching cannot fix two sources that disagree. `CONTRADICTORY` stops the retries and moves the conflict into the answer. `INSUFFICIENT` is the only verdict that starts another search.
 
-Why does the verifier have no tools? It judges only the evidence in front of it. It cannot search until the researcher's claim looks right. The planner cites keys. The library attaches the evidence text for each key to the verifier's task, so the verifier can decide whether each key supports its claim.
+The verifier has no tools. It judges only the evidence in front of it. It cannot search until the researcher's claim looks right. The planner cites keys. The library attaches the evidence text for each key to the verifier's task, so the verifier can decide whether each key supports its claim.
 
-Why can a scope stay hidden from the model? You can limit every search to one document or tenant. Each tool applies the scope and refuses an argument outside it. The tool that runs generated Cypher is removed, because a generated query cannot stay inside a scope.
+The library can hide a scope from the model. You can limit every search to one document or tenant. Each tool applies the scope and refuses an argument outside it. The library removes the tool that runs generated Cypher, because a generated query cannot stay inside a scope.
 
 </details>
 

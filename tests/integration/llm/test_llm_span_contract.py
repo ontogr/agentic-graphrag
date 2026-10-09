@@ -31,7 +31,7 @@ from agrag.ingestion.community import generate_community_reports
 from agrag.ingestion.extract import BAMLExtractor, ExtractionLLMSettings
 from agrag.ingestion.merge import resolve_description
 from agrag.ingestion.resolve.resolver import LLMVerify
-from agrag.loaders.corpus.types import ErrorPolicy
+from agrag.loaders.types import ErrorPolicy
 from agrag.retrieval.retrievers.text2cypher import Text2CypherRetriever
 from tests.integration.llm._local_llm import (
     COMPLETION_TOKENS,
@@ -71,6 +71,7 @@ def capture() -> tuple[Any, InMemorySpanExporter]:
 def _chunk(text: str) -> Chunk:
     """Build a minimal Chunk."""
     return Chunk(
+        id=uuid4(),
         document_id=_DOC_ID,
         text=text,
         provenance=TextProvenance(char_start=0, char_end=len(text)),

@@ -30,7 +30,7 @@ from agrag.embedding.base import Embedder
 from agrag.graphdb import build_graph_store
 from agrag.ingestion.extract import Extractor
 from agrag.ingestion.graph import Graph
-from agrag.loaders.corpus.types import ErrorPolicy
+from agrag.loaders.types import ErrorPolicy
 
 
 neo4j_missing = importlib.util.find_spec("neo4j") is None

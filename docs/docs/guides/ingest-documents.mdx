@@ -13,7 +13,7 @@ For how the pipeline works, see [Ingestion pipeline](../concepts/ingestion.mdx).
 
 This guide assumes that you finished the [Quickstart](../get-started/quickstart.mdx): you have a Neo4j database, its `NEO4J_*` variables in a `.env` file, and the `neo4j` and `extract` extras installed. Each code block on this page is complete. It opens its own graph and closes it at the end.
 
-For PDF, DOCX, PPTX, image, and XML support, install the docling extra:
+Markdown, HTML, AsciiDoc, Word, PowerPoint, and Excel files need no extra. For PDF and image support, install the docling extra. The first PDF downloads about 500 MB of models:
 
 ```bash
 uv pip install "agentic-graphrag[docling]"
@@ -213,7 +213,7 @@ from agrag.embedding import build_embedder
 from agrag.graphdb import build_graph_store
 from agrag.ingestion import Graph
 from agrag.ingestion.extract import GlinerExtractor
-from agrag.loaders.corpus import ChatLoader
+from agrag.loaders import ChatLoader
 
 
 async def main() -> None:
@@ -240,7 +240,7 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
-To cut the document between turns, use `TurnWindowChunker` as [Configure chunking](./configure-chunking.mdx) shows.
+A chat file has one section for each message. Short neighbouring messages share a chunk, and a long message is cut at sentence boundaries. Tune this with the chunker `size`, as [Configure chunking](./configure-chunking.mdx) shows.
 
 ## Handle errors per source
 
@@ -256,7 +256,7 @@ from agrag.embedding import build_embedder
 from agrag.graphdb import build_graph_store
 from agrag.ingestion import Graph
 from agrag.ingestion.extract import GlinerExtractor
-from agrag.loaders.corpus.types import ErrorPolicy
+from agrag.loaders.types import ErrorPolicy
 
 
 async def main() -> None:
@@ -296,7 +296,7 @@ from agrag.embedding import build_embedder
 from agrag.graphdb import build_graph_store
 from agrag.ingestion import Graph
 from agrag.ingestion.extract import GlinerExtractor
-from agrag.loaders.corpus.types import ErrorPolicy
+from agrag.loaders.types import ErrorPolicy
 
 
 async def main() -> None:

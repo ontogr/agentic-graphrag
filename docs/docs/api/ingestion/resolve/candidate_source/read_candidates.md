@@ -18,7 +18,7 @@ become a new entity, so the caller must skip a mention whose read failed.
 
 - **source** (<code>[GraphCandidateSource](GraphCandidateSource.md)</code>) – The candidate source to read.
 - **mention** (<code>[ExtractedEntity](../../../common/data_models/extraction/ExtractedEntity.md)</code>) – The mention to find persisted candidates for.
-- **error_policy** (<code>[ErrorPolicy](../../../loaders/corpus/types/ErrorPolicy.md)</code>) – RAISE propagates the failure; any other policy
+- **error_policy** (<code>[ErrorPolicy](../../../loaders/types/ErrorPolicy.md)</code>) – RAISE propagates the failure; any other policy
   returns it as a StageFailure.
 
 **Returns:**

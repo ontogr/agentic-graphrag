@@ -24,7 +24,6 @@ outside the ingestion pipeline too -- and are not re-exported here.
 
 **Classes:**
 
-- [**ChunkingMatch**](chunking/ChunkingMatch.md) – The chunker that one document got, and what it produced.
 - [**ChunkingStats**](chunking/ChunkingStats.md) – Chunking-stage results.
 - [**ExtractionStats**](extraction/ExtractionStats.md) – Extraction-stage results.
 - [**IngestStats**](ingest/IngestStats.md) – Ingestion-stage results.

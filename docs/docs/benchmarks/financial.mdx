@@ -15,7 +15,7 @@ This page describes the Financial benchmark: the questions, the graph schema, ho
 - One or more evidence passages, each with the page of the filing that holds it.
 - A question type: `domain-relevant`, `novel-generated`, or `metrics-generated`.
 
-The harness reads the questions and the PDFs from the benchmark repository at a pinned commit. It makes sure that the hash of the questions file and of every PDF matches before it uses them. Docling converts a PDF to Markdown, and Agentic GraphRAG ingests the Markdown. Docling is slow on a CPU. The harness therefore keeps each conversion in the download cache.
+The benchmark runner reads the questions and the PDFs from the benchmark repository at a pinned commit. It makes sure that the hash of the questions file and of every PDF matches before it uses them. Docling converts a PDF to Markdown, and Agentic GraphRAG ingests the Markdown. Docling is slow on a CPU. The benchmark runner therefore keeps each conversion in the download cache.
 
 ### Lite and full
 
@@ -29,7 +29,7 @@ The lite set is a smoke test, not a sample of the benchmark. It takes 2 pages of
 - `financebench_id_00517`: which product and service categories are more than 20% of revenue (a calculation on the segment table, page 61).
 - `financebench_id_00464`: whether the business is cyclical (text, page 7).
 
-Page numbers count from 0. The harness cuts out the chosen pages, converts each page on its own, and joins the Markdown. A 4-page file made in one piece did not finish converting after 28 minutes, and each page alone took 24 to 47 seconds.
+Page numbers count from 0. The benchmark runner cuts out the chosen pages, converts each page on its own, and joins the Markdown. A 4-page file made in one piece did not finish converting after 28 minutes, and each page alone took 24 to 47 seconds.
 
 Both lite questions are in the full set. The full set holds every question on its 18 filings: the three filings of the first selection (the Boeing, Amazon, and Netflix 10-Ks) and 15 more with the most questions for their size. Nobody ran the full set. It is far above the budget of a manual run. Before you start it, read its dry-run estimate.
 

@@ -14,7 +14,7 @@ from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
 from agrag.common.data_models.community import Community
 from agrag.common.data_models.entity import Entity
 from agrag.ingestion.community import generate_community_reports
-from agrag.loaders.corpus.types import ErrorPolicy
+from agrag.loaders.types import ErrorPolicy
 
 
 baml_missing = importlib.util.find_spec("baml_py") is None

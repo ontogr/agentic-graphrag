@@ -38,7 +38,7 @@ from agrag.graphdb import build_graph_store
 from agrag.graphdb.base import GraphStore
 from agrag.ingestion.extract import Extractor
 from agrag.ingestion.graph import Graph
-from agrag.loaders.corpus.errors import IngestionError, UnsupportedFormatError
+from agrag.loaders.errors import IngestionError, UnsupportedFormatError
 from agrag.retrieval.recipes import CHUNK
 from agrag.retrieval.search_engine import SearchEngine
 from agrag.retrieval.settings import RetrievalSettings
@@ -313,7 +313,7 @@ async def test_mixed_corpus_ingests_and_reports_bad_sources(env: _Env) -> None: 
     ]
     all_text = "\n".join(row["text"] for row in rows)
     assert by_key["corpus/notes.md"]["title"] == "Harbor Notes"
-    assert by_key["corpus/cafe_latin1.txt"]["text"] == _LATIN1_TEXT
+    assert by_key["corpus/cafe_latin1.txt"]["text"] == _LATIN1_TEXT.rstrip()
     assert "�" not in all_text
     assert "utfsixteenmark" in by_key["corpus/wide_utf16.txt"]["text"]
     assert "<" not in by_key["corpus/page.html"]["text"]

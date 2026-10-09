@@ -6,6 +6,7 @@ from uuid import UUID
 from opentelemetry.trace import Tracer
 
 from agrag.common.data_models.resolved_entity import ResolvedEntity
+from agrag.common.graph_rows import node_properties
 from agrag.cypher.resolution_read import load_resolved_entities_by_id_query
 from agrag.graphdb.base import GraphStore
 from agrag.observability import get_tracer
@@ -32,21 +33,8 @@ def parse_resolved_entity_node(node: object) -> ResolvedEntity | None:
     ``ResolvedEntity``'s own fields (for example ``description``) are routed
     into ``ResolvedEntity.properties`` instead of being dropped by pydantic.
     """
-    if isinstance(node, dict) and "properties" in node:
-        properties = node.get("properties")
-        node_id = (
-            properties.get("id") if isinstance(properties, dict) else None
-        ) or node.get("id")
-    else:
-        try:
-            properties = dict(node)  # ty: ignore[no-matching-overload]  # type: ignore[arg-type]
-        except TypeError:
-            return None
-        node_id = None
-    if not isinstance(properties, dict):
-        return None
-    if node_id is None:
-        node_id = properties.get("id")
+    properties = node_properties(node)
+    node_id = properties.get("id")
     if node_id is None:
         return None
     values: dict[str, Any] = {

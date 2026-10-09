@@ -6,7 +6,7 @@ sidebar_label: Graph
 # `agrag.ingestion.graph.Graph` \{#agrag-ingestion-graph-Graph}
 
 ```python
-Graph(*, schema:GraphSchema, graph_store:GraphStore, embedder:Embedder, extractor:Extractor, tracer:Tracer | None = None, vector_store:VectorStore | None = None, retrieval_settings:RetrievalSettings | None = None, cutover_settings:CutoverJobSettings | None = None, chunking:Chunking = DEFAULT_CHUNKING, embed_heading_path:bool = True, max_llm_pairs:int = MAX_LLM_PAIRS) -> None
+Graph(*, schema:GraphSchema, graph_store:GraphStore, embedder:Embedder, extractor:Extractor, tracer:Tracer | None = None, vector_store:VectorStore | None = None, retrieval_settings:RetrievalSettings | None = None, cutover_settings:CutoverJobSettings | None = None, chunker:Chunker | None = None, embed_heading_path:bool = True, max_llm_pairs:int = MAX_LLM_PAIRS) -> None
 ```
 
 A knowledge graph that a caller can open and add content to.
@@ -30,7 +30,7 @@ by `open()` when missing.
 
 **Attributes:**
 
-- [**chunking**](#agrag-ingestion-graph-Graph-chunking) (<code>[Chunking](../../chunking/rules/Chunking.md)</code>) – The rules that pick a chunker for each document.
+- [**chunker**](#agrag-ingestion-graph-Graph-chunker) (<code>[Chunker](../../chunking/chunker/Chunker-ref.md)</code>) – The chunker that splits every document.
 
 **Parameters:**
 
@@ -53,8 +53,8 @@ by `open()` when missing.
 - **cutover_settings** (<code>[CutoverJobSettings](../settings/CutoverJobSettings.md) | None</code>) – Lease configuration for the Cutover Jobs
   add/update/delete_document run through. None uses
   CutoverJobSettings defaults.
-- **chunking** (<code>[Chunking](../../chunking/rules/Chunking.md)</code>) – The rules that pick a chunker for each document. The
-  default is `DEFAULT_CHUNKING`.
+- **chunker** (<code>[Chunker](../../chunking/chunker/Chunker-ref.md) | None</code>) – The chunker that splits every document. None uses
+  `Chunker()`.
 - **embed_heading_path** (<code>bool</code>) – Whether chunk embeddings include the chunk's
   heading path above its text. The stored text does not change.
   Existing embeddings stay until a document is re-chunked with
@@ -78,16 +78,16 @@ Give exactly one of `source`, `text`, and `documents`.
 - **source** (<code>SourcesType | None</code>) – A file path, a directory, a glob, or a list of these.
 - **text** (<code>str | None</code>) – Raw text to add as one document.
 - **documents** (<code>Sequence\[[Document](../../common/data_models/document/Document-ref.md)\] | None</code>) – Already-built documents to add directly.
-- **loader** (<code>[Loader](../../loaders/corpus/base/Loader.md) | None</code>) – A loader to use instead of the registry default. It requires
+- **loader** (<code>[Loader](../../loaders/base/Loader.md) | None</code>) – A loader to use instead of the registry default. It requires
   a single-file `source`. A directory, glob, or list of sources
   raises an error.
-- **error_policy** (<code>[ErrorPolicy](../../loaders/corpus/types/ErrorPolicy.md)</code>) – The action to take on a per-source error.
+- **error_policy** (<code>[ErrorPolicy](../../loaders/types/ErrorPolicy.md)</code>) – The action to take on a per-source error.
 - **on_progress** (<code>Callable\[\[[AddResult](../reports/add_result/AddResult.md)\], None\] | None</code>) – A callback the call runs after each batch and once more
   at the end with the fully-populated result.
 - **return_chunks** (<code>bool</code>) – Whether to include the produced chunks in the
   returned AddResult. False by default to avoid holding full text
   for a large corpus when not needed.
-- **read_options** (<code>[ReadOptions](../../loaders/corpus/types/ReadOptions.md) | None</code>) – How loaders read sources, including the normalization of
+- **read_options** (<code>[ReadOptions](../../loaders/types/ReadOptions.md) | None</code>) – How loaders read sources, including the normalization of
   decoded text. None uses `ReadOptions()` defaults.
 
 **Returns:**
@@ -113,13 +113,13 @@ Give exactly one of `source`, `text`, and `documents`.
 - <code>ValueError</code> – The input contains multiple documents with the same
   `document_key`.
 
-## `chunking` \{#agrag-ingestion-graph-Graph-chunking}
+## `chunker` \{#agrag-ingestion-graph-Graph-chunker}
 
 ```python
-chunking: Chunking
+chunker: Chunker
 ```
 
-The rules that pick a chunker for each document.
+The chunker that splits every document.
 
 ## `consolidate` \{#agrag-ingestion-graph-Graph-consolidate}
 
@@ -240,7 +240,7 @@ previous one.
 ## `open` \{#agrag-ingestion-graph-Graph-open}
 
 ```python
-open(*, schema:GraphSchema, graph_store:GraphStore, embedder:Embedder, extractor:Extractor, tracer:Tracer | None = None, vector_store:VectorStore | None = None, retrieval_settings:RetrievalSettings | None = None, cutover_settings:CutoverJobSettings | None = None, chunking:Chunking = DEFAULT_CHUNKING, embed_heading_path:bool = True, max_llm_pairs:int = MAX_LLM_PAIRS) -> Graph
+open(*, schema:GraphSchema, graph_store:GraphStore, embedder:Embedder, extractor:Extractor, tracer:Tracer | None = None, vector_store:VectorStore | None = None, retrieval_settings:RetrievalSettings | None = None, cutover_settings:CutoverJobSettings | None = None, chunker:Chunker | None = None, embed_heading_path:bool = True, max_llm_pairs:int = MAX_LLM_PAIRS) -> Graph
 ```
 
 Open a graph, connecting and fully provisioning graph_store.
@@ -272,8 +272,7 @@ missing) so the dual writes never hit an absent collection.
 - **cutover_settings** (<code>[CutoverJobSettings](../settings/CutoverJobSettings.md) | None</code>) – Lease configuration for the Cutover Jobs
   add/update/delete_document run through. None uses
   CutoverJobSettings defaults.
-- **chunking** (<code>[Chunking](../../chunking/rules/Chunking.md)</code>) – The rules that pick a chunker for each document; see
-  __init__.
+- **chunker** (<code>[Chunker](../../chunking/chunker/Chunker-ref.md) | None</code>) – The chunker that splits every document; see __init__.
 - **embed_heading_path** (<code>bool</code>) – Whether chunk embeddings include the heading path;
   see __init__.
 - **max_llm_pairs** (<code>int</code>) – The most ambiguous entity pairs sent to the LLM for each
@@ -338,9 +337,9 @@ Replace one document version, closing its former PART_OF edges.
 
 Looks up the persisted `Document` node by `document_key`. An
 unchanged content hash is a no-op returning before any chunking,
-extraction, or writes, unless the chunker that this graph's rules pick
-for the document differs from the one that made its current chunks. A
-chunker with new settings re-chunks the document as a content change
+extraction, or writes, unless the graph's configured chunker settings
+changed since the document was chunked. A chunker with new settings
+re-chunks the document as a content change
 does. Chunks written before chunkers were recorded count as unchanged.
 Otherwise the fresh content ingests under a Cutover Job holding this
 document's lease, and the commit flips the job, closes the document's
@@ -357,10 +356,10 @@ must resolve to exactly one document.
 - **text** (<code>str | None</code>) – Replacement text, exactly one of `text`/`source`.
 - **source** (<code>SourcesType | None</code>) – A single-file source, glob, or path list resolving to
   exactly one document.
-- **loader** (<code>[Loader](../../loaders/corpus/base/Loader.md) | None</code>) – A loader override for a single-file `source`.
-- **error_policy** (<code>[ErrorPolicy](../../loaders/corpus/types/ErrorPolicy.md)</code>) – RAISE propagates a stage failure. Any other
+- **loader** (<code>[Loader](../../loaders/base/Loader.md) | None</code>) – A loader override for a single-file `source`.
+- **error_policy** (<code>[ErrorPolicy](../../loaders/types/ErrorPolicy.md)</code>) – RAISE propagates a stage failure. Any other
   policy records it and continues.
-- **read_options** (<code>[ReadOptions](../../loaders/corpus/types/ReadOptions.md) | None</code>) – How loaders read the replacement, including the
+- **read_options** (<code>[ReadOptions](../../loaders/types/ReadOptions.md) | None</code>) – How loaders read the replacement, including the
   normalization of its text. None uses `ReadOptions()` defaults.
 
 **Returns:**

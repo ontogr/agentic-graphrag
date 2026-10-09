@@ -18,7 +18,12 @@ Agentic GraphRAG keeps both in one graph. An entity points to the chunks that me
 
 ```mermaid
 flowchart LR
-    D[Document] -->|PART_OF| C[Chunk]
+    D[Document] -->|HAS_CHILD| S[Section]
+    S -->|HAS_CHILD| S
+    S -->|HAS_CHILD| C[Chunk]
+    S -->|HAS_CHILD| T[Table]
+    T -->|HAS_CHILD| C
+    D -->|PART_OF| C
     C -->|NEXT_CHUNK| C
     C -->|MENTIONED_IN| E[Entity]
     E -->|schema relation| E
@@ -27,19 +32,24 @@ flowchart LR
     E -->|MEMBER_OF| M[Community]
 ```
 
-*Five node kinds and their edges. Entity nodes use your schema's type names as labels.*
+*The node kinds and their edges. Entity nodes use your schema's type names as labels. `PART_OF` also joins a document to each section, table and figure.*
 
-The graph has five kinds of node:
+The graph has these kinds of node:
 
 1. Document: one node for each logical document. Its `document_key` stays the same when the content changes. It holds the source location, the title and the current content hash.
-2. Chunk: one retrieval-sized piece of text. It holds the text, its location in the source, the headings above it, and the chunker that made it.
-3. Entity: one node for each name and type, such as the person "Ada Lovelace". Its label is the type from your schema. The same name with two types makes two entities. It records which chunks mention it.
-4. ResolvedEntity (see [Matching and resolved entities](./resolved-entities.mdx)): a group of entities that the resolver decided are the same thing. It exists only for groups of two or more.
-5. Community (see [Communities](./communities.mdx)): a group of related entities. It holds a title, a summary, a rating and findings.
+2. Section: one heading of a document, or the unheaded content when the document has no headings yet. It holds the heading, its depth, and its page range or character range. It holds no text. The chunks under it hold the text. A section has a stable `section_key` that stays the same while the heading path and the place among sections with that path stay the same.
+3. Table and Figure: one node for each table or figure. A table holds its caption, its column names and its row count. A figure holds its caption and its page box. It does not store the image.
+4. Source: one node for each record file, such as a CSV file. It joins each of its row documents with `HAS_DOCUMENT`.
+5. Chunk: one retrieval-sized piece of text. It holds the text, its location in the source, the headings above it, the sections it covers and the chunker that made it.
+6. Entity: one node for each name and type, such as the person "Ada Lovelace". Its label is the type from your schema. The same name with two types makes two entities. It records which chunks mention it.
+7. ResolvedEntity (see [Matching and resolved entities](./resolved-entities.mdx)): a group of entities that the resolver decided are the same thing. It exists only for groups of two or more.
+8. Community (see [Communities](./communities.mdx)): a group of related entities. It holds a title, a summary, a rating and findings.
 
 The edges connect them:
 
-- `PART_OF` joins a document to each of its chunks. It has a start time and an end time. The edge is open while the chunk belongs to the current version of the document.
+- `HAS_CHILD` builds the tree. It joins a document or section to its sections, tables, figures and chunks, and a table to its chunks. It carries an `order`, the reading order of the child.
+- `HAS_DOCUMENT` joins the source file of a record file, such as a CSV file, to each of its row documents.
+- `PART_OF` joins a document to each of its sections, tables, figures and chunks. It has a start time and an end time. The edge is open while the node belongs to the current version of the document.
 - `NEXT_CHUNK` joins two neighbouring chunks of one document.
 - `MENTIONED_IN` joins a chunk to each entity it mentions.
 - A schema relation joins two entities, for example `WORKED_WITH`. Only the patterns that your schema allows can exist.
@@ -54,9 +64,11 @@ Take a note with two sentences about Ada Lovelace, Charles Babbage and the Analy
 | Kind | Count |
 | --- | --- |
 | Document | 1 |
+| Section | 1 |
 | Chunk | 1 |
 | Entity | 5 |
-| `PART_OF` edges | 1 |
+| `HAS_CHILD` edges | 2 |
+| `PART_OF` edges | 2 |
 | `MENTIONED_IN` edges | 5 |
 
 The five entities are two people, one place, one product and one event. The preset has one relation type, and the extractor found no relation in this text, so the graph has no relation edge. A stricter schema for your domain gives the extractor more to look for.
@@ -72,7 +84,7 @@ Why does the resolver add a ResolvedEntity instead of merging entities? A match 
 
 Why is the type the label? The type is what you filter and index by. Every Agentic GraphRAG node also carries an internal marker label, so Agentic GraphRAG can find its own nodes in a shared database.
 
-Why is the parent of a chunk a property and not an edge? A child chunk stores its parent's id. Search returns the child with its parent attached, so no traversal is needed. The [Chunking](./chunking.mdx) page explains parent and child chunks.
+Why does a chunk list its sections as a property and not as edges? A chunk can span several sections. It stores their ids in `section_ids`, so a reader can find them without a traversal. The [Chunking](./chunking.mdx) page explains how a chunk records its sections.
 
 </details>
 

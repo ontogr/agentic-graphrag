@@ -39,6 +39,7 @@ entity properties. Needs the `llm` extra and a reachable LLM endpoint.
 
 **Attributes:**
 
+- [**max_concurrency**](#agrag-ingestion-extract-BAMLExtractor-max_concurrency) (<code>int</code>) –
 - [**settings**](#agrag-ingestion-extract-BAMLExtractor-settings) –
 
 ## `extract` \{#agrag-ingestion-extract-BAMLExtractor-extract}
@@ -63,6 +64,12 @@ Extract with an LLM call through the configured ClientRegistry.
 - <code>[ExtractorMissingExtraError](ExtractorMissingExtraError.md)</code> – The `llm` package extra is not
   installed.
 - <code>ValueError</code> – `chunk.id` is `None`.
+
+## `max_concurrency` \{#agrag-ingestion-extract-BAMLExtractor-max_concurrency}
+
+```python
+max_concurrency: int = 8
+```
 
 ## `settings` \{#agrag-ingestion-extract-BAMLExtractor-settings}
 

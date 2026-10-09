@@ -2,14 +2,14 @@
 
 from datetime import UTC, datetime
 from enum import StrEnum
-from typing import Any
 from uuid import NAMESPACE_OID, UUID, uuid5
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, JsonValue, model_validator
 
 from agrag.common.data_models.data_point import DataPoint
 from agrag.common.data_models.graph_record import NodeRecord
 from agrag.common.data_models.normalization import Normalization
+from agrag.common.data_models.provenance import PageSpan, check_page_spans
 
 
 DOCUMENT_LABEL = "Document"
@@ -48,40 +48,146 @@ class SourceFormat(StrEnum):
     PDF = "pdf"
     DOCX = "docx"
     PPTX = "pptx"
+    XLSX = "xlsx"
     IMAGE = "image"
 
 
-class HeadingRef(BaseModel):
-    """One heading in a document outline.
+class UnitKind(StrEnum):
+    """The kind of content in a unit.
 
     Attributes:
-        text: The heading text.
-        level: The heading depth. A top-level heading has level 1.
-        char_start: The start character offset of the heading in the document text. The
-            chunker uses this offset to find which heading contains each chunk, since
-            the
-            base chunker does not detect headings on its own.
+        PARAGRAPH: A paragraph of running text.
+        LIST: A list. One unit holds all the items of one list.
+        CODE: A block of code.
+        FORMULA: A formula.
+        FOOTNOTE: A footnote.
+        TABLE: A table. Its rows are in ``Unit.rows``.
+        FIGURE: A picture, chart, or diagram. Its text is the caption.
     """
 
+    PARAGRAPH = "paragraph"
+    LIST = "list"
+    CODE = "code"
+    FORMULA = "formula"
+    FOOTNOTE = "footnote"
+    TABLE = "table"
+    FIGURE = "figure"
+
+
+class Unit(BaseModel):
+    """One piece of content in a section, such as a paragraph or a table.
+
+    Attributes:
+        kind: The kind of content.
+        text: The text of the unit. For a table or figure, the caption, or an empty
+            string when it has none.
+        char_start: The start character offset of the unit in the document text. A
+            text source sets this field. A source that has no text offsets leaves it
+            empty.
+        char_end: The end character offset of the unit, exclusive. Set together with
+            ``char_start``.
+        pages: The pages and boxes the unit covers. A source with page layout sets
+            this field.
+        caption: The caption of a table or figure.
+        rows: The cell text of a table, row by row. A spanned cell repeats its text
+            in every slot it covers. Empty for other kinds.
+        header_rows: The number of leading rows of a table that are headers. Zero
+            when the source does not mark them; see ``header_row_count``.
+    """
+
+    kind: UnitKind
     text: str
-    level: int
-    char_start: int
+    char_start: int | None = None
+    char_end: int | None = None
+    pages: list[PageSpan] = Field(default_factory=list)
+    caption: str | None = None
+    rows: list[list[str]] = Field(default_factory=list)
+    header_rows: int = Field(default=0, ge=0)
+
+    @property
+    def header_row_count(self) -> int:
+        """Return how many leading rows of a table form its header.
+
+        The count is ``header_rows``. When the source marks no header rows, the
+        first row is the header for every table format, so the count is at
+        least 1.
+        """
+        return max(self.header_rows, 1)
+
+    @property
+    def header(self) -> list[str]:
+        """Return the column names of a table, one for each column.
+
+        The names come from the first ``header_row_count`` rows, so the first
+        row supplies them for every table format when the source marks no
+        header rows. Chunk rendering uses these names, and ingestion stores
+        them as the Table node ``columns``. Empty when the table has no rows.
+        A spanned header cell repeats its text in every slot it covers, so
+        each column keeps each text once.
+        """
+        if not self.rows:
+            return []
+        width = max(len(row) for row in self.rows)
+        head = self.rows[: self.header_row_count]
+        names: list[str] = []
+        for column in range(width):
+            parts = [
+                row[column] for row in head if column < len(row) and row[column].strip()
+            ]
+            names.append(" ".join(dict.fromkeys(parts)))
+        return names
+
+    @model_validator(mode="after")
+    def _check_span(self) -> "Unit":
+        start, end = self.char_start, self.char_end
+        if (start is None) != (end is None):
+            raise ValueError("char_start and char_end must be set together")
+        if start is not None and end is not None and not 0 <= start <= end:
+            raise ValueError("a unit span must satisfy 0 <= char_start <= char_end")
+        return self
+
+    @model_validator(mode="after")
+    def _check_caption_text(self) -> "Unit":
+        if self.kind in (
+            UnitKind.TABLE,
+            UnitKind.FIGURE,
+        ) and self.text != (self.caption or ""):
+            raise ValueError(f"a {self.kind.value} unit's text must equal its caption")
+        return self
 
 
-class TurnRef(BaseModel):
-    """One speaker turn in a chat document.
+class DocumentSection(BaseModel):
+    """One heading of a document and the content directly under it.
+
+    Sections are in reading order. A section has no text of its own: the units hold
+    it. Content before the first heading, or in a document with no headings, goes in
+    a section with an empty heading.
 
     Attributes:
-        role: The speaker of the turn, for example ``"user"``.
-        turn_id: The id of the message in the source, when it has one.
-        char_start: The start character offset of the turn in the document text.
-        char_end: The end character offset of the turn, exclusive.
+        heading: The heading text. Empty for a section made for content that has no
+            heading.
+        depth: The heading depth. A top-level heading has depth 1. A document title
+            or a section made for content with no heading has depth 0.
+        parent: The positional index in ``Document.sections`` of the section that
+            contains this one. ``None`` for a section that sits directly under
+            the document. The index must come before this section, and the
+            parent must be shallower. Always an int index, never a key or id.
+        source_id: The id of the source record, such as a chat message id.
+        units: The content directly under the heading, in reading order.
     """
 
-    role: str = Field(min_length=1)
-    turn_id: str | None = None
-    char_start: int
-    char_end: int
+    heading: str
+    depth: int = Field(ge=0)
+    parent: int | None = None
+    source_id: str | None = None
+    units: list[Unit] = Field(default_factory=list)
+
+
+def _check_unit_provenance(unit: Unit, index: int, unit_index: int) -> None:
+    try:
+        check_page_spans(unit.pages)
+    except ValueError as error:
+        raise ValueError(f"section {index} unit {unit_index}: {error}") from error
 
 
 class Document(DataPoint):
@@ -101,9 +207,9 @@ class Document(DataPoint):
     set. Pass ``id`` only when rebuilding a document from stored data.
 
     Attributes:
-        text: The document text. For a docling source, this holds docling Markdown
-            export. The chunker never reads this field for a docling source. See
-            the ``Chunk`` model for docling chunk content instead.
+        text: The document text. For a docling source, this holds the docling
+            Markdown export. The chunker does not read it for a docling source: the
+            chunks come from ``sections``.
         title: The document title.
         uri: The location of the source. This value is not part of the document id.
         source_format: The format the loader used to read this document.
@@ -126,13 +232,13 @@ class Document(DataPoint):
             set this field only when the caller configures an id column.
         raw_record: The original record data. A loader sets this field only when the
             caller asks for it.
-        heading_outline: The headings in the document, with their offsets. A text
-            loader sets this field for a prose document.
+        sections: The headings of the document and the content under them, in reading
+            order. A non-blank document with no headings has one section with an
+            empty heading. A record row has none: its text is one unit of content.
+            A document read without its text (``store_text`` off) has none either.
         document_key: The stable identifier for this document's persisted graph node.
             Independent of ``id``, which changes with every content edit. Defaults to
             ``uri`` when not supplied.
-        turns: The speaker turns of a chat document, in order. A chat loader sets this
-            field. Turn spans index ``text`` and do not overlap.
         normalization: How the loader normalized ``text``. ``None`` for a document
             that no text loader made, such as a docling document or one built by hand.
     """
@@ -155,29 +261,48 @@ class Document(DataPoint):
 
     record_index: int | None = None
     record_id: str | None = None
-    raw_record: dict[str, Any] | None = None
+    raw_record: dict[str, JsonValue] | None = None
 
-    heading_outline: list[HeadingRef] = Field(default_factory=list)
+    sections: list[DocumentSection] = Field(default_factory=list)
     document_key: str | None = None
-    turns: list[TurnRef] = Field(default_factory=list)
     normalization: Normalization | None = None
 
     @model_validator(mode="after")
-    def _check_turns(self) -> "Document":
-        """Require turn spans in order, without overlap, inside the text."""
-        limit = len(self.text)
-        previous_end = 0
-        for turn in self.turns:
-            if not 0 <= turn.char_start < turn.char_end <= limit:
-                raise ValueError(
-                    f"turn span {turn.char_start}:{turn.char_end} is not in the text"
-                )
-            if turn.char_start < previous_end:
-                raise ValueError(
-                    "turns must be in order and must not overlap: "
-                    f"{turn.char_start} starts before {previous_end}"
-                )
-            previous_end = turn.char_end
+    def _check_sections(self) -> "Document":
+        last_end = 0
+        for index, section in enumerate(self.sections):
+            if section.parent is not None:
+                if not 0 <= section.parent < index:
+                    raise ValueError(
+                        f"section {index} has parent {section.parent}, "
+                        "which does not come before it"
+                    )
+                if section.depth <= self.sections[section.parent].depth:
+                    raise ValueError(f"section {index} must be deeper than its parent")
+            for unit_index, unit in enumerate(section.units):
+                _check_unit_provenance(unit, index, unit_index)
+                if unit.char_start is not None:
+                    if unit.char_end is None:
+                        raise ValueError(
+                            f"section {index} unit {unit_index} "
+                            "has char_start without char_end"
+                        )
+                    if not 0 <= unit.char_start <= unit.char_end <= len(self.text):
+                        raise ValueError(
+                            f"section {index} unit {unit_index} "
+                            "spans outside the document text"
+                        )
+                    if unit.char_start < last_end:
+                        raise ValueError(
+                            f"section {index} unit {unit_index} "
+                            "starts before the previous unit ends"
+                        )
+                    last_end = unit.char_end
+                    if self.text[unit.char_start : unit.char_end] != unit.text:
+                        raise ValueError(
+                            f"section {index} unit {unit_index} "
+                            "does not match the document text"
+                        )
         return self
 
     @model_validator(mode="after")

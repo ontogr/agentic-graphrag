@@ -88,6 +88,7 @@ def _document(key: str, text: str) -> Document:
 def _legacy_chunk() -> Chunk:
     """Build a chunk with no Document node and no PART_OF edge."""
     return Chunk(
+        id=uuid4(),
         document_id=uuid4(),
         index=0,
         text="legacy chunk without a document backbone",

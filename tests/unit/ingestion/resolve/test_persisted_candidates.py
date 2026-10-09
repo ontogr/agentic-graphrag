@@ -7,7 +7,7 @@ import pytest
 from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.extraction import ExtractedEntity
 from agrag.ingestion.resolve.candidate_source import persisted_candidate_indices
-from agrag.loaders.corpus.types import ErrorPolicy
+from agrag.loaders.types import ErrorPolicy
 
 
 def _entity(name: str, label: str = "Person") -> Entity:

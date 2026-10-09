@@ -15,9 +15,7 @@ A key (E1, R1, C1 for entities, relations, and chunks) is
 assigned the first time this run encounters that item, by
 SearchResult.identity_key, and never reassigned within the run.
 The agent is shown rendered evidence carrying these keys, never
-raw SearchResults. A chunk result that has a parent shows the parent text under
-the first child's key. Later children of that parent show their own text and
-name the first key.
+raw SearchResults.
 
 **Functions:**
 

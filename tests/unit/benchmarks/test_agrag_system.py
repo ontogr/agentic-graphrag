@@ -13,7 +13,7 @@ from langchain_core.messages import AIMessage, HumanMessage
 from langgraph.errors import GraphRecursionError
 
 from agrag.agents.ledger import Ledger
-from agrag.chunking import Chunking, RecursiveChunker
+from agrag.chunking import Chunker
 from agrag.common.data_models.chunk import Chunk
 from agrag.common.data_models.document import Document
 from agrag.common.data_models.entity import Entity
@@ -44,7 +44,7 @@ def _system(document: Document) -> AgragSystem:
     return AgragSystem(
         store=AsyncMock(),
         schema=SCHEMA,
-        chunking=Chunking(fallback=RecursiveChunker(chunk_size=100)),
+        chunking=Chunker(size=100),
         documents=[document],
         settings=MagicMock(),
         tracer=MagicMock(),
@@ -93,6 +93,7 @@ class TestAgragSystem:
         cited = ledger.cite(
             SearchResult(
                 item=Chunk(
+                    id=uuid4(),
                     document_id=document_id,
                     text="hello",
                     provenance=TextProvenance(char_start=6, char_end=11),

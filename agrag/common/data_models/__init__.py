@@ -2,7 +2,14 @@
 
 from agrag.common.data_models.chunk import Chunk
 from agrag.common.data_models.community import Community
-from agrag.common.data_models.document import Document, DocumentFamily, SourceFormat
+from agrag.common.data_models.document import (
+    Document,
+    DocumentFamily,
+    DocumentSection,
+    SourceFormat,
+    Unit,
+    UnitKind,
+)
 from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.graph_record import NodeRecord, RelationRecord
 from agrag.common.data_models.graph_schema import (
@@ -26,6 +33,7 @@ __all__ = [
     "Distance",
     "Document",
     "DocumentFamily",
+    "DocumentSection",
     "Entity",
     "EntityType",
     "GraphSchema",
@@ -39,5 +47,7 @@ __all__ = [
     "SearchResult",
     "SourceFormat",
     "TextProvenance",
+    "Unit",
+    "UnitKind",
     "VectorRecord",
 ]

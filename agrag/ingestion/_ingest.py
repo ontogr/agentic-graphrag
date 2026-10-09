@@ -8,16 +8,17 @@ definition.
 import asyncio
 import contextlib
 import hashlib
-from collections.abc import Awaitable, Callable, Sequence
+import logging
+from collections.abc import Awaitable, Callable, Iterable, Sequence
 from uuid import UUID
 
 from opentelemetry.trace import Tracer
 
-from agrag.chunking import Chunking
+from agrag.chunking import Chunker
+from agrag.chunking.chunker import ChunkedDocument, ChunkPlacement
 from agrag.common.data_models.chunk import Chunk
 from agrag.common.data_models.document import (
     Document,
-    DocumentFamily,
     SourceFormat,
 )
 from agrag.common.data_models.extraction import ExtractedEntity, ExtractedRelation
@@ -29,13 +30,13 @@ from agrag.graphdb.base import GraphStore
 from agrag.ingestion._cutover import run_cutover_job
 from agrag.ingestion._document_lifecycle import find_document
 from agrag.ingestion._ingest_pipeline import extract_chunks, ingest_chunks
+from agrag.ingestion._structure import placement_map
 from agrag.ingestion._walk import SourcesType, chunk_documents, iter_document_batches
 from agrag.ingestion.extract import Extractor
 from agrag.ingestion.reports import AddResult, UpdateResult
 from agrag.ingestion.resolved_entities import MatchComponent
 from agrag.ingestion.settings import CutoverJobSettings
 from agrag.ingestion.stats import (
-    ChunkingMatch,
     ChunkingStats,
     ExtractionStats,
     IngestStats,
@@ -43,13 +44,16 @@ from agrag.ingestion.stats import (
     ResolutionStats,
     StorageStats,
 )
-from agrag.loaders.corpus._walk import normalize_inline_text
-from agrag.loaders.corpus.base import Loader
-from agrag.loaders.corpus.registry import LoaderRegistry
-from agrag.loaders.corpus.types import ErrorPolicy, LoadStats, ReadOptions
+from agrag.loaders.base import Loader
+from agrag.loaders.common import build_prose_document, text_sections
+from agrag.loaders.loader_registry import LoaderRegistry
+from agrag.loaders.types import ErrorPolicy, LoadStats, ReadOptions, SourceRef
+from agrag.loaders.walk import normalize_inline_text
 from agrag.retrieval.settings import RetrievalSettings
 from agrag.vectordb.base import VectorStore
 
+
+logger = logging.getLogger(__name__)
 
 CleanupStep = Callable[[list[UUID], list[UUID]], Awaitable[list[StageFailure]]]
 
@@ -61,6 +65,17 @@ def _vector_collections(retrieval_settings: RetrievalSettings) -> tuple[str, str
         retrieval_settings.chunk_collection,
         retrieval_settings.resolved_entity_collection,
     )
+
+
+def _placements_of(
+    chunked_documents: Iterable[ChunkedDocument],
+) -> dict[UUID, ChunkPlacement]:
+    """Return the placement of every chunk across the chunked documents."""
+    return {
+        chunk_id: placement
+        for chunked in chunked_documents
+        for chunk_id, placement in placement_map(chunked).items()
+    }
 
 
 async def _no_pending_write(job_id: UUID) -> None:
@@ -109,28 +124,6 @@ def _group_by_document(
         list[StageFailure],
     ]
 ]:
-    """Split one call's pipeline inputs into per-document slices.
-
-    Each slice carries one document's chunks, mentions, relations, and
-    extraction failures, so it can ingest as its own Cutover Job. Order
-    follows the documents' first occurrence. A chunk, mention, or failure
-    that maps to no listed document joins the first slice rather than
-    being dropped. With no documents at all but stray chunks, the first
-    chunk's document linkage keys the single slice.
-
-    Args:
-        chunks: The call's chunks, in document then chunk order.
-        documents: The call's documents, possibly repeating.
-        entities: Mentions addressing chunks by id.
-        relations: Relations whose indices address ``entities``. Each slice
-            rebases them to its own entity list; a relation whose endpoints
-            fall in different slices is dropped.
-        extraction_failures: Failures keyed by chunk id.
-
-    Returns:
-        One (document_key, chunks, documents, entities, relations,
-        failures) tuple per document.
-    """
     ordered_keys: list[str] = []
     for document in documents:
         key = document.resolved_document_key
@@ -142,10 +135,20 @@ def _group_by_document(
     key_by_node_id = {
         Document.node_id_for(document_key=key): key for key in ordered_keys
     }
+
+    def _or_first(found: str | None, *, kind: str) -> str:
+        if found is None:
+            logger.warning(
+                "%s maps to no listed document; joining the first slice.", kind
+            )
+            return ordered_keys[0]
+        return found
+
     chunks_by_key: dict[str, list[Chunk]] = {key: [] for key in ordered_keys}
     for chunk in chunks:
         chunks_by_key.setdefault(
-            key_by_node_id.get(chunk.document_id, ordered_keys[0]), []
+            _or_first(key_by_node_id.get(chunk.document_id), kind=f"Chunk {chunk.id}"),
+            [],
         ).append(chunk)
     chunk_ids_by_key = {
         key: {chunk.id for chunk in group if chunk.id is not None}
@@ -160,7 +163,10 @@ def _group_by_document(
     }
     slice_position: list[tuple[str, int]] = []
     for entity in entities:
-        entity_key = key_by_chunk_id.get(entity.chunk_id, ordered_keys[0])
+        entity_key = _or_first(
+            key_by_chunk_id.get(entity.chunk_id),
+            kind=f"Mention of chunk {entity.chunk_id}",
+        )
         group = entities_by_key.setdefault(entity_key, [])
         slice_position.append((entity_key, len(group)))
         group.append(entity)
@@ -171,6 +177,12 @@ def _group_by_document(
         source_key, source_index = slice_position[relation.source_index]
         target_key, target_index = slice_position[relation.target_index]
         if source_key != target_key:
+            logger.warning(
+                "Dropping relation %r across slices %r and %r.",
+                relation.label,
+                source_key,
+                target_key,
+            )
             continue
         relations_by_key[source_key].append(
             relation.model_copy(
@@ -183,7 +195,9 @@ def _group_by_document(
             failure_key = key_by_chunk_id.get(UUID(str(failure.item_id)))
         except ValueError:
             failure_key = None
-        failures_by_key.setdefault(failure_key or ordered_keys[0], []).append(failure)
+        failures_by_key.setdefault(
+            _or_first(failure_key, kind=f"Failure {failure.item_id}"), []
+        ).append(failure)
     documents_by_key: dict[str, list[Document]] = {key: [] for key in ordered_keys}
     for document in documents:
         documents_by_key[document.resolved_document_key].append(document)
@@ -357,7 +371,7 @@ async def add_documents(  # noqa: PLR0912,PLR0915,PLR0913
     vector_store: VectorStore | None,
     retrieval_settings: RetrievalSettings,
     cutover_settings: CutoverJobSettings,
-    chunking: Chunking,
+    chunker: Chunker,
     registry: LoaderRegistry,
     embed_heading_path: bool,
     max_llm_pairs: int,
@@ -379,8 +393,8 @@ async def add_documents(  # noqa: PLR0912,PLR0915,PLR0913
             )
 
         chunks: list[Chunk] = []
-        chunk_matches: list[ChunkingMatch] = []
         documents_seen: list[Document] = []
+        placements_by_id: dict[UUID, ChunkPlacement] = {}
         document_keys_seen: set[str] = set()
         entities: list[ExtractedEntity] = []
         relations: list[ExtractedRelation] = []
@@ -410,7 +424,7 @@ async def add_documents(  # noqa: PLR0912,PLR0915,PLR0913
             )
             extraction_failures_capped = cap_failures(list(extraction_failures))
             extraction = ExtractionStats(
-                chunks_processed=sum(c.parent_id is None for c in chunks),
+                chunks_processed=len(chunks),
                 entities_extracted=len(entities),
                 relations_extracted=len(relations),
                 failures=extraction_failures_capped.items,
@@ -419,7 +433,7 @@ async def add_documents(  # noqa: PLR0912,PLR0915,PLR0913
             )
             return AddResult(
                 ingestion=ingest,
-                chunking=ChunkingStats.from_matches(list(chunk_matches)),
+                chunking=ChunkingStats.from_documents(documents_seen, chunks),
                 extraction=extraction,
                 resolution=ResolutionStats(),
                 merge=MergeStats(),
@@ -443,18 +457,19 @@ async def add_documents(  # noqa: PLR0912,PLR0915,PLR0913
             final_stats.skipped = stats.skipped
             final_stats.quarantined = stats.quarantined
             final_stats.quarantined_items = list(stats.quarantined_items)
-            chunk_batch, batch_matches = await asyncio.to_thread(
-                chunk_documents, batch, chunking=chunking, tracer=tracer
+            chunk_batch = await asyncio.to_thread(
+                chunk_documents, batch, chunker=chunker, tracer=tracer
             )
-            chunks.extend(chunk_batch)
-            chunk_matches.extend(batch_matches)
+            flat_batch = [chunk for cd in chunk_batch for chunk in cd.chunks]
+            placements_by_id.update(_placements_of(chunk_batch))
+            chunks.extend(flat_batch)
             documents_seen.extend(batch)
             (
                 batch_entities,
                 batch_relations,
                 batch_failures,
             ) = await extract_chunks(
-                chunk_batch,
+                flat_batch,
                 start_index=len(entities),
                 extractor=extractor,
                 schema=schema,
@@ -519,7 +534,7 @@ async def add_documents(  # noqa: PLR0912,PLR0915,PLR0913
                     slice_relations,
                     slice_failures,
                 ) = _slice
-                return await ingest_chunks(
+                batch = await ingest_chunks(
                     slice_chunks,
                     slice_documents,
                     slice_entities,
@@ -535,10 +550,12 @@ async def add_documents(  # noqa: PLR0912,PLR0915,PLR0913
                     return_chunks=return_chunks,
                     job_id=job_id,
                     rebuilt_components=_components,
+                    placements=placements_by_id,
                     tracer=tracer,
                     embed_heading_path=embed_heading_path,
                     max_llm_pairs=max_llm_pairs,
                 )
+                return batch.add_result
 
             partial, cleanup_failures, _ = await run_cutover_job(
                 verb="add",
@@ -557,7 +574,7 @@ async def add_documents(  # noqa: PLR0912,PLR0915,PLR0913
         result = _merge_add_results(
             partials,
             ingestion=ingestion,
-            chunking=ChunkingStats.from_matches(chunk_matches),
+            chunking=ChunkingStats.from_documents(documents_seen, chunks),
         )
 
         if on_progress is not None:
@@ -582,7 +599,7 @@ async def update_document(  # noqa: PLR0913
     vector_store: VectorStore | None,
     retrieval_settings: RetrievalSettings,
     cutover_settings: CutoverJobSettings,
-    chunking: Chunking,
+    chunker: Chunker,
     registry: LoaderRegistry,
     embed_heading_path: bool,
     max_llm_pairs: int,
@@ -598,19 +615,18 @@ async def update_document(  # noqa: PLR0913
         if text is not None:
             normalized, normalization = normalize_inline_text(text, opts)
             content_hash = hashlib.sha256(normalized.encode("utf-8")).hexdigest()
-            document = Document(
+            document = build_prose_document(
+                source=SourceRef(uri=document_key, extension=".txt"),
                 text=normalized,
-                title="inline",
-                uri=document_key,
-                document_key=document_key,
-                source_format=SourceFormat.TXT,
-                family=DocumentFamily.PROSE,
-                content_hash=content_hash,
-                loader_name="inline",
                 encoding="utf-8",
-                char_count=len(normalized),
-                line_count=normalized.count("\n") + 1,
-                normalization=normalization,
+                source_format=SourceFormat.TXT,
+                loader_name="inline",
+                opts=opts,
+                title="inline",
+                sections=text_sections(normalized),
+                content_hash=content_hash,
+            ).model_copy(
+                update={"normalization": normalization, "document_key": document_key}
             )
         else:
             documents_from_source: list[Document] = []
@@ -630,11 +646,10 @@ async def update_document(  # noqa: PLR0913
             )
 
         found = await find_document(graph_store, document_key=document_key)
-        _, chunker = chunking.select(document)
         if (
             found is not None
             and found.current_content_hash == document.content_hash
-            and found.current_chunker_hash in (None, chunker.fingerprint())
+            and found.current_chunker_hash in (None, chunker.fingerprint)
         ):
             return UpdateResult(
                 document_key=document_key,
@@ -648,12 +663,11 @@ async def update_document(  # noqa: PLR0913
             candidates = await document_entity_candidates(
                 graph_store, found.document_node_id
             )
-        chunks, chunk_matches = await asyncio.to_thread(
-            chunk_documents,
-            [document],
-            chunking=chunking,
-            tracer=tracer,
+        chunked = await asyncio.to_thread(
+            chunk_documents, [document], chunker=chunker, tracer=tracer
         )
+        chunks = [chunk for cd in chunked for chunk in cd.chunks]
+        placements = _placements_of(chunked)
         entities, relations, extraction_failures = await extract_chunks(
             chunks,
             start_index=0,
@@ -664,9 +678,14 @@ async def update_document(  # noqa: PLR0913
         )
 
         components: list[MatchComponent] = []
+        # The pending write fills the structure ids, and run_cutover_job reads
+        # them only after that write, so the list is shared rather than copied.
+        keep_node_ids: list[UUID] = [
+            chunk.id for chunk in chunks if chunk.id is not None
+        ]
 
         async def _pending(job_id: UUID) -> AddResult:
-            return await ingest_chunks(
+            batch = await ingest_chunks(
                 chunks,
                 [document],
                 entities,
@@ -682,10 +701,13 @@ async def update_document(  # noqa: PLR0913
                 return_chunks=False,
                 job_id=job_id,
                 rebuilt_components=components,
+                placements=placements,
                 tracer=tracer,
                 embed_heading_path=embed_heading_path,
                 max_llm_pairs=max_llm_pairs,
             )
+            keep_node_ids.extend(batch.structure_node_ids)
+            return batch.add_result
 
         add_result, cleanup_failures, chunks_closed = await run_cutover_job(
             verb="update",
@@ -701,7 +723,7 @@ async def update_document(  # noqa: PLR0913
             close_document_node_id=(
                 found.document_node_id if found is not None else None
             ),
-            keep_chunk_ids=[chunk.id for chunk in chunks if chunk.id is not None],
+            keep_node_ids=keep_node_ids,
             tracer=tracer,
         )
         return UpdateResult(
@@ -711,7 +733,7 @@ async def update_document(  # noqa: PLR0913
             new_content_hash=document.content_hash,
             chunks_closed=chunks_closed,
             add_result=_with_cleanup_failures(add_result, cleanup_failures).model_copy(
-                update={"chunking": ChunkingStats.from_matches(chunk_matches)}
+                update={"chunking": ChunkingStats.from_documents([document], chunks)}
             ),
         )
 

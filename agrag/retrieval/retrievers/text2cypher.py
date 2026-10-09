@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import logging
 import re
 from typing import TYPE_CHECKING, Any, cast
@@ -25,6 +24,7 @@ from agrag.graphdb.base import GraphStore
 from agrag.graphdb.entities import load_entities
 from agrag.llm.retry import NO_RETRY, call_with_retry
 from agrag.observability import get_tracer
+from agrag.retrieval.chunking import is_chunk_node, parse_chunk_node
 from agrag.retrieval.filters import SearchFilters
 from agrag.retrieval.retrievers.base import Retriever
 from agrag.retrieval.settings import RetrievalSettings
@@ -323,92 +323,6 @@ def _parse_relationship(value: object) -> Relation | None:
         return None
 
 
-def _parse_chunk_node(value: object) -> Chunk | None:
-    """Build a Chunk from a chunk-shaped row value, or None.
-
-    Mirrors ``ChunkRetriever._parse_chunk_node``: ``text``,
-    ``document_id``, ``index``, ``provenance``, ``heading_path``,
-    ``content_kind``, and optional ``embedding`` are read from the
-    node's properties. A missing ``document_id`` or malformed
-    provenance yields None rather than a partial Chunk.
-    """
-    from agrag.common.data_models.provenance import (  # noqa: PLC0415
-        PageProvenance,
-        TextProvenance,
-    )
-
-    try:
-        node_id = _node_id_prop(value)
-        if node_id is None:
-            return None
-
-        prov_data = _chunk_provenance_data(_node_get(value, "provenance"))
-        if not isinstance(prov_data, dict):
-            return None
-        provenance = (
-            PageProvenance(**prov_data)
-            if prov_data.get("kind") == "page"
-            else TextProvenance(**prov_data)
-        )
-
-        document_id = _node_get(value, "document_id")
-        if document_id is None:
-            return None
-
-        text_value = _node_get(value, "text", "")
-        heading_value = _node_get(value, "heading_path", [])
-        raw_kind = _node_get(value, "content_kind", "text")
-        content_kind: Any = raw_kind if isinstance(raw_kind, str) else "text"
-
-        index_value = _node_get(value, "index", 0)
-        if index_value is None:
-            index_int = 0
-        elif isinstance(index_value, int):
-            index_int = index_value
-        elif isinstance(index_value, str):
-            try:
-                index_int = int(index_value)
-            except ValueError:
-                index_int = 0
-        else:
-            # Anything else: best effort; treat as invalid.
-            index_int = 0
-
-        heading_list: list[Any] = (
-            list(heading_value) if isinstance(heading_value, list) else []
-        )
-
-        chunk = Chunk(
-            id=UUID(str(node_id)),
-            document_id=UUID(str(document_id)),
-            index=index_int,
-            text=str(text_value) if not isinstance(text_value, str) else text_value,
-            provenance=provenance,
-            heading_path=heading_list,
-            content_kind=content_kind,  # type: ignore[arg-type]
-        )
-        embedding = _node_get(value, "embedding")
-        if isinstance(embedding, list):
-            chunk.embedding = list(embedding)
-        return chunk
-    except Exception:
-        return None
-
-
-def _chunk_provenance_data(raw: object) -> object:
-    """Decode a chunk provenance property to a dict, or return the default.
-
-    A string is JSON-decoded; a dict is returned as-is; anything
-    else falls back to a default text-provenance dict so a
-    malformed value never bubbles up as a parse error.
-    """
-    if isinstance(raw, str):
-        return json.loads(raw)
-    if isinstance(raw, dict):
-        return raw
-    return {"kind": "text", "char_start": 0, "char_end": 0}
-
-
 class Text2CypherRetriever(Retriever):
     """Let the agent ask structured questions via generated Cypher.
 
@@ -660,26 +574,17 @@ class Text2CypherRetriever(Retriever):
 
     @staticmethod
     def _extract_chunk(row: dict) -> Chunk | None:
-        """Build a Chunk from a row carrying a chunk node.
-
-        Accepts the aliases the generation prompt asks for, then falls back
-        to any other value shaped like a chunk: ``_parse_chunk_node``
-        requires a chunk's own ``id``, ``document_id``, and provenance, so
-        an entity or relationship value cannot parse as one. The parsing
-        rules mirror ``ChunkRetriever._parse_chunk_node``, so a row from
-        either path lands in the same Chunk shape.
-        """
         for key in ("c", "chunk"):
             val = row.get(key)
-            if val is None:
+            if val is None or not is_chunk_node(val):
                 continue
-            chunk = _parse_chunk_node(val)
+            chunk = parse_chunk_node(val)
             if chunk is not None:
                 return chunk
         for key, val in row.items():
-            if key == "id":
+            if key in ("id", "c", "chunk") or not is_chunk_node(val):
                 continue
-            chunk = _parse_chunk_node(val)
+            chunk = parse_chunk_node(val)
             if chunk is not None:
                 return chunk
         return None
