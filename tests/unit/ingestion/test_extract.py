@@ -763,6 +763,37 @@ class TestGlinerConcurrency:
         assert peak == 1
 
 
+class TestGlinerContext:
+    """The inference thread sees the context of the calling task."""
+
+    async def test_context_variables_reach_the_inference_thread(self) -> None:
+        """A value set before the call is visible inside the model call."""
+        import contextvars  # noqa: PLC0415
+
+        marker: contextvars.ContextVar[str] = contextvars.ContextVar("marker")
+        seen: list[str] = []
+
+        class ContextModel:
+            def create_schema(self) -> "ContextModel":
+                return self
+
+            def entities(self, *_: object, **__: object) -> "ContextModel":
+                return self
+
+            def relations(self, *_: object, **__: object) -> "ContextModel":
+                return self
+
+            def extract(self, *_: object, **__: object) -> dict:
+                seen.append(marker.get("missing"))
+                return {"entities": {}}
+
+        marker.set("from-caller")
+
+        await GlinerExtractor(model=ContextModel()).extract(_chunk(), GENERIC)
+
+        assert seen == ["from-caller"]
+
+
 class TestGlinerCancellation:
     """A cancelled call cannot let a second inference overlap the first."""
 

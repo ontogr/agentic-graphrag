@@ -1,6 +1,7 @@
 """The Extractor interface: reads one Chunk and produces an ExtractionResult."""
 
 import asyncio
+import contextvars
 import os
 from abc import ABC, abstractmethod
 from concurrent.futures import ThreadPoolExecutor
@@ -392,9 +393,12 @@ class GlinerExtractor(Extractor):
         ) as span:
             model = await self._load_model()
             gliner_schema = self._build_schema(model, schema)
+            # Unlike asyncio.to_thread, run_in_executor does not copy the context,
+            # so copy it here to keep the active trace span in the inference thread.
             raw = await asyncio.get_running_loop().run_in_executor(
                 self._inference_executor,
                 partial(
+                    contextvars.copy_context().run,
                     model.extract,  # ty: ignore[unresolved-attribute]
                     chunk.text,
                     gliner_schema,
