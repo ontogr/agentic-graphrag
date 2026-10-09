@@ -89,7 +89,7 @@ class LoaderRegistry:
         chosen = preferred[-1].loader if preferred else entries[0].loader
 
         extra = chosen.extra
-        if chosen.is_available():
+        if extra is None or chosen.is_available():
             return chosen
 
         for entry in entries:
@@ -98,6 +98,4 @@ class LoaderRegistry:
             if entry.loader.is_available():
                 return entry.loader
 
-        if extra is None:
-            raise UnsupportedFormatError(source.extension)
         raise MissingExtraError(source.extension, extra)

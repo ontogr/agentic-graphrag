@@ -134,7 +134,7 @@ async def extract_chunks(
 
     async def _extract_one(
         chunk: Chunk,
-    ) -> ExtractionResult | StageFailure | BaseException:
+    ) -> ExtractionResult | StageFailure:
         async with semaphore:
             # Each chunk keeps its own span, so a failure still marks this
             # chunk's span under concurrency just as the sequential loop did.
@@ -160,17 +160,20 @@ async def extract_chunks(
                 return result
 
     # gather preserves input order, so the remap loop below sees chunk
-    # results in chunk order. return_exceptions keeps every task awaited;
-    # the loop re-raises the first failure in order under RAISE.
-    outcomes = await asyncio.gather(
-        *(_extract_one(chunk) for chunk in chunks), return_exceptions=True
-    )
+    # results in chunk order. Under RAISE the first failure propagates and the
+    # extractions still in flight are cancelled, not left to run to the end.
+    tasks = [asyncio.ensure_future(_extract_one(chunk)) for chunk in chunks]
+    try:
+        outcomes = await asyncio.gather(*tasks)
+    except BaseException:
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        raise
     entities: list[ExtractedEntity] = []
     relations: list[ExtractedRelation] = []
     failures: list[StageFailure] = []
     for chunk, outcome in zip(chunks, outcomes, strict=True):
-        if isinstance(outcome, BaseException):
-            raise outcome
         if isinstance(outcome, StageFailure):
             failures.append(outcome)
             continue

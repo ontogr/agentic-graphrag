@@ -2,6 +2,7 @@
 
 import asyncio
 import os
+import threading
 from abc import ABC, abstractmethod
 from typing import Any, Literal
 
@@ -332,10 +333,10 @@ class GlinerExtractor(Extractor):
     """Extracts entities and relations with a local GLiNER2.5 model.
 
     The model runs in this process, so extraction needs no LLM key. It loads on
-    first use and one load serves concurrent calls. The first load downloads the
-    weights from Hugging Face unless ``model`` is passed. GLiNER reports entity
-    spans and types, so extracted entities carry no property values. Needs the
-    ``extract`` extra.
+    first use and one load serves concurrent calls. Inference calls run one at a
+    time. The first load downloads the weights from Hugging Face unless ``model``
+    is passed. GLiNER reports entity spans and types, so extracted entities carry
+    no property values. Needs the ``extract`` extra.
 
     Args:
         model_name: Checkpoint to load when ``model`` is not provided.
@@ -357,6 +358,7 @@ class GlinerExtractor(Extractor):
         self._model = model
         self._tracer = tracer
         self._load_task: asyncio.Task[object] | None = None
+        self._inference_lock = threading.Lock()
 
     async def extract(self, chunk: Chunk, schema: GraphSchema) -> ExtractionResult:
         """Extract with the local GLiNER2.5 model.
@@ -381,18 +383,24 @@ class GlinerExtractor(Extractor):
         ) as span:
             model = await self._load_model()
             gliner_schema = self._build_schema(model, schema)
-            raw = await asyncio.to_thread(
-                model.extract,  # ty: ignore[unresolved-attribute]
-                chunk.text,
-                gliner_schema,
-                include_spans=True,
-            )
+            raw = await asyncio.to_thread(self._infer, model, chunk.text, gliner_schema)
             result = _normalize_extraction_result(
                 self._to_result(raw, chunk, schema), schema
             )
             span.set_attribute("agrag.entities_extracted", len(result.entities))
             span.set_attribute("agrag.relations_extracted", len(result.relations))
             return result
+
+    def _infer(self, model: object, text: str, gliner_schema: object) -> Any:
+        """Run one inference under the lock.
+
+        GLiNER does not document thread safety, so calls take turns even when
+        ``extract_chunks`` runs several at once.
+        """
+        with self._inference_lock:
+            return model.extract(  # ty: ignore[unresolved-attribute]
+                text, gliner_schema, include_spans=True
+            )
 
     async def _load_model(self) -> object:
         """Return the cached model, loading it once even under concurrent calls.

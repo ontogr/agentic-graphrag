@@ -727,6 +727,42 @@ class TestGlinerExtractor:
         assert result.entities[relation.target_index].label == "Product"
 
 
+class TestGlinerConcurrency:
+    """Concurrent extract calls take turns on the one model."""
+
+    async def test_inference_calls_never_overlap(self) -> None:
+        """Two chunks extracted together do not run in the model at once."""
+        active = 0
+        peak = 0
+        guard = threading.Lock()
+
+        class SlowModel:
+            def create_schema(self) -> "SlowModel":
+                return self
+
+            def entities(self, *_: object, **__: object) -> "SlowModel":
+                return self
+
+            def relations(self, *_: object, **__: object) -> "SlowModel":
+                return self
+
+            def extract(self, *_: object, **__: object) -> dict:
+                nonlocal active, peak
+                with guard:
+                    active += 1
+                    peak = max(peak, active)
+                threading.Event().wait(0.05)
+                with guard:
+                    active -= 1
+                return {"entities": {}}
+
+        extractor = GlinerExtractor(model=SlowModel())
+
+        await asyncio.gather(*(extractor.extract(_chunk(), GENERIC) for _ in range(4)))
+
+        assert peak == 1
+
+
 class TestDescribeEntityType:
     """_describe_entity_type builds the prompt guidance for one entity type."""
 

@@ -1,6 +1,7 @@
 """Shared chunk-node parsing for retrieval."""
 
 import json
+import logging
 from typing import Any, Literal
 from uuid import UUID
 
@@ -10,6 +11,8 @@ from agrag.common.data_models.provenance import (
     TextProvenance,
 )
 
+
+logger = logging.getLogger(__name__)
 
 _LEGACY_CONTENT_KINDS = {
     "table_row": "table",
@@ -150,7 +153,8 @@ def parse_chunk_node(value: object) -> Chunk | None:
                 if prov_data.get("kind") == "page"
                 else TextProvenance(**prov_data)
             )
-        except Exception:
+        except (ValueError, TypeError) as exc:
+            logger.debug("Skipping node %s: bad provenance: %s", chunk_id, exc)
             return None
 
         document_id = _uuid_or_none(_prop(value, "document_id"))
@@ -186,5 +190,6 @@ def parse_chunk_node(value: object) -> Chunk | None:
         if isinstance(embedding, list):
             chunk.embedding = list(embedding)
         return chunk
-    except Exception:
+    except (ValueError, TypeError) as exc:
+        logger.debug("Skipping a node that is not a valid chunk: %s", exc)
         return None

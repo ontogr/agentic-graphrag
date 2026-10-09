@@ -6,6 +6,7 @@ asserts identical summaries. ``extract_chunks()`` is covered for its
 cross-batch index threading.
 """
 
+import asyncio
 from collections.abc import Mapping, Sequence
 from contextlib import asynccontextmanager
 from typing import Any
@@ -210,6 +211,35 @@ class TestIngestChunks:
         result = await _ingest([_doc(key="a")], [], store)
 
         assert [f.item_id for f in result.storage.failures] == ["d"]
+
+    async def test_raise_policy_cancels_extractions_still_running(self) -> None:
+        """The first failure under RAISE stops the other chunks."""
+        finished: list[str] = []
+
+        class _Failing(Extractor):
+            async def extract(
+                self, chunk: Chunk, schema: GraphSchema
+            ) -> ExtractionResult:
+                if chunk.text == "bad":
+                    raise RuntimeError("boom")
+                await asyncio.sleep(0.5)
+                finished.append(chunk.text)
+                return ExtractionResult(entities=[], relations=[], extractor_name="f")
+
+        doc = _doc(key="a")
+        chunks = [_chunk(doc, text=t) for t in ("bad", "slow-1", "slow-2")]
+
+        with pytest.raises(RuntimeError, match="boom"):
+            await extract_chunks(
+                chunks,
+                start_index=0,
+                extractor=_Failing(),
+                schema=GENERIC,
+                error_policy=ErrorPolicy.RAISE,
+            )
+
+        await asyncio.sleep(0.6)
+        assert finished == []
 
     async def test_rejects_a_non_positive_extraction_concurrency(self) -> None:
         """A zero limit would block every extraction forever."""
