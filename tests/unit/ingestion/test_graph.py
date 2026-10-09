@@ -10,14 +10,13 @@ ensure_vector_index).
 """
 
 import hashlib
-import importlib
 import json
 from collections.abc import Mapping, Sequence
 from contextlib import AbstractAsyncContextManager
 from pathlib import Path
 from typing import Any
 from unittest import mock
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 from uuid import UUID, uuid4
 
 import pytest
@@ -26,20 +25,12 @@ from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
     InMemorySpanExporter,
 )
-from opentelemetry.trace import Tracer
 
 import agrag.ingestion._cutover as cutover_module
 import agrag.ingestion._ingest as ingest_module
 import agrag.ingestion._job_cleanup as job_cleanup_module
 import agrag.ingestion._resolution_maintenance as maintenance_module
-from agrag.chunking import (
-    DEFAULT_CHUNKING,
-    Chunking,
-    ChunkingRule,
-    RecursiveChunker,
-    RuleMatch,
-    TokenChunker,
-)
+from agrag.chunking import Chunker
 from agrag.common.data_models.chunk import Chunk
 from agrag.common.data_models.community import (
     COMMUNITY_LABEL,
@@ -76,37 +67,13 @@ from agrag.ingestion._ingest_pipeline import (
 from agrag.ingestion._walk import chunk_documents
 from agrag.ingestion.extract import Extractor
 from agrag.ingestion.resolve import SYSTEM_RELATION_TYPES, ResolutionResult
-from agrag.loaders.corpus.errors import UnsupportedFormatError
-from agrag.loaders.corpus.readers.prose import TextLoader
-from agrag.loaders.corpus.types import ErrorPolicy, ReadOptions
-from agrag.observability import get_tracer
+from agrag.loaders.errors import UnsupportedFormatError
+from agrag.loaders.prose import TextLoader
+from agrag.loaders.types import ErrorPolicy, ReadOptions
 from tests.unit.ingestion._lease_fake import CutoverJobLeaseFake
 
 
-_FIXTURES = Path(__file__).parents[1] / "loaders" / "corpus" / "fixtures"
-
-
-class _DoclingItem:
-    """A docling chunk with a text and no headings or page items."""
-
-    class meta:  # noqa: N801
-        headings: list[str] = []
-        doc_items: list[object] = []
-
-    text = "chunk"
-
-
-def _chunk_docling(
-    graph: Graph, document: Document, tracer: Tracer | None = None
-) -> list[Chunk]:
-    """Chunk a docling document with docling's chunker replaced by one chunk."""
-    docling_chunking = importlib.import_module("docling.chunking")
-    with patch.object(docling_chunking, "HybridChunker") as hybrid:
-        hybrid.return_value.chunk.return_value = [_DoclingItem()]
-        chunks, _ = chunk_documents(
-            [document], chunking=graph.chunking, tracer=get_tracer(tracer)
-        )
-    return chunks
+_FIXTURES = Path(__file__).parents[1] / "loaders" / "fixtures"
 
 
 class _MockGraphStore(CutoverJobLeaseFake, GraphStore):
@@ -222,11 +189,11 @@ class _MockExtractor(Extractor):
         return ExtractionResult(entities=[], relations=[], extractor_name="fake")
 
 
-async def _open_graph() -> Graph:
+async def _open_graph(store: _MockGraphStore | None = None) -> Graph:
     """Open a graph with fake dependencies for ingestion-only tests."""
     return await Graph.open(
         schema=GENERIC,
-        graph_store=_MockGraphStore(),
+        graph_store=store if store is not None else _MockGraphStore(),
         embedder=_MockEmbedder(),
         extractor=_MockExtractor(),
     )
@@ -304,76 +271,6 @@ class TestGraphAdd:
         assert result.ingestion.documents == 1
         assert result.ingestion.sources == 1
 
-    @pytest.mark.parametrize("verb", ["add", "update"])
-    async def test_reports_rebuild_failures_in_storage_stats(
-        self, monkeypatch: pytest.MonkeyPatch, verb: str
-    ) -> None:
-        """A skipped rebuild failure appears in the result storage stats."""
-        graph = await _open_graph()
-        graph._graph_store.execute_read = AsyncMock(  # type: ignore[method-assign]
-            return_value=[]
-        )
-        member = Entity(
-            id=uuid4(), label="Person", name="Alice", properties={}, source_chunk_ids=[]
-        )
-        real_ingest = ingest_module.ingest_chunks
-
-        async def _ingest_with_component(*args: object, **kwargs: Any) -> Any:
-            kwargs["rebuilt_components"].append(([], [member]))
-            return await real_ingest(*args, **kwargs)
-
-        monkeypatch.setattr(ingest_module, "ingest_chunks", _ingest_with_component)
-        monkeypatch.setattr(
-            job_cleanup_module,
-            "rebuild_resolved_entities",
-            AsyncMock(side_effect=RuntimeError("database unavailable")),
-        )
-
-        if verb == "add":
-            result = await graph.add(text="a short note", error_policy=ErrorPolicy.SKIP)
-        else:
-            update = await graph.update(
-                "memory://doc", text="brand new", error_policy=ErrorPolicy.SKIP
-            )
-            assert update.add_result is not None
-            result = update.add_result
-
-        assert result.storage.failures_total == 1
-        assert result.storage.failures[0].item_id == str(member.id)
-        assert result.storage.failures[0].error_message == "database unavailable"
-
-    @pytest.mark.parametrize("verb", ["add", "update"])
-    async def test_rebuilds_components_after_commit(
-        self, monkeypatch: pytest.MonkeyPatch, verb: str
-    ) -> None:
-        """The cleanup phase rebuilds each component the job rebuilt."""
-        graph = await _open_graph()
-        graph._graph_store.execute_read = AsyncMock(  # type: ignore[method-assign]
-            return_value=[]
-        )
-        low, high = sorted([uuid4(), uuid4()], key=str)
-        members = [
-            Entity(id=entity_id, label="Person", name=str(entity_id))
-            for entity_id in (high, low)
-        ]
-        real_ingest = ingest_module.ingest_chunks
-
-        async def _ingest_with_component(*args: object, **kwargs: Any) -> Any:
-            kwargs["rebuilt_components"].append(([], members))
-            return await real_ingest(*args, **kwargs)
-
-        rebuild = AsyncMock(return_value=[])
-        monkeypatch.setattr(ingest_module, "ingest_chunks", _ingest_with_component)
-        monkeypatch.setattr(job_cleanup_module, "rebuild_resolved_entities", rebuild)
-
-        if verb == "add":
-            await graph.add(text="a short note")
-        else:
-            await graph.update("memory://doc", text="brand new")
-
-        rebuild.assert_awaited_once()
-        assert rebuild.await_args.args[0] == [low]
-
     async def test_add_requires_exactly_one_input(self) -> None:
         """Add requires exactly one input."""
         graph = await _open_graph()
@@ -382,35 +279,126 @@ class TestGraphAdd:
         with pytest.raises(ValueError):
             await graph.add(text="x", documents=[])
 
-    async def test_update_normalizes_text_before_comparing_content_hash(self) -> None:
-        """An NFKC-equivalent update does not replace the current version."""
+    async def test_add_rejects_duplicate_document_keys(self) -> None:
+        """An add call cannot join chunks from separate document versions."""
         graph = await _open_graph()
+        first = Document(
+            text="first",
+            title="first",
+            uri="memory://first",
+            document_key="shared",
+            source_format=SourceFormat.TXT,
+            family=DocumentFamily.PROSE,
+            content_hash="first",
+            loader_name="inline",
+            char_count=5,
+            line_count=1,
+        )
+        second = first.model_copy(update={"text": "second", "content_hash": "second"})
+
+        with pytest.raises(ValueError, match="distinct document keys"):
+            await graph.add(documents=[first, second])
+
+    def test_chunks_use_distinct_ids_for_each_content_version(self) -> None:
+        """Same-index chunks retain their separate version histories."""
+        first = Document(
+            text="first",
+            title="first",
+            uri="memory://doc",
+            document_key="memory://doc",
+            source_format=SourceFormat.TXT,
+            family=DocumentFamily.PROSE,
+            content_hash="first",
+            loader_name="text",
+            char_count=5,
+            line_count=1,
+        )
+        second = first.model_copy(update={"text": "second", "content_hash": "second"})
+        chunker = Chunker()
+
+        first_chunk = chunker.chunk(first).chunks[0]
+        second_chunk = chunker.chunk(second).chunks[0]
+
+        assert first_chunk.document_id == second_chunk.document_id
+        assert first_chunk.id != second_chunk.id
+
+    async def test_on_progress_receives_stats(self) -> None:
+        """On progress receives stats."""
+        graph = await _open_graph()
+        seen: list[Any] = []
+        await graph.add(_FIXTURES, on_progress=seen.append)
+        assert seen
+
+    async def test_loader_override_with_text_raises(self) -> None:
+        """A loader override has no effect on ``text`` and must be rejected."""
+        graph = await _open_graph()
+        with pytest.raises(ValueError):
+            await graph.add(text="x", loader=TextLoader())
+
+    async def test_loader_override_with_documents_raises(self) -> None:
+        """A loader override has no effect on ``documents`` and must be rejected."""
+        graph = await _open_graph()
+        doc = Document(
+            text="prebuilt",
+            title="t",
+            uri="u",
+            source_format=SourceFormat.TXT,
+            family=DocumentFamily.PROSE,
+            content_hash="h",
+            loader_name="text",
+            char_count=8,
+            line_count=1,
+        )
+        with pytest.raises(ValueError):
+            await graph.add(documents=[doc], loader=TextLoader())
+
+    async def test_glob_pattern_skips_directory_matches(self, tmp_path: Path) -> None:
+        """A glob pattern that also matches a directory does not choke on it."""
+        (tmp_path / "sub").mkdir()
+        (tmp_path / "a.txt").write_text("hello")
+        graph = await _open_graph()
+        result = await graph.add(str(tmp_path / "*"))
+        assert result.ingestion.documents == 1
+        assert result.ingestion.sources == 1
+
+
+class TestGraphUpdate:
+    """An update replaces one document version or deletes the document."""
+
+    async def test_update_normalizes_text_before_comparing_content_hash(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """An NFKC-equivalent update does not replace the current version."""
+        store = _MockGraphStore()
+        graph = await _open_graph(store)
         node_id = uuid4()
-        graph._graph_store.execute_read = AsyncMock(  # type: ignore[method-assign]
-            return_value=[
-                {
-                    "id": str(node_id),
-                    "current_content_hash": hashlib.sha256(b"K").hexdigest(),
-                }
-            ]
+        monkeypatch.setattr(
+            store,
+            "execute_read",
+            AsyncMock(
+                return_value=[
+                    {
+                        "id": str(node_id),
+                        "current_content_hash": hashlib.sha256(b"K").hexdigest(),
+                    }
+                ]
+            ),
         )
-        graph._graph_store.execute_write = AsyncMock(  # type: ignore[method-assign]
-            return_value=[]
-        )
+        writes = AsyncMock(return_value=[])
+        monkeypatch.setattr(store, "execute_write", writes)
 
         result = await graph.update("memory://doc", text="Ｋ")
 
         assert result.no_op is True
-        graph._graph_store.execute_write.assert_not_awaited()
+        writes.assert_not_awaited()
 
     async def test_update_not_found_behaves_like_fresh_add(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """An unknown document_key ingests with nothing to close first."""
-        graph = await _open_graph()
-        graph._graph_store.execute_read = AsyncMock(  # type: ignore[method-assign]
-            return_value=[]
-        )
+        store = _MockGraphStore()
+        graph = await _open_graph(store)
+        monkeypatch.setattr(store, "execute_read", AsyncMock(return_value=[]))
         closes: list[object] = []
         real_close = cutover_module.close_open_part_of_edges
 
@@ -471,76 +459,92 @@ class TestGraphAdd:
         with pytest.raises(ValueError, match="exactly one document"):
             await graph.update("memory://doc", source=_FIXTURES / "sample.csv")
 
-    async def test_add_rejects_duplicate_document_keys(self) -> None:
-        """An add call cannot join chunks from separate document versions."""
-        graph = await _open_graph()
-        first = Document(
-            text="first",
-            title="first",
-            uri="memory://first",
-            document_key="shared",
-            source_format=SourceFormat.TXT,
-            family=DocumentFamily.PROSE,
-            content_hash="first",
-            loader_name="inline",
-            char_count=5,
-            line_count=1,
-        )
-        second = first.model_copy(update={"text": "second", "content_hash": "second"})
-
-        with pytest.raises(ValueError, match="distinct document keys"):
-            await graph.add(documents=[first, second])
-
-    def test_docling_chunks_use_distinct_ids_for_each_content_version(self) -> None:
-        """Same-index docling chunks retain their separate version histories."""
-        graph = Graph(
-            schema=GENERIC,
-            graph_store=_MockGraphStore(),
-            embedder=_MockEmbedder(),
-            extractor=_MockExtractor(),
-        )
-        first = Document(
-            text="first",
-            title="first",
-            uri="memory://doc",
-            document_key="memory://doc",
-            source_format=SourceFormat.TXT,
-            family=DocumentFamily.PROSE,
-            content_hash="first",
-            loader_name="docling",
-            char_count=5,
-            line_count=1,
-            metadata={"_docling_document": object()},
-        )
-        second = first.model_copy(update={"content_hash": "second"})
-
-        first_chunk = _chunk_docling(graph, first)[0]
-        second_chunk = _chunk_docling(graph, second)[0]
-
-        assert first_chunk.document_id == second_chunk.document_id
-        assert first_chunk.id != second_chunk.id
-
-    async def test_delete_missing_document_is_a_no_op(self) -> None:
+    async def test_delete_missing_document_is_a_no_op(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Deleting an unknown document does not write graph state."""
-        graph = await _open_graph()
-        graph._graph_store.execute_read = AsyncMock(  # type: ignore[method-assign]
-            return_value=[]
-        )
-        graph._graph_store.execute_write = AsyncMock(  # type: ignore[method-assign]
-            return_value=[{"closed": 1}]
-        )
+        store = _MockGraphStore()
+        graph = await _open_graph(store)
+        monkeypatch.setattr(store, "execute_read", AsyncMock(return_value=[]))
+        writes = AsyncMock(return_value=[{"closed": 1}])
+        monkeypatch.setattr(store, "execute_write", writes)
 
         result = await graph.delete_document("memory://missing")
 
         assert result.no_op is True
-        graph._graph_store.execute_write.assert_not_awaited()
+        writes.assert_not_awaited()
 
-    async def test_on_progress_receives_stats(self) -> None:
-        """On progress receives stats."""
-        graph = await _open_graph()
-        seen: list[Any] = []
-        await graph.add(_FIXTURES, on_progress=seen.append)
-        assert seen
+
+class TestGraphFailurePolicies:
+    """Skipped failures are counted in the result instead of stopping the call."""
+
+    @pytest.mark.parametrize("verb", ["add", "update"])
+    async def test_reports_rebuild_failures_in_storage_stats(
+        self, monkeypatch: pytest.MonkeyPatch, verb: str
+    ) -> None:
+        """A skipped rebuild failure appears in the result storage stats."""
+        store = _MockGraphStore()
+        graph = await _open_graph(store)
+        monkeypatch.setattr(store, "execute_read", AsyncMock(return_value=[]))
+        member = Entity(
+            id=uuid4(), label="Person", name="Alice", properties={}, source_chunk_ids=[]
+        )
+        real_ingest = ingest_module.ingest_chunks
+
+        async def _ingest_with_component(*args: object, **kwargs: Any) -> Any:
+            kwargs["rebuilt_components"].append(([], [member]))
+            return await real_ingest(*args, **kwargs)
+
+        monkeypatch.setattr(ingest_module, "ingest_chunks", _ingest_with_component)
+        monkeypatch.setattr(
+            job_cleanup_module,
+            "rebuild_resolved_entities",
+            AsyncMock(side_effect=RuntimeError("database unavailable")),
+        )
+
+        if verb == "add":
+            result = await graph.add(text="a short note", error_policy=ErrorPolicy.SKIP)
+        else:
+            update = await graph.update(
+                "memory://doc", text="brand new", error_policy=ErrorPolicy.SKIP
+            )
+            assert update.add_result is not None
+            result = update.add_result
+
+        assert result.storage.failures_total == 1
+        assert result.storage.failures[0].item_id == str(member.id)
+        assert result.storage.failures[0].error_message == "database unavailable"
+
+    @pytest.mark.parametrize("verb", ["add", "update"])
+    async def test_rebuilds_components_after_commit(
+        self, monkeypatch: pytest.MonkeyPatch, verb: str
+    ) -> None:
+        """The cleanup phase rebuilds each component the job rebuilt."""
+        store = _MockGraphStore()
+        graph = await _open_graph(store)
+        monkeypatch.setattr(store, "execute_read", AsyncMock(return_value=[]))
+        low, high = sorted([uuid4(), uuid4()], key=str)
+        members = [
+            Entity(id=entity_id, label="Person", name=str(entity_id))
+            for entity_id in (high, low)
+        ]
+        real_ingest = ingest_module.ingest_chunks
+
+        async def _ingest_with_component(*args: object, **kwargs: Any) -> Any:
+            kwargs["rebuilt_components"].append(([], members))
+            return await real_ingest(*args, **kwargs)
+
+        rebuild = AsyncMock(return_value=[])
+        monkeypatch.setattr(ingest_module, "ingest_chunks", _ingest_with_component)
+        monkeypatch.setattr(job_cleanup_module, "rebuild_resolved_entities", rebuild)
+
+        if verb == "add":
+            await graph.add(text="a short note")
+        else:
+            await graph.update("memory://doc", text="brand new")
+
+        rebuild.assert_awaited_once()
+        assert rebuild.await_args.args[0] == [low]
 
     async def test_raise_policy_stops_on_unsupported_format(
         self, tmp_path: Path
@@ -570,47 +574,9 @@ class TestGraphAdd:
         assert result.ingestion.quarantined == 1
         assert result.ingestion.quarantined_items
 
-    async def test_loader_override_with_text_raises(self) -> None:
-        """A loader override has no effect on ``text`` and must be rejected."""
-        graph = await _open_graph()
-        with pytest.raises(ValueError):
-            await graph.add(text="x", loader=TextLoader())
-
-    async def test_loader_override_with_documents_raises(self) -> None:
-        """A loader override has no effect on ``documents`` and must be rejected."""
-        graph = await _open_graph()
-        doc = Document(
-            text="prebuilt",
-            title="t",
-            uri="u",
-            source_format=SourceFormat.TXT,
-            family=DocumentFamily.PROSE,
-            content_hash="h",
-            loader_name="text",
-            char_count=8,
-            line_count=1,
-        )
-        with pytest.raises(ValueError):
-            await graph.add(documents=[doc], loader=TextLoader())
-
-    async def test_glob_pattern_skips_directory_matches(self, tmp_path: Path) -> None:
-        """A glob pattern that also matches a directory does not choke on it."""
-        (tmp_path / "sub").mkdir()
-        (tmp_path / "a.txt").write_text("hello")
-        graph = await _open_graph()
-        result = await graph.add(str(tmp_path / "*"))
-        assert result.ingestion.documents == 1
-        assert result.ingestion.sources == 1
-
 
 class TestConsolidateResolutionContext:
-    """Graph.consolidate passes real LLM verification context to Resolver.
-
-    The equivalent coverage for Graph.add lives in
-    tests/unit/ingestion/test_ingest_pipeline.py, against ingest_chunks --
-    the shared pipeline core add() delegates to -- since that is where the
-    neighbor and similarity context is actually built for that path.
-    """
+    """Graph.consolidate passes real LLM verification context to Resolver."""
 
     async def test_consolidate_neighbors_are_keyed_by_entity_index(self) -> None:
         """Consolidate's neighbor context is keyed by entity list position."""
@@ -790,60 +756,52 @@ class TestGraphVectorStore:
 
 
 class TestGraphChunking:
-    """Graph chunks each document with the chunker its rules pick."""
+    """Graph chunks every document with its one chunker."""
 
     _TEXT = "The quick brown fox jumps over the lazy dog. " * 20
 
-    async def _open(self, chunking: Chunking | None = None) -> Graph:
-        kwargs = {} if chunking is None else {"chunking": chunking}
-        return await Graph.open(
+    async def _open(
+        self, chunker: Chunker | None = None
+    ) -> tuple[Graph, _MockGraphStore]:
+        kwargs = {} if chunker is None else {"chunker": chunker}
+        store = _MockGraphStore()
+        graph = await Graph.open(
             schema=GENERIC,
-            graph_store=_MockGraphStore(),
+            graph_store=store,
             embedder=_MockEmbedder(),
             extractor=_MockExtractor(),
             **kwargs,
         )
+        return graph, store
 
-    async def test_default_chunking_records_the_fallback_on_every_chunk(self) -> None:
-        """Without a chunking argument, chunks name the recursive fallback."""
-        graph = await self._open()
+    async def test_default_chunker_is_recorded_on_every_chunk(self) -> None:
+        """Without a chunker argument, chunks carry the default settings hash."""
+        graph, _ = await self._open()
 
         result = await graph.add(text=self._TEXT, return_chunks=True)
 
-        fallback = DEFAULT_CHUNKING.fallback
         assert result.chunks
-        assert {c.chunker for c in result.chunks} == {"recursive"}
-        assert {c.chunker_hash for c in result.chunks} == {fallback.fingerprint()}
-        assert result.chunking.documents_by_rule == {"fallback": 1}
-        assert result.chunking.chunks_by_strategy == {"recursive": len(result.chunks)}
+        assert {c.chunker for c in result.chunks} == {"section"}
+        assert {c.chunker_hash for c in result.chunks} == {Chunker().fingerprint}
+        assert result.chunking.chunks == len(result.chunks)
+        assert result.chunking.sections == 1
 
-    async def test_custom_rule_picks_the_chunker_for_matching_documents(self) -> None:
-        """A rule on the format sends Markdown to the token chunker only."""
-        chunking = Chunking(
-            rules=[
-                ChunkingRule(
-                    match=RuleMatch(source_formats=[SourceFormat.MARKDOWN]),
-                    chunker=TokenChunker(chunk_size=32, tokenizer="character"),
-                )
-            ],
-            fallback=RecursiveChunker(chunk_size=200, tokenizer="character"),
-        )
-        graph = await self._open(chunking)
-        assert graph.chunking is chunking
+    async def test_the_chunker_argument_sets_the_chunk_size(self) -> None:
+        """A smaller size gives more chunks and a different hash."""
+        chunker = Chunker(size=40)
+        graph, _ = await self._open(chunker)
+        assert graph.chunker is chunker
 
-        result = await graph.add(source=_FIXTURES, return_chunks=True)
+        result = await graph.add(text=self._TEXT, return_chunks=True)
+        default_graph, _ = await self._open()
+        default = await default_graph.add(text=self._TEXT, return_chunks=True)
 
-        by_uri = {Path(m.document_key).suffix: m for m in result.chunking.matches}
-        assert by_uri[".md"].strategy == "token"
-        assert by_uri[".md"].rule == 0
-        assert by_uri[".txt"].strategy == "recursive"
-        assert by_uri[".txt"].rule is None
-        assert result.chunking.matches_total == len(result.chunking.matches)
-        assert sum(result.chunking.chunks_by_strategy.values()) == len(result.chunks)
+        assert len(result.chunks) > len(default.chunks)
+        assert {c.chunker_hash for c in result.chunks} == {chunker.fingerprint}
 
     async def test_add_and_update_pass_read_options_to_the_loaders(self) -> None:
         """A none Unicode form keeps a ligature in the chunk text on both paths."""
-        graph = await self._open()
+        graph, _ = await self._open()
         options = ReadOptions(normalization=Normalization(unicode_form="none"))
 
         added = await graph.add(
@@ -860,7 +818,12 @@ class TestGraphChunking:
         )
 
     async def _update(
-        self, graph: Graph, stored_hash: str | None, *, has_chunk: bool = True
+        self,
+        graph: Graph,
+        store: _MockGraphStore,
+        stored_hash: str | None,
+        *,
+        has_chunk: bool = True,
     ) -> bool:
         node_row = {
             "id": str(uuid4()),
@@ -875,53 +838,39 @@ class TestGraphChunking:
                 return chunk_rows
             return []
 
-        graph._graph_store.execute_read = AsyncMock(  # type: ignore[method-assign]
-            side_effect=_read
-        )
-        result = await graph.update("memory://doc", text=self._TEXT)
+        with mock.patch.object(store, "execute_read", new=AsyncMock(side_effect=_read)):
+            result = await graph.update("memory://doc", text=self._TEXT)
         return result.no_op
 
     async def test_update_is_a_no_op_when_content_and_chunker_are_unchanged(
         self,
     ) -> None:
         """The stored fingerprint equals the chunker's, so nothing runs."""
-        graph = await self._open()
-        _, chunker = graph.chunking.select(
-            Document(
-                text="x",
-                title="t",
-                uri="memory://doc",
-                source_format=SourceFormat.TXT,
-                family=DocumentFamily.PROSE,
-                content_hash="h",
-                loader_name="inline",
-                char_count=1,
-            )
-        )
+        graph, store = await self._open()
 
-        assert await self._update(graph, chunker.fingerprint()) is True
+        assert await self._update(graph, store, graph.chunker.fingerprint) is True
 
     async def test_update_rechunks_when_only_the_chunker_changed(self) -> None:
         """Same content with a different stored fingerprint runs the full update."""
-        graph = await self._open()
+        graph, store = await self._open()
 
-        assert await self._update(graph, "0123456789abcdef") is False
+        assert await self._update(graph, store, "0123456789abcdef") is False
 
     async def test_update_treats_chunks_without_a_fingerprint_as_unchanged(
         self,
     ) -> None:
         """A chunk from before chunkers were recorded does not force a re-chunk."""
-        graph = await self._open()
+        graph, store = await self._open()
 
-        assert await self._update(graph, None) is True
+        assert await self._update(graph, store, None) is True
 
     async def test_update_without_current_chunks_is_a_no_op_on_same_content(
         self,
     ) -> None:
         """A document with no readable chunk keeps the content-hash rule."""
-        graph = await self._open()
+        graph, store = await self._open()
 
-        assert await self._update(graph, None, has_chunk=False) is True
+        assert await self._update(graph, store, None, has_chunk=False) is True
 
 
 class TestChunkDocumentSpans:
@@ -944,23 +893,19 @@ class TestChunkDocumentSpans:
         )
 
     def test_chunk_document_span_carries_attributes(self) -> None:
-        """The chunk span records the document key and chunk count."""
+        """The chunk span records the document key, the chunker and the chunk count."""
         exporter = InMemorySpanExporter()
         provider = TracerProvider()
         provider.add_span_processor(SimpleSpanProcessor(exporter))
-        graph = Graph(
-            schema=GENERIC,
-            graph_store=_MockGraphStore(),
-            embedder=_MockEmbedder(),
-            extractor=_MockExtractor(),
-            tracer=provider.get_tracer("test"),
-        )
+        chunker = Chunker()
         document = self._document()
-        chunks, matches = chunk_documents(
-            [document], chunking=graph.chunking, tracer=provider.get_tracer("test")
+
+        chunked = chunk_documents(
+            [document], chunker=chunker, tracer=provider.get_tracer("test")
         )
-        assert chunks
-        assert [m.strategy for m in matches] == ["recursive"]
+
+        assert chunked
+        chunks = [chunk for cd in chunked for chunk in cd.chunks]
         spans = [
             span
             for span in exporter.get_finished_spans()
@@ -972,51 +917,6 @@ class TestChunkDocumentSpans:
             spans[0].attributes["agrag.document_key"] == document.resolved_document_key
         )
         assert spans[0].attributes["agrag.chunks_produced"] == len(chunks)
-        assert spans[0].attributes["agrag.chunker.strategy"] == "recursive"
-        assert spans[0].attributes["agrag.chunker.rule"] == "fallback"
-        assert spans[0].attributes["agrag.chunker.hash"] == chunks[0].chunker_hash
+        assert spans[0].attributes["agrag.chunker.hash"] == chunker.fingerprint
         settings = json.loads(str(spans[0].attributes["agrag.chunker.settings"]))
-        assert settings["chunk_size"] == 1024
-
-    def test_docling_document_span_names_the_docling_rule(self) -> None:
-        """A docling document is chunked under rule 0 with the docling strategy."""
-        exporter = InMemorySpanExporter()
-        provider = TracerProvider()
-        provider.add_span_processor(SimpleSpanProcessor(exporter))
-        graph = Graph(
-            schema=GENERIC,
-            graph_store=_MockGraphStore(),
-            embedder=_MockEmbedder(),
-            extractor=_MockExtractor(),
-            tracer=provider.get_tracer("test"),
-        )
-
-        text = "docling doc"
-        document = Document(
-            text=text,
-            title="t",
-            uri="memory://docling",
-            document_key="memory://docling",
-            source_format=SourceFormat.TXT,
-            family=DocumentFamily.PROSE,
-            content_hash="docling",
-            loader_name="docling",
-            char_count=len(text),
-            line_count=1,
-            metadata={"_docling_document": object()},
-        )
-        chunks = _chunk_docling(graph, document, provider.get_tracer("test"))
-        assert chunks
-        spans = [
-            span
-            for span in exporter.get_finished_spans()
-            if span.name == "agrag.ingestion.chunk_document"
-        ]
-        assert len(spans) == 1
-        assert spans[0].attributes is not None
-        assert (
-            spans[0].attributes["agrag.document_key"] == document.resolved_document_key
-        )
-        assert spans[0].attributes["agrag.chunks_produced"] == len(chunks)
-        assert spans[0].attributes["agrag.chunker.strategy"] == "docling"
-        assert spans[0].attributes["agrag.chunker.rule"] == "0"
+        assert settings["size"] == 600

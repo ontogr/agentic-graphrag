@@ -82,7 +82,6 @@ def fuse(
                     item=result.item,
                     score=rrf_score,
                     method=result.method,
-                    parent=result.parent,
                 )
             )
 

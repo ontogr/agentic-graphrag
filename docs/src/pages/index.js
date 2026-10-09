@@ -6,7 +6,7 @@ import styles from './index.module.css';
 const features = [
   {
     title: 'Loads your files',
-    body: 'One Graph.add() call reads text, Markdown, HTML, CSV, JSON, and, with Docling, PDF, Word, PowerPoint, and images.',
+    body: 'One Graph.add() call reads text, Markdown, HTML, CSV, JSON, Word, PowerPoint, and Excel files. PDF and images need the docling extra.',
   },
   {
     title: 'Extracts with a schema you define',

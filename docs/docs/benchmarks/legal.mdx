@@ -18,7 +18,7 @@ This page describes the Legal benchmark: the questions, the graph schema, how Ag
 | CUAD | commercial contracts | [CUAD](https://www.atticusprojectai.org/cuad) |
 | MAUD | merger agreements | [MAUD](https://github.com/TheAtticusProject/maud) |
 
-The benchmark keeps its own "mini" sample of 776 questions on 72 documents. The harness reads the questions and documents from a Hugging Face mirror, [`awinml/legalbench-rag`](https://huggingface.co/datasets/awinml/legalbench-rag), at a pinned revision. It makes sure that the hash of every document matches before it uses the document. Every query keeps its official text, including the `Consider ...` prefix that names the document.
+The benchmark keeps its own "mini" sample of 776 questions on 72 documents. The benchmark runner reads the questions and documents from a Hugging Face mirror, [`awinml/legalbench-rag`](https://huggingface.co/datasets/awinml/legalbench-rag), at a pinned revision. It makes sure that the hash of every document matches before it uses the document. Every query keeps its official text, including the `Consider ...` prefix that names the document.
 
 ### Lite and full
 
@@ -31,7 +31,7 @@ The lite set is a smoke test, not a sample of the benchmark. It takes the shorte
 
 The full set keeps the documents with the most questions in each source, and for MAUD the two shortest documents. It drops repeated query strings. Nobody ran the full set. It is far above the budget of a manual run. Before you start it, read its dry-run estimate.
 
-The text of a document is read exactly as the gold offsets count it: a carriage return and line feed pair is one character, and a byte order mark stays as the first character. The harness builds the document text itself and does not use an Agentic GraphRAG loader, because a loader changes the text and moves every offset. A test makes sure that each chunk equals the slice of the document at its offsets.
+The text of a document is read exactly as the gold offsets count it: a carriage return and line feed pair is one character, and a byte order mark stays as the first character. The benchmark runner builds the document text itself and does not use an Agentic GraphRAG loader, because a loader changes the text and moves every offset. A test makes sure that each chunk equals the slice of the document at its offsets.
 
 ## The graph schema
 

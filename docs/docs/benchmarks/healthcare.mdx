@@ -9,11 +9,11 @@ This page describes the Healthcare benchmark: the questions, the passages that A
 
 ## The dataset
 
-[HealthBench](https://openai.com/index/healthbench/) ([paper](https://arxiv.org/abs/2505.08775)) is a set of health conversations between a person and an assistant. Each conversation has a rubric. A rubric is a list of criteria, each with a point value. A criterion that the answer must meet has positive points. A criterion that describes a fault has negative points. The harness uses the Hard subset of HealthBench, at a pinned revision of the [`openai/healthbench`](https://huggingface.co/datasets/openai/healthbench) data.
+[HealthBench](https://openai.com/index/healthbench/) ([paper](https://arxiv.org/abs/2505.08775)) is a set of health conversations between a person and an assistant. Each conversation has a rubric. A rubric is a list of criteria, each with a point value. A criterion that the answer must meet has positive points. A criterion that describes a fault has negative points. The benchmark runner uses the Hard subset of HealthBench, at a pinned revision of the [`openai/healthbench`](https://huggingface.co/datasets/openai/healthbench) data.
 
-The assistant here is Agentic GraphRAG. It answers from [MedCorp](https://huggingface.co/MedRAG) ([paper](https://arxiv.org/abs/2402.13178)) passages: paragraphs of StatPearls and chunks of 18 medical textbooks. The harness reads the passages from pinned revisions and makes sure that the hash of every file and every passage matches before it uses them. The passage text stays as the source gives it.
+The assistant here is Agentic GraphRAG. It answers from [MedCorp](https://huggingface.co/MedRAG) ([paper](https://arxiv.org/abs/2402.13178)) passages: paragraphs of StatPearls and chunks of 18 medical textbooks. The benchmark runner reads the passages from pinned revisions and makes sure that the hash of every file and every passage matches before it uses them. The passage text stays as the source gives it.
 
-The harness does not give the rubric to Agentic GraphRAG.
+The benchmark runner does not give the rubric to Agentic GraphRAG.
 
 ### Lite and full
 
@@ -22,7 +22,7 @@ The harness does not give the rubric to Agentic GraphRAG.
 | Lite | 1 | 5 | 933 |
 | Full | 150 | 4,477 | 635,543 |
 
-The full set holds 150 prompts. For each prompt, the harness keeps the 32 passages that a text search over MedCorp ranks highest for the last user turn, and the corpus is the union of these passages. Nobody ran the full set. It is far above the budget of a manual run. Before you start it, read its dry-run estimate.
+The full set holds 150 prompts. For each prompt, the benchmark runner keeps the 32 passages that a text search over MedCorp ranks highest for the last user turn, and the corpus is the union of these passages. Nobody ran the full set. It is far above the budget of a manual run. Before you start it, read its dry-run estimate.
 
 The lite set is a smoke test, not a sample of the benchmark. It has one question and five passages, so a run takes a few minutes. The question is in the full set, and every lite passage is among the 32 that full keeps for it. The question, in the `global_health` theme, reads: "typhoid vaccine for traveling next week? i live in a rural part of uttarakhand in india where we see lots of typhoid." Its rubric has 3 items:
 
@@ -52,7 +52,7 @@ A schema that fits the corpus helps Agentic GraphRAG, so these numbers do not co
 
 ## How answers are scored
 
-A judge model reads the conversation, the answer, and one rubric item, and says whether the answer meets the criterion. The harness makes one judge call for each rubric item, so a question with 3 items costs 3 judge calls and a question with 20 items costs 20. The score of a question is the sum of the points of the met items, divided by the sum of the positive points. A met item with negative points lowers the score. The HealthBench score of a set is the mean over its questions, limited to the range 0 to 1. The record holds the score of each question without that limit.
+A judge model reads the conversation, the answer, and one rubric item, and says whether the answer meets the criterion. The benchmark runner makes one judge call for each rubric item, so a question with 3 items costs 3 judge calls and a question with 20 items costs 20. The score of a question is the sum of the points of the met items, divided by the sum of the positive points. A met item with negative points lowers the score. The HealthBench score of a set is the mean over its questions, limited to the range 0 to 1. The record holds the score of each question without that limit.
 
 The scorer is ported from the `simple-evals` code of OpenAI (MIT license), with its prompt kept. The judge is the judge model of the run. The reference scorer asks again until the judge gives a valid reply. This grader asks at most three times, counts the item as not met if no valid reply comes, and gives the question the flag `parse_error`.
 

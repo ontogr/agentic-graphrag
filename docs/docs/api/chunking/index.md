@@ -8,42 +8,20 @@ sidebar_position: 3
 
 Chunking: how a Document becomes Chunks.
 
-A `Chunker` splits one document. A `Chunking` holds the rules that pick a chunker
-for each document, and `DEFAULT_CHUNKING` is the preset that `Graph` uses.
+`Chunker` packs the sections of a document into chunks. `ChunkedDocument`
+carries the chunks with where each chunk hangs. `Graph` takes one.
 
 **Modules:**
 
-- [**base**](base/index.md) – The Chunker contract: how a Document becomes Chunks, and how that is recorded.
-- [**docling**](docling/index.md) – Docling-native chunking.
-- [**extras**](extras/index.md) – Opt-in chunkers that need a package extra: semantic, neural and code.
-- [**heading**](heading/index.md) – The heading-aware strategy: sections packed to a token budget.
-- [**parent_child**](parent_child/index.md) – The parent-child strategy: large parents to extract, small children to search.
-- [**recursive**](recursive/index.md) – The recursive strategy: split on the coarsest delimiter that fits the budget.
-- [**rules**](rules/index.md) – Chunking rules: which chunker a document gets, as data.
-- [**sentence**](sentence/index.md) – The sentence strategy: whole sentences packed up to a token budget.
-- [**token**](token/index.md) – The token strategy: fixed-size windows of tokens, with optional overlap.
-- [**turns**](turns/index.md) – The turn-window strategy: whole chat turns packed to a token budget.
+- [**chunker**](chunker/index.md) – The section chunker: one packer that serves every source format.
 
 **Classes:**
 
-- [**Chunker**](base/Chunker.md) – Splits one Document into Chunks and builds their provenance.
-- [**ChunkerMissingExtraError**](base/ChunkerMissingExtraError.md) – A chunker needs a package extra that is not installed.
-- [**Chunking**](rules/Chunking.md) – An ordered list of chunking rules and a fallback chunker.
-- [**ChunkingError**](base/ChunkingError.md) – A chunker broke the chunk contract or failed to chunk a document.
-- [**ChunkingRule**](rules/ChunkingRule.md) – A match and the chunker for the documents it matches.
-- [**CodeChunker**](extras/CodeChunker.md) – Cuts source code along its syntax tree.
-- [**DoclingChunker**](docling/DoclingChunker.md) – Splits a parsed docling document with docling's hybrid chunker.
-- [**HeadingChunker**](heading/HeadingChunker.md) – Cuts a document into sections at its headings and packs them to a budget.
-- [**NeuralChunker**](extras/NeuralChunker.md) – Cuts where a token classification model predicts a topic break.
-- [**ParentChildChunker**](parent_child/ParentChildChunker.md) – Cuts a document into parent chunks and cuts each parent into child chunks.
-- [**RecursiveChunker**](recursive/RecursiveChunker.md) – Splits on paragraph, sentence and word boundaries, coarsest first.
-- [**RuleMatch**](rules/RuleMatch.md) – The documents a rule applies to.
-- [**SemanticChunker**](extras/SemanticChunker.md) – Cuts where the meaning of neighbouring sentences changes.
-- [**SentenceChunker**](sentence/SentenceChunker.md) – Packs whole sentences into chunks of at most `chunk_size` tokens.
-- [**SplitLevel**](recursive/SplitLevel.md) – One level of recursive split rules.
-- [**TokenChunker**](token/TokenChunker.md) – Cuts the text into windows of `chunk_size` tokens.
-- [**TurnWindowChunker**](turns/TurnWindowChunker.md) – Packs whole chat turns into windows of at most `chunk_size` tokens.
+- [**ChunkPlacement**](chunker/ChunkPlacement.md) – Where one chunk hangs in the structure of its document.
+- [**ChunkedDocument**](chunker/ChunkedDocument.md) – The chunks of one document with where each chunk hangs.
+- [**Chunker**](chunker/Chunker-ref.md) – Packs the sections of a Document into chunks.
+- [**ChunkingError**](chunker/ChunkingError.md) – A chunker could not split a document without changing its text.
 
 **Attributes:**
 
-- [**DEFAULT_CHUNKING**](rules/DEFAULT_CHUNKING.md) – The preset that `Graph` uses: `docling` loads go to `DoclingChunker`.
+- [**DEFAULT_TOKENIZER**](chunker/DEFAULT_TOKENIZER.md) –

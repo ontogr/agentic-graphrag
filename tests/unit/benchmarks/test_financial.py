@@ -13,7 +13,7 @@ from pydantic import ValidationError
 
 from agrag.common.data_models.document import DocumentFamily, SourceFormat
 from agrag.common.data_models.graph_schema import GraphSchema
-from agrag.loaders.corpus.errors import MissingExtraError
+from agrag.loaders.errors import MissingExtraError
 from benchmarks.datasets import financial
 from benchmarks.datasets.financial import COMMIT, FinancialAdapter
 from benchmarks.grading import financial as grading

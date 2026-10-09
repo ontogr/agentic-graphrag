@@ -1,8 +1,11 @@
 """The Extractor interface: reads one Chunk and produces an ExtractionResult."""
 
 import asyncio
+import contextvars
 import os
 from abc import ABC, abstractmethod
+from concurrent.futures import ThreadPoolExecutor
+from functools import partial
 from typing import Any, Literal
 
 from dotenv import load_dotenv
@@ -19,7 +22,7 @@ from agrag.common.data_models.extraction import (
 from agrag.common.data_models.graph_schema import EntityType, GraphSchema
 from agrag.llm.client_config import LLMClientConfig, RetryConfig
 from agrag.llm.retry import NO_RETRY, call_with_retry
-from agrag.loaders.corpus.errors import IngestionError
+from agrag.loaders.errors import IngestionError
 from agrag.observability import get_tracer
 
 
@@ -260,7 +263,18 @@ class Extractor(ABC):
         ``GlinerExtractor`` (a local model), ``BAMLExtractor`` (an LLM call),
         and ``EscalatingExtractor`` (a cheap extractor first, a stronger one
         when the result is weak).
+
+        ``Graph`` runs up to ``max_concurrency`` ``extract`` calls at the same
+        time. An extractor that is not safe to call from several tasks at once
+        sets ``max_concurrency`` to 1 or makes its calls take turns itself, for
+        example with an ``asyncio.Lock``.
+
+    Attributes:
+        max_concurrency: The most ``extract`` calls that run at once for one
+            batch of chunks. Must be positive.
     """
+
+    max_concurrency: int = 8
 
     @abstractmethod
     async def extract(self, chunk: Chunk, schema: GraphSchema) -> ExtractionResult:
@@ -332,10 +346,12 @@ class GlinerExtractor(Extractor):
     """Extracts entities and relations with a local GLiNER2.5 model.
 
     The model runs in this process, so extraction needs no LLM key. It loads on
-    first use and one load serves concurrent calls. The first load downloads the
-    weights from Hugging Face unless ``model`` is passed. GLiNER reports entity
-    spans and types, so extracted entities carry no property values. Needs the
-    ``extract`` extra.
+    first use and one load serves concurrent calls. Inference calls run one at a
+    time on one worker thread. A call cancelled while it waits for its turn never
+    starts, and one cancelled mid-inference leaves the next call waiting until the
+    inference ends. The first load downloads the weights from Hugging Face unless
+    ``model`` is passed. GLiNER reports entity spans and types, so extracted
+    entities carry no property values. Needs the ``extract`` extra.
 
     Args:
         model_name: Checkpoint to load when ``model`` is not provided.
@@ -344,6 +360,9 @@ class GlinerExtractor(Extractor):
             ``agrag.extraction.model_load`` spans. ``None`` opens no recorded
             span.
     """
+
+    # Inference runs on one worker thread, so extra concurrent calls only queue.
+    max_concurrency = 1
 
     def __init__(
         self,
@@ -357,6 +376,9 @@ class GlinerExtractor(Extractor):
         self._model = model
         self._tracer = tracer
         self._load_task: asyncio.Task[object] | None = None
+        self._inference_executor = ThreadPoolExecutor(
+            max_workers=1, thread_name_prefix="gliner"
+        )
 
     async def extract(self, chunk: Chunk, schema: GraphSchema) -> ExtractionResult:
         """Extract with the local GLiNER2.5 model.
@@ -381,11 +403,17 @@ class GlinerExtractor(Extractor):
         ) as span:
             model = await self._load_model()
             gliner_schema = self._build_schema(model, schema)
-            raw = await asyncio.to_thread(
-                model.extract,  # ty: ignore[unresolved-attribute]
-                chunk.text,
-                gliner_schema,
-                include_spans=True,
+            # Unlike asyncio.to_thread, run_in_executor does not copy the context,
+            # so copy it here to keep the active trace span in the inference thread.
+            raw = await asyncio.get_running_loop().run_in_executor(
+                self._inference_executor,
+                partial(
+                    contextvars.copy_context().run,
+                    model.extract,  # ty: ignore[unresolved-attribute]
+                    chunk.text,
+                    gliner_schema,
+                    include_spans=True,
+                ),
             )
             result = _normalize_extraction_result(
                 self._to_result(raw, chunk, schema), schema
@@ -818,6 +846,9 @@ class EscalatingExtractor(Extractor):
             chunk has at least this many words.
         tracer: Opens the ``agrag.extraction.escalating`` span. ``None`` opens
             no recorded span.
+
+    The ``max_concurrency`` of this extractor is the smaller of the two child
+    limits, so a child that must not run concurrently keeps the wrapper serial.
     """
 
     def __init__(
@@ -832,6 +863,7 @@ class EscalatingExtractor(Extractor):
         """Create an extractor that escalates from a primary to a stronger one."""
         self.primary = primary
         self.escalate_to = escalate_to
+        self.max_concurrency = min(primary.max_concurrency, escalate_to.max_concurrency)
         self.min_confidence = min_confidence
         self.min_chunk_words = min_chunk_words
         self._tracer = tracer

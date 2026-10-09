@@ -12,7 +12,7 @@ from agrag.ingestion.resolve.resolution import (
     resolve_among,
     resolve_batch,
 )
-from agrag.loaders.corpus.types import ErrorPolicy
+from agrag.loaders.types import ErrorPolicy
 
 
 class _Embedder:

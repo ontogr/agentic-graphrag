@@ -1,0 +1,354 @@
+"""Corpus walk, batching, and resumable streaming.
+
+This module is internal. ``Graph.add`` uses it to turn a set of sources into batches of
+Documents. Only ``normalize_inline_text`` is for use outside the loaders package, by
+``Graph.add``. Nothing else here is a supported interface.
+"""
+
+import hashlib
+import unicodedata
+from collections.abc import AsyncIterator
+from dataclasses import replace
+from pathlib import Path
+from typing import BinaryIO
+
+from opentelemetry.trace import Tracer
+
+from agrag.common.data_models.document import Document, DocumentFamily, SourceFormat
+from agrag.common.data_models.normalization import Normalization
+from agrag.common.data_models.stage_failure import StageFailure
+from agrag.loaders.base import Loader
+from agrag.loaders.common import build_prose_document, text_sections
+from agrag.loaders.errors import IngestionError, UnsupportedFormatError
+from agrag.loaders.loader_registry import LoaderRegistry
+from agrag.loaders.types import (
+    ErrorPolicy,
+    LoaderCursor,
+    LoadStats,
+    ReadOptions,
+    SourceRef,
+)
+from agrag.observability import get_tracer, stage_failure_context
+
+
+def _source_ref_for(path: Path) -> SourceRef:
+    """Build a ``SourceRef`` for a local file.
+
+    Args:
+        path: The file to describe.
+
+    Returns:
+        The source reference with its extension and size.
+    """
+    stat = path.stat()
+    return SourceRef(
+        uri=str(path),
+        extension=path.suffix.lower(),
+        byte_size=stat.st_size,
+        modified_at=None,
+    )
+
+
+class _CorpusWalk:
+    """Walk local files in deterministic order and yield batched documents.
+
+    This class expands directories and globs up front, sorts the resulting paths, and
+    then
+    streams them through the registry. A ``LoaderCursor`` tags each batch so a caller
+    can
+    resume a walk after a crash without gaps or duplicates.
+    """
+
+    def __init__(
+        self,
+        sources: list[Path],
+        *,
+        registry: LoaderRegistry,
+        opts: ReadOptions,
+        error_policy: ErrorPolicy = ErrorPolicy.RAISE,
+        loader: Loader | None = None,
+        batch_size: int = 100,
+        tracer: Tracer | None = None,
+    ) -> None:
+        self._paths = sorted({p.resolve() for p in sources}, key=str)
+        self._registry = registry
+        self._opts = opts
+        self._error_policy = error_policy
+        self._loader = loader
+        self._batch_size = batch_size
+        self._tracer = tracer
+
+    async def iter_batches(  # noqa: PLR0912,PLR0915
+        self, *, start: LoaderCursor | None = None
+    ) -> AsyncIterator[tuple[list[Document], LoaderCursor, LoadStats]]:
+        """Yield (documents, cursor, stats) batches in deterministic order.
+
+        Args:
+            start: A cursor to resume from. The walk skips every source before it and
+            resumes
+                inside the matching source at ``start.record_index``.
+
+        Yields:
+            One tuple per batch: the batch documents, the cursor after the batch, and
+            the
+            running stats.
+
+        Raises:
+            UnsupportedFormatError: A source has no loader and the error policy is
+            RAISE.
+            IngestionError: A source fails to load and the error policy is RAISE.
+        """
+        stats = LoadStats()
+        batch: list[Document] = []
+        cursor = start if start is not None else LoaderCursor()
+        started = start is None
+
+        for path in self._paths:
+            uri = str(path)
+            if not started:
+                if start is not None and start.uri is not None and uri < start.uri:
+                    continue
+                started = True
+
+            source = _source_ref_for(path)
+            if self._loader is None:
+                try:
+                    loader = self._registry.for_source(source)
+                except UnsupportedFormatError as exc:
+                    self._handle_error(uri, exc, stats)
+                    continue
+            else:
+                loader = self._loader
+
+            resume_index = self._resume_index(uri, loader, start)
+            if resume_index is None:
+                continue
+
+            # A source is staged in its own buffer and only merged into the
+            # yielded batch once its loader finishes without raising, so a
+            # source that fails partway through never leaks the documents it
+            # already produced into the batch stream.
+            source_batch: list[Document] = []
+            source_bytes = path.stat().st_size
+            resume_position = resume_index
+            source_cursor = cursor
+            failed_trace_id: str | None = None
+            failed_span_id: str | None = None
+            try:
+                with self._open(path) as stream:
+                    # Calling the loader does no real work before the first
+                    # item is requested: every current loader only yields
+                    # documents once iterated. The iter call below is
+                    # defensive for a loader that returns something already
+                    # iterator-shaped.
+                    loader_iter = iter(
+                        loader.load(source, stream, self._opts, start_at=resume_index)
+                    )
+                    tracer = get_tracer(self._tracer)
+                    while True:
+                        with tracer.start_as_current_span(
+                            "agrag.ingestion.load_document",
+                            attributes={
+                                "agrag.source_uri": uri,
+                                "agrag.loader_name": type(loader).__name__,
+                                "agrag.normalization": (
+                                    self._opts.normalization.model_dump_json()
+                                ),
+                            },
+                        ) as span:
+                            # None, not a sentinel object(), so `doc` stays
+                            # typed as Document | None and `if doc is None:`
+                            # narrows cleanly -- Iterator[Document] never
+                            # yields None itself.
+                            try:
+                                doc = next(loader_iter, None)
+                            except IngestionError:
+                                failed_trace_id, failed_span_id = (
+                                    stage_failure_context()
+                                )
+                                raise
+                            record_index = None
+                            if doc is None:
+                                span.set_attribute("agrag.loader_exhausted", True)
+                            else:
+                                attributes: dict[str, str | int] = {
+                                    "agrag.document_key": doc.resolved_document_key
+                                }
+                                if loader.family == DocumentFamily.RECORD:
+                                    resume_position += 1
+                                    record_index = resume_position
+                                    # This is the LoaderCursor resume value
+                                    # (1-based count of records consumed so far
+                                    # for this source), not the document's own
+                                    # 0-based position -- named for what it
+                                    # actually is to avoid implying a 0-based
+                                    # index.
+                                    attributes["agrag.resume_cursor"] = record_index
+                                span.set_attributes(attributes)
+                        if doc is None:
+                            break
+                        source_batch.append(doc)
+                        source_cursor = LoaderCursor(uri=uri, record_index=record_index)
+                        if len(batch) + len(source_batch) >= self._batch_size:
+                            # Only count documents once they are actually
+                            # flushed into a batch. A document counted here but
+                            # never flushed (the source later raises, and this
+                            # source_batch's *next* run is discarded below)
+                            # would make stats.documents overstate what the
+                            # caller ever received.
+                            stats.documents += len(source_batch)
+                            batch.extend(source_batch)
+                            source_batch = []
+                            cursor = source_cursor
+                            yield batch, cursor, stats
+                            batch = []
+            except IngestionError as exc:
+                self._handle_error(
+                    uri, exc, stats, trace_id=failed_trace_id, span_id=failed_span_id
+                )
+                continue
+
+            stats.documents += len(source_batch)
+            stats.sources += 1
+            stats.bytes_read += source_bytes
+            batch.extend(source_batch)
+            cursor = source_cursor
+
+        yield batch, cursor, stats
+
+    @staticmethod
+    def _open(path: Path) -> BinaryIO:
+        """Open a path for binary reading.
+
+        Args:
+            path: The file to open.
+
+        Returns:
+            The open binary stream.
+        """
+        return path.open("rb")
+
+    def _handle_error(
+        self,
+        uri: str,
+        exc: IngestionError,
+        stats: LoadStats,
+        *,
+        trace_id: str | None = None,
+        span_id: str | None = None,
+    ) -> None:
+        """Apply the error policy to one source failure.
+
+        Args:
+            uri: The failing source.
+            exc: The loader lookup or load error.
+            stats: The running stats to update in place.
+            trace_id: The failing span's trace id, when the caller already
+                captured one from the ``load_document`` span before it closed.
+                ``None`` when no such span was open for this source -- an
+                ``UnsupportedFormatError`` from the registry lookup, before
+                ``self._open(path)`` runs. This method never reads the current
+                span itself; the caller always decides what to pass.
+            span_id: The failing span's id, paired with ``trace_id``.
+
+        Raises:
+            IngestionError: The error policy is RAISE.
+        """
+        if self._error_policy == ErrorPolicy.RAISE:
+            raise exc
+        reason = str(exc)
+        if self._error_policy == ErrorPolicy.QUARANTINE:
+            stats.quarantined += 1
+            stats.quarantined_items.append(
+                StageFailure(
+                    item_id=uri,
+                    error_type="Quarantined",
+                    error_message=reason,
+                    trace_id=trace_id,
+                    span_id=span_id,
+                )
+            )
+        else:
+            stats.skipped += 1
+
+    def _resume_index(
+        self, uri: str, loader: Loader, start: LoaderCursor | None
+    ) -> int | None:
+        """Return the resume point for one source, or ``None`` to skip it.
+
+        Args:
+            uri: The source being walked.
+            loader: The loader that will read the source.
+            start: The cursor to resume from, when the caller passed one.
+
+        Returns:
+            The record index to resume at, or ``None`` when the source is atomic and was
+            already processed at the cursor.
+        """
+        if start is None or uri != start.uri:
+            return 0
+        if loader.family == DocumentFamily.PROSE:
+            return None
+        return start.record_index or 0
+
+
+def normalize_inline_text(text: str, opts: ReadOptions) -> tuple[str, Normalization]:
+    """Normalize text that a caller passed in memory.
+
+    Inline text has no bytes to decode, so only the Unicode form applies.
+
+    Args:
+        text: The text as the caller gave it.
+        opts: The read options. Only ``opts.normalization.unicode_form`` is used.
+
+    Returns:
+        The normalized text and the normalization to record on its document.
+    """
+    form = opts.normalization.unicode_form
+    normalized = text if form == "none" else unicodedata.normalize(form, text)
+    return normalized, Normalization(bom="keep", newline="keep", unicode_form=form)
+
+
+class _InMemoryWalk:
+    """Walk a single in-memory text string as one source.
+
+    This class backs ``Graph.add(text=...)``. It produces one prose Document whose uri
+    is derived from the text hash.
+    """
+
+    def __init__(self, text: str, *, opts: ReadOptions) -> None:
+        self._text, self._normalization = normalize_inline_text(text, opts)
+        self._opts = opts
+
+    async def iter_batches(
+        self, *, start: LoaderCursor | None = None
+    ) -> AsyncIterator[tuple[list[Document], LoaderCursor, LoadStats]]:
+        """Yield the single in-memory document as one batch.
+
+        Args:
+            start: Ignored; an in-memory source never resumes.
+
+        Yields:
+            One tuple with the single Document, its cursor, and stats.
+        """
+        content_hash = hashlib.sha256(self._text.encode("utf-8")).hexdigest()
+        source = SourceRef(
+            uri=f"inline://{content_hash[:16]}",
+            extension=".txt",
+            byte_size=len(self._text.encode("utf-8")),
+        )
+        document = build_prose_document(
+            source=source,
+            text=self._text,
+            encoding="utf-8",
+            source_format=SourceFormat.TXT,
+            loader_name="inline",
+            opts=replace(self._opts, normalization=self._normalization),
+            title="inline",
+            sections=text_sections(self._text) if self._opts.store_text else [],
+            content_hash=content_hash,
+        )
+        stats = LoadStats(
+            documents=1, sources=1, bytes_read=len(self._text.encode("utf-8"))
+        )
+        yield [document], LoaderCursor(uri=document.uri), stats

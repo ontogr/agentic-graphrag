@@ -6,7 +6,7 @@ sidebar_label: merge_properties
 # `agrag.ingestion.merge.merge_properties` \{#agrag-ingestion-merge-merge_properties}
 
 ```python
-merge_properties(property_sources:list[dict[str, object]], rules:PropertyRules, *, description_settings:Any | None = None, description_client:Any | None = None, tracer:Tracer | None = None) -> tuple[dict[str, object], list[ConflictRecord], list[Any]]
+merge_properties(property_sources:list[dict[str, object]], rules:PropertyRules, *, description_settings:Any | None = None, description_client:Any | None = None, tracer:Tracer | None = None) -> tuple[dict[str, object], list[ConflictRecord], list[StageFailure]]
 ```
 
 Return field-resolved properties and records of every real conflict.
@@ -21,4 +21,4 @@ Return field-resolved properties and records of every real conflict.
 
 **Returns:**
 
-- <code>tuple\[dict\[str, object\], list\[[ConflictRecord](ConflictRecord.md)\], list\[Any\]\]</code> – The resolved properties, conflict records, and optional stage failures.
+- <code>tuple\[dict\[str, object\], list\[[ConflictRecord](ConflictRecord.md)\], list\[[StageFailure](../../common/data_models/stage_failure/StageFailure.md)\]\]</code> – The resolved properties, conflict records, and optional stage failures.

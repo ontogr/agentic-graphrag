@@ -17,8 +17,6 @@ One retrieved item, tagged with where it came from.
   across methods until Fusion normalizes it.
 - [**method**](#agrag-common-data_models-search_result-SearchResult-method) (<code>str</code>) – The name of the retrieval method that produced
   this result.
-- [**parent**](#agrag-common-data_models-search_result-SearchResult-parent) (<code>[Chunk](../chunk/Chunk-ref.md) | None</code>) – The parent chunk of a child chunk result, so a caller can show the
-  larger passage. `None` for every other result.
 
 ## `identity_key` \{#agrag-common-data_models-search_result-SearchResult-identity_key}
 
@@ -43,12 +41,6 @@ item: Union[Entity, ResolvedEntity, Relation, Chunk, Community, QueryValue]
 
 ```python
 method: str
-```
-
-## `parent` \{#agrag-common-data_models-search_result-SearchResult-parent}
-
-```python
-parent: Chunk | None = None
 ```
 
 ## `score` \{#agrag-common-data_models-search_result-SearchResult-score}

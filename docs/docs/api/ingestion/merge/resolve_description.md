@@ -6,7 +6,7 @@ sidebar_label: resolve_description
 # `agrag.ingestion.merge.resolve_description` \{#agrag-ingestion-merge-resolve_description}
 
 ```python
-resolve_description(candidates:list[object], *, settings:Any | None = None, client:Any | None = None, tracer:Tracer | None = None) -> tuple[object, bool, Any | None]
+resolve_description(candidates:list[object], *, settings:Any | None = None, client:Any | None = None, tracer:Tracer | None = None) -> tuple[object, bool, StageFailure | None]
 ```
 
 Resolve a description field, trying LLM summarization.
@@ -24,4 +24,4 @@ LLM summarization. On failure, fall back to concatenation.
 
 **Returns:**
 
-- <code>tuple\[object, bool, Any | None\]</code> – The resolved value, whether it conflicted, and an optional failure.
+- <code>tuple\[object, bool, [StageFailure](../../common/data_models/stage_failure/StageFailure.md) | None\]</code> – The resolved value, whether it conflicted, and an optional failure.

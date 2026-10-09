@@ -213,7 +213,7 @@ async def _commit_pending_writes(
     token: UUID,
     graph_store: GraphStore,
     close_document_node_id: UUID | None,
-    keep_chunk_ids: Sequence[UUID],
+    keep_node_ids: Sequence[UUID],
     component_seed_ids: Sequence[UUID],
 ) -> int:
     """Atomically expose pending graph writes and close superseded edges."""
@@ -239,7 +239,7 @@ async def _commit_pending_writes(
                 txn,
                 document_node_id=close_document_node_id,
                 job_id=job_id,
-                keep_chunk_ids=keep_chunk_ids,
+                keep_node_ids=keep_node_ids,
             )
         await txn.execute_write(clear_pending_tag_query(), {"job_id": job_arg})
     return chunks_closed
@@ -258,64 +258,9 @@ async def run_cutover_job(
     cleanup: Callable[[list[UUID], list[UUID]], Awaitable[S]],
     components: Sequence[MatchComponent] = (),
     close_document_node_id: UUID | None = None,
-    keep_chunk_ids: Sequence[UUID] = (),
+    keep_node_ids: Sequence[UUID] = (),
     tracer: Tracer | None = None,
 ) -> tuple[T, S, int]:
-    """Run one crash-safe graph-mutating call end to end.
-
-    Acquires the document's lease, runs ``pending_write`` with the new job
-    id (every write it makes carries that id's pending tag), then flips
-    the job to committed, closes the superseded version's PART_OF edges,
-    and clears the tag in one transaction. After that the cleanup phase
-    runs against the snapshot: a crash before commit rolls back on the
-    next open, a crash after rolls forward, so the graph always converges
-    to as-if-never-happened or as-if-completed.
-
-    The commit also records one seed id for each component ``pending_write``
-    rebuilt, so a resumed job can rebuild those components with the
-    same ``cleanup`` the live call runs.
-
-    Args:
-        verb: Which public method created this job.
-        document_key: The document this job mutates, lease-guarded.
-        affected_entity_ids: Entities with evidence in the version being
-            replaced or removed, snapshotted before any pending write.
-            Empty for add. Only these may be pruned by cleanup.
-        graph_store: Where the job node and all writes live.
-        vector_store: Second write target for embeddings, if configured.
-        vector_collections: Collections the pending phase may have
-            written pending-tagged vectors to.
-        settings: Lease TTL configuration. The lease is renewed every third
-            of the TTL while the job runs, so a phase can outlast the TTL.
-        pending_write: The caller's pipeline stages, tagging every write
-            with the passed job id.
-        cleanup: Post-commit work. Receives the affected-entity snapshot and
-            the component seed ids, the same two lists resume reads from the
-            job node (closing is already done).
-        components: The components ``pending_write`` rebuilds. The list
-            may still be empty when this call starts: ``pending_write``
-            appends to it, and the commit reads it once that step returns.
-        close_document_node_id: The persisted Document node whose open
-            PART_OF edges close atomically with the commit. None closes
-            nothing, for add.
-        keep_chunk_ids: Chunks whose PART_OF edges stay open through that close.
-            An update passes the ids of the chunks it wrote, since a chunk can
-            keep its id when only the chunker changed.
-        tracer: Opens this job's span. The caller's own root span (Graph.add/
-            update/delete_document) must already be current when this is
-            called, or this job's span has no parent.
-
-    Returns:
-        The pending-write result, the cleanup result, and the number of
-        PART_OF edges closed by the commit.
-
-    Raises:
-        CutoverJobLeaseError: Another live job holds the lease, or a fenced
-            transition or renewal reports the job lost it.
-        Exception: Whatever ``pending_write``, ``cleanup``, or lease renewal
-            raised, after rolling back (pre-commit) or leaving the job for
-            resume (post-commit).
-    """
     resolved_tracer = get_tracer(tracer)
     with resolved_tracer.start_as_current_span(
         "agrag.ingestion.cutover_job",
@@ -353,7 +298,7 @@ async def run_cutover_job(
                 affected_entity_ids=affected_entity_ids,
                 components=components,
                 close_document_node_id=close_document_node_id,
-                keep_chunk_ids=keep_chunk_ids,
+                keep_node_ids=keep_node_ids,
                 stop_renewal=stop_renewal,
                 renewal_stopped=renewal_stopped,
             )
@@ -390,7 +335,7 @@ async def _run_leased(
     affected_entity_ids: list[UUID],
     components: Sequence[MatchComponent],
     close_document_node_id: UUID | None,
-    keep_chunk_ids: Sequence[UUID],
+    keep_node_ids: Sequence[UUID],
     stop_renewal: asyncio.Event,
     renewal_stopped: asyncio.Event,
 ) -> tuple[T, S, int]:
@@ -412,7 +357,7 @@ async def _run_leased(
             token=token,
             graph_store=graph_store,
             close_document_node_id=close_document_node_id,
-            keep_chunk_ids=keep_chunk_ids,
+            keep_node_ids=keep_node_ids,
             component_seed_ids=component_seed_ids,
         )
     )

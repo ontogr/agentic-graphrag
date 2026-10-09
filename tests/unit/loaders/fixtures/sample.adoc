@@ -1,0 +1,11 @@
+= Sample Guide
+
+Intro text.
+
+== Setup
+
+Setup text.
+
+=== Details
+
+Fine text.

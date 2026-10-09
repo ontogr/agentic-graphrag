@@ -1,34 +1,10 @@
-"""The docling loader package.
+"""The docling loaders.
 
-Importing this package registers ``DoclingLoader`` with the corpus registry. The core
-loaders win by default for Markdown, HTML, and CSV; docling wins for PDF, DOCX, PPTX,
-images, AsciiDoc, and XML.
+Docling reads every format it claims. The core loaders keep plain text, XML and the
+record formats.
 """
 
-from agrag.loaders.corpus import registry
-from agrag.loaders.docling.loader import DoclingLoader
+from agrag.loaders.docling.loader import DoclingLoader, DoclingPdfLoader
 
 
-_loader = DoclingLoader()
-
-_PREFER_TRUE = frozenset(
-    {
-        ".pdf",
-        ".docx",
-        ".pptx",
-        ".png",
-        ".jpg",
-        ".jpeg",
-        ".tif",
-        ".tiff",
-        ".bmp",
-        ".adoc",
-        ".asciidoc",
-        ".xml",
-    }
-)
-
-registry.register(_loader, prefer=True, extensions=_PREFER_TRUE)
-registry.register(_loader, prefer=False, extensions=_loader.extensions - _PREFER_TRUE)
-
-__all__ = ["DoclingLoader"]
+__all__ = ["DoclingLoader", "DoclingPdfLoader"]

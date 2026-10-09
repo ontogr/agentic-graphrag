@@ -10,3 +10,7 @@ Chunk retriever: dense vector search over chunks.
 **Classes:**
 
 - [**ChunkRetriever**](ChunkRetriever.md) – Dense chunk search via vector similarity.
+
+**Attributes:**
+
+- [**logger**](logger.md) –

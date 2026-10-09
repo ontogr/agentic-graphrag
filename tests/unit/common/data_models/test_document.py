@@ -5,12 +5,15 @@ Covers ``node_id_for``'s collision resistance, ``document_key`` defaulting to
 """
 
 import pytest
+from pydantic import ValidationError
 
 from agrag.common.data_models.document import (
     Document,
     DocumentFamily,
+    DocumentSection,
     SourceFormat,
-    TurnRef,
+    Unit,
+    UnitKind,
 )
 
 
@@ -75,72 +78,58 @@ class TestToNodeRecord:
         assert "text" not in record.properties
 
 
-class TestTurns:
-    """Document.turns holds ordered, non-overlapping spans inside the text."""
+class TestRawRecord:
+    """raw_record holds JSON data only."""
 
-    _TEXT = "[user] hello\n\n[assistant] hi there"
+    def _doc_with_record(self, raw_record: object) -> Document:
+        data = _doc().model_dump()
+        data["raw_record"] = raw_record
+        return Document.model_validate(data)
 
-    def _with_turns(
-        self,
-        turns: list[TurnRef],
-        *,
-        text: str | None = None,
-        char_count: int | None = None,
-    ) -> Document:
-        text = self._TEXT if text is None else text
-        return Document(
-            text=text,
-            title="t",
-            uri="u",
-            source_format=SourceFormat.JSONL,
-            family=DocumentFamily.PROSE,
-            content_hash="h",
-            loader_name="chat",
-            char_count=len(text) if char_count is None else char_count,
-            turns=turns,
+    def test_accepts_nested_json_values(self) -> None:
+        """Nested lists and objects pass."""
+        doc = self._doc_with_record({"tags": ["a", 1], "meta": {"n": None}})
+
+        assert doc.raw_record == {"tags": ["a", 1], "meta": {"n": None}}
+
+    def test_rejects_a_non_json_value(self) -> None:
+        """A non-JSON value raises."""
+        with pytest.raises(ValidationError):
+            self._doc_with_record({"when": object()})
+
+
+def _sectioned(text: str, spans: list[tuple[int, int]]) -> Document:
+    units = [
+        Unit(
+            kind=UnitKind.PARAGRAPH,
+            text=text[start:end],
+            char_start=start,
+            char_end=end,
         )
-
-    def test_accepts_ordered_turns(self) -> None:
-        """Turns that follow the text in order are kept as given."""
-        turns = [
-            TurnRef(role="user", char_start=0, char_end=12),
-            TurnRef(role="assistant", turn_id="a1", char_start=14, char_end=34),
-        ]
-
-        assert self._with_turns(turns).turns == turns
-
-    def test_defaults_to_no_turns(self) -> None:
-        """A document without chat structure has no turns."""
-        assert self._with_turns([]).turns == []
-
-    def test_rejects_turns_when_text_is_not_stored(self) -> None:
-        """Turn spans require the document text that they index."""
-        turns = [TurnRef(role="user", char_start=0, char_end=12)]
-
-        with pytest.raises(ValueError, match="text"):
-            self._with_turns(turns, text="", char_count=len(self._TEXT))
-
-    @pytest.mark.parametrize(
-        ("spans", "message"),
-        [
-            ([(14, 34), (0, 12)], "order"),
-            ([(0, 20), (10, 34)], "overlap"),
-            ([(0, 99)], "text"),
-            ([(-1, 5)], "text"),
-            ([(5, 5)], "text"),
-        ],
-        ids=["out-of-order", "overlap", "past-end", "negative", "empty"],
+        for start, end in spans
+    ]
+    return Document(
+        text=text,
+        title="t",
+        uri="u",
+        source_format=SourceFormat.TXT,
+        family=DocumentFamily.PROSE,
+        content_hash="h",
+        loader_name="text",
+        char_count=len(text),
+        sections=[DocumentSection(heading="", depth=0, units=units)],
     )
-    def test_rejects_bad_spans(
-        self, spans: list[tuple[int, int]], message: str
-    ) -> None:
-        """Out-of-order, overlapping or out-of-range spans raise."""
-        turns = [TurnRef(role="user", char_start=a, char_end=b) for a, b in spans]
 
-        with pytest.raises(ValueError, match=message):
-            self._with_turns(turns)
 
-    def test_rejects_empty_role(self) -> None:
-        """A turn must name its speaker."""
-        with pytest.raises(ValueError, match="role"):
-            TurnRef(role="", char_start=0, char_end=3)
+class TestSectionSpanOrder:
+    """Unit spans run in reading order inside the document text."""
+
+    def test_rejects_spans_outside_the_text(self) -> None:
+        """A span past the end of the text raises."""
+        with pytest.raises(ValidationError, match="outside the document text"):
+            _sectioned("hello world", [(0, 5), (6, 60)])
+
+    def test_rejects_spans_out_of_reading_order(self) -> None:
+        """A span starting before the previous unit ends raises."""
+        with pytest.raises(ValidationError, match="before the previous unit ends"):
+            _sectioned("one two", [(4, 7), (0, 3)])

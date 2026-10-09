@@ -11,9 +11,9 @@ This page describes the Memory benchmark: the questions, the graph schema, how A
 
 [BEAM](https://github.com/mohammadtavakoli78/BEAM) ([paper](https://arxiv.org/abs/2510.27246)) tests memory over a long chat between a user and an assistant. Each conversation has many sessions, and each session has many messages. After the chat, the benchmark asks probing questions about it. Each question has a rubric: a list of facts that a correct answer must state.
 
-The harness reads the 100K-token split of the dataset [`Mohammadta/BEAM`](https://huggingface.co/datasets/Mohammadta/BEAM) at a pinned revision. It makes sure that the hash of the file matches before it uses the file. It ingests the chat only. The plan, the profile, and the reference answers that the dataset holds beside the chat never reach Agentic GraphRAG.
+The benchmark runner reads the 100K-token split of the dataset [`Mohammadta/BEAM`](https://huggingface.co/datasets/Mohammadta/BEAM) at a pinned revision. It makes sure that the hash of the file matches before it uses the file. It ingests the chat only. The plan, the profile, and the reference answers that the dataset holds beside the chat never reach Agentic GraphRAG.
 
-One assistant message in conversation 4 turned into 345,211 spaces of filler. The harness cuts that message after its last sound text and adds a short marker. It makes sure that the hash of the original matches first.
+One assistant message in conversation 4 turned into 345,211 spaces of filler. The benchmark runner cuts that message after its last sound text and adds a short marker. It makes sure that the hash of the original matches first.
 
 The probing questions fall into ten abilities:
 
@@ -37,12 +37,12 @@ The probing questions fall into ten abilities:
 | Lite | 2 | 1 (`conv17`), 3 messages | 1,279 |
 | Full | 100, ten for each ability | 5 (`conv1`, `conv4`, `conv6`, `conv13`, `conv17`), whole sessions | 568,987 |
 
-The lite set is a smoke test, not a sample of the benchmark. It takes 3 messages of conversation 17, so a run takes a few minutes. Each question of the benchmark names the messages that hold its answer (`source_chat_ids`), and the harness ingests only those messages for the two lite questions:
+The lite set is a smoke test, not a sample of the benchmark. It takes 3 messages of conversation 17, so a run takes a few minutes. Each question of the benchmark names the messages that hold its answer (`source_chat_ids`), and the benchmark runner ingests only those messages for the two lite questions:
 
 - `conv17:information_extraction:0` asks which days the kids have afterschool activities. Message 18 of session 1 holds the answer.
 - `conv17:multi_session_reasoning:0` asks how many scenes the user had filmed by July 5 and how many were left. Messages 156 and 157 of session 3 hold the answer. Despite its name, the question needs only one session.
 
-A slice keeps the session number and the session date, and it tags each message with its id. The harness pins the hash of each slice, and the fixture lists the message ids. Both lite questions are in the full set. Each conversation gets its own Neo4j service and its own graph. In full mode each session of a conversation is one document.
+A slice keeps the session number and the session date, and it tags each message with its id. The benchmark runner pins the hash of each slice, and the fixture lists the message ids. Both lite questions are in the full set. Each conversation gets its own Neo4j service and its own graph. In full mode each session of a conversation is one document.
 
 Four questions of the full set have a known defect in their rubric. They carry the flag `known_bad_rubric`. The lite set has none.
 
@@ -62,7 +62,7 @@ Each question gets these metrics:
 
 - `score`: the score of the question.
 - `score_excluding_known_bad`: the same score, except that a question with the flag `known_bad_rubric` has no value. The group mean therefore leaves it out.
-- `event_f1` and `event_tau_norm`: for `event_ordering` only. The harness splits the answer into lines and matches them to the rubric items. `event_f1` is the F1 of that match. `event_tau_norm` is the normalized rank correlation of the two orders. The `score` of the question is `event_f1` times `event_tau_norm`.
+- `event_f1` and `event_tau_norm`: for `event_ordering` only. The benchmark runner splits the answer into lines and matches them to the rubric items. `event_f1` is the F1 of that match. `event_tau_norm` is the normalized rank correlation of the two orders. The `score` of the question is `event_f1` times `event_tau_norm`.
 
 The scorer is ported from the benchmark, with its prompts kept. The judge is the judge model of the run. A judge reply that does not parse scores 0 for its item, and the question gets the flag `parse_error`.
 

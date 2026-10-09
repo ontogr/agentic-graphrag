@@ -1,23 +1,25 @@
-"""Tests for the Chunk model: node record, ids and levels.
+"""Tests for the Chunk model: node record and ids.
 
-Covers the chunker fields, which reach the record only when set, the ids of docling
-and text chunks, and the parent and child levels.
+Covers the chunker and section fields, which reach the record only when set, and the
+default id of a chunk.
 """
 
-from uuid import NAMESPACE_OID, UUID, uuid4, uuid5
+from uuid import uuid4
 
 import pytest
 
 from agrag.common.data_models.chunk import Chunk
-from agrag.common.data_models.provenance import PageProvenance, TextProvenance
+from agrag.common.data_models.provenance import TextProvenance
+from agrag.common.data_models.structure import chunk_id
 
 
-def _chunk(**fields: str | None) -> Chunk:
+def _chunk(**fields: object) -> Chunk:
     return Chunk(
+        id=uuid4(),
         document_id=uuid4(),
         text="hello",
         provenance=TextProvenance(char_start=0, char_end=5),
-        **fields,
+        **fields,  # type: ignore[arg-type]
     )
 
 
@@ -39,114 +41,44 @@ class TestChunkNodeRecord:
         assert "chunker_hash" not in record.properties
 
 
-class TestChunkIdFor:
-    """Docling chunk ids depend on the chunker hash; text chunk ids do not."""
+class TestSectionIds:
+    """to_node_record writes the covered sections only when there are some."""
 
-    def test_page_ids_differ_by_chunker_hash(self) -> None:
-        """Two hashes give two ids for the same document and index."""
+    def test_writes_section_ids_when_set(self) -> None:
+        """The ids are stored as strings."""
+        section = uuid4()
+        record = _chunk().model_copy(update={"section_ids": [section]}).to_node_record()
+
+        assert record.properties["section_ids"] == [str(section)]
+
+    def test_omits_section_ids_when_empty(self) -> None:
+        """A chunk with no sections writes no property."""
+        assert "section_ids" not in _chunk().to_node_record().properties
+
+
+class TestChunkId:
+    """A chunk without an id gets one from its document, chunker and index."""
+
+    def test_default_id_follows_the_inputs(self) -> None:
+        """Equal inputs give equal ids and any change gives a new id."""
         document_id = uuid4()
-        provenance = PageProvenance(page_spans=[])
+        base = _chunk_for(document_id, index=0, chunker_hash="a")
 
-        first = Chunk.id_for(
-            document_id=document_id, provenance=provenance, index=0, chunker_hash="a"
-        )
-        second = Chunk.id_for(
-            document_id=document_id, provenance=provenance, index=0, chunker_hash="b"
-        )
-
-        assert first != second
-
-    def test_page_ids_repeat_for_the_same_hash_and_differ_by_version(self) -> None:
-        """The id is stable for equal inputs and follows the version."""
-        document_id = uuid4()
-        provenance = PageProvenance(page_spans=[])
-
-        def make(version_id: UUID) -> UUID:
-            return Chunk.id_for(
-                document_id=document_id,
-                version_id=version_id,
-                provenance=provenance,
-                index=3,
-                chunker_hash="a",
-            )
-
-        version = uuid4()
-        assert make(version) == make(version)
-        assert make(version) != make(uuid4())
-
-    def test_text_ids_ignore_the_chunker_hash(self) -> None:
-        """A text chunk keeps its span-based id whatever the hash is."""
-        document_id = uuid4()
-        provenance = TextProvenance(char_start=0, char_end=5)
-
-        plain = Chunk.id_for(document_id=document_id, provenance=provenance, index=0)
-        hashed = Chunk.id_for(
-            document_id=document_id, provenance=provenance, index=0, chunker_hash="a"
-        )
-
-        assert plain == hashed
+        assert base.id == chunk_id(document_id, "", "a", 0)
+        assert base.id == _chunk_for(document_id, index=0, chunker_hash="a").id
+        assert base.id != _chunk_for(document_id, index=1, chunker_hash="a").id
+        assert base.id != _chunk_for(document_id, index=0, chunker_hash="b").id
 
 
-class TestChunkLevels:
-    """A chunk is standalone, a parent (level 1) or a child (level 0 with a parent)."""
-
-    def _chunk(self, **fields: object) -> Chunk:
-        return Chunk(
-            document_id=uuid4(),
-            text="hello",
-            provenance=TextProvenance(char_start=0, char_end=5),
-            **fields,
-        )
-
-    def test_parent_and_child_with_the_same_span_have_different_ids(self) -> None:
-        """The level is part of the id."""
-        document_id = uuid4()
-        provenance = TextProvenance(char_start=0, char_end=5)
-
-        child = Chunk.id_for(document_id=document_id, provenance=provenance, index=0)
-        parent = Chunk.id_for(
-            document_id=document_id, provenance=provenance, index=0, level=1
-        )
-
-        assert child != parent
-
-    def test_level_zero_ids_do_not_change(self) -> None:
-        """Adding the level leaves the id of every existing chunk as it was."""
-        document_id = uuid4()
-        provenance = TextProvenance(char_start=3, char_end=9)
-
-        explicit = Chunk.id_for(
-            document_id=document_id, provenance=provenance, index=2, level=0
-        )
-        omitted = Chunk.id_for(document_id=document_id, provenance=provenance, index=2)
-
-        assert explicit == omitted
-        assert omitted == uuid5(NAMESPACE_OID, f"Chunk:{document_id}:3:9")
-
-    def test_node_record_writes_level_and_parent_only_when_set(self) -> None:
-        """Standalone chunks write neither property."""
-        parent_id = uuid4()
-
-        child = self._chunk(parent_id=parent_id).to_node_record().properties
-        parent = self._chunk(level=1).to_node_record().properties
-        standalone = self._chunk().to_node_record().properties
-
-        assert child["parent_id"] == str(parent_id)
-        assert "level" not in child
-        assert parent["level"] == 1
-        assert "parent_id" not in parent
-        assert "level" not in standalone and "parent_id" not in standalone
-
-    def test_rejects_a_parent_that_has_a_parent(self) -> None:
-        """Only two levels exist: a level 1 chunk cannot have a parent id."""
-        with pytest.raises(ValueError, match="parent"):
-            self._chunk(level=1, parent_id=uuid4())
-
-    @pytest.mark.parametrize("level", [-1, 2])
-    def test_rejects_levels_other_than_zero_and_one(self, level: int) -> None:
-        """Levels are 0 and 1."""
-        with pytest.raises(ValueError, match="level"):
-            self._chunk(level=level)
+def _chunk_for(document_id, *, index: int, chunker_hash: str) -> Chunk:
+    return Chunk(
+        id=chunk_id(document_id, "", chunker_hash, index),
+        document_id=document_id,
+        index=index,
+        text="hello",
+        provenance=TextProvenance(char_start=0, char_end=5),
+        chunker_hash=chunker_hash,
+    )
 
 
 class TestContextualText:
@@ -154,6 +86,7 @@ class TestContextualText:
 
     def _chunk(self, path: list[str], text: str = "body text") -> Chunk:
         return Chunk(
+            id=uuid4(),
             document_id=uuid4(),
             text=text,
             provenance=TextProvenance(char_start=0, char_end=len(text)),

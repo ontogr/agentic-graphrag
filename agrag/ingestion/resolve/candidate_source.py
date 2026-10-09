@@ -12,7 +12,7 @@ from agrag.cypher.entities import fetch_entity_neighbors_query
 from agrag.embedding.base import Embedder
 from agrag.graphdb.base import GraphStore
 from agrag.graphdb.entities import load_entities
-from agrag.loaders.corpus.types import ErrorPolicy
+from agrag.loaders.types import ErrorPolicy
 from agrag.observability import record_stage_failure
 from agrag.retrieval.filters import SearchFilters
 from agrag.retrieval.methods.vector import vector_search

@@ -32,7 +32,7 @@ from agrag.graphdb.base import GraphStore, GraphStoreTransaction
 from agrag.graphdb.entities import load_entities
 from agrag.ingestion._ingest_pipeline import _upsert_vectors, _vector_record
 from agrag.ingestion.reports import CommunityDetectionReport
-from agrag.loaders.corpus.types import ErrorPolicy
+from agrag.loaders.types import ErrorPolicy
 from agrag.observability import get_tracer, record_stage_failure
 from agrag.retrieval.settings import RetrievalSettings
 from agrag.vectordb.base import VectorStore

@@ -14,7 +14,7 @@ from agrag.ingestion.resolved_embeddings import (
     _synchronize_resolved_entity_vectors,
     embed_resolved_entities,
 )
-from agrag.loaders.corpus.types import ErrorPolicy
+from agrag.loaders.types import ErrorPolicy
 
 
 class _Embedder(Embedder):

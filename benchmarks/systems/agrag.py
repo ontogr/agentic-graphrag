@@ -12,7 +12,7 @@ from opentelemetry.trace import Tracer
 
 from agrag.agents.build import build_agent
 from agrag.agents.settings import AgentLLMSettings, AgentSettings
-from agrag.chunking import Chunking
+from agrag.chunking import Chunker
 from agrag.common.data_models.chunk import Chunk
 from agrag.common.data_models.document import Document
 from agrag.common.data_models.entity import Entity
@@ -110,7 +110,7 @@ class AgragSystem:
         *,
         store: GraphStore,
         schema: GraphSchema,
-        chunking: Chunking,
+        chunking: Chunker,
         documents: Sequence[Document],
         settings: AgragSettings,
         tracer: Tracer,
@@ -122,7 +122,7 @@ class AgragSystem:
             store: The graph store of the corpus's own Neo4j service. The store
                 carries the tracer.
             schema: The graph schema of the corpus.
-            chunking: The chunking rules for every document.
+            chunking: The chunker for every document.
             documents: The corpus documents. Their uris name the documents of
                 cited chunks.
             settings: The resolved model settings.
@@ -163,7 +163,7 @@ class AgragSystem:
                 settings=self._settings.extraction, tracer=self._tracer
             ),
             tracer=self._tracer,
-            chunking=self._chunking,
+            chunker=self._chunking,
             max_llm_pairs=self._settings.max_llm_pairs,
         )
         await graph.add(documents=self._documents)

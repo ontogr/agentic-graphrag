@@ -22,10 +22,11 @@ separate step.
 
 - [**apply_merge**](apply_merge.md) – Write a computed MergePlan to storage.
 - [**compute_merge**](compute_merge.md) – Compute how existing_entities and mentions combine into one Entity.
+- [**has_child_id**](has_child_id.md) – Return the id for one versioned parent -[:HAS_CHILD]-> child edge.
 - [**mentioned_in_id**](mentioned_in_id.md) – Return the deterministic id for a new Chunk MENTIONED_IN Entity edge.
 - [**merge_properties**](merge_properties.md) – Return field-resolved properties and records of every real conflict.
 - [**next_chunk_id**](next_chunk_id.md) – Return the deterministic id for a Chunk -[:NEXT_CHUNK]-> Chunk edge.
-- [**part_of_id**](part_of_id.md) – Return the id for one versioned Document -[:PART_OF]-> Chunk edge.
+- [**part_of_id**](part_of_id.md) – Return the id for one versioned Document -[:PART_OF]-> node edge.
 - [**relation_id**](relation_id.md) – Return the deterministic id for a domain relationship triple.
 - [**resolve_description**](resolve_description.md) – Resolve a description field, trying LLM summarization.
 - [**select_canonical**](select_canonical.md) – Return the canonical entity and the rest, from two or more entities.

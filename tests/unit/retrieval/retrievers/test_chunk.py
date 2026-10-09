@@ -13,15 +13,10 @@ from unittest.mock import AsyncMock, patch
 from uuid import UUID, uuid4
 
 import pytest
-from opentelemetry.sdk.trace import TracerProvider
-from opentelemetry.sdk.trace.export import SimpleSpanProcessor
-from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
-    InMemorySpanExporter,
-)
-from opentelemetry.trace import StatusCode
 
 from agrag.common.data_models.chunk import Chunk
 from agrag.common.data_models.vector_record import VectorHit
+from agrag.retrieval.chunking import parse_chunk_node
 from agrag.retrieval.retrievers.chunk import ChunkRetriever
 
 
@@ -146,6 +141,81 @@ class TestChunkRetriever:
         assert chunk.chunker is None
         assert chunk.chunker_hash is None
 
+    @pytest.mark.parametrize(
+        "extra",
+        [
+            {"text": None},
+            {"provenance": None},
+        ],
+        ids=["no-text", "no-provenance"],
+    )
+    def test_a_node_that_is_not_a_chunk_is_skipped(self, extra: dict) -> None:
+        """Table, figure and bare nodes never become empty chunks."""
+        node = {
+            "id": str(uuid4()),
+            "document_id": str(uuid4()),
+            "text": "x",
+            "provenance": json.dumps({"kind": "page", "page_spans": []}),
+            **extra,
+        }
+
+        assert parse_chunk_node(node) is None
+
+    async def test_section_ids_survive_loading(self) -> None:
+        """Section ids and chunker fields on the node reach the Chunk."""
+        ch_id, doc_id = uuid4(), uuid4()
+        first, second = uuid4(), uuid4()
+        gs = AsyncMock()
+        gs.execute_read.return_value = [
+            _node(
+                ch_id,
+                doc_id,
+                "section text",
+                chunker="section",
+                chunker_hash="0123456789abcdef",
+                section_ids=[first, second],
+            )
+        ]
+
+        with patch(
+            "agrag.retrieval.retrievers.chunk.vector_search",
+            new_callable=AsyncMock,
+        ) as mock_vs:
+            mock_vs.return_value = [VectorHit(id=ch_id, score=0.5, payload={})]
+            results = await ChunkRetriever(
+                graph_store=gs, embedder=MockEmbedder()
+            ).retrieve("test")
+
+        assert len(results) == 1
+        chunk = results[0].item
+        assert isinstance(chunk, Chunk)
+        assert chunk.section_ids == [first, second]
+        assert chunk.chunker == "section"
+        assert chunk.chunker_hash == "0123456789abcdef"
+
+    async def test_invalid_row_is_skipped_and_logged_with_its_chunk_id(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A row that fails validation is dropped and its chunk id is logged."""
+        ch_id, doc_id = uuid4(), uuid4()
+        gs = AsyncMock()
+        row = _node(ch_id, doc_id, "kept", section_ids=[uuid4()])
+        row["n"]["properties"]["section_ids"].append("not-a-uuid")
+        gs.execute_read.return_value = [row]
+
+        with patch(
+            "agrag.retrieval.retrievers.chunk.vector_search",
+            new_callable=AsyncMock,
+        ) as mock_vs:
+            mock_vs.return_value = [VectorHit(id=ch_id, score=0.5, payload={})]
+            with caplog.at_level("WARNING", logger="agrag.retrieval.retrievers.chunk"):
+                results = await ChunkRetriever(
+                    graph_store=gs, embedder=MockEmbedder()
+                ).retrieve("test")
+
+        assert results == []
+        assert str(ch_id) in caplog.text
+
     async def test_skips_missing_chunks(self) -> None:
         """Chunks not found in the store are skipped."""
         gs = AsyncMock()
@@ -260,8 +330,11 @@ class _ChunkProperties(TypedDict):
     document_id: str
     text: str
     provenance: str
-    level: NotRequired[int]
-    parent_id: NotRequired[str]
+    content_kind: NotRequired[str]
+    heading_path: NotRequired[list[str]]
+    chunker: NotRequired[str]
+    chunker_hash: NotRequired[str]
+    section_ids: NotRequired[list[str]]
 
 
 class _ChunkNode(TypedDict):
@@ -282,172 +355,30 @@ def _node(
     document_id: UUID,
     text: str,
     *,
-    level: int = 0,
-    parent_id: UUID | None = None,
+    content_kind: str = "text",
+    heading_path: list[str] | None = None,
+    chunker: str | None = None,
+    chunker_hash: str | None = None,
+    section_ids: list[UUID] | None = None,
+    provenance: dict[str, object] | None = None,
 ) -> _ChunkRow:
     """Build a typed chunk loading row."""
     properties: _ChunkProperties = {
         "document_id": str(document_id),
         "text": text,
         "provenance": json.dumps(
-            {"kind": "text", "char_start": 0, "char_end": len(text)}
+            provenance
+            if provenance is not None
+            else {"kind": "text", "char_start": 0, "char_end": len(text)}
         ),
+        "content_kind": content_kind,
     }
-    if level:
-        properties["level"] = level
-    if parent_id is not None:
-        properties["parent_id"] = str(parent_id)
+    if heading_path is not None:
+        properties["heading_path"] = heading_path
+    if chunker is not None:
+        properties["chunker"] = chunker
+    if chunker_hash is not None:
+        properties["chunker_hash"] = chunker_hash
+    if section_ids is not None:
+        properties["section_ids"] = [str(i) for i in section_ids]
     return {"n": {"id": str(chunk_id), "properties": properties}}
-
-
-class TestParentAttachment:
-    """A child hit returns with its parent chunk attached."""
-
-    def _store(self, nodes: dict[str, _ChunkRow], calls: list[list[str]]) -> AsyncMock:
-        store = AsyncMock()
-
-        async def read(query: str, params: dict[str, list[str]]) -> list[_ChunkRow]:
-            calls.append(list(params["ids"]))
-            return [nodes[i] for i in params["ids"] if i in nodes]
-
-        store.execute_read.side_effect = read
-        return store
-
-    async def _retrieve(self, store: AsyncMock, hit_ids: list) -> list:
-        with patch(
-            "agrag.retrieval.retrievers.chunk.vector_search", new_callable=AsyncMock
-        ) as search:
-            search.return_value = [
-                VectorHit(id=i, score=0.9 - n / 10, payload={})
-                for n, i in enumerate(hit_ids)
-            ]
-            return await ChunkRetriever(
-                graph_store=store, embedder=MockEmbedder()
-            ).retrieve("q")
-
-    async def test_attaches_the_parent_and_loads_a_shared_parent_once(self) -> None:
-        """Two children of one parent cause one extra query for one parent id."""
-        document_id, parent_id, first, second = uuid4(), uuid4(), uuid4(), uuid4()
-        nodes = {
-            str(parent_id): _node(parent_id, document_id, "the whole parent", level=1),
-            str(first): _node(first, document_id, "child a", parent_id=parent_id),
-            str(second): _node(second, document_id, "child b", parent_id=parent_id),
-        }
-        calls: list[list[str]] = []
-
-        results = await self._retrieve(self._store(nodes, calls), [first, second])
-
-        assert [r.item.text for r in results] == ["child a", "child b"]
-        assert [r.parent.text for r in results] == ["the whole parent"] * 2
-        assert calls == [[str(first), str(second)], [str(parent_id)]]
-
-    async def test_chunk_without_a_parent_needs_no_second_query(self) -> None:
-        """A standalone chunk has parent None and costs one query."""
-        chunk_id, document_id = uuid4(), uuid4()
-        nodes = {str(chunk_id): _node(chunk_id, document_id, "alone")}
-        calls: list[list[str]] = []
-
-        results = await self._retrieve(self._store(nodes, calls), [chunk_id])
-
-        assert results[0].parent is None
-        assert len(calls) == 1
-
-    async def test_missing_or_closed_parent_omits_the_child(self) -> None:
-        """A child result requires its parent chunk."""
-        child, document_id = uuid4(), uuid4()
-        nodes = {str(child): _node(child, document_id, "orphan", parent_id=uuid4())}
-
-        results = await self._retrieve(self._store(nodes, []), [child])
-
-        assert results == []
-
-    async def test_parent_query_failure_raises(self) -> None:
-        """A failed parent query raises instead of dropping the child results."""
-        child, document_id, parent_id = uuid4(), uuid4(), uuid4()
-        child_node = _node(child, document_id, "kept", parent_id=parent_id)
-        store = AsyncMock()
-        store.execute_read.side_effect = [[child_node], RuntimeError("down")]
-
-        with pytest.raises(RuntimeError, match="down"):
-            await self._retrieve(store, [child])
-
-
-class TestParentLoadingTracing:
-    """Parent loading records its spans."""
-
-    async def test_parent_query_failure_marks_loading_span_error(self) -> None:
-        """A failed parent read raises and marks the loading span ERROR."""
-        provider = TracerProvider()
-        exporter = InMemorySpanExporter()
-        provider.add_span_processor(SimpleSpanProcessor(exporter))
-        tracer = provider.get_tracer("test")
-        child, document_id, parent_id = uuid4(), uuid4(), uuid4()
-        child_node = _node(child, document_id, "kept", parent_id=parent_id)
-        store = AsyncMock()
-        store.execute_read.side_effect = [[child_node], RuntimeError("down")]
-
-        with patch(
-            "agrag.retrieval.retrievers.chunk.vector_search", new_callable=AsyncMock
-        ) as search:
-            search.return_value = [VectorHit(id=child, score=0.9, payload={})]
-            with (
-                tracer.start_as_current_span("test.retrieve") as parent_span,
-                pytest.raises(RuntimeError, match="down"),
-            ):
-                await ChunkRetriever(
-                    graph_store=store, embedder=MockEmbedder(), tracer=tracer
-                ).retrieve("q")
-
-        finished = list(exporter.get_finished_spans())
-        (span,) = [s for s in finished if s.name == "agrag.retrieval.load_parents"]
-        (retrieval,) = [s for s in finished if s.name == "agrag.retrieval.chunk"]
-        assert span.parent is not None
-        assert span.parent.span_id == retrieval.get_span_context().span_id
-        assert retrieval.parent is not None
-        assert retrieval.parent.span_id == parent_span.get_span_context().span_id
-        assert span.status.status_code is StatusCode.ERROR
-        assert (span.attributes or {})["agrag.parent_count"] == 1
-        assert [event.name for event in span.events] == ["exception"]
-
-    async def test_parent_loading_records_attached_parent_attributes(
-        self,
-    ) -> None:
-        """A successful parent read records the context available to child results."""
-        provider = TracerProvider()
-        exporter = InMemorySpanExporter()
-        provider.add_span_processor(SimpleSpanProcessor(exporter))
-        tracer = provider.get_tracer("test")
-        document_id, parent_id, child_id = uuid4(), uuid4(), uuid4()
-        parent_node = _node(parent_id, document_id, "full context", level=1)
-        child_node = _node(
-            child_id, document_id, "matching detail", parent_id=parent_id
-        )
-        store = AsyncMock()
-        store.execute_read.side_effect = [[child_node], [parent_node]]
-
-        with patch(
-            "agrag.retrieval.retrievers.chunk.vector_search", new_callable=AsyncMock
-        ) as search:
-            search.return_value = [VectorHit(id=child_id, score=0.9, payload={})]
-            results = await ChunkRetriever(
-                graph_store=store, embedder=MockEmbedder(), tracer=tracer
-            ).retrieve("q")
-
-        assert results[0].parent is not None
-        (span,) = [
-            span
-            for span in exporter.get_finished_spans()
-            if span.name == "agrag.retrieval.load_parents"
-        ]
-        attributes = span.attributes or {}
-        assert attributes["agrag.result.count"] == 1
-        assert json.loads(attributes["retrieval.documents"]) == [
-            {
-                "document.id": str(parent_id),
-                "document.content": "full context",
-                "document.metadata": {
-                    "document_id": str(document_id),
-                    "level": 1,
-                },
-            }
-        ]

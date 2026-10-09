@@ -21,7 +21,7 @@ from agrag.ingestion.resolved_entities import (
     prune_orphaned_entities,
     rebuild_resolved_entities,
 )
-from agrag.loaders.corpus.types import ErrorPolicy
+from agrag.loaders.types import ErrorPolicy
 from agrag.observability import record_stage_failure
 from agrag.retrieval.settings import RetrievalSettings
 from agrag.vectordb.base import VectorStore

@@ -45,6 +45,7 @@ from agrag.ingestion.extract import (
     BAMLExtractor,
     EscalatingExtractor,
     ExtractionLLMSettings,
+    Extractor,
     ExtractorMissingExtraError,
     GlinerExtractor,
     _describe_entity_type,
@@ -171,6 +172,7 @@ def _chunk(
 ) -> Chunk:
     """Build a minimal Chunk for extraction tests."""
     return Chunk(
+        id=uuid4(),
         document_id=_DOC_ID,
         text=text,
         provenance=TextProvenance(char_start=0, char_end=len(text)),
@@ -724,6 +726,119 @@ class TestGlinerExtractor:
         assert relation.target_index == 1  # iPhone as Product
         assert result.entities[relation.source_index].label == "Product"
         assert result.entities[relation.target_index].label == "Product"
+
+
+class TestGlinerConcurrency:
+    """Concurrent extract calls take turns on the one model."""
+
+    async def test_inference_calls_never_overlap(self) -> None:
+        """Two chunks extracted together do not run in the model at once."""
+        active = 0
+        peak = 0
+        guard = threading.Lock()
+
+        class SlowModel:
+            def create_schema(self) -> "SlowModel":
+                return self
+
+            def entities(self, *_: object, **__: object) -> "SlowModel":
+                return self
+
+            def relations(self, *_: object, **__: object) -> "SlowModel":
+                return self
+
+            def extract(self, *_: object, **__: object) -> dict:
+                nonlocal active, peak
+                with guard:
+                    active += 1
+                    peak = max(peak, active)
+                threading.Event().wait(0.05)
+                with guard:
+                    active -= 1
+                return {"entities": {}}
+
+        extractor = GlinerExtractor(model=SlowModel())
+
+        await asyncio.gather(*(extractor.extract(_chunk(), GENERIC) for _ in range(4)))
+
+        assert peak == 1
+
+
+class TestGlinerContext:
+    """The inference thread sees the context of the calling task."""
+
+    async def test_context_variables_reach_the_inference_thread(self) -> None:
+        """A value set before the call is visible inside the model call."""
+        import contextvars  # noqa: PLC0415
+
+        marker: contextvars.ContextVar[str] = contextvars.ContextVar("marker")
+        seen: list[str] = []
+
+        class ContextModel:
+            def create_schema(self) -> "ContextModel":
+                return self
+
+            def entities(self, *_: object, **__: object) -> "ContextModel":
+                return self
+
+            def relations(self, *_: object, **__: object) -> "ContextModel":
+                return self
+
+            def extract(self, *_: object, **__: object) -> dict:
+                seen.append(marker.get("missing"))
+                return {"entities": {}}
+
+        marker.set("from-caller")
+
+        await GlinerExtractor(model=ContextModel()).extract(_chunk(), GENERIC)
+
+        assert seen == ["from-caller"]
+
+
+class TestGlinerCancellation:
+    """A cancelled call cannot let a second inference overlap the first."""
+
+    async def test_a_call_cancelled_mid_inference_does_not_free_the_model(
+        self,
+    ) -> None:
+        """The next call waits for the running inference to end."""
+        running = threading.Event()
+        release = threading.Event()
+        active = 0
+        peak = 0
+        guard = threading.Lock()
+
+        class BlockingModel:
+            def create_schema(self) -> "BlockingModel":
+                return self
+
+            def entities(self, *_: object, **__: object) -> "BlockingModel":
+                return self
+
+            def relations(self, *_: object, **__: object) -> "BlockingModel":
+                return self
+
+            def extract(self, *_: object, **__: object) -> dict:
+                nonlocal active, peak
+                with guard:
+                    active += 1
+                    peak = max(peak, active)
+                running.set()
+                release.wait(timeout=5)
+                with guard:
+                    active -= 1
+                return {"entities": {}}
+
+        extractor = GlinerExtractor(model=BlockingModel())
+        first = asyncio.ensure_future(extractor.extract(_chunk(), GENERIC))
+        assert await asyncio.to_thread(running.wait, 5)
+        first.cancel()
+        second = asyncio.ensure_future(extractor.extract(_chunk(), GENERIC))
+        await asyncio.sleep(0.1)
+        release.set()
+        await second
+
+        assert peak == 1
 
 
 class TestDescribeEntityType:
@@ -1553,7 +1668,7 @@ class TestEscalatingExtractor:
             extractor_name="escalate",
         )
 
-        class MockExtractor:
+        class MockExtractor(Extractor):
             def __init__(self, result: ExtractionResult, name: str) -> None:
                 self._result = result
                 self._name = name
@@ -1622,6 +1737,28 @@ class TestEscalatingExtractor:
         result = await extractor.extract(chunk, GENERIC)
         # Only escalate's entities should be present
         assert all(e.text == "Y" for e in result.entities)
+
+    @pytest.mark.parametrize(
+        ("primary_limit", "escalate_limit", "expected"),
+        [(1, 8, 1), (8, 1, 1), (8, 3, 3), (3, 8, 3)],
+    )
+    def test_max_concurrency_is_the_smaller_child_limit(
+        self, primary_limit: int, escalate_limit: int, expected: int
+    ) -> None:
+        """The wrapper runs no more calls at once than either child allows."""
+
+        class LimitedExtractor(Extractor):
+            async def extract(self, chunk, schema):  # noqa: ANN001
+                raise AssertionError("not called")
+
+        primary = LimitedExtractor()
+        primary.max_concurrency = primary_limit
+        escalate_to = LimitedExtractor()
+        escalate_to.max_concurrency = escalate_limit
+
+        extractor = EscalatingExtractor(primary=primary, escalate_to=escalate_to)
+
+        assert extractor.max_concurrency == expected
 
 
 def _tracing_provider() -> tuple[TracerProvider, InMemorySpanExporter]:
@@ -1764,7 +1901,7 @@ class TestExtractionSpans:
         """A confident primary result records escalated false."""
         provider, exporter = _tracing_provider()
 
-        class Primary:
+        class Primary(Extractor):
             async def extract(self, chunk, schema):  # noqa: ANN001
                 return ExtractionResult(
                     entities=[
@@ -1781,7 +1918,7 @@ class TestExtractionSpans:
                     extractor_name="primary",
                 )
 
-        class EscalateTo:
+        class EscalateTo(Extractor):
             async def extract(self, chunk, schema):  # noqa: ANN001
                 raise AssertionError("must not run without escalation")
 
@@ -1804,13 +1941,13 @@ class TestExtractionSpans:
         """A weak primary result records escalated true."""
         provider, exporter = _tracing_provider()
 
-        class Primary:
+        class Primary(Extractor):
             async def extract(self, chunk, schema):  # noqa: ANN001
                 return ExtractionResult(
                     entities=[], relations=[], extractor_name="primary"
                 )
 
-        class EscalateTo:
+        class EscalateTo(Extractor):
             async def extract(self, chunk, schema):  # noqa: ANN001
                 return ExtractionResult(
                     entities=[], relations=[], extractor_name="escalate"
@@ -1855,6 +1992,7 @@ class TestHeadingContext:
     def _chunk(self, path: list[str]) -> Chunk:
         text = "Ada Lovelace worked here."
         return Chunk(
+            id=uuid4(),
             document_id=_DOC_ID,
             text=text,
             provenance=TextProvenance(char_start=0, char_end=len(text)),

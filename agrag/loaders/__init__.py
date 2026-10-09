@@ -1,20 +1,12 @@
 """Document loaders: turn files, directories and raw text into Documents.
 
-The docling loader needs the ``docling`` extra and lives in ``agrag.loaders.docling``.
+The docling loaders live in ``agrag.loaders.docling``. PDF and image files need the
+``docling`` extra.
 """
 
-from agrag.loaders.corpus import (
-    AsciiDocLoader,
-    ChatLoader,
-    CsvLoader,
-    HtmlLoader,
-    JsonlLoader,
-    JsonLoader,
-    MarkdownLoader,
-    TextLoader,
-    registry,
-)
-from agrag.loaders.corpus.errors import (
+from agrag.loaders.chat import ChatLoader
+from agrag.loaders.defaults import default_registry, register_default_loaders
+from agrag.loaders.errors import (
     DecodeError,
     DocumentConversionError,
     DocumentTooLargeError,
@@ -23,19 +15,22 @@ from agrag.loaders.corpus.errors import (
     MissingExtraError,
     UnsupportedFormatError,
 )
-from agrag.loaders.corpus.registry import LoaderRegistry
-from agrag.loaders.corpus.types import ErrorPolicy, IngestResult, LoadStats, ReadOptions
+from agrag.loaders.loader_registry import LoaderRegistry
+from agrag.loaders.prose import TextLoader, XmlLoader
+from agrag.loaders.records import CsvLoader, JsonlLoader, JsonLoader
+from agrag.loaders.types import ErrorPolicy, IngestResult, LoadStats, ReadOptions
+
+
+registry = default_registry()
 
 
 __all__ = [
-    "AsciiDocLoader",
     "ChatLoader",
     "CsvLoader",
     "DecodeError",
     "DocumentConversionError",
     "DocumentTooLargeError",
     "ErrorPolicy",
-    "HtmlLoader",
     "IngestResult",
     "IngestionError",
     "JsonLoader",
@@ -43,10 +38,11 @@ __all__ = [
     "LoadStats",
     "LoaderRegistry",
     "MalformedRecordError",
-    "MarkdownLoader",
     "MissingExtraError",
     "ReadOptions",
     "TextLoader",
+    "XmlLoader",
     "UnsupportedFormatError",
+    "register_default_loaders",
     "registry",
 ]

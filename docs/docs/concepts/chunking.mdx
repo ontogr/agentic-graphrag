@@ -1,88 +1,79 @@
 ---
 sidebar_position: 5
 title: Chunking
-description: How Agentic GraphRAG splits documents into chunks and records where each chunk came from.
+description: How Agentic GraphRAG packs the sections of a document into chunks and records where each chunk came from.
 ---
 
 # Chunking
 
-A chunker splits a document into chunks. Each chunk records where in the source it came from.
+The chunker packs the sections of a document into chunks. Each chunk records where in the source it came from and which sections it holds.
 
 ## Why it exists
 
 Search and extraction work on short pieces of text. Where you cut decides what they can find. A cut in the wrong place can separate a name from the fact about it.
 
-A chunk also has to be citable. Each chunk keeps its position in the source, so an answer can point to the exact place.
+A document already has structure: headings, paragraphs and tables. The chunker uses that structure and records every section that a chunk covers. A chunk must also be citable. Each chunk keeps its position in the source, so an answer can point to the exact place.
 
 ## How it works
 
 ```mermaid
 flowchart TD
-    D[Document] --> R1{First rule matches?}
-    R1 -- Yes --> C1[Chunker of that rule]
-    R1 -- No --> R2{Next rule matches?}
-    R2 -- Yes --> C2[Chunker of that rule]
-    R2 -- No --> F[Fallback chunker]
-    C1 --> K[Chunks with provenance]
-    C2 --> K
-    F --> K
+    D[Document sections] --> U{Next unit}
+    U -- Table --> T[Table chunks]
+    U -- Text --> S{Fits in the open chunk?}
+    S -- Yes --> P[Add to the open chunk]
+    S -- No --> F[Close the chunk]
+    F --> P
+    P --> E{Section ends and chunk is small?}
+    E -- Yes --> N[Carry on into the next section]
+    E -- No --> C[Chunk]
+    T --> C
 ```
 
-*The first rule that matches picks the chunker. A document that matches no rule gets the fallback.*
+*The chunker fills a chunk with the units of a section, then starts a new one. A small chunk carries on into the next section.*
 
-A `Chunking` value holds an ordered list of rules and a fallback. A rule matches on the loader name, the source format, the document family or a URI pattern. When a rule sets more than one of these, all must match. The first matching rule wins.
+1. Pack. The chunker walks the sections in reading order. A unit is a paragraph, list, code block or formula. The chunker adds units to a chunk until the next unit would pass `size` tokens. The default size is 600 tokens.
+2. Split. A unit that is over `size` on its own is cut at paragraph, sentence, clause or word boundaries. The cut keeps the exact text.
+3. Merge. When a section ends and the open chunk has fewer than `min_size` tokens, the chunk carries on into the next section. The default `min_size` is a quarter of `size`. The next heading goes into the chunk text, so the text keeps its meaning.
+4. Tables. A table never mixes with text. A table that fits in `size` tokens is one chunk. A larger table becomes row groups. Each group repeats the header row, and the first group starts with the caption.
 
-The default has one rule. A document that the docling loader read goes to the docling chunker, which follows the page layout. Every other document goes to the fallback: a recursive chunker with chunks of up to 1,024 characters.
-
-### Strategies
-
-| Strategy | What it does |
-| --- | --- |
-| Recursive | Cuts at paragraph, sentence and word boundaries, coarsest first |
-| Token | Cuts at a fixed token count |
-| Sentence | Groups whole sentences |
-| Heading | Cuts sections at headings, then packs them to a size |
-| Turn window | Packs whole chat turns and never cuts inside one |
-| Parent and child | Cuts large parents, then small children inside them |
-| Docling | Follows the layout of a parsed page document |
-| Semantic, Neural, Code | Optional. Cut by meaning, by a topic model, or by code syntax |
-
-The optional strategies need the `chunk-semantic`, `chunk-neural` or `chunk-code` extra. The heading strategy reads the headings that the Markdown and AsciiDoc loaders record.
+One `Chunker` serves every format. A `Graph` takes one `Chunker`. There are no per-format rules.
 
 ### What a chunk carries
 
-- Location: a text chunk keeps a character range in the normalized document text. It also keeps a line range when the loader tracks lines. A docling chunk keeps page numbers and a box on each page.
-- Headings: a text chunk keeps the headings above it.
-- Origin: a chunk records its chunker name and a fingerprint of the chunker configuration.
-- Identity: a text chunk id comes from the document and the character range. A docling chunk id comes from the document, the chunker fingerprint and the chunk number.
+- Location: a chunk from a text source keeps a character range in the normalized document text, and its text is an exact slice of that text. A chunk from a PDF, slide deck or spreadsheet keeps page numbers and a box on each page. A chunk from a Word, HTML or Markdown file has no page spans, because those formats have no pages.
+- Headings: a chunk keeps the headings above it in `heading_path`.
+- Sections: a chunk lists the sections whose text it holds in `section_ids`. In the graph it sits under the lowest section that holds all of that text. A table chunk sits under its table.
+- Origin: a chunk records the name of the chunker and a fingerprint of its settings.
+- Identity: a chunk id comes from the document, its version, the chunker fingerprint and the chunk number. A new version or new settings give new ids.
 
-### Parent and child chunks
+### Record rows and chat
 
-Parent and child chunking makes two levels. A parent is large. Extraction reads parents. A child is small and lies inside one parent. Only children are embedded and searched. A search hit returns the child with its parent attached.
-
-If the child strategy leaves out some text, that text becomes a child of its own. All non-blank text stays searchable.
+A record row, such as one CSV row, has no sections. Its text is one unit, split into multiple chunks if it exceeds `size`. A chat file has one section for each message. A window of short messages can share one chunk.
 
 ## Example
 
-A Markdown handbook has a section with three paragraphs. With the default fallback, the recursive chunker cuts at paragraph boundaries until each chunk fits in 1,024 characters. Each chunk stores its character range and its headings, such as "Handbook > Leave policy". Suppose you change the chunk size and call `Graph.update` for the file. Agentic GraphRAG chunks it again, even though the text did not change. The character ranges change, so the chunk ids change.
+A report has a section "Results" with three short paragraphs and a table. The chunker packs the three paragraphs into one chunk of about 300 tokens. The table becomes its own chunk, with the header row first. A search for a figure in the table returns the table chunk. The agent can then read the section "Results" through the graph.
+
+Suppose you change `size` from 600 to 400 and call `Graph.update` for the file. Agentic GraphRAG chunks it again, even though the text did not change. The settings fingerprint changed, so the chunk ids change.
 
 <details>
 <summary>Design choices</summary>
 
-Why are chunking rules plain data? A list of rules is easy to read and compare. No hidden logic assigns documents to strategies. A change to any rule changes the fingerprint.
+One chunker serves all formats. Every loader gives the same input: sections made of units. A single packer then behaves the same for every format. A per-format choice would also make loading harder to predict.
 
-Why does Agentic GraphRAG own the chunk contract? Chonkie and docling do the cutting, but they sit behind Agentic GraphRAG's chunkers. Every chunk then has the same fields, whichever engine made it.
+There is one level of chunk. Extraction and search use the same chunk. The agent gets wider context by walking from the chunk to its section in the graph. A second, larger level would double the embeddings.
 
-Why does the default count characters? A character count needs no tokenizer model. The default changes only when a benchmark shows that another strategy does better.
+The default size is 600 tokens. Smaller chunks gave more entities per token in the Microsoft GraphRAG study, and they make search results sharper. Treat the default as a starting point. The benchmark runner compares it with 1,000 tokens.
 
-Why do parents and children exist? Extraction wants wide context to find relations. Search wants small pieces to match precisely. Two levels give each what it needs.
+A small chunk carries on into the next section. Sections that hold a line or two make chunks that embed badly and cost an extraction call each. Carrying on removes most of them.
 
-Why record the chunker on each chunk? `Graph.update` compares it with the chunker that the rules pick now. If the configuration changed, the document is chunked again even when its text did not change.
+Each chunk records its chunker. `Graph.update` compares its fingerprint with the current one. If the settings changed, the document is chunked again even when its text did not change.
 
 </details>
 
 ## Related
 
-- [Loading documents](./loading.mdx) describes how the text is read and normalized.
-- [Configure chunking](/guides/configure-chunking) shows how to set rules and strategies.
-- [Chunking API](/api/chunking) lists every chunker and its configuration.
+- [Loading documents](./loading.mdx) describes how the sections are read.
+- [Configure chunking](/guides/configure-chunking) shows how to set the size.
+- [Chunking API](/api/chunking) lists the chunker and its settings.

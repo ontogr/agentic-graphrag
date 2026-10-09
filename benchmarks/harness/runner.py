@@ -11,7 +11,7 @@ from uuid import uuid4
 
 from opentelemetry.trace import Tracer
 
-from agrag.chunking import Chunking
+from agrag.chunking import Chunker
 from agrag.common.data_models.document import Document
 from agrag.common.data_models.graph_schema import GraphSchema
 from agrag.graphdb import GraphStore, Neo4jGraphStore, Neo4jSettings
@@ -145,7 +145,7 @@ class RunEnvironment:
 
     system_name: str
     code: CodeIdentity
-    chunking: Chunking
+    chunking: Chunker
     models: ModelsInfo
     agent_config: dict[str, Any]
     make_system: Callable[[SystemContext], SystemAdapter]
@@ -341,7 +341,7 @@ async def _execute(
             schema_sha256=info.sha256,
             extractor_model=env.models["extractor"]["model_id"],
             embedder_model=env.embedder_model,
-            chunking_fingerprint=env.chunking.fingerprint(),
+            chunking_fingerprint=env.chunking.fingerprint,
             agrag_tree=env.code.agrag_tree,
             benchmarks_code_sha256=env.code.benchmarks_code_sha256,
             uv_lock_sha256=env.code.uv_lock_sha256,
@@ -458,7 +458,7 @@ def make_plan(
     mode: Mode,
     options: RunOptions,
     *,
-    chunking: Chunking,
+    chunking: Chunker,
     cost: CostModel | None,
 ) -> Plan:
     """Load a domain, estimate its cost and check the spend cap. Calls no model.
@@ -576,8 +576,8 @@ async def run(
         ),
         schemas=schemas,
         chunking=ChunkingInfo(
-            fingerprint=env.chunking.fingerprint(),
-            settings=env.chunking.model_dump(mode="json"),
+            fingerprint=env.chunking.fingerprint,
+            settings=env.chunking.settings(),
         ),
         models=env.models,
         config=RunConfig(

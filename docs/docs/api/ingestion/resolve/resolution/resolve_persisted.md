@@ -23,7 +23,7 @@ ANN search bounds the pairs the resolver compares.
 - **entity_labels** (<code>Sequence\[str\]</code>) – The labels the schema defines.
 - **tracer** (<code>Tracer | None</code>) – Traces the resolver.
 - **max_llm_pairs** (<code>int</code>) – The most ambiguous pairs per label sent to the LLM.
-- **error_policy** (<code>[ErrorPolicy](../../../loaders/corpus/types/ErrorPolicy.md)</code>) – RAISE propagates a failed candidate read; any other
+- **error_policy** (<code>[ErrorPolicy](../../../loaders/types/ErrorPolicy.md)</code>) – RAISE propagates a failed candidate read; any other
   policy records it and leaves that entity out of this pass.
 
 **Returns:**

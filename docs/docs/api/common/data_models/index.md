@@ -25,6 +25,7 @@ Shared data models used by agrag components.
 - [**resolved_entity**](resolved_entity/index.md) – Identity clusters for non-destructive entity resolution.
 - [**search_result**](search_result/index.md) – One retrieved item, tagged with source and relevance score.
 - [**stage_failure**](stage_failure/index.md) – Per-stage failure record and its per-call cap.
+- [**structure**](structure/index.md) – Stable keys, node ids, reading order and ancestry for the sections of a Document.
 - [**vector_record**](vector_record/index.md) – Vector storage record shapes shared by VectorStore and GraphStore.
 
 **Classes:**
@@ -34,6 +35,7 @@ Shared data models used by agrag components.
 - [**Distance**](vector_record/Distance.md) – A distance metric a vector index compares embeddings with.
 - [**Document**](document/Document-ref.md) – One unit of source text, before chunking.
 - [**DocumentFamily**](document/DocumentFamily.md) – The shape of a document's source.
+- [**DocumentSection**](document/DocumentSection.md) – One heading of a document and the content directly under it.
 - [**Entity**](entity/Entity-ref.md) – A permanent mention-level node, never destroyed once written.
 - [**EntityType**](graph_schema/EntityType.md) – One kind of entity a schema recognizes.
 - [**GraphSchema**](graph_schema/GraphSchema.md) – A versioned contract of entity and relation types.
@@ -47,6 +49,8 @@ Shared data models used by agrag components.
 - [**SearchResult**](search_result/SearchResult.md) – One retrieved item, tagged with where it came from.
 - [**SourceFormat**](document/SourceFormat.md) – A source format that a loader can read.
 - [**TextProvenance**](provenance/TextProvenance.md) – The location of a chunk inside flattened document text.
+- [**Unit**](document/Unit.md) – One piece of content in a section, such as a paragraph or a table.
+- [**UnitKind**](document/UnitKind.md) – The kind of content in a unit.
 - [**VectorRecord**](vector_record/VectorRecord.md) – One vector and its payload, ready to write to a collection or index.
 
 **Attributes:**

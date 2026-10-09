@@ -23,7 +23,7 @@ Each dataset covers one domain. The module plans five:
 - Long conversations: [BEAM](https://github.com/mohammadtavakoli78/BEAM) ([paper](https://arxiv.org/abs/2510.27246)) asks questions over long chat histories. The questions test memory across many turns. See the [Memory benchmark](./memory.mdx).
 - Medical answers: [HealthBench](https://openai.com/index/healthbench/) ([paper](https://arxiv.org/abs/2505.08775)) holds conversations that the agent answers from [MedCorp](https://huggingface.co/MedRAG) ([paper](https://arxiv.org/abs/2402.13178)) passages. See the [Healthcare benchmark](./healthcare.mdx).
 
-The harness adds a page to this section for each dataset it supports. That page states the exact questions, the source, the graph schema, and the terms of use.
+The benchmark runner adds a page to this section for each dataset it supports. That page states the exact questions, the source, the graph schema, and the terms of use.
 
 ## Lite and full sets
 
@@ -65,9 +65,9 @@ A run never reaches `benchmarks/results` when the git tree has uncommitted chang
 
 ## One graph for each corpus
 
-Each corpus gets its own Neo4j instance. Neo4j Community holds one database for each instance, and separate instances make sure that one corpus never sees the entities of another. The harness starts the instance of the corpus it works on and stops it afterward.
+Each corpus gets its own Neo4j instance. Neo4j Community holds one database for each instance, and separate instances make sure that one corpus never sees the entities of another. The benchmark runner starts the instance of the corpus it works on and stops it afterward.
 
-A Neo4j instance keeps its graph in a volume. The harness stores a marker in the graph. When nothing that changes the graph changed, a second run over the same corpus skips ingest.
+A Neo4j instance keeps its graph in a volume. The benchmark runner stores a marker in the graph. When nothing that changes the graph changed, a second run over the same corpus skips ingest.
 
 ## Graph schemas
 

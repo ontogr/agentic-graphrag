@@ -7,6 +7,15 @@ identifier-validation contract shared by every Cypher builder.
 from collections.abc import Sequence
 from typing import Any, Literal
 
+from agrag.common.data_models.structure import (
+    FIGURE_LABEL,
+    HAS_CHILD,
+    HAS_DOCUMENT,
+    PART_OF,
+    SECTION_LABEL,
+    SOURCE_LABEL,
+    TABLE_LABEL,
+)
 from agrag.cypher._pending_filter import (
     pending_filter_clause,
     pending_path_filter_clause,
@@ -17,6 +26,24 @@ from agrag.cypher.entities import NODE_IDENTITY_LABEL, validate_identifier
 TraversalDirection = Literal["outgoing", "incoming", "both"]
 
 
+_STRUCTURE_RELATIONS = (PART_OF, HAS_CHILD, HAS_DOCUMENT)
+_STRUCTURE_LABELS = (SECTION_LABEL, TABLE_LABEL, FIGURE_LABEL, SOURCE_LABEL)
+
+
+def _cypher_string_list(values: Sequence[str]) -> str:
+    """Return a Cypher list literal of validated relationship types."""
+    return "[" + ", ".join(f"'{validate_identifier(v)}'" for v in values) + "]"
+
+
+_NON_ENTITY_RELATIONS = _cypher_string_list(
+    ("MENTIONED_IN", "MEMBER_OF", *_STRUCTURE_RELATIONS)
+)
+
+_DEFAULT_TRAVERSAL_EXCLUSIONS = _cypher_string_list(_STRUCTURE_RELATIONS)
+_STRUCTURE_LABEL_EXCLUSIONS = " AND ".join(
+    f"NOT neighbor:{validate_identifier(label)}" for label in _STRUCTURE_LABELS
+)
+
 _DIRECTION_ARROW: dict[TraversalDirection, tuple[str, str]] = {
     "outgoing": ("-", "->"),
     "incoming": ("<-", "-"),
@@ -25,24 +52,24 @@ _DIRECTION_ARROW: dict[TraversalDirection, tuple[str, str]] = {
 
 
 def close_part_of_query() -> str:
-    """Build Cypher that closes currently valid document-to-chunk edges.
+    """Build Cypher that closes currently valid document-to-node edges.
 
     Only committed edges are closed. Pending edges belong to an in-flight
-    cutover and remain open until that job commits. An edge to a chunk in
-    ``$keep_chunk_ids`` stays open: a job that writes a chunk with the id of
-    a committed one reuses its edge without tagging it, and the edge must
-    outlive the close.
+    cutover and remain open until that job commits. An edge to a node in
+    ``$keep_node_ids`` stays open: a job that writes a chunk, section, table or
+    figure with the id of a committed one reuses its edge without tagging it,
+    and the edge must outlive the close.
 
     Returns:
-        Parameterized Cypher expecting $document_node_id and $keep_chunk_ids
-        (a list of chunk id strings). Returns the number of committed edges
+        Parameterized Cypher expecting $document_node_id and $keep_node_ids
+        (a list of node id strings). Returns the number of committed edges
         closed.
     """
     return (
         "MATCH (d:_AgragNode:Document {id: $document_node_id})"
         "-[r:PART_OF]->(c) "
         f"WHERE r.invalid_at IS NULL AND {pending_filter_clause('r')} "
-        "AND NOT c.id IN $keep_chunk_ids "
+        "AND NOT c.id IN $keep_node_ids "
         "SET r.invalid_at = datetime() RETURN count(r) AS closed"
     )
 
@@ -69,6 +96,9 @@ def bfs_expand_query(
     ``relation_types`` restricts which relationships a traversal may
     cross. Neo4j does not accept a parameter for relationship types
     either, so each type is validated and formatted into the pattern.
+    None or empty crosses every type except the structure types
+    (``PART_OF``, ``HAS_CHILD``, ``HAS_DOCUMENT``); pass those explicitly
+    to opt in to crossing them.
 
     ``direction`` picks which way each hop walks: relationships leaving
     the seed (``"outgoing"``), entering it (``"incoming"``), or either
@@ -84,7 +114,8 @@ def bfs_expand_query(
 
     Result nodes are restricted to ``_AgragNode`` entities that are
     **not** ``Chunk`` nodes: chunks are intermediate path nodes only,
-    never returned as BFS results.
+    never returned as BFS results. Section, Table, Figure and Source nodes are
+    never returned either.
 
     Args:
         depth: The maximum BFS hops. Clamped to [1, 10].
@@ -92,7 +123,8 @@ def bfs_expand_query(
         filters: Optional flat-dict filter applied to neighbor nodes.
             A scalar value means exact match, a list means any of.
         relation_types: Optional relationship types the traversal may
-            cross. None or empty crosses every type.
+            cross. None or empty crosses every type except the structure
+            types, which must be named explicitly to cross.
         direction: Which way a hop walks each relationship. Defaults
             to ``"both"``.
         document_ids: Optional document ids that must mention each result
@@ -124,11 +156,14 @@ def bfs_expand_query(
 
     where_clause, filter_params = filter_clause(filters or {}, node_var="neighbor")
     filter_suffix = f" AND {where_clause[6:]}" if where_clause else ""
+    path_guard = pending_filter_clause("r", "job_id")
+    if not relation_types:
+        path_guard += f" AND NOT type(r) IN {_DEFAULT_TRAVERSAL_EXCLUSIONS}"
     base_where = (
         "neighbor:_AgragNode AND NOT neighbor:Chunk AND NOT neighbor.id IN $seed_ids "
+        f"AND {_STRUCTURE_LABEL_EXCLUSIONS} "
         f"AND {pending_filter_clause('neighbor', 'job_id')} "
-        f"AND ALL(r IN relationships(path) WHERE "
-        f"{pending_filter_clause('r', 'job_id')})"
+        f"AND ALL(r IN relationships(path) WHERE {path_guard})"
     )
     document_suffix = (
         " AND EXISTS { "
@@ -226,7 +261,7 @@ def relationship_types_from_query(
         f"MATCH (seed:_AgragNode {{id: seed_id}}) "
         f"MATCH (seed){left_arrow}[r{type_pattern}]{right_arrow}(neighbor) "
         f"WHERE NOT neighbor:Chunk AND NOT neighbor:Community "
-        f"AND NOT type(r) IN ['MENTIONED_IN', 'MEMBER_OF'] "
+        f"AND NOT type(r) IN {_NON_ENTITY_RELATIONS} "
         f"AND {pending_filter_clause('r', 'job_id')} "
         f"RETURN DISTINCT type(r) AS rel_type"
     )
@@ -314,7 +349,7 @@ def fetch_all_relations_query() -> str:
         f"MATCH (a:{NODE_IDENTITY_LABEL})-[r]->(b:{NODE_IDENTITY_LABEL}) "
         f"WHERE NOT a:Chunk AND NOT b:Chunk "
         f"AND NOT a:Community AND NOT b:Community "
-        f"AND NOT type(r) IN ['MENTIONED_IN', 'MEMBER_OF'] "
+        f"AND NOT type(r) IN {_NON_ENTITY_RELATIONS} "
         f"AND {pending_filter_clause('r')} "
         f"RETURN a.id AS source_id, b.id AS target_id, "
         f"r.source_chunk_ids AS source_chunk_ids, "
@@ -355,7 +390,7 @@ def fetch_all_relations_query_cursor() -> str:
         f'AND $last_rel_id = "")) '
         f"AND NOT a:Chunk AND NOT b:Chunk "
         f"AND NOT a:Community AND NOT b:Community "
-        f"AND NOT type(r) IN ['MENTIONED_IN', 'MEMBER_OF'] "
+        f"AND NOT type(r) IN {_NON_ENTITY_RELATIONS} "
         f"AND {pending_filter_clause('r')} "
         f"RETURN a.id AS source_id, b.id AS target_id, "
         f"r.source_chunk_ids AS source_chunk_ids, "

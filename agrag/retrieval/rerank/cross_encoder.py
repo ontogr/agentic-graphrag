@@ -129,7 +129,6 @@ async def cross_encoder_rerank(
                     item=result.item,
                     score=score_val,
                     method="cross_encoder",
-                    parent=result.parent,
                 )
             )
 

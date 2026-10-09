@@ -10,6 +10,7 @@ Retrieval package: search engine, fusion, reranking, and retrievers.
 
 **Modules:**
 
+- [**chunking**](chunking/index.md) – Turns graph node values into Chunk models for retrieval.
 - [**community_context**](community_context/index.md) – Community-report enrichment: local-search-style budget-capped context.
 - [**errors**](errors/index.md) – Errors that the retrieval layer raises.
 - [**filters**](filters/index.md) – Constraints applied across every retrieval method in one call.
