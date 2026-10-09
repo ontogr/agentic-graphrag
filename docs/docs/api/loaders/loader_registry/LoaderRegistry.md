@@ -11,6 +11,10 @@ LoaderRegistry() -> None
 
 Maps each source extension to the one loader that reads it.
 
+A new registry starts empty and rejects every format until loaders are
+registered. Use `agrag.loaders.registry`, which already holds the default
+loaders, to read sources with the defaults.
+
 **Attributes:**
 
 - **\_by_extension** (<code>dict\[str, [Loader](../base/Loader.md)\]</code>) – The loader for each registered extension.

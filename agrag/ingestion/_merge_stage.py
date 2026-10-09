@@ -118,6 +118,21 @@ async def merge_stage(
         pending_job_id=pending_job_id,
         rebuilt_components=rebuilt_components,
     )
+    relation_records = await _domain_relation_records(
+        relations,
+        mention_to_entity,
+        graph_store=ctx.graph_store,
+        pending_job_id=pending_job_id,
+        error_policy=ctx.error_policy,
+        failures=merge_failures,
+    )
+    mentioned_in_records = await _mentioned_in_records(
+        entities,
+        mention_to_entity,
+        graph_store=ctx.graph_store,
+        error_policy=ctx.error_policy,
+        failures=merge_failures,
+    )
     merge_failures_capped = cap_failures(merge_failures)
     stats = MergeStats(
         nodes_created=nodes_created,
@@ -126,15 +141,6 @@ async def merge_stage(
         failures=merge_failures_capped.items,
         failures_total=merge_failures_capped.total,
         failures_truncated=merge_failures_capped.truncated,
-    )
-    relation_records = await _domain_relation_records(
-        relations,
-        mention_to_entity,
-        graph_store=ctx.graph_store,
-        pending_job_id=pending_job_id,
-    )
-    mentioned_in_records = await _mentioned_in_records(
-        entities, mention_to_entity, graph_store=ctx.graph_store
     )
     return MergeStageResult(
         stats=stats,
@@ -212,12 +218,6 @@ async def _merge_mention_groups(
 
             if desc_failures:
                 merge_failures.extend(desc_failures)
-            conflicts_resolved += len(plan.conflicts)
-            if not existing_for_group:
-                nodes_created += 1
-            else:
-                nodes_updated += 1
-
             try:
                 await apply_merge(
                     plan,
@@ -240,6 +240,11 @@ async def _merge_mention_groups(
                 )
                 continue
 
+            conflicts_resolved += len(plan.conflicts)
+            if not existing_for_group:
+                nodes_created += 1
+            else:
+                nodes_updated += 1
             span.set_attribute("agrag.conflicts_resolved", len(plan.conflicts))
             survivors[plan.survivor.id] = plan.survivor
             for idx in group_indices:
@@ -336,8 +341,14 @@ async def _domain_relation_records(
     *,
     graph_store: GraphStore,
     pending_job_id: str | None,
+    error_policy: ErrorPolicy,
+    failures: list[StageFailure],
 ) -> list[RelationRecord]:
-    """Map relations onto survivors and merge them with stored relations."""
+    """Map relations onto survivors and merge them with stored relations.
+
+    A failed lookup is appended to ``failures`` and its triples are treated as
+    having no stored relation, unless ``error_policy`` is ``RAISE``.
+    """
     # Domain relation triples: (src_id, tgt_id, label) with the chunks that
     # asserted them, unioned within this call.
     triple_to_chunk_ids: dict[tuple[UUID, UUID, str], list[UUID]] = {}
@@ -355,6 +366,8 @@ async def _domain_relation_records(
         list(triple_to_chunk_ids.keys()),
         graph_store=graph_store,
         job_id=pending_job_id,
+        error_policy=error_policy,
+        failures=failures,
     )
 
     relation_records: list[RelationRecord] = []
@@ -388,6 +401,8 @@ async def _mentioned_in_records(
     mention_to_entity: dict[int, UUID],
     *,
     graph_store: GraphStore,
+    error_policy: ErrorPolicy,
+    failures: list[StageFailure],
 ) -> list[RelationRecord]:
     """Build one MENTIONED_IN edge per real mention, reusing stored edge ids."""
     # One edge per (chunk, entity) pair, for real mentions only. Synthetic
@@ -408,6 +423,8 @@ async def _mentioned_in_records(
             for chunk_id, entity_id in mentioned_pairs
         ],
         graph_store=graph_store,
+        error_policy=error_policy,
+        failures=failures,
     )
 
     mentioned_in_records: list[RelationRecord] = []
@@ -434,23 +451,27 @@ async def _global_relation_lookup(
     triples: list[tuple[UUID, UUID, str]],
     *,
     graph_store: GraphStore,
+    error_policy: ErrorPolicy,
+    failures: list[StageFailure],
     job_id: UUID | str | None = None,
 ) -> dict[tuple[UUID, UUID, str], tuple[UUID, list[UUID]]]:
     """Return each triple's already-persisted relation id and source_chunk_ids.
 
-    One batched read per distinct relation type present in triples.
+    One batched read per distinct relation type present in triples. When a
+    type's read or row parsing fails, the failure is appended to ``failures``
+    and that type's triples are left out of the result, so they are treated as
+    new relations.
 
     Args:
         triples: The (source_id, target_id, type) triples to look up.
         graph_store: Where the lookup runs.
+        error_policy: ``RAISE`` propagates a failed read or parse. Any other
+            policy records it and continues.
+        failures: Receives one failure per relation type whose lookup failed.
         job_id: The active job whose pending relations are visible.
 
     Returns:
         A map from triple to its existing relation's (id, source_chunk_ids).
-
-    Raises:
-        KeyError: A row lacks a field the lookup reads.
-        ValueError: A row holds a value that is not a UUID.
     """
     if not triples:
         return {}
@@ -468,12 +489,29 @@ async def _global_relation_lookup(
         read_params: dict[str, object] = {"pairs": params}
         if job_id is not None:
             read_params["job_id"] = str(job_id)
-        rows = await graph_store.execute_read(query, read_params)
-        for row in rows:
-            src = UUID(str(row["source_id"]))
-            tgt = UUID(str(row["target_id"]))
-            rel_id = UUID(str(row["id"]))
-            raw_scids = row.get("source_chunk_ids") or []
-            scids = [UUID(str(x)) for x in raw_scids]
-            result[(src, tgt, rel_type)] = (rel_id, scids)
+        try:
+            rows = await graph_store.execute_read(query, read_params)
+            type_result: dict[tuple[UUID, UUID, str], tuple[UUID, list[UUID]]] = {}
+            for row in rows:
+                src = UUID(str(row["source_id"]))
+                tgt = UUID(str(row["target_id"]))
+                rel_id = UUID(str(row["id"]))
+                raw_scids = row.get("source_chunk_ids") or []
+                scids = [UUID(str(x)) for x in raw_scids]
+                type_result[(src, tgt, rel_type)] = (rel_id, scids)
+        except Exception as exc:  # noqa: BLE001
+            if error_policy is ErrorPolicy.RAISE:
+                raise
+            trace_id, span_id = record_stage_failure(exc)
+            failures.append(
+                StageFailure(
+                    item_id=rel_type,
+                    error_type=type(exc).__name__,
+                    error_message=str(exc),
+                    trace_id=trace_id,
+                    span_id=span_id,
+                )
+            )
+            continue
+        result.update(type_result)
     return result

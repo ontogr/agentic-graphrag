@@ -14,6 +14,8 @@ from agrag.common.data_models.graph_schema import GENERIC
 from agrag.ingestion import _merge_stage
 from agrag.ingestion._merge_stage import merge_stage
 from agrag.ingestion._stage_context import StageContext
+from agrag.ingestion.merge import ConflictRecord
+from agrag.ingestion.merge import relation_id as domain_relation_id
 from agrag.ingestion.resolve.resolution import BatchResolution
 from agrag.ingestion.resolve.resolver import ResolutionGroup
 from agrag.loaders.types import ErrorPolicy
@@ -54,6 +56,19 @@ def _store(relation_rows: list[dict[str, Any]] | None = None) -> AsyncMock:
     return store
 
 
+def _failing_relation_store(error: Exception) -> AsyncMock:
+    """Build a store whose relation read raises for WORKS_AT and returns no rows."""
+    store = AsyncMock()
+
+    async def _read(query: str, _params: Any) -> list[dict[str, Any]]:
+        if "WORKS_AT" in query:
+            raise error
+        return []
+
+    store.execute_read.side_effect = _read
+    return store
+
+
 async def _merge(
     entities: list[ExtractedEntity],
     relations: list[ExtractedRelation],
@@ -79,6 +94,17 @@ async def _merge(
         resolved_entity_collection="resolved_entities",
         rebuilt_components=None,
     )
+
+
+def _compute_merge_with_conflict() -> Any:
+    real_compute = _merge_stage.compute_merge
+
+    async def _compute(**kwargs: Any) -> Any:
+        plan, failures = await real_compute(**kwargs)
+        conflict = ConflictRecord(field="name", candidates=["A", "B"], resolved="A")
+        return plan.model_copy(update={"conflicts": [conflict]}), failures
+
+    return mock.patch.object(_merge_stage, "compute_merge", side_effect=_compute)
 
 
 @pytest.fixture
@@ -179,6 +205,68 @@ class TestMergeStage:
         assert record.properties["source_chunk_ids"] == [
             str(earlier_chunk),
             str(later_chunk),
+        ]
+
+    async def test_treats_failed_relation_lookup_as_new_under_skip(self) -> None:
+        """A failed relation read is recorded and the relation is written as new."""
+        chunk_id = uuid4()
+        alice, acme = _existing("Alice"), _existing("Acme")
+        entities = [_mention("Alice"), _mention("Acme")]
+        relations = [
+            ExtractedRelation(
+                chunk_id=chunk_id, label="WORKS_AT", source_index=0, target_index=1
+            )
+        ]
+        batch = _batch([[0], [1]], exact_matches={0: alice, 1: acme})
+        store = _failing_relation_store(RuntimeError("read unavailable"))
+
+        result = await _merge(entities, relations, batch, store)
+
+        [record] = result.relation_records
+        assert record.id == domain_relation_id(alice.id, acme.id, "WORKS_AT")
+        assert record.properties["source_chunk_ids"] == [str(chunk_id)]
+        assert [(f.item_id, f.error_type) for f in result.stats.failures] == [
+            ("WORKS_AT", "RuntimeError")
+        ]
+
+    async def test_raises_failed_relation_lookup_under_raise(self) -> None:
+        """Under ErrorPolicy.RAISE a failed relation read propagates."""
+        alice, acme = _existing("Alice"), _existing("Acme")
+        entities = [_mention("Alice"), _mention("Acme")]
+        relations = [
+            ExtractedRelation(
+                chunk_id=uuid4(), label="WORKS_AT", source_index=0, target_index=1
+            )
+        ]
+        batch = _batch([[0], [1]], exact_matches={0: alice, 1: acme})
+        store = _failing_relation_store(RuntimeError("read unavailable"))
+
+        with pytest.raises(RuntimeError, match="read unavailable"):
+            await _merge(
+                entities,
+                relations,
+                batch,
+                store,
+                error_policy=ErrorPolicy.RAISE,
+            )
+
+    async def test_failed_apply_merge_counts_no_merged_entity_or_conflict(
+        self, _no_writes: AsyncMock
+    ) -> None:
+        """A group whose transaction fails is recorded but not counted as merged."""
+        entities = [_mention("Acme")]
+        batch = _batch([[0]])
+        _no_writes.side_effect = RuntimeError("commit failed")
+
+        with _compute_merge_with_conflict():
+            result = await _merge(entities, [], batch, _store())
+
+        assert result.stats.nodes_created == 0
+        assert result.stats.nodes_updated == 0
+        assert result.stats.conflicts_resolved == 0
+        assert result.survivors == {}
+        assert [failure.error_type for failure in result.stats.failures] == [
+            "RuntimeError"
         ]
 
     async def test_drops_relation_whose_endpoints_merge_into_one_entity(self) -> None:

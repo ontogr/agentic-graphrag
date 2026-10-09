@@ -103,9 +103,11 @@ class TestGroupByDocument:
             _entity(chunk_a, "Alice"),
             _entity(chunk_a, "Acme"),
             _entity(chunk_b, "Bob"),
+            _entity(chunk_b, "Carol"),
         ]
         relations = [
             _relation(chunk_a, label="WORKS_AT", source_index=0, target_index=1),
+            _relation(chunk_b, label="MANAGES", source_index=2, target_index=3),
             _relation(chunk_a, label="KNOWS", source_index=1, target_index=2),
         ]
 
@@ -121,7 +123,10 @@ class TestGroupByDocument:
             (rel.label, rel.source_index, rel.target_index)
             for rel in relations_by_key["a"]
         ] == [("WORKS_AT", 0, 1)]
-        assert relations_by_key["b"] == []
+        assert [
+            (rel.label, rel.source_index, rel.target_index)
+            for rel in relations_by_key["b"]
+        ] == [("MANAGES", 0, 1)]
         warnings = _warnings(caplog)
         assert len(warnings) == 1
         assert "KNOWS" in warnings[0]

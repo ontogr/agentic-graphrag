@@ -846,6 +846,9 @@ class EscalatingExtractor(Extractor):
             chunk has at least this many words.
         tracer: Opens the ``agrag.extraction.escalating`` span. ``None`` opens
             no recorded span.
+
+    The ``max_concurrency`` of this extractor is the smaller of the two child
+    limits, so a child that must not run concurrently keeps the wrapper serial.
     """
 
     def __init__(
@@ -860,6 +863,7 @@ class EscalatingExtractor(Extractor):
         """Create an extractor that escalates from a primary to a stronger one."""
         self.primary = primary
         self.escalate_to = escalate_to
+        self.max_concurrency = min(primary.max_concurrency, escalate_to.max_concurrency)
         self.min_confidence = min_confidence
         self.min_chunk_words = min_chunk_words
         self._tracer = tracer

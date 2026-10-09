@@ -45,6 +45,7 @@ from agrag.ingestion.extract import (
     BAMLExtractor,
     EscalatingExtractor,
     ExtractionLLMSettings,
+    Extractor,
     ExtractorMissingExtraError,
     GlinerExtractor,
     _describe_entity_type,
@@ -1667,7 +1668,7 @@ class TestEscalatingExtractor:
             extractor_name="escalate",
         )
 
-        class MockExtractor:
+        class MockExtractor(Extractor):
             def __init__(self, result: ExtractionResult, name: str) -> None:
                 self._result = result
                 self._name = name
@@ -1736,6 +1737,28 @@ class TestEscalatingExtractor:
         result = await extractor.extract(chunk, GENERIC)
         # Only escalate's entities should be present
         assert all(e.text == "Y" for e in result.entities)
+
+    @pytest.mark.parametrize(
+        ("primary_limit", "escalate_limit", "expected"),
+        [(1, 8, 1), (8, 1, 1), (8, 3, 3), (3, 8, 3)],
+    )
+    def test_max_concurrency_is_the_smaller_child_limit(
+        self, primary_limit: int, escalate_limit: int, expected: int
+    ) -> None:
+        """The wrapper runs no more calls at once than either child allows."""
+
+        class LimitedExtractor(Extractor):
+            async def extract(self, chunk, schema):  # noqa: ANN001
+                raise AssertionError("not called")
+
+        primary = LimitedExtractor()
+        primary.max_concurrency = primary_limit
+        escalate_to = LimitedExtractor()
+        escalate_to.max_concurrency = escalate_limit
+
+        extractor = EscalatingExtractor(primary=primary, escalate_to=escalate_to)
+
+        assert extractor.max_concurrency == expected
 
 
 def _tracing_provider() -> tuple[TracerProvider, InMemorySpanExporter]:
@@ -1878,7 +1901,7 @@ class TestExtractionSpans:
         """A confident primary result records escalated false."""
         provider, exporter = _tracing_provider()
 
-        class Primary:
+        class Primary(Extractor):
             async def extract(self, chunk, schema):  # noqa: ANN001
                 return ExtractionResult(
                     entities=[
@@ -1895,7 +1918,7 @@ class TestExtractionSpans:
                     extractor_name="primary",
                 )
 
-        class EscalateTo:
+        class EscalateTo(Extractor):
             async def extract(self, chunk, schema):  # noqa: ANN001
                 raise AssertionError("must not run without escalation")
 
@@ -1918,13 +1941,13 @@ class TestExtractionSpans:
         """A weak primary result records escalated true."""
         provider, exporter = _tracing_provider()
 
-        class Primary:
+        class Primary(Extractor):
             async def extract(self, chunk, schema):  # noqa: ANN001
                 return ExtractionResult(
                     entities=[], relations=[], extractor_name="primary"
                 )
 
-        class EscalateTo:
+        class EscalateTo(Extractor):
             async def extract(self, chunk, schema):  # noqa: ANN001
                 return ExtractionResult(
                     entities=[], relations=[], extractor_name="escalate"

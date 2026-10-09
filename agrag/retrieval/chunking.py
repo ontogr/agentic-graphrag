@@ -1,7 +1,8 @@
 """Turns graph node values into Chunk models for retrieval."""
 
 import logging
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
+from typing import Protocol, runtime_checkable
 
 from agrag.common.data_models.chunk import CHUNK_LABEL, Chunk
 from agrag.common.graph_rows import node_properties
@@ -12,6 +13,15 @@ logger = logging.getLogger(__name__)
 # Fields that only a stored Chunk node carries among the node types a
 # retriever reads. Used when a row gives no labels.
 _CHUNK_ONLY_FIELDS = frozenset({"document_id", "provenance"})
+
+
+@runtime_checkable
+class _Labelled(Protocol):
+    """A graph node value that exposes its labels, such as a driver node."""
+
+    @property
+    def labels(self) -> Collection[str]:
+        """The labels the node carries."""
 
 
 def is_chunk_node(value: object) -> bool:
@@ -27,9 +37,8 @@ def is_chunk_node(value: object) -> bool:
         True when the value is labelled ``Chunk``, or is a property dict
         with the chunk-only fields. False for any other value.
     """
-    labels = getattr(value, "labels", None)
-    if labels is not None:
-        return CHUNK_LABEL in labels
+    if isinstance(value, _Labelled):
+        return CHUNK_LABEL in value.labels
     if not isinstance(value, Mapping):
         return False
     return _CHUNK_ONLY_FIELDS.issubset(node_properties(value))
@@ -49,7 +58,9 @@ def parse_chunk_node(value: object) -> Chunk | None:
         return None
     try:
         return Chunk.from_node(properties)
-    except ValueError as exc:
+    # json.loads raises RecursionError, not ValueError, for deeply nested
+    # provenance text, so a malformed row must not escape as that error.
+    except (ValueError, RecursionError) as exc:
         logger.warning(
             "Skipping chunk %s: it failed validation: %s",
             properties.get("id"),

@@ -94,9 +94,11 @@ Build a Chunk from the flat properties of a stored Chunk node.
 
 **Parameters:**
 
-- **properties** (<code>Mapping\[str, Any\]</code>) – The node properties, as `to_node_record` writes them.
-  `provenance` may be the JSON text that `to_node_record` writes
-  or the decoded mapping.
+- **properties** (<code>Mapping\[str, Any\]</code>) – The stored node properties, including `id` as the node
+  id string. `to_node_record().properties` omits `id`, which
+  lives on the record, so merge it in first. `provenance` may be
+  the JSON text that `to_node_record` writes or the decoded
+  mapping.
 
 **Returns:**
 

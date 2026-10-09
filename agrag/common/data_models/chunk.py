@@ -89,9 +89,11 @@ class Chunk(DataPoint):
         """Build a Chunk from the flat properties of a stored Chunk node.
 
         Args:
-            properties: The node properties, as ``to_node_record`` writes them.
-                ``provenance`` may be the JSON text that ``to_node_record`` writes
-                or the decoded mapping.
+            properties: The stored node properties, including ``id`` as the node
+                id string. ``to_node_record().properties`` omits ``id``, which
+                lives on the record, so merge it in first. ``provenance`` may be
+                the JSON text that ``to_node_record`` writes or the decoded
+                mapping.
 
         Returns:
             The validated Chunk.

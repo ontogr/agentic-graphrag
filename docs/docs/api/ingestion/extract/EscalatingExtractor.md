@@ -32,6 +32,9 @@ fallback.
 - **tracer** (<code>Tracer | None</code>) – Opens the `agrag.extraction.escalating` span. `None` opens
   no recorded span.
 
+The `max_concurrency` of this extractor is the smaller of the two child
+limits, so a child that must not run concurrently keeps the wrapper serial.
+
 **Functions:**
 
 - [**extract**](#agrag-ingestion-extract-EscalatingExtractor-extract) – Extract with the primary extractor, escalating when it is weak.
@@ -39,7 +42,7 @@ fallback.
 **Attributes:**
 
 - [**escalate_to**](#agrag-ingestion-extract-EscalatingExtractor-escalate_to) –
-- [**max_concurrency**](#agrag-ingestion-extract-EscalatingExtractor-max_concurrency) (<code>int</code>) –
+- [**max_concurrency**](#agrag-ingestion-extract-EscalatingExtractor-max_concurrency) –
 - [**min_chunk_words**](#agrag-ingestion-extract-EscalatingExtractor-min_chunk_words) –
 - [**min_confidence**](#agrag-ingestion-extract-EscalatingExtractor-min_confidence) –
 - [**primary**](#agrag-ingestion-extract-EscalatingExtractor-primary) –
@@ -70,7 +73,7 @@ Extract with the primary extractor, escalating when it is weak.
 ## `max_concurrency` \{#agrag-ingestion-extract-EscalatingExtractor-max_concurrency}
 
 ```python
-max_concurrency: int = 8
+max_concurrency = min(primary.max_concurrency, escalate_to.max_concurrency)
 ```
 
 ## `min_chunk_words` \{#agrag-ingestion-extract-EscalatingExtractor-min_chunk_words}

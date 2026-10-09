@@ -6,11 +6,12 @@ from opentelemetry.trace import Tracer
 
 from agrag.common.data_models.chunk import CHUNK_LABEL, Chunk
 from agrag.common.data_models.search_result import SearchResult
-from agrag.common.graph_rows import node_properties, row_node
+from agrag.common.graph_rows import row_node
 from agrag.cypher.entities import load_chunks_by_id_query
 from agrag.embedding.base import Embedder
 from agrag.graphdb.base import GraphStore
 from agrag.observability import get_tracer
+from agrag.retrieval.chunking import parse_chunk_node
 from agrag.retrieval.filters import SearchFilters
 from agrag.retrieval.methods.vector import vector_search
 from agrag.retrieval.retrievers.base import Retriever
@@ -122,16 +123,9 @@ class ChunkRetriever(Retriever):
                 by_id: dict[str, Chunk] = {}
                 invalid_count = 0
                 for row in rows:
-                    properties = node_properties(row_node(row))
-                    try:
-                        chunk = Chunk.from_node(properties)
-                    except ValueError as exc:
+                    chunk = parse_chunk_node(row_node(row))
+                    if chunk is None:
                         invalid_count += 1
-                        logger.warning(
-                            "Skipping chunk %s: it failed validation: %s",
-                            properties.get("id"),
-                            exc,
-                        )
                         continue
                     by_id[str(chunk.id)] = chunk
                 if load.is_recording():

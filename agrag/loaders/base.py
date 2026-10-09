@@ -43,7 +43,10 @@ class Loader(ABC):
         if self.extra is None:
             return True
         module = self.extra_module or self.extra
-        return importlib.util.find_spec(module) is not None
+        try:
+            return importlib.util.find_spec(module) is not None
+        except (ModuleNotFoundError, ValueError):
+            return False
 
     @abstractmethod
     def load(

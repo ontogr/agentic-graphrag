@@ -468,7 +468,12 @@ class TestGlobalRelationLookup:
             ],
             [],
         ]
-        result = await _global_relation_lookup(triples, graph_store=store)
+        result = await _global_relation_lookup(
+            triples,
+            graph_store=store,
+            error_policy=ErrorPolicy.RAISE,
+            failures=[],
+        )
         assert (s1, t1, "WORKS_AT") in result
         assert result[(s1, t1, "WORKS_AT")][0] == rel_id
         assert (s2, t2, "WORKS_AT") not in result
@@ -482,7 +487,12 @@ class TestGlobalRelationLookup:
             [{"source_id": "bad-uuid", "target_id": str(t), "id": str(uuid4())}]
         ]
         with pytest.raises(ValueError):
-            await _global_relation_lookup([(s, t, "WORKS_AT")], graph_store=store)
+            await _global_relation_lookup(
+                [(s, t, "WORKS_AT")],
+                graph_store=store,
+                error_policy=ErrorPolicy.RAISE,
+                failures=[],
+            )
 
 
 class _GuardedNodeStore(MockStore):
@@ -1573,8 +1583,8 @@ class TestGraphAddPipeline:
         with pytest.raises(ValueError):
             await graph.add(text="hi", error_policy=ErrorPolicy.RAISE)
 
-    async def test_empty_chunks_writes_only_document_and_source_nodes(self) -> None:
-        """No chunks writes the Document and Source nodes and no embeddings."""
+    async def test_empty_chunks_writes_only_document_and_section_nodes(self) -> None:
+        """No chunks writes the Document and Section nodes and no embeddings."""
         store, embed, extractor = MockStore(), MockEmbedder(), MockExtractor()
         graph = await Graph.open(
             schema=GENERIC, graph_store=store, embedder=embed, extractor=extractor

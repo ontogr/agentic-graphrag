@@ -53,9 +53,12 @@ header: list[str]
 
 Return the column names of a table, one for each column.
 
-The first `header_row_count` rows make the header. Empty when the
-table has no rows. A spanned header cell repeats its text in every
-slot it covers, so each column keeps each text once.
+The names come from the first `header_row_count` rows, so the first
+row supplies them for every table format when the source marks no
+header rows. Chunk rendering uses these names, and ingestion stores
+them as the Table node `columns`. Empty when the table has no rows.
+A spanned header cell repeats its text in every slot it covers, so
+each column keeps each text once.
 
 ## `header_row_count` \{#agrag-common-data_models-document-Unit-header_row_count}
 
@@ -65,8 +68,9 @@ header_row_count: int
 
 Return how many leading rows of a table form its header.
 
-A Markdown table needs a header line, so the first row is the header
-when the source marks none.
+The count is `header_rows`. When the source marks no header rows, the
+first row is the header for every table format, so the count is at
+least 1.
 
 ## `header_rows` \{#agrag-common-data_models-document-Unit-header_rows}
 

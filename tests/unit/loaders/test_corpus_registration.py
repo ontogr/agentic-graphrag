@@ -82,6 +82,7 @@ class TestMissingExtra:
         self,
     ) -> None:
         """The core docling package does not satisfy the PDF extra."""
+        pytest.importorskip("docling")
         real_find_spec = importlib.util.find_spec
 
         def _find_spec(name: str, *args: object, **kwargs: object) -> object:

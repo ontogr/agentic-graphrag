@@ -38,6 +38,16 @@ class _ExtraLoader(Loader):
         yield from ()
 
 
+class _DottedExtraLoader(Loader):
+    extensions = frozenset({".dotted"})
+    family = DocumentFamily.PROSE
+    extra = "dotted_extra"
+    extra_module = "this_extra_parent_does_not_exist.module"
+
+    def load(self, source, stream, opts, *, start_at=0):  # type: ignore[no-untyped-def]
+        yield from ()
+
+
 class TestLoaderRegistry:
     """Verify lookup, double registration, conflicts and extra detection."""
 
@@ -103,3 +113,13 @@ class TestLoaderRegistry:
 
         assert error.value.extension == ".extra"
         assert error.value.extra == "this_extra_does_not_exist"
+
+    def test_dotted_extra_module_with_missing_parent_raises_missing_extra(self) -> None:
+        """A dotted extra module whose parent package is absent counts as missing."""
+        registry = LoaderRegistry()
+        registry.register(_DottedExtraLoader())
+
+        with pytest.raises(MissingExtraError) as error:
+            registry.for_source(SourceRef(uri="x.dotted", extension=".dotted"))
+
+        assert error.value.extra == "dotted_extra"
