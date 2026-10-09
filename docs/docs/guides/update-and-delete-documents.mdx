@@ -103,7 +103,7 @@ result = await graph.update("apollo-notes", text="New text")
 Read the result:
 
 - `no_op` is `True` when the content and the chunker configuration did not change. Agentic GraphRAG then skips chunking, extraction and every write.
-- `chunks_closed` counts the chunks of the old version that Agentic GraphRAG closed.
+- `chunks_closed` counts the `PART_OF` links of the old version that Agentic GraphRAG closed. The links go to chunks, sections, tables and figures.
 - `add_result` holds the summary of the new ingestion, as `Graph.add` returns it.
 
 If the key does not exist yet, `Graph.update` adds the content as a new document.

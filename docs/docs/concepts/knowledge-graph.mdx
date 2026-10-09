@@ -83,7 +83,7 @@ Why does the resolver add a ResolvedEntity instead of merging entities? A match 
 
 Why is the type the label? The type is what you filter and index by. Every Agentic GraphRAG node also carries an internal marker label, so Agentic GraphRAG can find its own nodes in a shared database.
 
-Why is the parent of a chunk a property and not an edge? A child chunk stores its parent's id. Search returns the child with its parent attached, so no traversal is needed. The [Chunking](./chunking.mdx) page explains parent and child chunks.
+Why does a chunk list its sections as a property and not as edges? A chunk can span several sections. It stores their ids in `section_ids`, so a reader can find them without a traversal. The [Chunking](./chunking.mdx) page explains how a chunk records its sections.
 
 </details>
 

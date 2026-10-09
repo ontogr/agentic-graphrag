@@ -44,7 +44,7 @@ The ingestion flow has five stages:
 2. Chunk. A chunker splits each document into chunks. It records where each chunk came from.
 3. Extract (see [Extraction](./extraction.mdx)). An extractor finds entities and relations in each chunk.
 4. Resolve (see [Entity resolution](./resolution.mdx)). The resolver decides which mentions name the same thing.
-5. Store. The graph store keeps documents, chunks, entities and relations. An embedder adds vectors.
+5. Store. The graph store keeps documents with their sections, tables and figures, chunks, entities and relations. An embedder adds vectors.
 
 The query flow has four steps:
 
