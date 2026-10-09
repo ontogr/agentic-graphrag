@@ -17,7 +17,7 @@ syncChangelog();
 // Preview deploys override the base URL with the BASE_URL env var (e.g. BASE_URL=/).
 const baseUrl = process.env.BASE_URL ?? '/agentic-graphrag/';
 
-// Release versions, newest first. The newest one is served at the site root.
+// Release versions, newest first. The newest one is served at /stable/.
 const releases = JSON.parse(readFileSync(new URL('./versions.json', import.meta.url), 'utf8'));
 
 /** @type {import('@docusaurus/types').Config} */
@@ -77,9 +77,10 @@ const config = {
           remarkPlugins: [remarkChangelog],
           // The site root is the newest release, the first entry of versions.json. Releases
           // are frozen copies of the docs, added by .github/workflows/docs-version.yml.
-          // The docs of the main branch are at /next/.
+          // The newest release is at /stable/ and the docs of the main branch are at /latest/.
           versions: {
-            current: {label: 'main', path: 'next', banner: 'unreleased'},
+            current: {label: 'latest', path: 'latest', banner: 'unreleased'},
+            [releases[0]]: {label: `${releases[0]} (stable)`, path: 'stable'},
           },
         },
         blog: false,
@@ -116,12 +117,12 @@ const config = {
         // The page menu copies a page as Markdown, so every page needs its own .md file.
         generateMarkdownFiles: true,
         versions: [
-          {name: 'current', label: 'main', docsDir: 'docs', path: 'next', routePrefix: 'next'},
+          {name: 'current', label: 'latest', docsDir: 'docs', path: 'latest', routePrefix: 'latest'},
           ...releases.map((id, index) => ({
             name: id,
             docsDir: `versioned_docs/version-${id}`,
-            path: index === 0 ? '' : id,
-            routePrefix: index === 0 ? '' : id,
+            path: index === 0 ? 'stable' : id,
+            routePrefix: index === 0 ? 'stable' : id,
           })),
         ],
       },
@@ -162,7 +163,7 @@ const config = {
             position: 'right',
           },
           {
-            to: '/next/get-started/quickstart',
+            to: '/latest/get-started/quickstart',
             label: 'Quickstart',
             className: 'navbar-cta',
             position: 'right',
@@ -183,21 +184,21 @@ const config = {
           {
             title: 'Learn',
             items: [
-              {label: 'Introduction', to: '/next/get-started/introduction'},
-              {label: 'Installation', to: '/next/get-started/installation'},
-              {label: 'Quickstart', to: '/next/get-started/quickstart'},
-              {label: 'Architecture', to: '/next/concepts/architecture'},
-              {label: 'Benchmarks', to: '/benchmarks'},
+              {label: 'Introduction', to: '/latest/get-started/introduction'},
+              {label: 'Installation', to: '/latest/get-started/installation'},
+              {label: 'Quickstart', to: '/latest/get-started/quickstart'},
+              {label: 'Architecture', to: '/latest/concepts/architecture'},
+              {label: 'Benchmarks', to: '/stable/benchmarks'},
             ],
           },
           {
             title: 'Build',
             items: [
-              {label: 'Guides', to: '/guides/ingest-documents'},
-              {label: 'Configuration', to: '/next/reference/configuration'},
-              {label: 'API reference', to: '/api'},
-              {label: 'Trace spans', to: '/reference/trace-spans'},
-              {label: 'Changelog', to: '/changelog'},
+              {label: 'Guides', to: '/stable/guides/ingest-documents'},
+              {label: 'Configuration', to: '/latest/reference/configuration'},
+              {label: 'API reference', to: '/stable/api'},
+              {label: 'Trace spans', to: '/stable/reference/trace-spans'},
+              {label: 'Changelog', to: '/stable/changelog'},
             ],
           },
           {

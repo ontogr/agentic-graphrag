@@ -99,11 +99,9 @@ export default function PageMenu() {
     return null;
   }
 
-  // docusaurus-plugin-llms writes the pages of the version at the site root under their
-  // URL, and the pages of every other version under the path of their source file.
-  const markdownPath = isLast
-    ? `${metadata.permalink.replace(/\/$/, '')}.md`
-    : `${siteConfig.baseUrl}${version === 'current' ? 'next' : version}/${metadata.source.replace('@site/', '').replace(/\.mdx?$/, '')}.md`;
+  // docusaurus-plugin-llms writes the pages of each version under the path of their source file.
+  const outputRoot = version === 'current' ? 'latest' : isLast ? 'stable' : version;
+  const markdownPath = `${siteConfig.baseUrl}${outputRoot}/${metadata.source.replace('@site/', '').replace(/\.mdx?$/, '')}.md`;
   const pageUrl = `${siteConfig.url}${metadata.permalink}`;
   const markdownUrl = `${siteConfig.url}${markdownPath}`;
 
