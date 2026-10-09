@@ -3,6 +3,8 @@
 import asyncio
 import os
 from abc import ABC, abstractmethod
+from concurrent.futures import ThreadPoolExecutor
+from functools import partial
 from typing import Any, Literal
 
 from dotenv import load_dotenv
@@ -333,7 +335,9 @@ class GlinerExtractor(Extractor):
 
     The model runs in this process, so extraction needs no LLM key. It loads on
     first use and one load serves concurrent calls. Inference calls run one at a
-    time, and a call that waits for its turn can be cancelled. The first load
+    time on one worker thread. A call cancelled while it waits for its turn never
+    starts, and one cancelled mid-inference leaves the next call waiting until the
+    inference ends. The first load
     downloads the weights from Hugging Face unless ``model`` is passed. GLiNER
     reports entity spans and types, so extracted entities carry no property
     values. Needs the ``extract`` extra.
@@ -358,7 +362,9 @@ class GlinerExtractor(Extractor):
         self._model = model
         self._tracer = tracer
         self._load_task: asyncio.Task[object] | None = None
-        self._inference_lock = asyncio.Lock()
+        self._inference_executor = ThreadPoolExecutor(
+            max_workers=1, thread_name_prefix="gliner"
+        )
 
     async def extract(self, chunk: Chunk, schema: GraphSchema) -> ExtractionResult:
         """Extract with the local GLiNER2.5 model.
@@ -383,13 +389,15 @@ class GlinerExtractor(Extractor):
         ) as span:
             model = await self._load_model()
             gliner_schema = self._build_schema(model, schema)
-            async with self._inference_lock:
-                raw = await asyncio.to_thread(
+            raw = await asyncio.get_running_loop().run_in_executor(
+                self._inference_executor,
+                partial(
                     model.extract,  # ty: ignore[unresolved-attribute]
                     chunk.text,
                     gliner_schema,
                     include_spans=True,
-                )
+                ),
+            )
             result = _normalize_extraction_result(
                 self._to_result(raw, chunk, schema), schema
             )

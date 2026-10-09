@@ -763,6 +763,52 @@ class TestGlinerConcurrency:
         assert peak == 1
 
 
+class TestGlinerCancellation:
+    """A cancelled call cannot let a second inference overlap the first."""
+
+    async def test_a_call_cancelled_mid_inference_does_not_free_the_model(
+        self,
+    ) -> None:
+        """The next call waits for the running inference to end."""
+        running = threading.Event()
+        release = threading.Event()
+        active = 0
+        peak = 0
+        guard = threading.Lock()
+
+        class BlockingModel:
+            def create_schema(self) -> "BlockingModel":
+                return self
+
+            def entities(self, *_: object, **__: object) -> "BlockingModel":
+                return self
+
+            def relations(self, *_: object, **__: object) -> "BlockingModel":
+                return self
+
+            def extract(self, *_: object, **__: object) -> dict:
+                nonlocal active, peak
+                with guard:
+                    active += 1
+                    peak = max(peak, active)
+                running.set()
+                release.wait(timeout=5)
+                with guard:
+                    active -= 1
+                return {"entities": {}}
+
+        extractor = GlinerExtractor(model=BlockingModel())
+        first = asyncio.ensure_future(extractor.extract(_chunk(), GENERIC))
+        await asyncio.to_thread(running.wait, 5)
+        first.cancel()
+        second = asyncio.ensure_future(extractor.extract(_chunk(), GENERIC))
+        await asyncio.sleep(0.1)
+        release.set()
+        await second
+
+        assert peak == 1
+
+
 class TestDescribeEntityType:
     """_describe_entity_type builds the prompt guidance for one entity type."""
 
