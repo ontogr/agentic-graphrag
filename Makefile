@@ -1,4 +1,4 @@
-.PHONY: bench-lite bench bench-dry bench-clean test-cov-map test-cov-map-suites sync sync-docs-pins baml-gen lint-actions test test-integration test-e2e test-eval test-eval-answer test-eval-extraction test-eval-verifier test-eval-resolution test-eval-trajectory test-all dev-services-up dev-services-down cov-report cov lint-typing lint-style lint-fmt lint-check lint-typos lint-all security-bandit security-audit security build wheel-test clean help changelog docs-api docs-install docs-dev docs-build docs-test
+.PHONY: bench-lite bench bench-dry bench-clean test-cov-map test-cov-map-suites sync sync-docs-pins baml-gen lint-actions test test-integration test-e2e test-eval test-eval-answer test-eval-extraction test-eval-verifier test-eval-resolution test-eval-trajectory test-all dev-services-up dev-services-down cov-report cov lint-typing lint-style lint-fmt lint-check lint-typos lint-all security-bandit security-audit security build wheel-test clean help changelog docs-api docs-install docs-dev docs-build docs-lint-links docs-test
 
 export UV_LOCKED = 1
 
@@ -270,7 +270,12 @@ docs-install:
 docs-dev: docs-api
 	cd docs && npm start
 
-docs-build: docs-api
+# Absolute links like /guides/x always open the latest version. Relative file links stay in the version.
+docs-lint-links:
+	@! grep -rEn --include='*.md' --include='*.mdx' '\]\(/[a-z]' docs/docs --exclude-dir=api \
+	  || { echo "Link to docs pages with relative file paths such as ../concepts/chunking.mdx."; exit 1; }
+
+docs-build: docs-api docs-lint-links
 	cd docs && { npm run build > build.log 2>&1; status=$$?; cat build.log; exit $$status; }
 	@# Docusaurus reports many problems as warnings and still exits with success.
 	@grep -q '^\[SUCCESS\]' docs/build.log && ! grep -qE '^\[(WARNING|ERROR)\]' docs/build.log \

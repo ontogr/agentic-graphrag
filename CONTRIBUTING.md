@@ -41,7 +41,7 @@ uv run pre-commit install
 
 ## Docs
 
-- The docs website is at `docs/`, served at `ontogr.github.io/agentic-graphrag`. Guides live as Markdown/MDX under `docs/docs/`.
+- The docs website is at `docs/`, served at `ontogr.github.io/agentic-graphrag`. Guides live as Markdown/MDX under `docs/docs/`. Link to other pages with relative file paths such as `../concepts/chunking.mdx`, so a link in a versioned copy of the docs stays in that version. `make docs-build` fails on links that start with `/`.
 - The API reference has two parts. `docs/docs/api/index.md` is the hand-written Core API page. The other pages in `docs/docs/api/` are generated from the docstrings of Agentic GraphRAG with `griffe2md`. Run `make docs-api` to regenerate them. Do not edit them by hand. `make docs-dev` and `make docs-build` regenerate them automatically.
 
 ```bash

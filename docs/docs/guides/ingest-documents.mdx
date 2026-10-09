@@ -5,13 +5,13 @@ title: Ingest documents
 
 # Ingest documents
 
-Add files, directories, raw text, or prebuilt `Document` objects to a `Graph` with `Graph.add`. This guide covers the ingestion entrypoint only. See the [API Reference](/api) for every parameter.
+Add files, directories, raw text, or prebuilt `Document` objects to a `Graph` with `Graph.add`. This guide covers the ingestion entrypoint only. See the [API Reference](../api/index.md) for every parameter.
 
-For how the pipeline works, see [Ingestion pipeline](/concepts/ingestion).
+For how the pipeline works, see [Ingestion pipeline](../concepts/ingestion.mdx).
 
 ## Before you start
 
-This guide assumes that you finished the [Quickstart](/get-started/quickstart): you have a Neo4j database, its `NEO4J_*` variables in a `.env` file, and the `neo4j` and `extract` extras installed. Each code block on this page is complete. It opens its own graph and closes it at the end.
+This guide assumes that you finished the [Quickstart](../get-started/quickstart.mdx): you have a Neo4j database, its `NEO4J_*` variables in a `.env` file, and the `neo4j` and `extract` extras installed. Each code block on this page is complete. It opens its own graph and closes it at the end.
 
 For PDF, DOCX, PPTX, image, and XML support, install the docling extra:
 
@@ -369,11 +369,11 @@ asyncio.run(main())
 
 ## Supported formats
 
-Loaders are chosen by file extension. See [Loading documents](/concepts/loading#supported-formats) for the formats and the extra each one needs.
+Loaders are chosen by file extension. See [Loading documents](../concepts/loading.mdx#supported-formats) for the formats and the extra each one needs.
 
 ## Next steps
 
-- See the [API Reference](/api) for every parameter.
+- See the [API Reference](../api/index.md) for every parameter.
 - Change how documents are split in [Configure chunking](./configure-chunking.mdx).
 - [Update and delete documents](./update-and-delete-documents.mdx) replaces a changed document or removes one.
-- [Ingestion pipeline](/concepts/ingestion#crash-safety) explains how an interrupted call recovers.
+- [Ingestion pipeline](../concepts/ingestion.mdx#crash-safety) explains how an interrupted call recovers.

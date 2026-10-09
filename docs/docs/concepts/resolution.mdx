@@ -6,7 +6,7 @@ description: How Agentic GraphRAG decides which mentions name the same real-worl
 
 # Entity resolution
 
-Entity resolution decides which mentions name the same real-world thing. It only decides. The page [Matching and resolved entities](/concepts/resolved-entities) explains what Agentic GraphRAG writes after a decision.
+Entity resolution decides which mentions name the same real-world thing. It only decides. The page [Matching and resolved entities](./resolved-entities.mdx) explains what Agentic GraphRAG writes after a decision.
 
 ## Why it exists
 
@@ -45,7 +45,7 @@ If no LLM is configured, the remaining pairs stay unmatched. The graph stays cor
 
 ## Two scopes
 
-`Graph.add` compares the mentions of one call with each other and with similar entities that the graph already stores. `Graph.consolidate` runs the same tiers over every entity in the graph, when you ask for it. If you added data before an LLM was configured, use it. The guide [Consolidate duplicates](/guides/consolidate-duplicates) shows how.
+`Graph.add` compares the mentions of one call with each other and with similar entities that the graph already stores. `Graph.consolidate` runs the same tiers over every entity in the graph, when you ask for it. If you added data before an LLM was configured, use it. The guide [Consolidate duplicates](../guides/consolidate-duplicates.mdx) shows how.
 
 ## Example
 
@@ -73,7 +73,7 @@ Why compare only equal labels? A city and a company can have the same name. Keep
 
 ## Related
 
-- Guide: [Consolidate duplicates](/guides/consolidate-duplicates)
-- Guide: [Extract and resolve entities](/guides/extract-and-resolve)
-- Previous: [Extraction](/concepts/extraction). Next: [Matching and resolved entities](/concepts/resolved-entities)
-- Reference: [Ingestion API](/api/ingestion)
+- Guide: [Consolidate duplicates](../guides/consolidate-duplicates.mdx)
+- Guide: [Extract and resolve entities](../guides/extract-and-resolve.mdx)
+- Previous: [Extraction](./extraction.mdx). Next: [Matching and resolved entities](./resolved-entities.mdx)
+- Reference: [Ingestion API](../api/ingestion/index.md)
