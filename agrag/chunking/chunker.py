@@ -203,7 +203,7 @@ class Chunker:
             text: The text to split.
 
         Returns:
-            The pieces in order. The text of each piece equals the slice of the
+            The pieces in order. Each piece's text is a slice of the input text.
 
         Raises:
             ChunkingError: A piece does not match its slice, or the pieces do not
