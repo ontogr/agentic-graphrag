@@ -75,9 +75,9 @@ const config = {
           routeBasePath: '/',
           sidebarPath: './sidebars.js',
           remarkPlugins: [remarkChangelog],
-          // The site root is the newest release, the first entry of versions.json. Releases
-          // are frozen copies of the docs, added by `make docs-version`.
-          // The newest release is at /stable/ and the docs of the main branch are at /latest/.
+          // The newest release, the first entry of versions.json, is served at /stable/
+          // and the docs of the main branch at /latest/. Releases are frozen copies of the
+          // docs, added by `make docs-version`.
           versions: {
             current: {label: 'latest', path: 'latest', banner: 'unreleased'},
             [releases[0]]: {label: `${releases[0]} (stable)`, path: 'stable'},
@@ -180,6 +180,7 @@ const config = {
           width: 32,
           height: 32,
         },
+        // Pages that the newest release does not have yet are linked at /latest/. Link them at /stable/ after the next release.
         links: [
           {
             title: 'Learn',
