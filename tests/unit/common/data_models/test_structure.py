@@ -72,6 +72,14 @@ class TestIds:
         assert node_id(key, "v1") == node_id(key, "v1")
         assert node_id(key, "v1") != node_id(key, "v2")
 
+    def test_ids_differ_when_a_colon_moves_between_parts(self) -> None:
+        """Parts that join to the same text give different ids."""
+        document_id = node_id(section_keys(sectioned_document(_tree()))[0], "v")
+
+        assert chunk_id(document_id, "a:b", "c", 0) != chunk_id(
+            document_id, "a", "b:c", 0
+        )
+
     def test_version_id_follows_the_content_hash(self) -> None:
         """Version id follows the content hash."""
         first = version_id(sectioned_document([], content_hash="a"))

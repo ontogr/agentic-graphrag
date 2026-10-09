@@ -1,5 +1,6 @@
 """Stable keys, node ids, reading order and ancestry for the sections of a Document."""
 
+import json
 from uuid import NAMESPACE_OID, UUID, uuid5
 
 from agrag.common.data_models.document import (
@@ -20,7 +21,7 @@ _PATH_SEPARATOR = "\x1f"
 
 
 def _uuid(*parts: object) -> UUID:
-    return uuid5(NAMESPACE_OID, ":".join(str(part) for part in parts))
+    return uuid5(NAMESPACE_OID, json.dumps([str(part) for part in parts]))
 
 
 def version_id(document: Document) -> str:
