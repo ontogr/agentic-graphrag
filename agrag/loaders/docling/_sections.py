@@ -70,7 +70,6 @@ def _caption(item: FloatingItem, doc: DoclingDocument) -> str | None:
 
 
 def _table_rows(table: TableItem) -> tuple[list[list[str]], int]:
-    # A spanned cell is one cell that fills every grid slot it covers.
     grid = table.data.grid
     rows = [[cell.text for cell in row] for row in grid]
     header_rows = 0

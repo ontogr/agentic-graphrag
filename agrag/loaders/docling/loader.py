@@ -9,7 +9,7 @@ it when they convert.
 import hashlib
 import io
 from collections.abc import Iterator
-from importlib.metadata import version
+from importlib.metadata import PackageNotFoundError, version
 from typing import Any, BinaryIO
 
 from agrag.common.data_models.document import Document, DocumentFamily, SourceFormat
@@ -108,7 +108,7 @@ class DoclingLoader(ProseLoader):
         text = document.export_to_markdown()
         try:
             loader_version = version("docling")
-        except Exception:  # noqa: BLE001 - version is best-effort metadata
+        except PackageNotFoundError:
             loader_version = None
         sections = sections_from_docling(document, self._depths(document))
         title = next((s.heading for s in sections if s.heading), None)
