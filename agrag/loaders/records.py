@@ -21,7 +21,10 @@ from agrag.loaders.types import CsvMode, JsonMode, ReadOptions, SourceRef
 
 
 class CsvLoader(RecordLoader):
-    """Reads CSV and TSV files as one document per row.
+    """Reads CSV and TSV files as one record document per row.
+
+    With ``csv_mode=TABLE`` the loader yields one prose Document for the whole
+    source instead.
 
     Attributes:
         extensions: The ``.csv`` and ``.tsv`` extensions.
@@ -37,16 +40,18 @@ class CsvLoader(RecordLoader):
         *,
         start_at: int = 0,
     ) -> Iterator[Document]:
-        """Yield one record Document per row.
+        """Yield one record Document per row, or one prose Document for a table.
 
         Args:
             source: The source to read.
             stream: The open binary stream for the source.
             opts: The read options. ``csv_delimiter`` overrides the separator.
+                ``csv_mode=TABLE`` reads the whole source as one prose Document.
             start_at: The record index to resume from.
 
         Yields:
-            One Document per row, in file order.
+            One record Document per row in file order, or one prose Document in
+            table mode.
 
         Raises:
             MalformedRecordError: A row fails to parse.
@@ -94,6 +99,11 @@ class CsvLoader(RecordLoader):
 class JsonlLoader(RecordLoader):
     """Reads JSON Lines files as one document per line.
 
+    A line that holds a JSON object becomes a record Document. A line that holds
+    another JSON value becomes a prose Document of its JSON text. With
+    ``json_mode=DOCUMENT`` the loader yields one prose Document for the whole
+    source.
+
     Attributes:
         extensions: The ``.jsonl`` and ``.ndjson`` extensions.
     """
@@ -108,16 +118,19 @@ class JsonlLoader(RecordLoader):
         *,
         start_at: int = 0,
     ) -> Iterator[Document]:
-        """Yield one record Document per JSON object.
+        """Yield one Document per non-blank line, or one for the whole source.
 
         Args:
             source: The source to read.
             stream: The open binary stream for the source.
-            opts: The read options.
+            opts: The read options. ``json_mode=DOCUMENT`` reads the whole source
+                as one prose Document.
             start_at: The record index to resume from.
 
         Yields:
-            One Document per line, in file order.
+            One Document per non-blank line, in file order. A line that is a JSON
+            object gives a record Document. A line with any other JSON value gives
+            a prose Document.
 
         Raises:
             MalformedRecordError: A line is not valid JSON.

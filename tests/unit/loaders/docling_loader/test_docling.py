@@ -93,6 +93,14 @@ class TestConversionFailure:
             with pytest.raises(DocumentConversionError):
                 list(DoclingLoader().load(_source(), BytesIO(_RAW), ReadOptions()))
 
+    def test_a_failed_export_raises_document_conversion_error(self) -> None:
+        """A failure after the conversion still counts as a conversion failure."""
+        with patch("agrag.loaders.docling.loader.slim_converter") as converter:
+            document = converter.return_value.convert.return_value.document
+            document.export_to_markdown.side_effect = RuntimeError("export failed")
+            with pytest.raises(DocumentConversionError):
+                list(DoclingLoader().load(_source(), BytesIO(_RAW), ReadOptions()))
+
     def test_a_pdf_failure_is_wrapped_too(self) -> None:
         """The PDF loader wraps the same way."""
         from docling.exceptions import ConversionError  # noqa: PLC0415

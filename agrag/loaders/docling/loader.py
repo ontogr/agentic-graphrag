@@ -86,19 +86,22 @@ class DoclingLoader(ProseLoader):
         Raises:
             DocumentTooLargeError: The source is larger than the configured byte
                 limit.
-            DocumentConversionError: Docling or the PDF text check failed on the
-                source, for any reason. Walker policies such as SKIP and QUARANTINE
-                catch this error.
+            DocumentConversionError: Docling, its export, or the PDF text check
+                failed on the source, for any reason. Walker policies such as SKIP
+                and QUARANTINE catch this error.
             ValueError: ``opts.max_document_bytes`` is not a positive integer.
         """
         raw = read_within_limit(stream, source, opts)
         try:
             parsed = self._convert(source, raw)
+            text = parsed.export_to_markdown()
+            body = read_body(parsed)
+            depths = numbered_depths(body) if self._is_pdf else {}
+            sections = sections_from_docling(body, depths)
         except Exception as exc:
             raise DocumentConversionError(
                 f"docling could not convert {source.uri}: {exc}"
             ) from exc
-        text = parsed.export_to_markdown()
         try:
             loader_version: str | None = version("docling")
         except PackageNotFoundError:
@@ -106,9 +109,6 @@ class DoclingLoader(ProseLoader):
                 loader_version = version("docling-slim")
             except PackageNotFoundError:
                 loader_version = None
-        body = read_body(parsed)
-        depths = numbered_depths(body) if self._is_pdf else {}
-        sections = sections_from_docling(body, depths)
         title = next((s.heading for s in sections if s.heading), None)
         yield build_prose_document(
             source=source,

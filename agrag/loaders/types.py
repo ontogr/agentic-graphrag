@@ -47,7 +47,8 @@ class DecodedText:
         had_bom: Whether the source started with a byte-order mark.
         content_hash: The sha256 hash of the normalized text.
         char_count: The number of characters in ``text``.
-        line_count: The number of lines in ``text``.
+        line_count: The number of lines in ``text``, counted by line feeds. A lone
+            carriage return kept by the ``keep`` newline setting does not count.
     """
 
     text: str
@@ -107,11 +108,13 @@ class ReadOptions:
 
     Attributes:
         encoding: The text encoding to use. ``None`` lets the decoder detect it.
-        max_document_bytes: The largest prose source the loader will read.
+        max_document_bytes: The largest source, prose or record, the loader will read.
         store_text: When false, the document text is an empty string.
         store_raw_record: When true, a record document keeps its raw row data.
         on_error: The error policy to apply inside the reader.
-        text_column: The column that holds document text. Required for record sources.
+        text_column: The column that holds document text. ``None`` uses the first of
+            ``text``, ``body``, ``content`` and ``description`` that exists, or the
+            last column.
         id_column: The column whose value becomes the document id.
         title_column: The column whose value becomes the document title.
         json_mode: The JSON reading mode.

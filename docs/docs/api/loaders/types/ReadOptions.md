@@ -16,11 +16,13 @@ Frozen so it is safe to share across worker processes.
 **Attributes:**
 
 - [**encoding**](#agrag-loaders-types-ReadOptions-encoding) (<code>str | None</code>) – The text encoding to use. `None` lets the decoder detect it.
-- [**max_document_bytes**](#agrag-loaders-types-ReadOptions-max_document_bytes) (<code>int</code>) – The largest prose source the loader will read.
+- [**max_document_bytes**](#agrag-loaders-types-ReadOptions-max_document_bytes) (<code>int</code>) – The largest source, prose or record, the loader will read.
 - [**store_text**](#agrag-loaders-types-ReadOptions-store_text) (<code>bool</code>) – When false, the document text is an empty string.
 - [**store_raw_record**](#agrag-loaders-types-ReadOptions-store_raw_record) (<code>bool</code>) – When true, a record document keeps its raw row data.
 - [**on_error**](#agrag-loaders-types-ReadOptions-on_error) (<code>[ErrorPolicy](ErrorPolicy.md)</code>) – The error policy to apply inside the reader.
-- [**text_column**](#agrag-loaders-types-ReadOptions-text_column) (<code>str | None</code>) – The column that holds document text. Required for record sources.
+- [**text_column**](#agrag-loaders-types-ReadOptions-text_column) (<code>str | None</code>) – The column that holds document text. `None` uses the first of
+  `text`, `body`, `content` and `description` that exists, or the
+  last column.
 - [**id_column**](#agrag-loaders-types-ReadOptions-id_column) (<code>str | None</code>) – The column whose value becomes the document id.
 - [**title_column**](#agrag-loaders-types-ReadOptions-title_column) (<code>str | None</code>) – The column whose value becomes the document title.
 - [**json_mode**](#agrag-loaders-types-ReadOptions-json_mode) (<code>[JsonMode](JsonMode.md)</code>) – The JSON reading mode.

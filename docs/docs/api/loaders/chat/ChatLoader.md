@@ -80,8 +80,8 @@ Yield one prose Document that holds every message.
 **Raises:**
 
 - <code>[MalformedRecordError](../errors/MalformedRecordError.md)</code> – A message is not a JSON object with a non-empty
-  string `role`, a string `content` and a unique `id`, or the
-  source is not valid JSON of the expected shape.
+  string `role` and a string `content`, an `id` repeats an
+  earlier one, or the source is not valid JSON of the expected shape.
 
 ## `mime_types` \{#agrag-loaders-chat-ChatLoader-mime_types}
 

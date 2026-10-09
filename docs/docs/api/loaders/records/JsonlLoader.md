@@ -9,6 +9,11 @@ Bases: <code>[RecordLoader](../base/RecordLoader.md)</code>
 
 Reads JSON Lines files as one document per line.
 
+A line that holds a JSON object becomes a record Document. A line that holds
+another JSON value becomes a prose Document of its JSON text. With
+`json_mode=DOCUMENT` the loader yields one prose Document for the whole
+source.
+
 **Attributes:**
 
 - [**extensions**](#agrag-loaders-records-JsonlLoader-extensions) – The `.jsonl` and `.ndjson` extensions.
@@ -16,7 +21,7 @@ Reads JSON Lines files as one document per line.
 **Functions:**
 
 - [**is_available**](#agrag-loaders-records-JsonlLoader-is_available) – Return whether this loader can run in this process.
-- [**load**](#agrag-loaders-records-JsonlLoader-load) – Yield one record Document per JSON object.
+- [**load**](#agrag-loaders-records-JsonlLoader-load) – Yield one Document per non-blank line, or one for the whole source.
 
 ## `extensions` \{#agrag-loaders-records-JsonlLoader-extensions}
 
@@ -54,18 +59,21 @@ package, so an installed package that fails to import still counts.
 load(source:SourceRef, stream:BinaryIO, opts:ReadOptions, *, start_at:int = 0) -> Iterator[Document]
 ```
 
-Yield one record Document per JSON object.
+Yield one Document per non-blank line, or one for the whole source.
 
 **Parameters:**
 
 - **source** (<code>[SourceRef](../types/SourceRef.md)</code>) – The source to read.
 - **stream** (<code>BinaryIO</code>) – The open binary stream for the source.
-- **opts** (<code>[ReadOptions](../types/ReadOptions.md)</code>) – The read options.
+- **opts** (<code>[ReadOptions](../types/ReadOptions.md)</code>) – The read options. `json_mode=DOCUMENT` reads the whole source
+  as one prose Document.
 - **start_at** (<code>int</code>) – The record index to resume from.
 
 **Yields:**
 
-- <code>[Document](../../common/data_models/document/Document-ref.md)</code> – One Document per line, in file order.
+- <code>[Document](../../common/data_models/document/Document-ref.md)</code> – One Document per non-blank line, in file order. A line that is a JSON
+- <code>[Document](../../common/data_models/document/Document-ref.md)</code> – object gives a record Document. A line with any other JSON value gives
+- <code>[Document](../../common/data_models/document/Document-ref.md)</code> – a prose Document.
 
 **Raises:**
 

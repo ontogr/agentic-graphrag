@@ -64,8 +64,9 @@ class TextLoader(ProseLoader):
 class XmlLoader(ProseLoader):
     """Reads an XML file as the text of its elements.
 
-    The loader drops the tags and keeps the text of each element on its own line.
-    Text inside a CDATA section is not kept.
+    The loader drops the tags and joins the text it finds with newlines. Text in
+    an element with mixed content is split at its child elements. Text inside a
+    CDATA section is not kept.
 
     Attributes:
         extensions: The ``.xml`` extension.

@@ -97,8 +97,8 @@ class ChatLoader(ProseLoader):
 
         Raises:
             MalformedRecordError: A message is not a JSON object with a non-empty
-                string ``role``, a string ``content`` and a unique ``id``, or the
-                source is not valid JSON of the expected shape.
+                string ``role`` and a string ``content``, an ``id`` repeats an
+                earlier one, or the source is not valid JSON of the expected shape.
         """
         raw = read_within_limit(stream, source, opts)
         decoded = decode_text(raw, opts)
