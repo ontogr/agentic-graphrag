@@ -273,15 +273,17 @@ docs-dev: docs-api
 
 # Absolute links like /guides/x always open the latest version. Relative file links stay in the version.
 docs-lint-links:
-	@! grep -rEn --include='*.md' --include='*.mdx' '(\]\(|href=")/[A-Za-z0-9]' docs/docs --exclude-dir=api \
-	  || { echo "Link to docs pages with relative file paths such as ../concepts/chunking.mdx."; exit 1; }
+	@grep -rEn --include='*.md' --include='*.mdx' '(\]\(|href=")/[A-Za-z0-9]' docs/docs --exclude-dir=api; \
+	status=$$?; \
+	if [ $$status -eq 0 ]; then echo "Link to docs pages with relative file paths such as ../concepts/chunking.mdx."; exit 1; fi; \
+	if [ $$status -ne 1 ]; then exit $$status; fi
 
 # The version of the package. The docs version of a release has the same name.
 DOCS_VERSION = $(shell $(DOCS_PYTHON) -c "import tomllib; print(tomllib.load(open('pyproject.toml', 'rb'))['project']['version'])")
 
 # A pull request that raises the version in pyproject.toml must also freeze its docs.
 docs-check-version:
-	@grep -q '"$(DOCS_VERSION)"' docs/versions.json \
+	@grep -qF '"$(DOCS_VERSION)"' docs/versions.json \
 	  || { echo "docs/versions.json has no $(DOCS_VERSION). Run 'make docs-version' in the pull request that bumps the version."; exit 1; }
 
 # Freeze the docs of the version in pyproject.toml. Run it in the pull request that raises the
