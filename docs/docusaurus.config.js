@@ -76,7 +76,7 @@ const config = {
           sidebarPath: './sidebars.js',
           remarkPlugins: [remarkChangelog],
           // The site root is the newest release, the first entry of versions.json. Releases
-          // are frozen copies of the docs, added by .github/workflows/docs-version.yml.
+          // are frozen copies of the docs, added by `make docs-version`.
           // The newest release is at /stable/ and the docs of the main branch are at /latest/.
           versions: {
             current: {label: 'latest', path: 'latest', banner: 'unreleased'},

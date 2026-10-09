@@ -88,11 +88,8 @@ Run `uv run pre-commit install` once to enable the commit hooks.
 
 ## Releasing
 
-To publish a release, push a tag:
-
-```bash
-git tag v0.1.0 && git push origin v0.1.0
-```
+1. In a pull request, raise `version` in `pyproject.toml` and run `make docs-version`. It freezes the docs as the new version of the docs site. Commit the new files in `docs/versioned_docs/`, `docs/versioned_sidebars/` and `docs/versions.json`. `make docs-build` fails if the version has no frozen docs.
+2. After the pull request is merged, create a GitHub release with a new tag such as `v0.1.0`. The tag starts the publish to PyPI.
 
 ## Reporting bugs and requesting features
 
