@@ -1,15 +1,10 @@
 """The docling loaders.
 
-Importing this package registers ``DoclingLoader`` and ``DoclingPdfLoader`` with the
-corpus registry. Docling reads every format it claims. The core loaders keep plain
-text, XML and the record formats.
+Docling reads every format it claims. The core loaders keep plain text, XML and the
+record formats.
 """
 
-from agrag.loaders import registry
 from agrag.loaders.docling.loader import DoclingLoader, DoclingPdfLoader
 
-
-registry.register(DoclingLoader())
-registry.register(DoclingPdfLoader())
 
 __all__ = ["DoclingLoader", "DoclingPdfLoader"]

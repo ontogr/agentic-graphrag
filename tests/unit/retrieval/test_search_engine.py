@@ -150,7 +150,7 @@ class TestSearchEngine:
                 new_callable=AsyncMock,
             ) as mock_cv,
             patch(
-                "agrag.retrieval.retrievers.chunk.ChunkRetriever._parse_chunk_node",
+                "agrag.common.data_models.chunk.Chunk.from_node",
             ) as mock_cp,
         ):
             mock_ev.return_value = [VectorHit(id=ent.id, score=0.9, payload={})]
@@ -293,7 +293,7 @@ class TestSearchEngine:
                 new_callable=AsyncMock,
             ) as mock_cv,
             patch(
-                "agrag.retrieval.retrievers.chunk.ChunkRetriever._parse_chunk_node",
+                "agrag.common.data_models.chunk.Chunk.from_node",
             ) as mock_cp,
         ):
             mock_ev.return_value = [VectorHit(id=ent.id, score=0.9, payload={})]
@@ -556,7 +556,7 @@ class TestSearchEngine:
                 new_callable=AsyncMock,
             ) as mock_cv,
             patch(
-                "agrag.retrieval.retrievers.chunk.ChunkRetriever._parse_chunk_node",
+                "agrag.common.data_models.chunk.Chunk.from_node",
             ) as mock_cp,
             patch(
                 "agrag.retrieval.search_engine.node_distance_rerank",
@@ -800,7 +800,7 @@ class TestSearchEngine:
                 return_value=[VectorHit(id=ch.id, score=0.8, payload={})],
             ),
             patch(
-                "agrag.retrieval.retrievers.chunk.ChunkRetriever._parse_chunk_node",
+                "agrag.common.data_models.chunk.Chunk.from_node",
                 return_value=ch,
             ),
             caplog.at_level(logging.WARNING, logger="agrag.retrieval.search_engine"),
@@ -838,7 +838,7 @@ class TestSearchEngine:
                 new_callable=AsyncMock,
             ) as mock_cv,
             patch(
-                "agrag.retrieval.retrievers.chunk.ChunkRetriever._parse_chunk_node",
+                "agrag.common.data_models.chunk.Chunk.from_node",
             ) as mock_cp,
         ):
             mock_cv.return_value = [VectorHit(id=ch.id, score=0.8, payload={})]

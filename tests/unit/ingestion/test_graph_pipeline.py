@@ -48,9 +48,9 @@ from agrag.ingestion._ingest_pipeline import (
     _delete_vectors,
     _embed_and_upsert_chunks,
     _embed_and_upsert_survivors,
-    _global_relation_lookup,
     _upsert_vectors,
 )
+from agrag.ingestion._merge_stage import _global_relation_lookup
 from agrag.ingestion._resolution_maintenance import all_entities_by_label
 from agrag.ingestion._walk import resolve_paths
 from agrag.ingestion.extract import Extractor
@@ -1779,7 +1779,7 @@ class TestGraphAddPipeline:
             extractor=RelExtractor(),
         )
 
-        import agrag.ingestion._ingest_pipeline as gmod  # noqa: PLC0415
+        import agrag.ingestion._merge_stage as gmod  # noqa: PLC0415
 
         async def fake_compute(  # type: ignore[no-untyped-def]
             *, existing_entities, mentions, schema, **kw
@@ -1874,7 +1874,7 @@ class TestGraphAddPipeline:
             extractor=AliceExtractor(),
         )
 
-        import agrag.ingestion._ingest_pipeline as gmod  # noqa: PLC0415
+        import agrag.ingestion._merge_stage as gmod  # noqa: PLC0415
 
         async def fake_compute(  # type: ignore[no-untyped-def]
             *, existing_entities, mentions, schema, **kw

@@ -95,6 +95,3 @@ class LoaderRegistry:
                 return entry.loader
 
         raise MissingExtraError(source.extension, extra)
-
-
-registry = LoaderRegistry()

@@ -2,7 +2,8 @@
 
 import json
 import re
-from typing import Literal
+from collections.abc import Mapping
+from typing import Any, Literal
 from uuid import UUID
 
 from pydantic import Field, model_validator
@@ -82,6 +83,28 @@ class Chunk(DataPoint):
         if self.id is None:
             raise ValueError("Chunk.id must be set by the chunker.")
         return self
+
+    @classmethod
+    def from_node(cls, properties: Mapping[str, Any]) -> "Chunk":
+        """Build a Chunk from the flat properties of a stored Chunk node.
+
+        Args:
+            properties: The node properties, as ``to_node_record`` writes them.
+                ``provenance`` may be the JSON text that ``to_node_record`` writes
+                or the decoded mapping.
+
+        Returns:
+            The validated Chunk.
+
+        Raises:
+            ValueError: A property is missing, is not JSON when it should be, or
+                does not validate. Pydantic's ValidationError is a ValueError.
+        """
+        data = dict(properties)
+        provenance = data.get("provenance")
+        if isinstance(provenance, str):
+            data["provenance"] = json.loads(provenance)
+        return cls.model_validate(data)
 
     @property
     def contextual_text(self) -> str:

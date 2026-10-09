@@ -5,6 +5,7 @@ The docling loaders live in ``agrag.loaders.docling``. PDF and image files need 
 """
 
 from agrag.loaders.chat import ChatLoader
+from agrag.loaders.defaults import register_default_loaders
 from agrag.loaders.errors import (
     DecodeError,
     DocumentConversionError,
@@ -14,19 +15,14 @@ from agrag.loaders.errors import (
     MissingExtraError,
     UnsupportedFormatError,
 )
-from agrag.loaders.loader_registry import LoaderRegistry, registry
+from agrag.loaders.loader_registry import LoaderRegistry
 from agrag.loaders.prose import TextLoader, XmlLoader
 from agrag.loaders.records import CsvLoader, JsonlLoader, JsonLoader
 from agrag.loaders.types import ErrorPolicy, IngestResult, LoadStats, ReadOptions
 
 
-registry.register(TextLoader())
-registry.register(XmlLoader())
-registry.register(CsvLoader())
-registry.register(JsonlLoader())
-registry.register(JsonLoader())
-
-import agrag.loaders.docling  # noqa: F401
+registry = LoaderRegistry()
+register_default_loaders(registry)
 
 
 __all__ = [
@@ -48,5 +44,6 @@ __all__ = [
     "TextLoader",
     "XmlLoader",
     "UnsupportedFormatError",
+    "register_default_loaders",
     "registry",
 ]

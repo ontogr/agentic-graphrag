@@ -10,7 +10,3 @@ The extension-to-loader registry.
 **Classes:**
 
 - [**LoaderRegistry**](LoaderRegistry.md) – Maps a source extension to the loader that reads it.
-
-**Attributes:**
-
-- [**registry**](registry.md) –

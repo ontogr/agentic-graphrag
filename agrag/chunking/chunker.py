@@ -11,6 +11,7 @@ from uuid import UUID
 from chonkie import RecursiveChunker
 from chonkie.tokenizer import AutoTokenizer
 
+from agrag.chunking._edge_orders import EdgeOrders
 from agrag.chunking._tables import table_texts, would_exceed
 from agrag.common.data_models.chunk import Chunk
 from agrag.common.data_models.document import (
@@ -64,6 +65,15 @@ def _by_page(spans: list[PageSpan]) -> list[PageSpan]:
     return sorted(spans, key=lambda span: span.page_no)
 
 
+def _table_page_spans(unit: Unit, chunk_count: int) -> list[PageSpan]:
+    """Return the pages that the chunks of a table claim.
+
+    A table that became one chunk claims all of its pages. A row group holds
+    only part of the table, so each row group claims none.
+    """
+    return _by_page(unit.pages) if chunk_count == 1 else []
+
+
 @dataclass(frozen=True, slots=True)
 class TextPiece:
     """A piece of text that ``Chunker.split`` made.
@@ -92,6 +102,10 @@ class _Piece:
     position: int
     tokens: int
     is_heading: bool = False
+
+
+def _only_headings(pieces: list[_Piece]) -> bool:
+    return all(piece.is_heading for piece in pieces)
 
 
 @dataclass(frozen=True, slots=True)
@@ -239,19 +253,29 @@ class Chunker:
         return _Run(self, document).run()
 
 
+def _as_single_section(document: Document) -> Document:
+    """Wrap the text of a document that has no sections in one section.
+
+    Record rows carry their text at document level. The packer works on
+    sections, so the text becomes one unnamed section. The section never
+    becomes a graph node; chunks of such a document attach to the document.
+    """
+    body = Unit(
+        kind=UnitKind.PARAGRAPH,
+        text=document.text,
+        char_start=0,
+        char_end=len(document.text),
+    )
+    section = DocumentSection(heading="", depth=0, units=[body])
+    return document.model_copy(update={"sections": [section]})
+
+
 class _Run:
     def __init__(self, chunker: Chunker, document: Document) -> None:
         self._chunker = chunker
-        self._whole = not document.sections and bool(document.text.strip())
-        if self._whole:
-            body = Unit(
-                kind=UnitKind.PARAGRAPH,
-                text=document.text,
-                char_start=0,
-                char_end=len(document.text),
-            )
-            section = DocumentSection(heading="", depth=0, units=[body])
-            document = document.model_copy(update={"sections": [section]})
+        self._sections_in_graph = bool(document.sections)
+        if not document.sections and document.text.strip():
+            document = _as_single_section(document)
         units = [unit for section in document.sections for unit in section.units]
         offsets = [unit.char_start is not None for unit in units]
         if any(offsets) and not all(offsets):
@@ -277,7 +301,7 @@ class _Run:
         self._placements: list[ChunkPlacement] = []
         self._open: list[_Piece] = []
         self._used = 0
-        self._taken_orders: set[tuple[UUID, int]] = set()
+        self._orders = EdgeOrders()
 
     def run(self) -> ChunkedDocument:
         chunker = self._chunker
@@ -351,7 +375,7 @@ class _Run:
     def _table(self, unit: Unit, section: int, unit_index: int, position: int) -> None:
         texts = table_texts(unit, self._chunker.size, self._chunker.count_tokens)
         table_id = self._unit_ids[section, unit_index]
-        spans = _by_page(unit.pages) if len(texts) == 1 else []
+        spans = _table_page_spans(unit, len(texts))
         for text in texts:
             self._emit(
                 text,
@@ -366,7 +390,9 @@ class _Run:
         pieces = self._open
         if not pieces:
             return
-        if all(piece.is_heading for piece in pieces):
+        if _only_headings(pieces):
+            # A heading reaches later chunks through their heading path, so a
+            # chunk that holds only headings is dropped rather than emitted.
             self._open, self._used = [], 0
             return
         text = _SEPARATOR.join(piece.text for piece in pieces)
@@ -385,6 +411,24 @@ class _Run:
         self._emit(text, provenance, covered, pieces[0].position)
         self._open, self._used = [], 0
 
+    def _covered_section_ids(self, covered: list[int]) -> list[UUID]:
+        if not self._sections_in_graph:
+            return []
+        return [self._section_ids[i] for i in covered]
+
+    def _parent_and_order(
+        self,
+        table: UUID | None,
+        ancestor: int | None,
+        position: int,
+        index: int,
+    ) -> tuple[UUID, int]:
+        if table is not None:
+            return table, index
+        if ancestor is None or not self._sections_in_graph:
+            return self._document_id, position
+        return self._section_ids[ancestor], position
+
     def _emit(
         self,
         text: str,
@@ -398,16 +442,9 @@ class _Run:
         ancestor = None if not covered else common_ancestor(self._sections, covered)
         index = len(self._chunks)
         fingerprint = self._chunker.fingerprint
-        section_ids = [] if self._whole else [self._section_ids[i] for i in covered]
-        if table is not None:
-            parent, order = table, index
-        elif self._whole or ancestor is None:
-            parent, order = self._document_id, position
-        else:
-            parent, order = self._section_ids[ancestor], position
-        while (parent, order) in self._taken_orders:
-            order += 1
-        self._taken_orders.add((parent, order))
+        section_ids = self._covered_section_ids(covered)
+        parent, order = self._parent_and_order(table, ancestor, position, index)
+        order = self._orders.take(parent, order)
         self._chunks.append(
             Chunk(
                 id=chunk_id(self._document_id, self._version, fingerprint, index),

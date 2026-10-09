@@ -33,6 +33,7 @@ One retrieval-sized piece of a Document.
 
 **Functions:**
 
+- [**from_node**](#agrag-common-data_models-chunk-Chunk-from_node) – Build a Chunk from the flat properties of a stored Chunk node.
 - [**section_label**](#agrag-common-data_models-chunk-Chunk-section_label) – Return the heading path as one line, or `None` when the path is empty.
 - [**to_node_record**](#agrag-common-data_models-chunk-Chunk-to_node_record) – Return this chunk as a GraphStore write record.
 
@@ -82,6 +83,29 @@ document_id: UUID
 ```python
 embedding: list[float] | None = None
 ```
+
+## `from_node` \{#agrag-common-data_models-chunk-Chunk-from_node}
+
+```python
+from_node(properties:Mapping[str, Any]) -> Chunk
+```
+
+Build a Chunk from the flat properties of a stored Chunk node.
+
+**Parameters:**
+
+- **properties** (<code>Mapping\[str, Any\]</code>) – The node properties, as `to_node_record` writes them.
+  `provenance` may be the JSON text that `to_node_record` writes
+  or the decoded mapping.
+
+**Returns:**
+
+- <code>Chunk</code> – The validated Chunk.
+
+**Raises:**
+
+- <code>ValueError</code> – A property is missing, is not JSON when it should be, or
+  does not validate. Pydantic's ValidationError is a ValueError.
 
 ## `heading_path` \{#agrag-common-data_models-chunk-Chunk-heading_path}
 

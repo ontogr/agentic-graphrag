@@ -1,5 +1,7 @@
 """Chunk retriever: dense vector search over chunks."""
 
+import logging
+
 from opentelemetry.trace import Tracer
 
 from agrag.common.data_models.chunk import CHUNK_LABEL, Chunk
@@ -8,13 +10,16 @@ from agrag.cypher.entities import load_chunks_by_id_query
 from agrag.embedding.base import Embedder
 from agrag.graphdb.base import GraphStore
 from agrag.observability import get_tracer
-from agrag.retrieval.chunking import parse_chunk_node
+from agrag.retrieval.chunking import node_properties
 from agrag.retrieval.filters import SearchFilters
 from agrag.retrieval.methods.vector import vector_search
 from agrag.retrieval.retrievers.base import Retriever
 from agrag.retrieval.settings import RetrievalSettings
 from agrag.retrieval.tracing import record_results, retrieval_span
 from agrag.vectordb.base import VectorStore
+
+
+logger = logging.getLogger(__name__)
 
 
 class ChunkRetriever(Retriever):
@@ -115,35 +120,28 @@ class ChunkRetriever(Retriever):
                     load_chunks_by_id_query(), {"ids": ids, "job_id": None}
                 )
                 by_id: dict[str, Chunk] = {}
+                invalid_count = 0
                 for row in rows:
+                    node = row.get("n") if isinstance(row, dict) and "n" in row else row
+                    properties = node_properties(node)
                     try:
-                        node = (
-                            row.get("n")
-                            if isinstance(row, dict) and "n" in row
-                            else row
+                        chunk = Chunk.from_node(properties)
+                    except ValueError as exc:
+                        invalid_count += 1
+                        logger.warning(
+                            "Skipping chunk %s: it failed validation: %s",
+                            properties.get("id"),
+                            exc,
                         )
-                        chunk = self._parse_chunk_node(node)
-                        if chunk is not None:
-                            by_id[str(chunk.id)] = chunk
-                    except Exception:
                         continue
+                    by_id[str(chunk.id)] = chunk
                 if load.is_recording():
                     load.set_attribute("agrag.loaded_count", len(by_id))
-            results: list[SearchResult] = []
-            for hit in hits:
-                try:
-                    chunk = by_id.get(str(hit.id))
-                    if chunk is None:
-                        continue
-                    results.append(
-                        SearchResult(item=chunk, score=hit.score, method=self.name)
-                    )
-                except Exception:
-                    continue
+                    load.set_attribute("agrag.invalid_count", invalid_count)
+            results = [
+                SearchResult(item=by_id[str(hit.id)], score=hit.score, method=self.name)
+                for hit in hits
+                if str(hit.id) in by_id
+            ]
             record_results(span, results)
             return results
-
-    @staticmethod
-    def _parse_chunk_node(node: object) -> Chunk | None:
-        """Parse a GraphStore node row into a Chunk."""
-        return parse_chunk_node(node)

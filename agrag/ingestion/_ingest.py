@@ -127,7 +127,7 @@ def _group_by_document(
 
     def _or_first(found: str | None, *, kind: str) -> str:
         if found is None:
-            logger.debug(
+            logger.warning(
                 "%s maps to no listed document; joining the first slice.", kind
             )
             return ordered_keys[0]
@@ -166,7 +166,7 @@ def _group_by_document(
         source_key, source_index = slice_position[relation.source_index]
         target_key, target_index = slice_position[relation.target_index]
         if source_key != target_key:
-            logger.debug(
+            logger.warning(
                 "Dropping relation %r across slices %r and %r.",
                 relation.label,
                 source_key,

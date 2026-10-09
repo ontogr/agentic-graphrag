@@ -33,15 +33,22 @@ from agrag.common.data_models.extraction import (
 from agrag.common.data_models.graph_record import UpsertFailure, UpsertResult
 from agrag.common.data_models.graph_schema import GENERIC, GraphSchema
 from agrag.common.data_models.provenance import TextProvenance
+from agrag.common.data_models.stage_failure import StageFailure
 from agrag.common.data_models.vector_record import VectorHit
 from agrag.embedding.base import Embedder
-from agrag.ingestion._ingest_pipeline import extract_chunks, ingest_chunks
+from agrag.ingestion._ingest_pipeline import (
+    embed_chunks_stage,
+    extract_chunks,
+    ingest_chunks,
+)
+from agrag.ingestion._storage import WriteOutcome
 from agrag.ingestion.extract import Extractor
 from agrag.ingestion.graph import Graph
 from agrag.ingestion.resolve import ResolutionResult
 from agrag.ingestion.resolve.candidate_source import GraphCandidateSource
 from agrag.ingestion.stats import IngestStats
 from agrag.loaders.types import ErrorPolicy
+from agrag.observability import get_tracer
 from agrag.retrieval.settings import RetrievalSettings
 from tests.unit.ingestion._lease_fake import CutoverJobLeaseFake
 
@@ -878,3 +885,75 @@ class TestResolutionContextWiring:
         assert kwargs["similarity_by_pair"] == {(0, 2): 0.91}
         assert kwargs["neighbors_by_index"][2] == ["WORKS_AT Acme"]
         assert fetch_neighbors.await_args.args[0] == [candidate_id]
+
+
+class _RecordingEmbedder(Embedder):
+    """Fake embedder that records the texts it was asked to embed."""
+
+    model = "fake"
+
+    def __init__(self) -> None:
+        self.texts: list[str] = []
+
+    async def dimensions(self) -> int:
+        """Return a small fixed dimension."""
+        return 4
+
+    async def embed(self, texts: Sequence[str]) -> list[list[float]]:
+        """Record the texts and return a zero vector per text."""
+        self.texts.extend(texts)
+        return [[0.0] * 4 for _ in texts]
+
+
+class TestEmbedChunksStage:
+    """Chunk embedding covers the chunks the graph holds after the node write."""
+
+    @staticmethod
+    async def _embed(
+        chunks: list[Chunk], store: AsyncMock, writes: WriteOutcome
+    ) -> tuple[list[str], list[StageFailure]]:
+        embedder = _RecordingEmbedder()
+        result = await embed_chunks_stage(
+            chunks,
+            {chunk.id for chunk in chunks if chunk.id is not None},
+            writes,
+            embedder=embedder,
+            graph_store=store,
+            error_policy=ErrorPolicy.SKIP,
+            vector_store=None,
+            vector_collection="chunks",
+            job_id=None,
+            embed_heading_path=False,
+            tracer=get_tracer(None),
+        )
+        return embedder.texts, result.failures
+
+    async def test_skips_chunks_whose_node_write_failed(self) -> None:
+        """A chunk the node write reported as failed is not embedded."""
+        document = _doc(key="a")
+        failed, landed = (
+            _chunk(document, text="failed"),
+            _chunk(document, text="landed"),
+        )
+        writes = WriteOutcome(failed_ids={failed.id}, wrote_any=True)
+
+        texts, failures = await self._embed([failed, landed], _store()[0], writes)
+
+        assert texts == ["landed"]
+        assert failures == []
+
+    async def test_embeds_only_chunks_the_graph_holds_when_nothing_was_written(
+        self,
+    ) -> None:
+        """With no node write sent, the graph read decides which chunks landed."""
+        document = _doc(key="a")
+        landed = _chunk(document, text="landed")
+        missing = _chunk(document, text="missing")
+        store, _ = _store()
+        store.execute_read.return_value = [{"n": {"id": str(landed.id)}}]
+
+        texts, _ = await self._embed(
+            [landed, missing], store, WriteOutcome(wrote_any=False)
+        )
+
+        assert texts == ["landed"]

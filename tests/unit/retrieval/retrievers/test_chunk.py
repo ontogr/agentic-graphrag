@@ -144,10 +144,10 @@ class TestChunkRetriever:
     @pytest.mark.parametrize(
         "extra",
         [
-            {"section_key": str(uuid4())},
+            {"text": None},
             {"provenance": None},
         ],
-        ids=["table-node", "no-provenance"],
+        ids=["no-text", "no-provenance"],
     )
     def test_a_node_that_is_not_a_chunk_is_skipped(self, extra: dict) -> None:
         """Table, figure and bare nodes never become empty chunks."""
@@ -193,16 +193,14 @@ class TestChunkRetriever:
         assert chunk.chunker == "section"
         assert chunk.chunker_hash == "0123456789abcdef"
 
-    async def test_bad_section_id_is_skipped_while_chunk_is_kept(self) -> None:
-        """One unparsable section id does not drop the chunk."""
+    async def test_invalid_row_is_skipped_and_logged_with_its_chunk_id(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A row that fails validation is dropped and its chunk id is logged."""
         ch_id, doc_id = uuid4(), uuid4()
-        good = uuid4()
         gs = AsyncMock()
-        row = _node(ch_id, doc_id, "kept", section_ids=[good])
-        props = row["n"]["properties"]
-        assert isinstance(props["section_ids"], list)
-        props["section_ids"].append("not-a-uuid")
-
+        row = _node(ch_id, doc_id, "kept", section_ids=[uuid4()])
+        row["n"]["properties"]["section_ids"].append("not-a-uuid")
         gs.execute_read.return_value = [row]
 
         with patch(
@@ -210,14 +208,13 @@ class TestChunkRetriever:
             new_callable=AsyncMock,
         ) as mock_vs:
             mock_vs.return_value = [VectorHit(id=ch_id, score=0.5, payload={})]
-            results = await ChunkRetriever(
-                graph_store=gs, embedder=MockEmbedder()
-            ).retrieve("test")
+            with caplog.at_level("WARNING", logger="agrag.retrieval.retrievers.chunk"):
+                results = await ChunkRetriever(
+                    graph_store=gs, embedder=MockEmbedder()
+                ).retrieve("test")
 
-        assert len(results) == 1
-        chunk = results[0].item
-        assert isinstance(chunk, Chunk)
-        assert chunk.section_ids == [good]
+        assert results == []
+        assert str(ch_id) in caplog.text
 
     async def test_skips_missing_chunks(self) -> None:
         """Chunks not found in the store are skipped."""

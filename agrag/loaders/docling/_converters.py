@@ -5,7 +5,11 @@ from typing import Any, Literal
 OcrChoice = Literal["off", "default", "full"]
 _SlimKey = Literal["slim"]
 
+# A page with a real text layer has far more than a few stray characters such as a
+# page number, so fewer characters than this means the page needs OCR.
 _TEXT_LAYER_MIN_CHARS = 50
+# When most pages lack text the file is a scan, so every page gets full-page OCR
+# rather than OCR of only the text-free gaps.
 _FULL_PAGE_OCR_SHARE = 0.8
 
 _converters: dict[_SlimKey | OcrChoice, Any] = {}

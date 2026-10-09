@@ -9,10 +9,11 @@ from unittest.mock import patch
 
 import pytest
 
-import agrag.loaders.docling  # noqa: F401  (registers the docling loaders)
 from agrag.loaders import registry
+from agrag.loaders.defaults import register_default_loaders
 from agrag.loaders.docling.loader import DoclingLoader, DoclingPdfLoader
 from agrag.loaders.errors import MissingExtraError
+from agrag.loaders.loader_registry import LoaderRegistry
 from agrag.loaders.prose import TextLoader, XmlLoader
 from agrag.loaders.records import CsvLoader, JsonlLoader, JsonLoader
 from agrag.loaders.types import SourceRef
@@ -83,3 +84,32 @@ class TestMissingExtra:
             loader = _loader_for(".md")
 
         assert type(loader) is DoclingLoader
+
+
+class TestRegisterDefaultLoaders:
+    """A fresh registry gets the same loaders as the default registry."""
+
+    def test_fresh_registry_routes_rich_and_core_formats(self) -> None:
+        """Both docling and core loaders are present after one call."""
+        fresh = LoaderRegistry()
+        register_default_loaders(fresh)
+
+        assert (
+            type(fresh.for_source(SourceRef(uri="x.txt", extension=".txt")))
+            is TextLoader
+        )
+        assert (
+            type(fresh.for_source(SourceRef(uri="x.md", extension=".md")))
+            is DoclingLoader
+        )
+
+    def test_registering_twice_keeps_one_loader_per_extension(self) -> None:
+        """A second call does not add a duplicate registration."""
+        fresh = LoaderRegistry()
+        register_default_loaders(fresh)
+        register_default_loaders(fresh)
+
+        assert (
+            type(fresh.for_source(SourceRef(uri="x.csv", extension=".csv")))
+            is CsvLoader
+        )

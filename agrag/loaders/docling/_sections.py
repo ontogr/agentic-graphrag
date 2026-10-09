@@ -24,8 +24,14 @@ from agrag.common.data_models.document import DocumentSection, Unit, UnitKind
 from agrag.common.data_models.provenance import BoundingBox, PageSpan
 
 
-_NUMBERED = re.compile(r"^\s*(\d+(?:\.\d+){0,5})[.)]?\s+\S")
+# Six dotted parts covers "1.2.3.4.5.6"; deeper numbers are not read as depth.
+_MAX_NUMBERING_DEPTH = 6
+_NUMBERED = re.compile(rf"^\s*(\d+(?:\.\d+){{0,{_MAX_NUMBERING_DEPTH - 1}}})[.)]?\s+\S")
+# A majority of numbered headings marks the outline as numbered; a few numbered
+# titles in an otherwise unnumbered document must not reshape its sections.
 _MIN_NUMBERED_SHARE = 0.5
+# Fewer headings than this give too little evidence of a numbering scheme, so a
+# lone "1." heading would otherwise set the depth of the whole outline.
 _MIN_HEADINGS = 3
 
 
@@ -37,23 +43,37 @@ class DocumentBody:
     floating_members: frozenset[str]
 
 
+class _FloatingScopes:
+    """Floating items whose nested content the depth-first walk is still inside."""
+
+    def __init__(self) -> None:
+        self._levels: list[int] = []
+
+    def open(self, level: int) -> None:
+        self._levels.append(level)
+
+    def contains(self, level: int) -> bool:
+        """Pop ended scopes; report whether ``level`` is inside one."""
+        while self._levels and level <= self._levels[-1]:
+            self._levels.pop()
+        return bool(self._levels)
+
+
 def read_body(doc: DoclingDocument) -> DocumentBody:
     from docling_core.types.doc import ContentLayer, FloatingItem  # noqa: PLC0415
 
     items: list[NodeItem] = []
     captions: set[str] = set()
     members: set[str] = set()
-    open_floating: list[int] = []
+    floating = _FloatingScopes()
     for item, level in doc.iterate_items(
         with_groups=False, included_content_layers={ContentLayer.BODY}
     ):
-        while open_floating and level <= open_floating[-1]:
-            open_floating.pop()
-        if open_floating:
+        if floating.contains(level):
             members.add(item.self_ref)
         items.append(item)
         if isinstance(item, FloatingItem):
-            open_floating.append(level)
+            floating.open(level)
             captions.update(ref.cref for ref in item.captions)
     return DocumentBody(
         doc=doc,
@@ -130,17 +150,33 @@ def _table_rows(table: TableItem) -> tuple[list[list[str]], int]:
     return rows, header_rows
 
 
-def _open_section(
-    sections: list[DocumentSection],
-    open_headings: list[tuple[int, int]],
-    heading: str,
-    depth: int,
-) -> None:
-    while open_headings and open_headings[-1][0] >= depth:
-        open_headings.pop()
-    parent = open_headings[-1][1] if open_headings else None
-    sections.append(DocumentSection(heading=heading, depth=depth, parent=parent))
-    open_headings.append((depth, len(sections) - 1))
+class _SectionTree:
+    """Sections in document order, each nested under the heading open above it."""
+
+    def __init__(self) -> None:
+        self.sections: list[DocumentSection] = []
+        self._preamble: DocumentSection | None = None
+        self._open_headings: list[tuple[int, int]] = []
+
+    def open_heading(self, heading: str, depth: int) -> None:
+        while self._open_headings and self._open_headings[-1][0] >= depth:
+            self._open_headings.pop()
+        parent = self._open_headings[-1][1] if self._open_headings else None
+        self.sections.append(
+            DocumentSection(heading=heading, depth=depth, parent=parent)
+        )
+        self._open_headings.append((depth, len(self.sections) - 1))
+
+    def current(self) -> DocumentSection:
+        if self._open_headings:
+            return self.sections[self._open_headings[-1][1]]
+        # Content before the first heading has no heading to nest under, so it
+        # goes to an unnamed section; this runs only before any heading opens,
+        # which keeps that section first in the output.
+        if self._preamble is None:
+            self._preamble = DocumentSection(heading="", depth=0)
+            self.sections.append(self._preamble)
+        return self._preamble
 
 
 def _heading_depth(
@@ -166,22 +202,14 @@ def sections_from_docling(
     )
 
     doc = body.doc
-    sections: list[DocumentSection] = []
-    open_headings: list[tuple[int, int]] = []
+    tree = _SectionTree()
     list_group: str | None = None
     list_texts: list[str] = []
     list_pages: list[PageSpan] = []
 
-    def _current() -> DocumentSection:
-        if open_headings:
-            return sections[open_headings[-1][1]]
-        if not sections:
-            sections.append(DocumentSection(heading="", depth=0))
-        return sections[0]
-
     def _flush_list() -> None:
         if list_texts:
-            _current().units.append(
+            tree.current().units.append(
                 Unit(
                     kind=UnitKind.LIST,
                     text="\n".join(list_texts),
@@ -202,9 +230,7 @@ def sections_from_docling(
         if isinstance(item, TitleItem | SectionHeaderItem):
             _flush_list()
             list_group = None
-            _open_section(
-                sections, open_headings, item.text, _heading_depth(item, depths)
-            )
+            tree.open_heading(item.text, _heading_depth(item, depths))
             continue
         if isinstance(item, ListItem):
             group = item.parent.cref if item.parent else None
@@ -218,9 +244,9 @@ def sections_from_docling(
         list_group = None
         unit = _unit(item, doc)
         if unit is not None:
-            _current().units.append(unit)
+            tree.current().units.append(unit)
     _flush_list()
-    return sections
+    return tree.sections
 
 
 def _unit(item: NodeItem, doc: DoclingDocument) -> Unit | None:

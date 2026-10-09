@@ -7,9 +7,8 @@ sidebar_label: docling
 
 The docling loaders.
 
-Importing this package registers `DoclingLoader` and `DoclingPdfLoader` with the
-corpus registry. Docling reads every format it claims. The core loaders keep plain
-text, XML and the record formats.
+Docling reads every format it claims. The core loaders keep plain text, XML and the
+record formats.
 
 **Modules:**
 

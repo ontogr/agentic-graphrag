@@ -17,6 +17,7 @@ The docling loaders live in `agrag.loaders.docling`. PDF and image files need th
 - [**chat**](chat/index.md) – Chat reader: JSON Lines or JSON messages, one section for each message.
 - [**common**](common/index.md) – Shared helpers for the corpus readers.
 - [**decode**](decode/index.md) – The four-step decode pipeline for source bytes.
+- [**defaults**](defaults/index.md) – The loaders that the corpus registry holds by default.
 - [**docling**](docling/index.md) – The docling loaders.
 - [**errors**](errors/index.md) – Errors that the ingestion layer raises.
 - [**loader_registry**](loader_registry/index.md) – The extension-to-loader registry.
@@ -46,6 +47,10 @@ The docling loaders live in `agrag.loaders.docling`. PDF and image files need th
 - [**UnsupportedFormatError**](errors/UnsupportedFormatError.md) – No registered loader can read this source's format.
 - [**XmlLoader**](prose/XmlLoader.md) – Reads an XML file as the text of its elements.
 
+**Functions:**
+
+- [**register_default_loaders**](defaults/register_default_loaders.md) – Register every default loader on a registry.
+
 **Attributes:**
 
-- [**registry**](loader_registry/registry.md) –
+- [**registry**](registry.md) –
