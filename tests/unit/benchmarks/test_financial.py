@@ -138,6 +138,17 @@ class TestDocuments:
         assert documents[0].content_hash == f"{0:064d}"
         assert documents[0].loader_name == "docling"
 
+    def test_a_second_call_reuses_the_cached_conversion(self, tmp_path, monkeypatch):
+        """Docling runs once per PDF, however often the documents are built."""
+        converted = self._patch(monkeypatch, tmp_path)
+        corpus = self._corpus("A_2022_10K")
+
+        first = FinancialAdapter().documents(corpus)
+        second = FinancialAdapter().documents(corpus)
+
+        assert converted == ["A_2022_10K.pdf"]
+        assert first[0].text == second[0].text
+
     def _patch_pages(self, monkeypatch, tmp_path: Path) -> list[int]:
         """Serve a 4-page PDF and record the width of each page that converts."""
         pytest.importorskip("pypdfium2")

@@ -363,6 +363,27 @@ class TestBuildAgent:
         assert kwargs["filters"] == filters
         assert kwargs["filters"] is not filters
 
+    async def test_run_scoped_agent_passes_a_tracing_callback_per_run(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Each run gets its own callback built from the tracer."""
+        captured: dict = {}
+        _capture_deepagents(monkeypatch, captured)
+        agent = _RunScopedAgent(
+            engine=_engine(),
+            model=MagicMock(),
+            settings=AgentSettings(),
+            tracer=TracerProvider().get_tracer("t"),
+        )
+
+        await agent.ainvoke({"messages": [{"role": "user", "content": "q"}]})
+        first = captured["config"]["callbacks"]
+        await agent.ainvoke({"messages": [{"role": "user", "content": "q"}]})
+        second = captured["config"]["callbacks"]
+
+        assert len(first) == len(second) == 1
+        assert first[0] is not second[0]
+
     async def test_run_scoped_agent_has_no_callbacks_without_a_tracer(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
