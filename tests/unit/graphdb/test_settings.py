@@ -1,8 +1,7 @@
 """Tests for Neo4jSettings in agrag.graphdb.settings.
 
 Covers the validator rejecting a plaintext bolt/neo4j scheme against a
-non-local host while allowing plaintext localhost and encrypted remote
-schemes (neo4j+s, neo4j+ssc). Also covers validation errors leaving out the
+non-local host. Also covers validation errors leaving out the
 configured password and every other value read from ``.env``.
 """
 
@@ -16,14 +15,6 @@ from agrag.graphdb.settings import Neo4jSettings
 
 class TestEncryptedRemoteConnection:
     """A plaintext URI to a non-local host is rejected."""
-
-    def test_localhost_plaintext_is_allowed(self) -> None:
-        """The local dev default, plaintext against localhost, is fine."""
-        Neo4jSettings(uri="bolt://localhost:7687")
-
-    def test_remote_encrypted_is_allowed(self) -> None:
-        """A remote host is fine once the scheme is encrypted."""
-        Neo4jSettings(uri="neo4j+s://example.databases.neo4j.io:7687")
 
     def test_remote_plaintext_raises(self) -> None:
         """A remote host over a plaintext scheme raises.

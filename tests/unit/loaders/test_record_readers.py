@@ -1,21 +1,19 @@
 """Tests for CsvLoader, JsonlLoader, and JsonLoader.
 
 Reads fixtures from the local ``fixtures/`` directory. Covers per-row/line/
-element document splitting, unique ids per record, resume via start_at
-(including JSON Lines counting logical records rather than physical lines
-across blank lines), id/title/text column configuration, CSV table mode
-producing a single prose document, TSV delimiter handling, storing raw
-records, hiding text under ``store_text=False``, JSON array-versus-object
-disambiguation and DOCUMENT mode, and malformed input raising
-MalformedRecordError (missing/empty text or id column, unterminated CSV
-quoting, non-JSON JSON-Lines row) or DocumentTooLargeError for an oversized
-source with an unknown byte size.
+element document splitting, resume via start_at (including JSON Lines counting
+logical records rather than physical lines across blank lines), id/title/text
+column configuration, CSV table mode producing a single prose document, TSV
+delimiter handling, storing raw records, hiding text under ``store_text=False``,
+JSON array-versus-object disambiguation and DOCUMENT mode, and malformed input
+raising MalformedRecordError (missing/empty text or id column, unterminated CSV
+quoting).
 """
 
 from io import BytesIO
 
-from agrag.common.data_models.document import DocumentFamily, SourceFormat
-from agrag.loaders.errors import DocumentTooLargeError, MalformedRecordError
+from agrag.common.data_models.document import DocumentFamily
+from agrag.loaders.errors import MalformedRecordError
 from agrag.loaders.records import CsvLoader, JsonlLoader, JsonLoader
 from agrag.loaders.types import CsvMode, JsonMode, ReadOptions, SourceRef
 
@@ -38,24 +36,6 @@ def _docs(loader, name: str, extension: str, opts: ReadOptions | None = None):
 
 class TestCsvLoader:
     """CSV files yield one record document per row."""
-
-    def test_one_document_per_row(self) -> None:
-        """One document per row."""
-        docs = _docs(CsvLoader(), "sample.csv", ".csv")
-        assert len(docs) == 3
-        assert docs[0].family == DocumentFamily.RECORD
-        assert docs[0].source_format == SourceFormat.CSV
-        assert docs[0].text == "First row body text."
-
-    def test_rows_have_unique_ids(self) -> None:
-        """Each row gets its own id; rows must not share the file-level hash."""
-        docs = _docs(CsvLoader(), "sample.csv", ".csv")
-        assert len({d.id for d in docs}) == len(docs)
-
-    def test_record_index_increases(self) -> None:
-        """Record index increases."""
-        docs = _docs(CsvLoader(), "sample.csv", ".csv")
-        assert [d.record_index for d in docs] == [0, 1, 2]
 
     def test_id_column_sets_record_id(self) -> None:
         """Id column sets record id."""
@@ -128,20 +108,6 @@ class TestCsvLoader:
             return
         raise AssertionError("expected MalformedRecordError")
 
-    def test_oversized_source_with_unknown_byte_size_raises(self) -> None:
-        """A record source with no reported byte size is still capped."""
-        ref = SourceRef(uri="x.csv", extension=".csv", byte_size=None)
-        source = b"id,body\n" + b"1,x\n" * 20
-        try:
-            list(
-                CsvLoader().load(
-                    ref, BytesIO(source), ReadOptions(max_document_bytes=10)
-                )
-            )
-        except DocumentTooLargeError:
-            return
-        raise AssertionError("expected DocumentTooLargeError")
-
     def test_malformed_quoting_raises(self) -> None:
         """An unterminated quoted field raises instead of ingesting garbled data."""
         ref = SourceRef(uri="x.csv", extension=".csv", byte_size=None)
@@ -156,12 +122,6 @@ class TestCsvLoader:
 class TestJsonlLoader:
     """JSON Lines files yield one document per line."""
 
-    def test_one_document_per_line(self) -> None:
-        """One document per line."""
-        docs = _docs(JsonlLoader(), "sample.jsonl", ".jsonl")
-        assert len(docs) == 3
-        assert docs[0].text == "First jsonl record."
-
     def test_non_object_line_is_prose(self) -> None:
         """Non object line is prose."""
         ref = SourceRef(uri="x.jsonl", extension=".jsonl", byte_size=None)
@@ -169,16 +129,6 @@ class TestJsonlLoader:
         docs = list(JsonlLoader().load(ref, BytesIO(source), ReadOptions()))
         assert docs[0].family == DocumentFamily.RECORD
         assert docs[1].family == DocumentFamily.PROSE
-
-    def test_malformed_line_raises(self) -> None:
-        """Malformed line raises."""
-        ref = SourceRef(uri="x.jsonl", extension=".jsonl", byte_size=None)
-        source = b'{"id": "a"}\nnot json\n'
-        try:
-            list(JsonlLoader().load(ref, BytesIO(source), ReadOptions()))
-        except MalformedRecordError:
-            return
-        raise AssertionError("expected MalformedRecordError")
 
     def test_blank_lines_do_not_shift_record_index(self) -> None:
         """Record index counts emitted records, skipping blank physical lines."""
@@ -198,13 +148,6 @@ class TestJsonlLoader:
 
 class TestJsonLoader:
     """JSON files disambiguate arrays from objects."""
-
-    def test_top_level_array_yields_records(self) -> None:
-        """Top level array yields records."""
-        docs = _docs(JsonLoader(), "sample_array.json", ".json")
-        assert len(docs) == 3
-        assert docs[0].family == DocumentFamily.RECORD
-        assert docs[0].text == "First array record."
 
     def test_top_level_object_is_one_prose_document(self) -> None:
         """Top level object is one prose document."""

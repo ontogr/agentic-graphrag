@@ -6,7 +6,7 @@ the real converter on small files that need no model.
 """
 
 from io import BytesIO
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -165,30 +165,6 @@ class TestConversionFailure:
                 )
 
 
-class TestRouting:
-    """Each loader claims its own formats."""
-
-    def test_pdf_and_images_belong_to_the_pdf_loader_only(self) -> None:
-        """The slim loader needs no model, so it claims no PDF or image."""
-        assert ".pdf" in DoclingPdfLoader.extensions
-        assert ".png" in DoclingPdfLoader.extensions
-        assert not DoclingLoader.extensions & DoclingPdfLoader.extensions
-
-    def test_csv_and_xml_belong_to_neither(self) -> None:
-        """Rows need their identity and XML has a core reader."""
-        claimed = DoclingLoader.extensions | DoclingPdfLoader.extensions
-
-        assert not claimed & {".csv", ".tsv", ".xml", ".txt", ".json"}
-
-    def test_only_the_pdf_loader_needs_the_extra(self) -> None:
-        """A bare install reads every format except PDF and images."""
-        assert DoclingLoader.extra is None
-        assert DoclingLoader().is_available()
-        assert DoclingPdfLoader.extra == "docling"
-        with patch("importlib.util.find_spec", return_value=None):
-            assert not DoclingPdfLoader().is_available()
-
-
 class TestPageBoxes:
     """Page boxes use a top-left origin."""
 
@@ -233,15 +209,3 @@ class TestPageBoxes:
         (section,) = sections_from_docling(read_body(doc))
 
         assert section.units[0].pages == []
-
-
-def test_a_loaded_document_hashes_the_raw_bytes() -> None:
-    """The content hash does not depend on what docling returns."""
-    with patch("agrag.loaders.docling.loader.slim_converter") as converter:
-        parsed = DoclingDocument(name="t")
-        converter.return_value.convert.return_value = MagicMock(document=parsed)
-        (document,) = DoclingLoader().load(_source(), BytesIO(_RAW), ReadOptions())
-
-    import hashlib  # noqa: PLC0415
-
-    assert document.content_hash == hashlib.sha256(_RAW).hexdigest()

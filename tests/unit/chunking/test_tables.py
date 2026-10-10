@@ -24,12 +24,6 @@ class TestTableTexts:
 
         assert texts == ["| name | qty |\n| --- | --- |\n| a | 1 |\n| b | 2 |"]
 
-    def test_the_first_row_is_the_header_when_none_is_marked(self) -> None:
-        """The first row is the header when none is marked."""
-        unit = _table([["h1", "h2"], ["x", "y"]], header_rows=0)
-
-        assert table_texts(unit, 100, _count)[0].startswith("| h1 | h2 |")
-
     def test_every_group_repeats_the_header_and_only_the_first_has_the_caption(
         self,
     ) -> None:

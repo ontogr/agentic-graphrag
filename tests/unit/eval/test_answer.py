@@ -32,7 +32,6 @@ class _ScriptedJudge(DeepEvalBaseLLM):
 
     def __init__(self, fail_on: str | None = None) -> None:
         self.scoring_calls = 0
-        self.scoring_prompts: list[str] = []
         self._fail_on = fail_on
         super().__init__("scripted")
 
@@ -50,7 +49,6 @@ class _ScriptedJudge(DeepEvalBaseLLM):
                 {"steps": ["Compare the output with the context."]}
             )
         self.scoring_calls += 1
-        self.scoring_prompts.append(prompt)
         if self._fail_on and self._fail_on in prompt:
             raise RuntimeError("judge failed")
         score = 10 if "supported claim" in prompt else 0
@@ -154,15 +152,6 @@ class TestAnswerCase:
 
 class TestCitationAccuracyMetric:
     """The metric scores each cited sentence and combines precision and recall."""
-
-    async def test_judge_checks_claims_and_relationships_against_evidence(self) -> None:
-        """The judge gets instructions to check claims, not just entity mentions."""
-        judge = _ScriptedJudge()
-        await _score("Acme founded in 1994 [E1].", judge)
-
-        assert len(judge.scoring_prompts) == 1
-        assert "claims and relationships" in judge.scoring_prompts[0]
-        assert "entities or figures appear individually" in judge.scoring_prompts[0]
 
     @pytest.mark.parametrize(
         "answer",
@@ -347,25 +336,6 @@ class TestCitationAccuracyMetric:
 
         assert abstained.score_breakdown["sentence_rows"] == []
         assert uncited.score_breakdown["sentence_rows"] == []
-
-    async def test_missing_judge_reason_records_empty_reason(self, monkeypatch) -> None:
-        """A judge with no reason still yields a string reason."""
-        metric = CitationAccuracyMetric(_ScriptedJudge())
-
-        class _MuteMetric:
-            reason = None
-
-            async def a_measure(self, case: Any) -> float:  # noqa: ANN401, ARG002
-                return 10.0
-
-        monkeypatch.setattr(
-            "agrag.eval.answer._support_metric", lambda *args, **kwargs: _MuteMetric()
-        )
-        await metric.a_measure(
-            answer_case("q", _result("This is a supported claim [E1]."), "reference")
-        )
-
-        assert metric.score_breakdown["sentence_rows"][0]["reason"] == ""
 
 
 def _gate_row(

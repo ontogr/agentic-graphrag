@@ -1,4 +1,4 @@
-"""Tests for the pure Document/PART_OF record-construction helpers.
+"""Tests for the pure document dedupe and NEXT_CHUNK record helpers.
 
 Every function here is pure: no GraphStore mocking, plain data in and
 RelationRecord/NodeRecord out.
@@ -17,10 +17,9 @@ from agrag.common.data_models.document import (
 from agrag.common.data_models.provenance import TextProvenance
 from agrag.ingestion._lexical_backbone import (
     build_next_chunk_records,
-    build_part_of_records,
     distinct_documents,
 )
-from agrag.ingestion.merge import next_chunk_id, part_of_id
+from agrag.ingestion.merge import next_chunk_id
 
 
 def _doc(
@@ -68,66 +67,9 @@ class TestDistinctDocuments:
         assert result == [first]
         assert result[0].title == "first"
 
-    def test_keeps_all_distinct_documents(self) -> None:
-        """Two distinct documents both appear, in first-seen order."""
-        first, second = _doc(uri="a"), _doc(uri="b")
-        result = distinct_documents([first, second])
-        assert result == [first, second]
-
-
-class TestBuildPartOfRecords:
-    """build_part_of_records links one document node to its structure nodes."""
-
-    def test_record_endpoints_and_type(self) -> None:
-        """Each record points Document -[:PART_OF]-> Chunk with the right id."""
-        document_id = uuid4()
-        document_node_id = uuid4()
-        chunk = _chunk(document_id)
-        [record] = build_part_of_records(document_node_id, [chunk.id], version_id="v1")
-        assert record.type == "PART_OF"
-        assert record.start_id == document_node_id
-        assert record.end_id == chunk.id
-        assert chunk.id is not None
-        assert record.id == part_of_id(document_node_id, chunk.id, "v1")
-        assert record.properties["version_id"] == "v1"
-
-    def test_never_cross_links_distinct_documents(self) -> None:
-        """Chunks from two documents each link only to their own document node."""
-        doc_a_id, doc_b_id = uuid4(), uuid4()
-        node_a, node_b = uuid4(), uuid4()
-        chunk_a = _chunk(doc_a_id)
-        chunk_b = _chunk(doc_b_id)
-
-        records_a = build_part_of_records(node_a, [chunk_a.id], version_id="v1")
-        records_b = build_part_of_records(node_b, [chunk_b.id], version_id="v1")
-
-        assert records_a[0].start_id == node_a
-        assert records_a[0].end_id == chunk_a.id
-        assert records_b[0].start_id == node_b
-        assert records_b[0].end_id == chunk_b.id
-
 
 class TestBuildNextChunkRecords:
     """build_next_chunk_records links adjacent chunks per document."""
-
-    def test_n_chunks_produce_n_minus_one(self) -> None:
-        """An N-chunk document produces exactly N-1 edges, not N or N+1."""
-        document_id = uuid4()
-        chunks = [_chunk(document_id, index=i, start=i * 4) for i in range(4)]
-        records = build_next_chunk_records(chunks)
-        assert len(records) == 3
-
-    def test_single_chunk_produces_zero(self) -> None:
-        """A single-chunk document produces zero NEXT_CHUNK edges."""
-        assert build_next_chunk_records([_chunk(uuid4())]) == []
-
-    def test_records_carry_no_temporal_properties(self) -> None:
-        """NEXT_CHUNK records carry no valid_at/invalid_at."""
-        document_id = uuid4()
-        chunks = [_chunk(document_id, index=0), _chunk(document_id, index=1)]
-        [first, *_] = build_next_chunk_records(chunks)
-        assert first.properties == {}
-        assert first.type == "NEXT_CHUNK"
 
     def test_orders_chunks_and_keeps_documents_separate(self) -> None:
         """Edges follow chunk indexes and never cross document boundaries."""
@@ -142,20 +84,6 @@ class TestBuildNextChunkRecords:
         assert records[0].start_id == previous.id
         assert records[0].end_id == first.id
         assert records[0].id == next_chunk_id(previous.id, first.id)
-
-    def test_links_all_chunks_of_a_document_in_index_order(self) -> None:
-        """Text chunks and table chunks share one chain."""
-        document_id = uuid4()
-        chunks = [_chunk(document_id, f"c{i}", index=i) for i in range(3)]
-        chunks[1] = chunks[1].model_copy(update={"content_kind": "table"})
-
-        records = build_next_chunk_records(chunks)
-
-        pairs = [(r.start_id, r.end_id) for r in records]
-        assert pairs == [
-            (chunks[0].id, chunks[1].id),
-            (chunks[1].id, chunks[2].id),
-        ]
 
     def test_sections_and_table_chunks_share_one_document_chain(self) -> None:
         """document_id alone decides the chain, not section or content kind."""

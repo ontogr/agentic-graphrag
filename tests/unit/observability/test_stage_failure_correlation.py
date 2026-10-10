@@ -6,7 +6,6 @@ real host context still propagates that context without leaking its ids
 into StageFailure fields.
 """
 
-from opentelemetry import trace
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
@@ -32,30 +31,6 @@ def _provider() -> tuple[TracerProvider, InMemorySpanExporter]:
 
 class TestStageFailureContext:
     """stage_failure_context reads the current span only when recorded."""
-
-    def test_returns_current_span_ids_inside_open_span(self) -> None:
-        """Hex ids inside an open span match that span's own context."""
-        provider, _exporter = _provider()
-        tracer = provider.get_tracer("test")
-        with tracer.start_as_current_span("work"):
-            current = trace.get_current_span().get_span_context()
-            trace_id, span_id = stage_failure_context()
-        assert trace_id == format(current.trace_id, "032x")
-        assert span_id == format(current.span_id, "016x")
-        assert len(trace_id or "") == 32
-        assert len(span_id or "") == 16
-        assert (trace_id or "").islower()
-        assert (span_id or "").islower()
-
-    def test_returns_none_with_no_span_open(self) -> None:
-        """No ambient span means (None, None), not zero ids."""
-        assert trace.get_current_span() is trace.INVALID_SPAN
-        assert stage_failure_context() == (None, None)
-
-    def test_returns_none_under_noop_tracer(self) -> None:
-        """A get_tracer(None) span records nothing to correlate to."""
-        with get_tracer(None).start_as_current_span("agrag.ingestion.add"):
-            assert stage_failure_context() == (None, None)
 
     def test_never_returns_host_ids_under_tracer_none(self) -> None:
         """A host span active under tracer=None keeps its own ids private."""

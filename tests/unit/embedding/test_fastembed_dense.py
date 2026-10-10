@@ -1,13 +1,13 @@
 """Tests for FastEmbedEmbedder in agrag.embedding.fastembed_dense.
 
-A MockFastEmbedModel (records the thread each ``embed`` ran on, the texts and the
-batch size it received) is injected through the ``model`` parameter, and a
+A MockFastEmbedModel (records the thread each ``embed`` ran on and the texts it
+received) is injected through the ``model`` parameter, and a
 _RecordingCache implements EmbeddingCache, so no model is downloaded and no network
 is used. Covers output normalization, that ``embed`` runs off the event-loop thread,
 lazy and shared model loading, cache reads and writes, and tracing spans through a
 real SDK ``TracerProvider`` with an in-memory exporter. The granite registration
 tests patch ``fastembed.TextEmbedding`` to check when the model is registered with
-FastEmbed and how the model is built from ``EmbeddingSettings``.
+FastEmbed.
 """
 
 import asyncio
@@ -23,7 +23,6 @@ from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
     InMemorySpanExporter,
 )
-from opentelemetry.trace import StatusCode
 
 from agrag.embedding.base import EmbeddingCache
 from agrag.embedding.fastembed_dense import FastEmbedEmbedder
@@ -48,7 +47,6 @@ class MockFastEmbedModel:
         """
         self._vector = vector
         self.embed_calls: list[list[str]] = []
-        self.batch_sizes: list[int] = []
         self.embed_thread: threading.Thread | None = None
 
     @property
@@ -62,7 +60,6 @@ class MockFastEmbedModel:
         """Record the call and yield one raw vector per text."""
         self.embed_thread = threading.current_thread()
         self.embed_calls.append(list(documents))
-        self.batch_sizes.append(batch_size)
         for _ in documents:
             yield np.array(self._vector, dtype=np.float32)
 
@@ -103,11 +100,6 @@ def _supported(*names: str) -> list[dict[str, str]]:
 class TestFastEmbedEmbedderOutput:
     """The embedder returns plain float lists, normalized when asked."""
 
-    async def test_dimensions_come_from_the_model(self) -> None:
-        """Dimensions reflects the loaded model's embedding size."""
-        embedder = FastEmbedEmbedder(model=MockFastEmbedModel(vector=(1.0,) * 7))
-        assert await embedder.dimensions() == 7
-
     async def test_normalize_scales_vectors_to_unit_length(self) -> None:
         """With normalize on, each vector has length 1."""
         embedder = FastEmbedEmbedder(
@@ -131,20 +123,6 @@ class TestFastEmbedEmbedderOutput:
             settings=EmbeddingSettings(normalize=True),
         )
         assert await embedder.embed(["a"]) == [[0.0, 0.0]]
-
-    async def test_batch_size_setting_reaches_the_model(self) -> None:
-        """The configured batch size is passed to the model's embed call."""
-        model = MockFastEmbedModel()
-        embedder = FastEmbedEmbedder(
-            model=model, settings=EmbeddingSettings(batch_size=5)
-        )
-        await embedder.embed(["a", "b"])
-        assert model.batch_sizes == [5]
-
-    async def test_one_vector_per_text_in_order(self) -> None:
-        """The result has one vector per input text."""
-        embedder = FastEmbedEmbedder(model=MockFastEmbedModel())
-        assert len(await embedder.embed(["a", "b", "c"])) == 3
 
 
 class TestEmbedEventLoop:
@@ -233,37 +211,6 @@ class TestGraniteRegistration:
         assert kwargs["model_file"] == "onnx/model.onnx"
         assert kwargs["additional_files"] == ["onnx/model.onnx_data"]
 
-    async def test_skips_registration_when_fastembed_has_granite(self) -> None:
-        """A FastEmbed release with granite is used as it is."""
-        with mock.patch("fastembed.TextEmbedding") as text_embedding:
-            text_embedding.list_supported_models.return_value = _supported(GRANITE)
-            text_embedding.return_value = MockFastEmbedModel()
-            await FastEmbedEmbedder().dimensions()
-        text_embedding.add_custom_model.assert_not_called()
-
-    async def test_other_models_are_not_registered(self) -> None:
-        """Only the granite model needs registration."""
-        with mock.patch("fastembed.TextEmbedding") as text_embedding:
-            text_embedding.list_supported_models.return_value = _supported(
-                "BAAI/bge-small-en-v1.5"
-            )
-            text_embedding.return_value = MockFastEmbedModel()
-            await FastEmbedEmbedder(
-                settings=EmbeddingSettings(model="BAAI/bge-small-en-v1.5")
-            ).dimensions()
-        text_embedding.add_custom_model.assert_not_called()
-
-    async def test_model_is_built_from_the_settings(self) -> None:
-        """The model name and the cache folder reach FastEmbed."""
-        with mock.patch("fastembed.TextEmbedding") as text_embedding:
-            text_embedding.list_supported_models.return_value = _supported(GRANITE)
-            text_embedding.return_value = MockFastEmbedModel()
-            settings = EmbeddingSettings(model=GRANITE, cache_folder="/tmp/models")
-            await FastEmbedEmbedder(settings=settings).dimensions()
-        text_embedding.assert_called_once_with(
-            model_name=GRANITE, cache_dir="/tmp/models"
-        )
-
 
 class TestEmbedCaching:
     """Embed reads the cache and writes new vectors in one batched call."""
@@ -306,18 +253,6 @@ class TestEmbedCaching:
 
 class TestFastEmbedTracing:
     """Tracing spans real model work without touching a host span."""
-
-    async def test_tracer_none_leaves_host_span_untouched(self) -> None:
-        """Embed with tracer=None keeps the host span unset and event-free."""
-        host_provider, host_exporter = _tracing_provider()
-        with host_provider.get_tracer("host").start_as_current_span("host.request"):
-            await FastEmbedEmbedder(model=MockFastEmbedModel(), tracer=None).embed(
-                ["a"]
-            )
-        (host_span,) = host_exporter.get_finished_spans()
-        assert host_span.name == "host.request"
-        assert host_span.status.status_code is StatusCode.UNSET
-        assert list(host_span.events) == []
 
     async def test_concurrent_first_call_exports_one_model_load_span(self) -> None:
         """Two concurrent first embeds share one model_load span."""

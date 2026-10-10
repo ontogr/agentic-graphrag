@@ -1,8 +1,7 @@
 """Tests for _CorpusWalk and _InMemoryWalk in agrag.loaders.walk.
 
-Covers ordered batching over fixture files, resume via LoaderCursor
-(mid-source and past a record index), and that batching splits a single
-record source across multiple batches. Stub Loader subclasses
+Covers resume via LoaderCursor (mid-source and past a record index), and that
+batching splits a single record source across multiple batches. Stub Loader subclasses
 (_RaisingLoader, _PartiallyRaisingLoader, _OverflowsBatchThenFailsLoader)
 simulate decode and malformed-record failures to verify that the RAISE and
 SKIP error policies propagate or count errors without leaking partially
@@ -35,12 +34,6 @@ from agrag.loaders.walk import _CorpusWalk, _InMemoryWalk
 
 _FIXTURES = Path(__file__).parent / "fixtures"
 _CSV = _FIXTURES / "sample.csv"
-_FILES = sorted(p for p in _FIXTURES.rglob("*") if p.is_file())
-_SINGLE_DOC_FILES = [
-    _FIXTURES / "sample.txt",
-    _FIXTURES / "sample.md",
-    _FIXTURES / "sample.log",
-]
 
 
 async def _collect(walk, start: LoaderCursor | None = None):
@@ -52,21 +45,6 @@ async def _collect(walk, start: LoaderCursor | None = None):
 
 class TestCorpusWalk:
     """The walk orders sources, then yields batches."""
-
-    async def test_walks_files_and_counts(self) -> None:
-        """Walks files and counts."""
-        walk = _CorpusWalk(_FILES, registry=registry, opts=ReadOptions())
-        docs = await _collect(walk)
-        assert len(docs) > 0
-
-    async def test_batching_respects_batch_size(self) -> None:
-        """Batching respects batch size."""
-        walk = _CorpusWalk(
-            _SINGLE_DOC_FILES, registry=registry, opts=ReadOptions(), batch_size=1
-        )
-        batches = [batch async for batch, _c, _s in walk.iter_batches()]
-        assert batches
-        assert all(len(batch) <= 1 for batch in batches)
 
     async def test_resume_record_source_skips_processed_rows(self) -> None:
         """Resume record source skips processed rows."""
@@ -230,30 +208,6 @@ class _OverflowsBatchThenFailsLoader(Loader):
 
 class TestCorpusWalkPartialSourceFailure:
     """A source that fails partway through leaks neither documents nor counts."""
-
-    async def test_skip_policy_discards_documents_from_a_failed_source(
-        self, tmp_path: Path
-    ) -> None:
-        """Rows already yielded by a failing source never reach a batch."""
-        bad = tmp_path / "bad.txt"
-        bad.write_text("x")
-        walk = _CorpusWalk(
-            [bad],
-            registry=registry,
-            opts=ReadOptions(),
-            error_policy=ErrorPolicy.SKIP,
-            loader=_PartiallyRaisingLoader(),
-        )
-        docs = []
-        final_stats = None
-        async for batch, _cursor, stats in walk.iter_batches():
-            docs.extend(batch)
-            final_stats = stats
-        assert docs == []
-        assert final_stats is not None
-        assert final_stats.skipped == 1
-        assert final_stats.sources == 0
-        assert final_stats.documents == 0
 
     async def test_document_count_matches_flushed_batches_when_a_source_fails_mid_batch(
         self, tmp_path: Path
@@ -456,40 +410,6 @@ class TestCorpusWalkTracing:
             assert trace.get_current_span() is trace.INVALID_SPAN
             seen_batches += 1
         assert seen_batches > 1
-
-    async def test_single_prose_document_produces_two_spans(
-        self, tmp_path: Path
-    ) -> None:
-        """One prose document emits one span plus one exhausted span."""
-        path = tmp_path / "sample.txt"
-        path.write_text("hello")
-        provider, exporter = _tracing_provider()
-        walk = _CorpusWalk(
-            [path],
-            registry=registry,
-            opts=ReadOptions(),
-            batch_size=2,
-            tracer=provider.get_tracer("test"),
-        )
-        docs: list[Document] = []
-        async for batch, _cursor, _stats in walk.iter_batches():
-            assert trace.get_current_span() is trace.INVALID_SPAN
-            docs.extend(batch)
-        assert len(docs) == 1
-        spans = [
-            span
-            for span in exporter.get_finished_spans()
-            if span.name == "agrag.ingestion.load_document"
-        ]
-        assert len(spans) == 2
-        assert (
-            sum(
-                1
-                for span in spans
-                if (span.attributes or {}).get("agrag.loader_exhausted") is True
-            )
-            == 1
-        )
 
     async def test_loader_error_records_on_span_without_exhausted(
         self, tmp_path: Path

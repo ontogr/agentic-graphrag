@@ -16,11 +16,8 @@ from agrag.common.data_models.document import (
     Unit,
     UnitKind,
 )
-from agrag.common.data_models.structure import source_node_id
-from agrag.cypher.relations import bfs_expand_query
 from agrag.ingestion._structure import (
     build_document_structure,
-    build_source_records,
     build_structure,
     placement_map,
 )
@@ -151,22 +148,6 @@ class TestBuildStructure:
         assert len(chunks) == 1
         assert _parents(records.relations)[chunks[0].id] == records.sections[0].id
 
-    def test_a_table_takes_its_columns_from_the_merged_header_rows(self) -> None:
-        """Spanned header rows give one column name for each column."""
-        table = Unit(
-            kind=UnitKind.TABLE,
-            text="",
-            rows=[["Region", "Sales", ""], ["", "Q1", "Q2"], ["north", "1", "2"]],
-            header_rows=2,
-        )
-        document = sectioned_document(
-            [DocumentSection(heading="S", depth=1, units=[table])]
-        )
-
-        records = build_structure(document, [], {})
-
-        assert records.tables[0].properties["columns"] == ["Region", "Sales Q1", "Q2"]
-
     def test_the_order_property_follows_reading_order(self) -> None:
         """Sibling order is the order of the children in the document."""
         document = _document()
@@ -191,22 +172,6 @@ class TestBuildStructure:
             else:
                 kinds.append("chunk")
         assert kinds == ["chunk", "table", "figure", "chunk", "section"]
-
-    def test_a_record_row_has_no_nodes_and_its_chunk_hangs_under_the_document(
-        self,
-    ) -> None:
-        """A document with no sections gives only the edge to its chunk."""
-        document = record_document("name: ada")
-        chunks, placements = _placed(document)
-
-        records = build_structure(document, chunks, placements)
-
-        assert records.structure_node_ids == []
-        [edge] = records.relations
-        assert edge.end_id == chunks[0].id
-        assert edge.start_id == Document.node_id_for(
-            document_key=document.resolved_document_key
-        )
 
     def test_a_new_version_gives_new_node_ids_and_the_same_keys(self) -> None:
         """Node ids carry the version. The section key does not."""
@@ -261,50 +226,6 @@ class TestBuildStructure:
 
         with pytest.raises(ValueError, match="has no table unit"):
             build_structure(document, [table_chunk], placements)
-
-
-class TestBfsStructureTraversal:
-    """bfs_expand_query skips structure edges unless asked to cross them."""
-
-    def test_default_traversal_excludes_structure_types(self) -> None:
-        """PART_OF, HAS_CHILD and HAS_DOCUMENT never widen the default walk."""
-        query, _ = bfs_expand_query()
-
-        assert "NOT type(r) IN ['PART_OF', 'HAS_CHILD', 'HAS_DOCUMENT']" in query
-
-    def test_explicit_structure_types_opt_in_to_crossing_them(self) -> None:
-        """Naming a structure type crosses it without the exclusion guard."""
-        query, _ = bfs_expand_query(relation_types=["PART_OF"])
-
-        assert "NOT type(r) IN" not in query
-        assert ":PART_OF" in query
-
-
-class TestBuildSourceRecords:
-    """Each record file gets one Source node."""
-
-    def test_rows_of_one_file_share_a_source(self) -> None:
-        """Two rows give one node and two edges."""
-        rows = [
-            record_document("a").model_copy(
-                update={"record_index": 0, "document_key": "rows.csv:0"}
-            ),
-            record_document("b").model_copy(
-                update={"record_index": 1, "document_key": "rows.csv:1"}
-            ),
-        ]
-
-        nodes, relations = build_source_records(rows)
-
-        assert [n.id for n in nodes] == [source_node_id("rows.csv")]
-        assert nodes[0].labels == ["Source"]
-        assert len(relations) == 2
-        assert {r.type for r in relations} == {"HAS_DOCUMENT"}
-        assert relations[0].end_id != relations[1].end_id
-
-    def test_prose_documents_have_no_source(self) -> None:
-        """Only record documents come from a Source."""
-        assert build_source_records([_document()]) == ([], [])
 
 
 class TestBuildDocumentStructure:

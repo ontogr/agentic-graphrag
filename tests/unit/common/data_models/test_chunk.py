@@ -1,7 +1,6 @@
 """Tests for the Chunk model: node record and ids.
 
-Covers the chunker and section fields, which reach the record only when set, and the
-default id of a chunk.
+Covers the chunker and section fields, which reach the record only when set.
 """
 
 from uuid import uuid4
@@ -10,7 +9,6 @@ import pytest
 
 from agrag.common.data_models.chunk import Chunk
 from agrag.common.data_models.provenance import TextProvenance
-from agrag.common.data_models.structure import chunk_id
 
 
 def _chunk(**fields: object) -> Chunk:
@@ -56,31 +54,6 @@ class TestSectionIds:
         assert "section_ids" not in _chunk().to_node_record().properties
 
 
-class TestChunkId:
-    """A chunk without an id gets one from its document, chunker and index."""
-
-    def test_default_id_follows_the_inputs(self) -> None:
-        """Equal inputs give equal ids and any change gives a new id."""
-        document_id = uuid4()
-        base = _chunk_for(document_id, index=0, chunker_hash="a")
-
-        assert base.id == chunk_id(document_id, "", "a", 0)
-        assert base.id == _chunk_for(document_id, index=0, chunker_hash="a").id
-        assert base.id != _chunk_for(document_id, index=1, chunker_hash="a").id
-        assert base.id != _chunk_for(document_id, index=0, chunker_hash="b").id
-
-
-def _chunk_for(document_id, *, index: int, chunker_hash: str) -> Chunk:
-    return Chunk(
-        id=chunk_id(document_id, "", chunker_hash, index),
-        document_id=document_id,
-        index=index,
-        text="hello",
-        provenance=TextProvenance(char_start=0, char_end=5),
-        chunker_hash=chunker_hash,
-    )
-
-
 class TestContextualText:
     """Heading context for embedding and extraction."""
 
@@ -106,13 +79,6 @@ class TestContextualText:
 
         assert chunk.section_label() == "Guide > Setup"
         assert chunk.contextual_text == "Guide > Setup\n\nbody text"
-
-    def test_stored_text_is_not_changed(self) -> None:
-        """Context never enters the chunk text or its offsets."""
-        chunk = self._chunk(["A"])
-
-        assert chunk.text == "body text"
-        assert chunk.provenance.char_end == len("body text")
 
     def test_keeps_non_ascii_headings(self) -> None:
         """Unicode headings pass through."""

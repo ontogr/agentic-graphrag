@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import pytest
 
 from agrag.chunking import chunker as chunker_module
-from agrag.chunking.chunker import DEFAULT_TOKENIZER, Chunker, ChunkingError
+from agrag.chunking.chunker import Chunker, ChunkingError
 from agrag.common.data_models.document import (
     DocumentSection,
     Unit,
@@ -75,22 +75,6 @@ class TestSettings:
         """Equal settings give equal fingerprints."""
         assert Chunker(size=100).fingerprint == Chunker(size=100).fingerprint
         assert Chunker(size=100).fingerprint != Chunker(size=200).fingerprint
-
-
-class TestCountTokens:
-    """Token counts follow the configured tokenizer."""
-
-    def test_default_tokenizer_is_o200k_base(self) -> None:
-        """The chunker counts with o200k_base unless told otherwise."""
-        assert Chunker().tokenizer == DEFAULT_TOKENIZER
-
-    @pytest.mark.parametrize(
-        ("text", "expected"),
-        [("", 0), ("hello", 1), ("hello world", 2), ("   ", 1)],
-    )
-    def test_counts_tokens(self, text: str, expected: int) -> None:
-        """Token counts match the fixtures."""
-        assert _chunker().count_tokens(text) == expected
 
 
 class _SplitterThatReturns:

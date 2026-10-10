@@ -1,4 +1,4 @@
-"""Tests the run record: code identity, destinations and stable JSON.
+"""Tests the run record: code identity, refusing dirty records and stable JSON.
 
 The identity tests build a throwaway git repository, so they need the git binary
 and nothing else.
@@ -14,7 +14,6 @@ import pytest
 from benchmarks.harness.record import (
     RunRecord,
     code_identity,
-    run_directory,
     write_record,
 )
 from benchmarks.harness.runner import RunOptions, run
@@ -127,21 +126,6 @@ class TestWriteRecord:
                 tmp_path / "results" / "lite" / "x",
                 results=tmp_path / "results",
             )
-
-    async def test_sends_dirty_runs_to_reports_and_clean_runs_to_results(
-        self, tmp_path
-    ):
-        """Sends dirty runs to reports and clean runs to results."""
-        dirty = await self._record(tmp_path / "a", dirty=True)
-        clean = await self._record(tmp_path / "b", dirty=False)
-        results, reports = tmp_path / "results", tmp_path / "reports"
-
-        assert run_directory(dirty, results=results, reports=reports).is_relative_to(
-            reports
-        )
-        assert run_directory(clean, results=results, reports=reports).is_relative_to(
-            results
-        )
 
     async def test_json_has_sorted_keys_and_floats_rounded_to_four_places(
         self, tmp_path

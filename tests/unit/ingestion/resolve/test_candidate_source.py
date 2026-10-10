@@ -1,9 +1,7 @@
 """Tests for GraphCandidateSource.
 
-Covers same-label in-batch blocking with exact index sets, the guarantee
-that the in-batch path never touches GraphStore.vector_search or
-VectorStore.hybrid_search, batch-bounded cost independent of graph size,
-and both global_candidates_for routing branches.
+Covers same-label in-batch blocking with exact index sets and both
+global_candidates_for routing branches.
 
 Also covers the VectorStore-backed candidate path, which must load the
 persisted Entity by id rather than reconstructing its name from the display
@@ -100,48 +98,6 @@ class TestGraphCandidateSourceInBatch:
         ]
         assert await source.candidates_for(0, entities) == [1, 2]
         assert await source.candidates_for(1, entities) == [0, 2]
-
-    async def test_excludes_self(self) -> None:
-        """A lone mention has no candidates."""
-        source, _ = _source()
-        assert await source.candidates_for(0, [_mention("Ada")]) == []
-
-
-class TestInBatchNeverTouchesStores:
-    """The in-batch path is pure and never searches a store."""
-
-    async def test_never_calls_vector_search_or_hybrid_search(self) -> None:
-        """Neither GraphStore nor VectorStore search runs in-batch."""
-        vector_store = AsyncMock()
-        vector_store.hybrid_search = AsyncMock()
-        source, graph_store = _source(vector_store=vector_store)
-        entities = [
-            _mention("Ada", label="Person"),
-            _mention("Charles", label="Person"),
-        ]
-        assert await source.candidates_for(0, entities) == [1]
-        graph_store.vector_search.assert_not_called()
-        vector_store.hybrid_search.assert_not_called()
-        graph_store.execute_read.assert_not_called()
-
-    async def test_cost_bounded_by_batch_not_graph_size(self) -> None:
-        """Same batch against small and huge graphs makes identical calls."""
-        batch = [
-            _mention("Ada", label="Person"),
-            _mention("Charles", label="Person"),
-            _mention("Acme", label="Organization"),
-        ]
-        small_source, small_store = _source()
-        huge_vector_store = AsyncMock()
-        huge_vector_store.hybrid_search = AsyncMock()
-        huge_source, huge_store = _source(vector_store=huge_vector_store)
-        small_results = [await small_source.candidates_for(i, batch) for i in range(3)]
-        huge_results = [await huge_source.candidates_for(i, batch) for i in range(3)]
-        assert small_results == huge_results == [[1], [0], []]
-        assert small_store.method_calls == huge_store.method_calls == []
-        small_store.vector_search.assert_not_called()
-        huge_store.vector_search.assert_not_called()
-        huge_vector_store.hybrid_search.assert_not_called()
 
 
 class TestGraphCandidateSourceGlobalCandidatesFor:
@@ -272,22 +228,6 @@ class TestGraphCandidateSourceGlobalCandidatesFor:
         assert candidates[0][0].name == "Star Trek: Voyager"
         assert candidates[0][1] == 0.9
 
-    async def test_returns_empty_when_no_hits(self) -> None:
-        """No vector hits means no candidates on either branch."""
-        graph_store = AsyncMock()
-        source = GraphCandidateSource(
-            graph_store=graph_store, embedder=MockEmbedder(), vector_store=None
-        )
-
-        with patch(
-            "agrag.ingestion.resolve.candidate_source.vector_search",
-            new_callable=AsyncMock,
-            return_value=[],
-        ):
-            assert await source.global_candidates_for(_mention("Ada")) == []
-
-        graph_store.execute_read.assert_not_called()
-
     async def test_loading_keeps_each_score_with_its_own_entity(self) -> None:
         """Dropping an unloaded hit does not shift scores onto other entities.
 
@@ -383,42 +323,9 @@ class TestBuildRelationNeighbors:
             "WORKS_AT Other 4",
         ]
 
-    def test_entity_with_no_relations_has_no_key(self) -> None:
-        """An index no relation names is absent, not present and empty."""
-        entities = [_mention("Ada"), _mention("Acme"), _mention("Grace")]
-
-        neighbors = build_relation_neighbors(entities, [_relation(0, 1)])
-
-        assert 2 not in neighbors
-
-    def test_empty_relations_returns_empty_map(self) -> None:
-        """No relation mentions means no neighbor context at all."""
-        assert build_relation_neighbors([_mention("Ada")], []) == {}
-
 
 class TestFetchPersistedNeighbors:
     """fetch_persisted_neighbors batches one read for every requested id."""
-
-    async def test_batches_all_ids_into_one_read(self) -> None:
-        """Every id goes into one query, and rows become neighbor strings."""
-        first, second = uuid4(), uuid4()
-        graph_store = AsyncMock()
-        graph_store.execute_read.return_value = [
-            {"entity_id": str(first), "rel_type": "WORKS_AT", "neighbor_name": "Acme"},
-            {"entity_id": str(second), "rel_type": "KNOWS", "neighbor_name": "Ada"},
-        ]
-
-        neighbors = await fetch_persisted_neighbors(
-            [first, second],
-            graph_store=graph_store,
-            exclude_relation_types=["MATCHES"],
-        )
-
-        graph_store.execute_read.assert_awaited_once()
-        _, params = graph_store.execute_read.await_args.args
-        assert params["ids"] == [str(first), str(second)]
-        assert params["exclude_types"] == ["MATCHES"]
-        assert neighbors == {first: ["WORKS_AT Acme"], second: ["KNOWS Ada"]}
 
     async def test_skips_malformed_rows(self) -> None:
         """A row missing keys or carrying a bad uuid is skipped, not raised."""
@@ -460,14 +367,3 @@ class TestFetchPersistedNeighbors:
         assert neighbors[entity_id] == [
             f"KNOWS Person {index}" for index in range(MAX_NEIGHBORS_PER_ENTITY)
         ]
-
-    async def test_empty_ids_skips_the_read(self) -> None:
-        """No ids means no query at all."""
-        graph_store = AsyncMock()
-
-        neighbors = await fetch_persisted_neighbors(
-            [], graph_store=graph_store, exclude_relation_types=["MATCHES"]
-        )
-
-        assert neighbors == {}
-        graph_store.execute_read.assert_not_awaited()

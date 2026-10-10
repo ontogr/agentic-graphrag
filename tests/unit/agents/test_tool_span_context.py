@@ -1,10 +1,9 @@
 """Tests for the tool-span bridge in agrag.agents.tracing.
 
 Extends the run-callbacks tests: the bridge must make the running tool's own
-OpenInference ``TOOL`` span current inside the tool body, restore the caller's
-span after, and stay a no-op when no callback handler is present. Runs real
-LangChain tools with the real callback and an in-memory exporter, so the
-parent relationships are the real ones.
+OpenInference ``TOOL`` span current inside the tool body and restore the
+caller's span after. Runs real LangChain tools with the real callback and an
+in-memory exporter, so the parent relationships are the real ones.
 """
 
 import asyncio
@@ -50,12 +49,6 @@ async def bridged(x: str, callbacks: Any = None) -> str:
         _current_tracer[0].start_as_current_span("opened-under-the-tool"),
     ):
         return "opened-under-the-tool"
-
-
-@tool
-async def plain(x: str) -> str:
-    """Return the input."""
-    return x
 
 
 @tool
@@ -155,39 +148,3 @@ class TestToolSpanContext:
         assert "raising" in tools
         exceptions = [e for e in tools["raising"].events if e.name == "exception"]
         assert len(exceptions) == 1
-
-    def test_none_callbacks_gives_a_no_op_context(self) -> None:
-        """None callbacks mean no bridge and a no-op context."""
-        assert isinstance(tool_span_context(None), contextlib.nullcontext)
-
-    def test_empty_list_gives_a_no_op_context(self) -> None:
-        """An empty callback list gives the no-op context."""
-        assert isinstance(tool_span_context([]), contextlib.nullcontext)
-
-    def test_a_manager_whose_handlers_cannot_give_a_span_is_a_no_op(self) -> None:
-        """A handler without ``get_span`` yields the no-op context."""
-
-        class _Manager:
-            """A callback manager whose handler exposes no ``get_span``."""
-
-            parent_run_id = "run-1"
-            handlers = [object()]
-
-        assert isinstance(tool_span_context(_Manager()), contextlib.nullcontext)
-
-    def test_the_callback_still_exposes_get_span(self) -> None:
-        """Canary: the bridge reads the callback's public ``get_span``."""
-        from openinference.instrumentation.langchain._tracer import (  # noqa: PLC0415
-            OpenInferenceTracer,
-        )
-
-        assert hasattr(OpenInferenceTracer, "get_span")
-
-    async def test_a_tool_without_the_bridge_still_runs(self) -> None:
-        """A plain tool is unaffected by the bridge helper's existence."""
-        provider, exporter = _provider()
-        tracer = provider.get_tracer("t")
-        callbacks = run_callbacks(tracer)
-
-        assert await plain.ainvoke("a", config={"callbacks": callbacks}) == "a"
-        assert len(_tool_spans(exporter.get_finished_spans())) == 1

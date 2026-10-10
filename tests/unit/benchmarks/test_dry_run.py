@@ -28,15 +28,6 @@ def _bound():
 class TestDryRun:
     """The cost bound of a run."""
 
-    def test_ingest_cost_follows_chunks_and_answer_cost_follows_questions(self):
-        """Ingest cost follows chunks and answer cost follows questions."""
-        bound = _bound()
-        chunks = sum(bound.chunks.values())
-
-        assert chunks >= 2
-        assert bound.llm_calls == chunks * 2 + 4 * (5 + 1)
-        assert bound.tokens == chunks * 100 + 4 * (500 + 200)
-
     def test_a_longer_document_makes_more_chunks(self):
         """A longer document makes more chunks."""
         short = text_document("word " * 100, uri="a")

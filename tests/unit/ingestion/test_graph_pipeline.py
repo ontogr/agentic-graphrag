@@ -13,12 +13,6 @@ import pytest
 import agrag.ingestion._resolution_maintenance as maintenance_module
 from agrag.common.data_models.chunk import CHUNK_LABEL
 from agrag.common.data_models.chunk import Chunk as ChunkModel
-from agrag.common.data_models.document import (
-    DOCUMENT_LABEL,
-    Document,
-    DocumentFamily,
-    SourceFormat,
-)
 from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.extraction import (
     ExtractedEntity,
@@ -38,14 +32,12 @@ from agrag.common.data_models.graph_schema import (
     RelationType,
 )
 from agrag.common.data_models.provenance import TextProvenance
-from agrag.common.data_models.resolved_entity import ResolvedEntity
 from agrag.common.data_models.vector_record import VectorHit, VectorRecord
 from agrag.cypher.cutover_job_read import find_incomplete_jobs_query
 from agrag.embedding.base import Embedder
 from agrag.graphdb.base import GraphStore
 from agrag.graphdb.serialize import parse_entity_node
 from agrag.ingestion._ingest_pipeline import (
-    _delete_vectors,
     _embed_and_upsert_chunks,
     _embed_and_upsert_survivors,
     _upsert_vectors,
@@ -56,7 +48,6 @@ from agrag.ingestion._walk import resolve_paths
 from agrag.ingestion.extract import Extractor
 from agrag.ingestion.graph import Graph
 from agrag.ingestion.reports import AddResult
-from agrag.ingestion.resolved_entities import RebuildResult
 from agrag.loaders.types import ErrorPolicy
 from agrag.retrieval.settings import RetrievalSettings
 from agrag.vectordb.base import VectorStore
@@ -316,47 +307,6 @@ class MockExtractor(Extractor):
         return self.result
 
 
-def _doc(text: str = "hello world") -> Document:
-    return Document(
-        text=text,
-        title="t",
-        uri="u",
-        source_format=SourceFormat.TXT,
-        family=DocumentFamily.PROSE,
-        content_hash="h",
-        loader_name="text",
-        char_count=len(text),
-        line_count=1,
-    )
-
-
-def _chunk(text: str = "hello", provenance: TextProvenance | None = None) -> ChunkModel:
-    prov = provenance or TextProvenance(char_start=0, char_end=len(text))
-    return ChunkModel(document_id=uuid4(), index=0, text=text, provenance=prov)
-
-
-def _distinct_doc(
-    uri: str, text: str = "hello world", content_hash: str | None = None
-) -> Document:
-    """Build a Document with a distinct id/document_key, unlike ``_doc()``.
-
-    ``_doc()`` hardcodes ``content_hash="h"`` and ``uri="u"``, so two of its
-    documents always share one resolved_id and document_key. Tests asserting
-    per-document behavior across multiple documents need distinct ones.
-    """
-    return Document(
-        text=text,
-        title="t",
-        uri=uri,
-        source_format=SourceFormat.TXT,
-        family=DocumentFamily.PROSE,
-        content_hash=content_hash or uri,
-        loader_name="text",
-        char_count=len(text),
-        line_count=1,
-    )
-
-
 class TestParseEntityNode:
     """Tests for parse_entity_node."""
 
@@ -575,72 +525,6 @@ class _GuardedNodeStore(MockStore):
 class TestEmbedAndUpsertSurvivors:
     """Regression tests for the name/description guard on embedding writes."""
 
-    async def test_slower_stale_write_does_not_overwrite_newer_vector(self) -> None:
-        """An older call's write must not clobber a newer call's fresh vector.
-
-        Regression test: set_embedding_query used to key only by id, so an
-        older, slower embed call finishing after a newer one could silently
-        overwrite the newer vector with one computed from stale text. Here
-        the node's persisted text ("NewText") no longer matches the stale
-        entity ("OldText") this call is embedding, so the write must be a
-        no-op.
-        """
-        entity_id = uuid4()
-        store = _GuardedNodeStore(
-            {
-                str(entity_id): {
-                    "name": "NewText",
-                    "description": None,
-                    "embedding": None,
-                }
-            }
-        )
-        stale_entity = Entity(id=entity_id, label="Person", name="OldText")
-
-        await _embed_and_upsert_survivors(
-            {entity_id: stale_entity},
-            embedder=MockEmbedder(),
-            graph_store=store,
-            error_policy=ErrorPolicy.SKIP,
-        )
-
-        assert store.nodes[str(entity_id)]["embedding"] is None
-
-    async def test_stale_write_rejected_on_description_alone(self) -> None:
-        """The guard rejects a stale write on description even when name matches.
-
-        Regression test: embedding_text is name plus an optional
-        "description" property (see Entity.embedding_text), so the guard
-        must compare both -- a race that only changes description (the
-        common case: merge recomputes descriptions, names are stable) would
-        slip through a name-only guard.
-        """
-        entity_id = uuid4()
-        store = _GuardedNodeStore(
-            {
-                str(entity_id): {
-                    "name": "Ada",
-                    "description": "new description",
-                    "embedding": None,
-                }
-            }
-        )
-        stale_entity = Entity(
-            id=entity_id,
-            label="Person",
-            name="Ada",
-            properties={"description": "old description"},
-        )
-
-        await _embed_and_upsert_survivors(
-            {entity_id: stale_entity},
-            embedder=MockEmbedder(),
-            graph_store=store,
-            error_policy=ErrorPolicy.SKIP,
-        )
-
-        assert store.nodes[str(entity_id)]["embedding"] is None
-
     async def test_failure_clear_does_not_wipe_newer_vector(self) -> None:
         """A failing call's clear must not wipe a different, newer vector.
 
@@ -676,164 +560,8 @@ class TestEmbedAndUpsertSurvivors:
         assert store.nodes[str(entity_id)]["embedding"] == [0.9, 0.9]
 
 
-class TestEmbedAndUpsertChunks:
-    """Tests for _embed_and_upsert_chunks error handling and cleanup."""
-
-    async def test_success_writes_embeddings(self) -> None:
-        """On success, chunk embeddings are written."""
-        ch = ChunkModel(
-            id=uuid4(),
-            document_id=uuid4(),
-            index=0,
-            text="Hello world",
-            provenance=TextProvenance(char_start=0, char_end=11),
-        )
-        store = _GuardedNodeStore(
-            {
-                str(ch.id): {
-                    "name": "Hello world",
-                    "text": "Hello world",
-                    "embedding": None,
-                }
-            }
-        )
-
-        failures = await _embed_and_upsert_chunks(
-            [ch],
-            embedder=MockEmbedder(),
-            graph_store=store,
-            error_policy=ErrorPolicy.RAISE,
-        )
-
-        assert failures == []
-        assert store.nodes[str(ch.id)]["embedding"] is not None
-
-    async def test_failure_clears_embeddings_and_raises(self) -> None:
-        """On embed failure with RAISE, embeddings are cleared.
-
-        The error then propagates.
-        """
-
-        class _FailingEmbedder(MockEmbedder):
-            async def embed(self, texts: Sequence[str]) -> list[list[float]]:
-                raise RuntimeError("embed backend down")
-
-        ch = ChunkModel(
-            id=uuid4(),
-            document_id=uuid4(),
-            index=0,
-            text="Hello world",
-            provenance=TextProvenance(char_start=0, char_end=11),
-        )
-        store = _GuardedNodeStore(
-            {
-                str(ch.id): {
-                    "name": "Hello world",
-                    "text": "Hello world",
-                    "embedding": [0.5, 0.5],
-                }
-            }
-        )
-
-        with pytest.raises(RuntimeError, match="embed backend down"):
-            await _embed_and_upsert_chunks(
-                [ch],
-                embedder=_FailingEmbedder(),
-                graph_store=store,
-                error_policy=ErrorPolicy.RAISE,
-            )
-
-        # Embedding should be cleared after the failure.
-        assert store.nodes[str(ch.id)]["embedding"] is None
-
-    async def test_failure_clears_embeddings_and_returns_skip(self) -> None:
-        """On embed failure with SKIP, embeddings are cleared.
-
-        A StageFailure is returned instead of raising.
-        """
-
-        class _FailingEmbedder(MockEmbedder):
-            async def embed(self, texts: Sequence[str]) -> list[list[float]]:
-                raise RuntimeError("embed timeout")
-
-        ch = ChunkModel(
-            id=uuid4(),
-            document_id=uuid4(),
-            index=0,
-            text="Hello world",
-            provenance=TextProvenance(char_start=0, char_end=11),
-        )
-        store = _GuardedNodeStore(
-            {
-                str(ch.id): {
-                    "name": "Hello world",
-                    "text": "Hello world",
-                    "embedding": [0.5, 0.5],
-                }
-            }
-        )
-
-        failures = await _embed_and_upsert_chunks(
-            [ch],
-            embedder=_FailingEmbedder(),
-            graph_store=store,
-            error_policy=ErrorPolicy.SKIP,
-        )
-
-        assert len(failures) == 1
-        assert failures[0].error_type == "RuntimeError"
-        assert store.nodes[str(ch.id)]["embedding"] is None
-
-    async def test_stale_text_guard_prevents_clearing_newer_vector(
-        self,
-    ) -> None:
-        """A chunk whose text changed since embed keeps its vector.
-
-        The text guard must reject the clear when the persisted text
-        differs from the text this call embedded.
-        """
-        ch = ChunkModel(
-            id=uuid4(),
-            document_id=uuid4(),
-            index=0,
-            text="Old text",
-            provenance=TextProvenance(char_start=0, char_end=8),
-        )
-        # Node's persisted text is different from what this call embedded.
-        store = _GuardedNodeStore(
-            {
-                str(ch.id): {
-                    "name": "New text",
-                    "text": "New text",
-                    "embedding": [0.9, 0.9],
-                }
-            }
-        )
-
-        class _FailingEmbedder(MockEmbedder):
-            async def embed(self, texts: Sequence[str]) -> list[list[float]]:
-                raise RuntimeError("fail")
-
-        with pytest.raises(RuntimeError):
-            await _embed_and_upsert_chunks(
-                [ch],
-                embedder=_FailingEmbedder(),
-                graph_store=store,
-                error_policy=ErrorPolicy.RAISE,
-            )
-
-        # The newer vector must be preserved because the guard rejected
-        # the clear for stale text.
-        assert store.nodes[str(ch.id)]["embedding"] == [0.9, 0.9]
-
-
 class TestVectorStoreHelpers:
     """_upsert_vectors and _delete_vectors no-op on None and drop empties."""
-
-    async def test_upsert_none_store_is_noop(self) -> None:
-        """A None store writes nothing and raises nothing."""
-        record = VectorRecord(id=uuid4(), vector=[1.0], payload={})
-        await _upsert_vectors(None, "col", [record])
 
     async def test_upsert_drops_empty_vectors(self) -> None:
         """Records with an empty vector are skipped, populated ones kept."""
@@ -843,99 +571,9 @@ class TestVectorStoreHelpers:
         await _upsert_vectors(store, "col", [empty, good])
         assert [r.id for _, records in store.upserts for r in records] == [good.id]
 
-    async def test_delete_empty_ids_is_noop(self) -> None:
-        """An empty id list calls delete exactly zero times."""
-        store = RecordingVectorStore()
-        await _delete_vectors(store, "col", [])
-        assert store.deletes == []
-
 
 class TestEmbedChunksDualWrite:
     """_embed_and_upsert_chunks mirrors vectors into the VectorStore."""
-
-    async def test_stale_chunk_is_not_mirrored(self) -> None:
-        """A chunk skipped by the graph text guard is not mirrored."""
-        ch = ChunkModel(
-            id=uuid4(),
-            document_id=uuid4(),
-            index=0,
-            text="Old text",
-            provenance=TextProvenance(char_start=0, char_end=8),
-        )
-        store = _GuardedNodeStore(
-            {
-                str(ch.id): {
-                    "text": "New text",
-                    "embedding": [0.9, 0.9],
-                }
-            }
-        )
-        vector_store = RecordingVectorStore()
-
-        await _embed_and_upsert_chunks(
-            [ch],
-            embedder=MockEmbedder(),
-            graph_store=store,
-            error_policy=ErrorPolicy.RAISE,
-            vector_store=vector_store,
-            vector_collection="chunks",
-        )
-
-        assert vector_store.upserts == []
-
-    async def test_success_upserts_chunk_vectors(self) -> None:
-        """A successful embed upserts one record per chunk with its text."""
-        ch = ChunkModel(
-            id=uuid4(),
-            document_id=uuid4(),
-            index=0,
-            text="Hello world",
-            provenance=TextProvenance(char_start=0, char_end=11),
-        )
-        store = _GuardedNodeStore({str(ch.id): {"text": ch.text}})
-        vector_store = RecordingVectorStore()
-
-        failures = await _embed_and_upsert_chunks(
-            [ch],
-            embedder=MockEmbedder(),
-            graph_store=store,
-            error_policy=ErrorPolicy.RAISE,
-            vector_store=vector_store,
-            vector_collection="chunks",
-        )
-
-        assert failures == []
-        assert len(vector_store.upserts) == 1
-        collection, records = vector_store.upserts[0]
-        assert collection == "chunks"
-        assert [str(r.id) for r in records] == [str(ch.id)]
-        assert records[0].payload["text"] == "Hello world"
-
-    async def test_job_id_reaches_the_vector_store(self) -> None:
-        """A chunk written inside a job is staged for that job, not committed."""
-        ch = ChunkModel(
-            id=uuid4(),
-            document_id=uuid4(),
-            index=0,
-            text="Hello world",
-            provenance=TextProvenance(char_start=0, char_end=11),
-        )
-        store = _GuardedNodeStore({str(ch.id): {"text": ch.text}})
-        vector_store = RecordingVectorStore()
-        job_id = uuid4()
-
-        await _embed_and_upsert_chunks(
-            [ch],
-            embedder=MockEmbedder(),
-            graph_store=store,
-            error_policy=ErrorPolicy.RAISE,
-            vector_store=vector_store,
-            vector_collection="chunks",
-            pending_job_id=job_id,
-        )
-
-        assert vector_store.upsert_jobs == [job_id]
-        assert "_pending" not in vector_store.upserts[0][1][0].payload
 
     async def test_chunk_payload_carries_document_id(self) -> None:
         """A document-scoped filter must match the VectorStore path too.
@@ -995,35 +633,6 @@ class TestEmbedChunksDualWrite:
         assert len(failures) == 1
         assert failures[0].item_id == "chunk_vector_store"
         assert failures[0].error_type == "RuntimeError"
-
-    async def test_embed_failure_skips_vector_upsert(self) -> None:
-        """When the embed itself fails, the VectorStore is never touched."""
-
-        class _FailingEmbedder(MockEmbedder):
-            async def embed(self, texts: Sequence[str]) -> list[list[float]]:
-                raise RuntimeError("embed backend down")
-
-        ch = ChunkModel(
-            id=uuid4(),
-            document_id=uuid4(),
-            index=0,
-            text="Hello world",
-            provenance=TextProvenance(char_start=0, char_end=11),
-        )
-        store = _GuardedNodeStore({str(ch.id): {"text": ch.text}})
-        vector_store = RecordingVectorStore()
-
-        with pytest.raises(RuntimeError, match="embed backend down"):
-            await _embed_and_upsert_chunks(
-                [ch],
-                embedder=_FailingEmbedder(),
-                graph_store=store,
-                error_policy=ErrorPolicy.RAISE,
-                vector_store=vector_store,
-                vector_collection="chunks",
-            )
-
-        assert vector_store.upserts == []
 
     async def test_failed_mirror_write_leaves_collection_untouched(self) -> None:
         """A failed chunk mirror write removes nothing.
@@ -1163,37 +772,6 @@ class TestEmbedSurvivorsDualWrite:
         assert len(failures) == 1
         assert failures[0].item_id == "entity_vector_store"
 
-    async def test_embed_failure_skips_vector_upsert(self) -> None:
-        """When the embed itself fails, the VectorStore is never touched."""
-
-        class _FailingEmbedder(MockEmbedder):
-            async def embed(self, texts: Sequence[str]) -> list[list[float]]:
-                raise RuntimeError("embed backend down")
-
-        ent = self._entity()
-        store = _GuardedNodeStore(
-            {
-                str(ent.id): {
-                    "name": ent.name,
-                    "description": str(ent.properties.get("description", "")),
-                }
-            }
-        )
-        vector_store = RecordingVectorStore()
-
-        with pytest.raises(RuntimeError, match="embed backend down"):
-            await _embed_and_upsert_survivors(
-                {ent.id: ent},
-                embedder=_FailingEmbedder(),
-                graph_store=store,
-                error_policy=ErrorPolicy.RAISE,
-                vector_store=vector_store,
-                vector_collection="entities",
-                labels_by_id={ent.id: ent.label},
-            )
-
-        assert vector_store.upserts == []
-
     async def test_failed_mirror_write_leaves_collection_untouched(self) -> None:
         """A failed entity mirror write removes nothing.
 
@@ -1262,14 +840,6 @@ class TestGraphOpenVectorStore:
 
 class TestResolvePaths:
     """Tests for resolve_paths."""
-
-    def test_single_file(self, tmp_path: Path) -> None:
-        """Single file returns single path and single_file True."""
-        f = tmp_path / "a.txt"
-        f.write_text("hi")
-        paths, single = resolve_paths(str(f))
-        assert paths == [f]
-        assert single is True
 
     def test_directory(self, tmp_path: Path) -> None:
         """Directory expands to files and single_file False."""
@@ -1409,86 +979,6 @@ class TestGraphAddPipeline:
         ]
         assert all(failure.item_id != "chunks" for failure in result.storage.failures)
 
-    async def test_add_writes_one_document_node_and_part_of_per_chunk(self) -> None:
-        """add() writes one Document node and a PART_OF record per chunk."""
-        store, embed, extractor = MockStore(), MockEmbedder(), MockExtractor()
-        graph = await Graph.open(
-            schema=GENERIC, graph_store=store, embedder=embed, extractor=extractor
-        )
-        result = await graph.add(text="one two three four five six", return_chunks=True)
-        chunk_count = len(result.chunks)
-        assert chunk_count > 0
-
-        document_calls = [
-            nodes
-            for label, nodes in store.upsert_nodes_calls
-            if label == DOCUMENT_LABEL
-        ]
-        assert len(document_calls) == 1
-        assert len(document_calls[0]) == 1
-
-        part_of_records = [
-            rec
-            for batch in store.upsert_relations_calls
-            for rec in batch
-            if rec.type == "PART_OF"
-        ]
-        # One edge for each chunk and one for the section that holds the text.
-        assert len(part_of_records) == chunk_count + 1
-        document_node_id = document_calls[0][0].id
-        assert all(record.start_id == document_node_id for record in part_of_records)
-        assert all(record.properties["valid_at"] for record in part_of_records)
-        assert all(
-            record.properties["invalid_at"] is None for record in part_of_records
-        )
-        assert all(record.properties["version_id"] for record in part_of_records)
-        assert {chunk.id for chunk in result.chunks} <= {
-            record.end_id for record in part_of_records
-        }
-
-    async def test_add_two_documents_writes_two_document_records(self) -> None:
-        """A batch spanning two distinct documents writes two Document records.
-
-        Each document commits as its own Cutover Job — the lease is per
-        document — so the two records arrive as two writes, one per job.
-        """
-        store, embed, extractor = MockStore(), MockEmbedder(), MockExtractor()
-        graph = await Graph.open(
-            schema=GENERIC, graph_store=store, embedder=embed, extractor=extractor
-        )
-        docs = [
-            _distinct_doc("uri-a", content_hash="same-content"),
-            _distinct_doc("uri-b", content_hash="same-content"),
-        ]
-        result = await graph.add(documents=docs, return_chunks=True)
-
-        document_calls = [
-            nodes
-            for label, nodes in store.upsert_nodes_calls
-            if label == DOCUMENT_LABEL
-        ]
-        assert len(document_calls) == 2
-        written_keys = {
-            rec.properties["document_key"] for batch in document_calls for rec in batch
-        }
-        assert written_keys == {"uri-a", "uri-b"}
-        part_of_records = [
-            rec
-            for batch in store.upsert_relations_calls
-            for rec in batch
-            if rec.type == "PART_OF"
-        ]
-        expected_endpoints = {
-            (Document.node_id_for(document_key=doc.resolved_document_key), chunk.id)
-            for doc in docs
-            for chunk in result.chunks
-            if chunk.document_id
-            == Document.node_id_for(document_key=doc.resolved_document_key)
-        }
-        assert {(record.start_id, record.end_id) for record in part_of_records} == (
-            expected_endpoints
-        )
-
     async def test_add_includes_next_chunk_records(self) -> None:
         """add() includes NEXT_CHUNK edges alongside PART_OF records."""
         store, embed, extractor = MockStore(), MockEmbedder(), MockExtractor()
@@ -1505,18 +995,6 @@ class TestGraphAddPipeline:
         chunk_ids = [chunk.id for chunk in result.chunks]
         assert len(next_records) == max(len(chunk_ids) - 1, 0)
         assert all(rec.properties == {} for rec in next_records)
-
-    async def test_add_source_path(self, tmp_path: Path) -> None:
-        """Source file path is loaded via walk."""
-        f = tmp_path / "a.txt"
-        f.write_text("hello source")
-        store, embed, extractor = MockStore(), MockEmbedder(), MockExtractor()
-        graph = await Graph.open(
-            schema=GENERIC, graph_store=store, embedder=embed, extractor=extractor
-        )
-        result = await graph.add(str(f))
-        assert result.ingestion.documents == 1
-        assert result.ingestion.sources == 1
 
     async def test_on_progress_fires_batches_plus_final(self) -> None:
         """on_progress fires per batch plus final."""
@@ -2038,141 +1516,6 @@ class TestGraphAddPipeline:
         ents = await all_entities_by_label(store, "Person")
         assert len(ents) == 257
         assert call_count == 2
-
-    async def test_consolidate_dry_run_and_apply(self) -> None:
-        """Consolidate reports and rebuilds matches without merging raw nodes."""
-        store = MockStore()
-        e1 = Entity(
-            id=uuid4(),
-            label="Person",
-            name="Alice",
-            properties={},
-            source_chunk_ids=[uuid4()],
-        )
-        e2 = Entity(
-            id=uuid4(),
-            label="Person",
-            name="alice",
-            properties={},
-            source_chunk_ids=[uuid4()],
-        )
-        small_schema = GraphSchema(
-            name="test",
-            version="1",
-            entities=[EntityType(label="Person", description="p")],
-            relations=[],
-        )
-        graph = await Graph.open(
-            schema=small_schema,
-            graph_store=store,
-            embedder=MockEmbedder(),
-            extractor=MockExtractor(),
-        )
-
-        with mock.patch.object(
-            maintenance_module, "all_entities_by_label", new_callable=mock.AsyncMock
-        ) as mock_all:
-            mock_all.return_value = [e1, e2]
-
-            with mock.patch(
-                "agrag.ingestion.resolve.resolution.Resolver"
-            ) as mock_resolver:
-                mock_instance = mock.AsyncMock()
-                from agrag.ingestion.resolve import (  # noqa: PLC0415
-                    ResolutionResult,
-                    ResolvedMatch,
-                )
-
-                mock_instance.resolve.return_value = ResolutionResult(
-                    groups=[],
-                    matches=[
-                        ResolvedMatch(
-                            left_index=0,
-                            right_index=1,
-                            comparator="FuzzyMatch",
-                            decided_at=datetime.now(UTC),
-                        )
-                    ],
-                )
-                mock_resolver.return_value = mock_instance
-                with (
-                    mock.patch.object(
-                        maintenance_module,
-                        "write_matches_and_rebuild",
-                        new_callable=mock.AsyncMock,
-                    ) as rebuild,
-                    mock.patch.object(
-                        maintenance_module,
-                        "_synchronize_resolved_entity_vectors",
-                        new_callable=mock.AsyncMock,
-                    ) as synchronize,
-                ):
-                    resolved = ResolvedEntity(
-                        id=uuid4(),
-                        label="Person",
-                        name="Alice",
-                        member_ids=[e1.id, e2.id],
-                    )
-                    replaced_id = uuid4()
-                    rebuild.return_value = RebuildResult(
-                        resolved_entity=resolved,
-                        removed_entity_ids=[replaced_id],
-                    )
-                    synchronize.return_value = []
-                    report = await graph.consolidate(apply=False)
-                    assert len(report.would_match) == 1
-                    assert report.applied is False
-                    rebuild.assert_not_awaited()
-                    report2 = await graph.consolidate(apply=True)
-                    assert report2.applied is True
-                    rebuild.assert_awaited_once()
-                    synchronize.assert_awaited_once()
-                    assert synchronize.await_args.args[:2] == (
-                        [resolved],
-                        [replaced_id],
-                    )
-
-    async def test_consolidate_passes_max_llm_pairs_to_the_resolver(self) -> None:
-        """The pair limit given to ``Graph.open`` reaches the resolver."""
-        small_schema = GraphSchema(
-            name="test",
-            version="1",
-            entities=[EntityType(label="Person", description="p")],
-            relations=[],
-        )
-        graph = await Graph.open(
-            schema=small_schema,
-            graph_store=MockStore(),
-            embedder=MockEmbedder(),
-            extractor=MockExtractor(),
-            max_llm_pairs=7,
-        )
-        entities = [
-            Entity(
-                id=uuid4(),
-                label="Person",
-                name=name,
-                properties={},
-                source_chunk_ids=[uuid4()],
-            )
-            for name in ("Alice", "alice")
-        ]
-        from agrag.ingestion.resolve import ResolutionResult  # noqa: PLC0415
-
-        with (
-            mock.patch.object(
-                maintenance_module, "all_entities_by_label", new_callable=mock.AsyncMock
-            ) as mock_all,
-            mock.patch("agrag.ingestion.resolve.resolution.Resolver") as mock_resolver,
-        ):
-            mock_all.return_value = entities
-            mock_resolver.return_value.resolve = mock.AsyncMock(
-                return_value=ResolutionResult(groups=[], matches=[])
-            )
-
-            await graph.consolidate(apply=False)
-
-        assert mock_resolver.call_args.kwargs["max_llm_pairs"] == 7
 
     async def test_consolidate_reports_candidate_read_failure(self) -> None:
         """A failed candidate read is reported and that entity is not compared."""

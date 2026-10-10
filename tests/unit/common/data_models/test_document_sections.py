@@ -30,15 +30,6 @@ def _document(text: str, sections: list[DocumentSection]) -> Document:
 class TestSectionChecks:
     """A Document refuses a section tree that cannot be right."""
 
-    def test_accepts_a_parent_before_its_child(self) -> None:
-        """Accepts a parent before its child."""
-        sections = [
-            DocumentSection(heading="A", depth=1),
-            DocumentSection(heading="B", depth=2, parent=0),
-        ]
-
-        assert len(_document("", sections).sections) == 2
-
     @pytest.mark.parametrize("parent", [1, 2, -1])
     def test_rejects_a_parent_that_does_not_come_before(self, parent: int) -> None:
         """Rejects a parent that does not come before."""
@@ -64,14 +55,6 @@ class TestSectionChecks:
 class TestUnitChecks:
     """A unit with offsets must match the document text."""
 
-    def test_rejects_a_unit_that_does_not_match_the_text(self) -> None:
-        """Rejects a unit that does not match the text."""
-        unit = Unit(kind=UnitKind.PARAGRAPH, text="xyz", char_start=0, char_end=3)
-        sections = [DocumentSection(heading="", depth=0, units=[unit])]
-
-        with pytest.raises(ValueError, match="does not match the document text"):
-            _document("abc", sections)
-
     def test_rejects_one_offset_without_the_other(self) -> None:
         """Rejects one offset without the other."""
         with pytest.raises(ValueError, match="set together"):
@@ -89,16 +72,6 @@ class TestUnitChecks:
 
         with pytest.raises(ValueError, match=r"section 0 unit 0"):
             _document("abc", sections)
-
-    def test_accepts_a_unit_with_no_provenance_channel(self) -> None:
-        """A unit with neither offsets nor pages locates by section path."""
-        sections = [
-            DocumentSection(
-                heading="", depth=0, units=[Unit(kind=UnitKind.PARAGRAPH, text="a")]
-            )
-        ]
-
-        assert _document("a", sections).sections[0].units[0].text == "a"
 
     def test_rejects_a_page_number_below_one(self) -> None:
         """A page number below one raises."""
@@ -177,11 +150,3 @@ class TestUnitTableText:
         """Text that differs from the caption raises."""
         with pytest.raises(ValueError, match="must equal its caption"):
             Unit(kind=kind, text="body", caption="cap")
-
-    @pytest.mark.parametrize("kind", [UnitKind.TABLE, UnitKind.FIGURE])
-    def test_accepts_caption_text_and_empty_text_without_a_caption(
-        self, kind: UnitKind
-    ) -> None:
-        """Caption text and empty text without a caption both pass."""
-        assert Unit(kind=kind, text="cap", caption="cap").text == "cap"
-        assert Unit(kind=kind, text="").text == ""

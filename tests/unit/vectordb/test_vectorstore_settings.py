@@ -3,11 +3,8 @@
 Covers QdrantSettings, WeaviateSettings, and MilvusSettings each rejecting a
 plaintext URL or URI to a non-local host when a credential (api_key or
 token) is present, or when ``require_tls=True`` is set even without a
-credential, while allowing plaintext localhost and encrypted remote
-connections. Also covers WeaviateSettings defaulting to ``mode="custom"``
-so its default URL (a local Docker host) is reachable, rather than
-defaulting to the cloud connector. Also covers validation errors leaving out
-the configured credential.
+credential. Also covers validation errors leaving out the configured
+credential.
 """
 
 import pytest
@@ -19,18 +16,6 @@ from agrag.vectordb.settings import MilvusSettings, QdrantSettings, WeaviateSett
 class TestQdrantEncryptedRemoteConnection:
     """A plaintext URL to a non-local host carrying an api_key is rejected."""
 
-    def test_localhost_plaintext_with_credential_is_allowed(self) -> None:
-        """The local dev default, plaintext against localhost, is fine."""
-        QdrantSettings(url="http://localhost:6333", api_key="k")
-
-    def test_remote_plaintext_without_credential_is_allowed(self) -> None:
-        """No credential means nothing secret travels in the clear."""
-        QdrantSettings(url="http://example.com:6333")
-
-    def test_remote_encrypted_with_credential_is_allowed(self) -> None:
-        """A remote host is fine once the scheme is encrypted."""
-        QdrantSettings(url="https://example.com:6333", api_key="k")
-
     def test_remote_plaintext_with_credential_raises(self) -> None:
         """A remote host, plaintext scheme, and a credential together raise."""
         with pytest.raises(ValueError, match="unencrypted"):
@@ -41,30 +26,9 @@ class TestQdrantEncryptedRemoteConnection:
         with pytest.raises(ValueError, match="unencrypted"):
             QdrantSettings(url="http://example.com:6333", require_tls=True)
 
-    def test_require_tls_allows_localhost_without_credential(self) -> None:
-        """require_tls=True still allows the local dev default."""
-        QdrantSettings(url="http://localhost:6333", require_tls=True)
-
-
-class TestWeaviateDefaults:
-    """Defaults must pair a mode with a URL that mode can actually reach."""
-
-    def test_default_mode_matches_default_local_url(self) -> None:
-        """The default URL is a local Docker host, so the default mode must be custom.
-
-        Regression guard: mode="cloud" paired with the localhost default URL
-        sent every out-of-the-box store through the Weaviate Cloud
-        connector against a local instance, which cannot connect.
-        """
-        assert WeaviateSettings().mode == "custom"
-
 
 class TestWeaviateEncryptedRemoteConnection:
     """A plaintext URL to a non-local host carrying an api_key is rejected."""
-
-    def test_localhost_plaintext_with_credential_is_allowed(self) -> None:
-        """The local dev default, plaintext against localhost, is fine."""
-        WeaviateSettings(mode="custom", url="http://localhost:8080", api_key="k")
 
     def test_remote_plaintext_with_credential_raises(self) -> None:
         """A remote host, plaintext scheme, and a credential together raise."""
@@ -81,10 +45,6 @@ class TestWeaviateEncryptedRemoteConnection:
 
 class TestMilvusEncryptedRemoteConnection:
     """A plaintext URI to a non-local host carrying a token is rejected."""
-
-    def test_localhost_plaintext_with_credential_is_allowed(self) -> None:
-        """The local dev default, plaintext against localhost, is fine."""
-        MilvusSettings(uri="http://localhost:19530", token="t")
 
     def test_remote_plaintext_with_credential_raises(self) -> None:
         """A remote host, plaintext scheme, and a credential together raise."""

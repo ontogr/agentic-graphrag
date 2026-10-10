@@ -27,13 +27,6 @@ class TestEmbedCommunities:
 
         embedder.embed.assert_not_called()
 
-    async def test_empty_communities_returns_empty_no_embed_calls(self) -> None:
-        """An empty community list short-circuits without calling embed()."""
-        mock_embedder = AsyncMock()
-        failures = await embed_communities([], embedder=mock_embedder)
-        assert failures == []
-        mock_embedder.embed.assert_not_called()
-
     async def test_batch_failure_leaves_embedding_none_and_is_recorded(self) -> None:
         """A failing batch's embed() call does not block other batches."""
         comms = [

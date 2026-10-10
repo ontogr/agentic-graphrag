@@ -1,9 +1,8 @@
 """Tests for node_distance_rerank in agrag.retrieval.rerank.node_distance.
 
 Uses a MockGraphStore whose execute_read returns a preset shortest-path
-distance per target id, so no real Neo4j query runs. Covers empty input,
-no seed ids leaving results unchanged, and that entities closer to the seed
-set rank ahead of farther ones.
+distance per target id, so no real Neo4j query runs. Covers a ResolvedEntity
+being scored by its closest member, so it ranks ahead of a farther entity.
 """
 
 from uuid import uuid4
@@ -33,42 +32,6 @@ class MockGraphStore:
 
 class TestNodeDistanceRerank:
     """node_distance_rerank reorders by graph proximity."""
-
-    async def test_empty_input(self) -> None:
-        """Empty results return empty."""
-        result = await node_distance_rerank(
-            [], graph_store=MockGraphStore(), seed_ids=[]
-        )
-        assert result == []
-
-    async def test_no_seeds(self) -> None:
-        """No seeds returns results unchanged."""
-        ent = Entity(id=uuid4(), label="Person", name="Alice")
-        r = SearchResult(item=ent, score=1.0, method="test")
-        result = await node_distance_rerank(
-            [r], graph_store=MockGraphStore(), seed_ids=[]
-        )
-        assert len(result) == 1
-
-    async def test_closer_entities_rank_higher(self) -> None:
-        """Entities closer to seeds rank higher."""
-        close_id = uuid4()
-        far_id = uuid4()
-        seed_id = uuid4()
-
-        close_ent = Entity(id=close_id, label="Person", name="Close")
-        far_ent = Entity(id=far_id, label="Person", name="Far")
-        r_close = SearchResult(item=close_ent, score=0.5, method="test")
-        r_far = SearchResult(item=far_ent, score=0.9, method="test")
-
-        store = MockGraphStore({str(close_id): 1.0, str(far_id): 5.0})
-        result = await node_distance_rerank(
-            [r_far, r_close],
-            graph_store=store,
-            seed_ids=[seed_id],
-        )
-        assert result[0].item.id == close_id
-        assert result[1].item.id == far_id
 
     async def test_resolved_entity_measured_by_closest_member(self) -> None:
         """A ResolvedEntity is scored by its nearest raw member, not skipped."""

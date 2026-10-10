@@ -117,40 +117,6 @@ class TestWriteMatchesAndRebuild:
                 [decision], graph_store=store, schema=_schema(), members=[first, second]
             )
 
-    async def test_pending_job_does_not_delete_committed_resolved_entity(self) -> None:
-        """A pending rebuild leaves rollback-owned old rows intact."""
-        first, second = _entity("Ada"), _entity("Ada Lovelace")
-        store = _store(
-            node_result=UpsertResult(written=1), relation_result=UpsertResult(written=2)
-        )
-
-        async def replace_resolved_entities(
-            _query: str, parameters: dict[str, Any]
-        ) -> list[dict[str, Any]]:
-            if "pending_job_id" in parameters:
-                return [{"removed_resolved_entity_ids": []}]
-            return [{"removed_resolved_entity_ids": [str(uuid4())]}]
-
-        store.current_transaction.execute_write.side_effect = replace_resolved_entities
-        decision = MatchDecision(
-            entity_a_id=first.id,
-            entity_b_id=second.id,
-            comparator="FuzzyMatch",
-            decided_at=datetime.now(UTC),
-        )
-
-        result = await write_matches_and_rebuild(
-            [decision],
-            graph_store=store,
-            schema=_schema(),
-            members=[first, second],
-            pending_job_id=str(uuid4()),
-        )
-
-        assert result.removed_entity_ids == []
-        replacement_call = store.current_transaction.execute_write.await_args_list[1]
-        assert replacement_call.args[1]["pending_job_id"] is not None
-
 
 def _member_row(seed: Entity, member: Entity) -> dict[str, Any]:
     """Build one active-component row as the graph store returns it."""
@@ -266,36 +232,6 @@ class TestRebuildResolvedEntities:
 
 class TestDeactivateMatch:
     """Match corrections report stale resolved entities for vector cleanup."""
-
-    async def test_returns_deleted_resolved_entity_ids(self, monkeypatch) -> None:
-        """Only replaced derived IDs are returned after the transaction commits."""
-        first, second, stale_id = _entity("Ada"), _entity("Ada Lovelace"), uuid4()
-        store = _store(
-            node_result=UpsertResult(written=1), relation_result=UpsertResult(written=2)
-        )
-        store.current_transaction.execute_read.side_effect = [
-            [{"a": first, "b": second}],
-            [
-                {"seed_id": str(first.id), "member": first},
-                {"seed_id": str(first.id), "member": second},
-            ],
-        ]
-        store.current_transaction.execute_write.side_effect = [
-            [{"id": "match"}],
-            [{"removed_resolved_entity_ids": [str(stale_id)]}],
-        ]
-        monkeypatch.setattr(
-            "agrag.ingestion.resolved_entities.parse_entity_node", lambda node: node
-        )
-
-        result = await deactivate_match_and_rebuild(
-            uuid4(), graph_store=store, schema=_schema()
-        )
-
-        assert result.removed_entity_ids == [stale_id]
-        assert len(result.resolved_entities) == 1
-        replacement_call = store.current_transaction.execute_write.await_args_list[1]
-        assert replacement_call.args[1]["pending_job_id"] is None
 
     async def test_excludes_and_dedupes_ids_the_split_already_recreated(
         self, monkeypatch

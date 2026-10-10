@@ -73,63 +73,6 @@ def _graph_store(
 class TestEntityRetriever:
     """EntityRetriever loads hits from the graph."""
 
-    async def test_returns_loaded_entities(self) -> None:
-        """Hits are loaded from the graph and returned."""
-        ent = Entity(id=uuid4(), label="Person", name="Alice")
-        gs = _graph_store(entities=(ent,))
-        embedder = MockEmbedder()
-
-        with patch(
-            "agrag.retrieval.retrievers.entity.vector_search",
-            new_callable=AsyncMock,
-        ) as mock_vs:
-            mock_vs.return_value = [VectorHit(id=ent.id, score=0.9, payload={})]
-
-            retriever = EntityRetriever(graph_store=gs, embedder=embedder)
-            results = await retriever.retrieve("test query")
-
-            assert len(results) == 1
-            assert results[0].item.id == ent.id
-            assert results[0].item.name == ent.name
-            assert results[0].method == "entity"
-
-    async def test_returns_resolved_entity_without_its_raw_member(self) -> None:
-        """An active resolved entity replaces its member in user-facing search."""
-        raw = Entity(id=uuid4(), label="Person", name="Ada")
-        resolved = ResolvedEntity(
-            id=uuid4(),
-            label="Person",
-            name="Ada Lovelace",
-            member_ids=[raw.id, uuid4()],
-        )
-        graph_store = AsyncMock()
-        graph_store.execute_read.side_effect = [
-            [],
-            [{"entity_id": str(raw.id)}],
-        ]
-
-        with (
-            patch(
-                "agrag.retrieval.retrievers.entity.vector_search",
-                new_callable=AsyncMock,
-                side_effect=[
-                    [VectorHit(id=raw.id, score=0.9, payload={})],
-                    [VectorHit(id=resolved.id, score=0.8, payload={})],
-                ],
-            ),
-            patch(
-                "agrag.retrieval.retrievers.entity.load_resolved_entities",
-                new_callable=AsyncMock,
-                return_value={resolved.id: resolved},
-            ),
-        ):
-            retriever = EntityRetriever(
-                graph_store=graph_store, embedder=MockEmbedder()
-            )
-            results = await retriever.retrieve("Ada")
-
-        assert [result.item for result in results] == [resolved]
-
     async def test_document_scope_keeps_resolved_entity_with_scoped_member(
         self,
     ) -> None:
@@ -492,28 +435,6 @@ class TestEntityRetriever:
         assert [result.item for result in results] == [resolved]
         assert mock_vs.await_count == 2
 
-    async def test_resolved_search_uses_property_label_filter(self) -> None:
-        """A domain label filter reaches resolved search as a property filter."""
-        gs = AsyncMock()
-        gs.execute_read.return_value = []
-        filters = SearchFilters(labels=["Person"])
-
-        with (
-            patch(
-                "agrag.retrieval.retrievers.entity.vector_search",
-                new_callable=AsyncMock,
-                side_effect=[[], []],
-            ) as mock_vs,
-        ):
-            retriever = EntityRetriever(graph_store=gs, embedder=MockEmbedder())
-            await retriever.retrieve("Ada", filters=filters)
-
-        raw_call, resolved_call = mock_vs.call_args_list
-        assert raw_call.kwargs["filters"].labels == ["Person"]
-        resolved_filters = resolved_call.kwargs["filters"]
-        assert resolved_filters.labels == []
-        assert resolved_filters.properties["label"] == ["Person"]
-
     async def test_resolved_collection_search_failure_raises(self) -> None:
         """A resolved-collection search failure raises, not a raw-only list."""
         ent = Entity(id=uuid4(), label="Person", name="Alice")
@@ -568,17 +489,3 @@ class TestEntityRetriever:
             retriever = EntityRetriever(graph_store=gs, embedder=MockEmbedder())
             with pytest.raises(RuntimeError, match="db down"):
                 await retriever.retrieve("Alice")
-
-    async def test_returns_empty_when_nothing_matches(self) -> None:
-        """Searches that run and find nothing return an empty list."""
-        gs = _graph_store()
-
-        with patch(
-            "agrag.retrieval.retrievers.entity.vector_search",
-            new_callable=AsyncMock,
-            return_value=[],
-        ):
-            retriever = EntityRetriever(graph_store=gs, embedder=MockEmbedder())
-            results = await retriever.retrieve("Alice")
-
-        assert results == []

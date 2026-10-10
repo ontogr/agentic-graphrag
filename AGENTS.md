@@ -78,10 +78,8 @@ thoughts/     # shared plans and research notes, do not edit unless asked
   dependency-injection framework.
 - Match existing patterns before introducing new abstractions.
 - Prefer small, surgical edits. Do not refactor adjacent code opportunistically.
-- Always attempt to add or update a test for changed behavior.
-- Prefer integration tests when behavior depends on real service integration;
-  otherwise use unit tests with external services mocked at driver/API
-  boundaries.
+- Verify changed behavior with an end-to-end or integration test, following the
+  Testing requirements below.
 - Do not manually edit generated BAML client files under
   `agrag/llm/baml_client/`.
 - Do not commit secrets, `.env`, API keys, tokens, or credentials.
@@ -209,7 +207,7 @@ Follow nearby components first.
 
 - Keep component logic pure and storage-agnostic when possible.
 - Follow the relevant base class and neighboring implementation patterns.
-- Add tests that cover behavior, edge cases, and service-boundary mocking.
+- Cover the behavior with an end-to-end or integration test.
 
 ### BAML functions
 
@@ -223,11 +221,12 @@ Follow nearby components first.
 
 Use the `writing-tests` skill before adding or changing tests.
 
-- Highly prefer E2E tests as the sole testing mechanism. Use them to verify complex features work. At the end of E2E tests, produce a verifiable and repeatable artifact.
-- Never write unit tests after you write code (follow Test Driven Development). If you must test a system in isolation, first write down all the ways it could fail, then write the code.
-- Tautological tests considered harmful.
-- Change-detector tests considered harmful.
-- Do not create regression tests for bug fixes without a genuine gap in behavior testing.
+- Never write unit tests after you write code.
+- Highly prefer E2E or integration tests as the sole testing mechanism. Use them to verify complex features work. At the end of those tests, produce a verifiable and repeatable artifact.
+- If you must test a system in isolation, first write down all the ways it could fail, then write the code.
+- A test that breaks under a behavior-preserving refactor is asserting implementation, not behavior. Do not add it.
+- Never delete or weaken a failing test to make the suite pass. Fix the code, or ask.
+- Do not add tests that restate the code, assert mock call shapes, grep source or docs text, compute the expected value with the code under test, or only keep a test-only export or seam alive.
 - Use `pytest` and `pytest-asyncio`; async tests do not need
   `@pytest.mark.asyncio`.
 - Tests mirror the `agrag/` package under `tests/unit/` and
@@ -240,18 +239,18 @@ Use the `writing-tests` skill before adding or changing tests.
 - For tests over multiple inputs, use `@pytest.mark.parametrize`.
 - Always read and copy the style of similar nearby tests before adding fixtures
   or helpers.
-- For bug fixes, write a failing test that reproduces the reported symptom,
-  then make it pass. Extend the existing mapped test file when one already
-  covers the affected module; do not create new scaffolding when a suite for
-  the module exists.
-- One focused regression test that fails without the fix is better than many
-  shallow tests that do not prove behavior.
+- For bug fixes, extend the E2E or integration test that covers the behavior so
+  it fails without the fix. Add a unit test only when the rules above allow it.
+- One focused test that fails without the fix is better than many shallow tests
+  that do not prove behavior.
 - Do not write assertion-free tests just to increase coverage.
 - Target 80-90% coverage for core/domain logic; do not chase 100% coverage.
-- Do not delete tests to hide failures; use `skip` or `xfail` only for known,
-  documented reasons.
+- Do not delete, skip, or weaken a failing test to hide the failure. Use `skip`
+  or `xfail` only for a known, documented reason the user has accepted.
 
 ### Unit tests
+
+Unit tests are the exception. Write one only for isolated logic with real branches that an E2E or integration test cannot reach, and only under the rules above.
 
 - Location: `tests/unit/...`.
 - No network access. Sockets are disabled by default.
@@ -412,7 +411,7 @@ Use judgment based on scope, but default to these artifacts.
 
 ### Bug fixes
 
-1. Add or update a regression test that fails without the fix.
+1. Reproduce the bug in an E2E or integration test that fails without the fix.
 2. Implement the smallest correct fix.
 3. Run the focused test.
 4. Run lint/type checks when the touched area or risk justifies them.
@@ -420,7 +419,8 @@ Use judgment based on scope, but default to these artifacts.
 ### New features
 
 1. Follow existing interfaces and component patterns.
-2. Add tests for happy paths, edge cases, and error behavior.
+2. Add an E2E or integration test that exercises the feature and leaves a
+   verifiable, repeatable artifact.
 3. Update docstrings and user-facing docs if behavior is public.
 4. Run focused tests plus the narrowest broader check that proves integration.
 
@@ -466,8 +466,8 @@ Before handing off non-trivial changes, check:
 - Public contract: breaking changes follow the Pre-1.0 policy (hard cut, old
   surface removed, no compat shims); no leftover aliases or old-API tests
   remain.
-- Tests: changed behavior has meaningful tests that fail when the behavior is
-  broken and do not depend on private internals.
+- Tests: changed behavior has an E2E or integration test that fails when the
+  behavior is broken and survives a behavior-preserving refactor.
 - Style: new or modified public functions are typed, docstrings are updated when
   needed, and Ruff formatting/linting expectations are respected.
 - Design: no unnecessary abstractions, private-member access, god objects,

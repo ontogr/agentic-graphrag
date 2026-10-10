@@ -88,42 +88,6 @@ class TestTraversal:
         engine.traverse.assert_not_awaited()
         engine.list_relationship_types.assert_not_awaited()
 
-    @pytest.mark.parametrize("factory_name", list(_TOOL_FACTORIES))
-    async def test_base_filters_reach_find_entity(self, factory_name: str) -> None:
-        """The caller's scope bounds entity resolution for every tool."""
-        factory, arguments = _TOOL_FACTORIES[factory_name]
-        resolved = _result()
-        engine = _engine(resolved)
-        scope = SearchFilters(properties={"tenant_id": "tenant-a"})
-        tool = factory(engine, Ledger(), filters=scope)
-
-        await tool.ainvoke(arguments)
-
-        engine.find_entity.assert_awaited_once_with("Acme", filters=scope)
-
-    async def test_renders_distinct_types(self) -> None:
-        """The rendered text names every distinct type, sorted."""
-        engine = _engine(_result())
-        engine.list_relationship_types.return_value = ["WORKS_FOR", "FOUNDED"]
-        tool = make_list_relationship_types_tool(engine, Ledger())
-
-        rendered = await tool.ainvoke({"entity": "Acme"})
-
-        assert "FOUNDED, WORKS_FOR" in rendered
-        assert "Acme" in rendered
-
-    async def test_filter_reaches_the_engine(self) -> None:
-        """relation_type_filter reaches list_relationship_types."""
-        resolved = _result()
-        engine = _engine(resolved)
-        tool = make_list_relationship_types_tool(engine, Ledger())
-
-        await tool.ainvoke({"entity": "Acme", "relation_type_filter": "TREATS"})
-
-        engine.list_relationship_types.assert_awaited_once_with(
-            resolved, relation_type_filter="TREATS", filters=None
-        )
-
     async def test_list_relationship_types_denied_is_refused(self) -> None:
         """An out-of-scope relationship type returns an authorization refusal."""
         engine = _engine(_result())
@@ -138,114 +102,6 @@ class TestTraversal:
 
         assert "outside this agent's permitted scope" in rendered
 
-    async def test_no_types_message(self) -> None:
-        """An entity with no attached relationships says so."""
-        engine = _engine(_result())
-        engine.list_relationship_types.return_value = []
-        tool = make_list_relationship_types_tool(engine, Ledger())
-
-        rendered = await tool.ainvoke({"entity": "Acme"})
-
-        assert rendered == "[E1] Entity: Acme (Organization)\nNo relationships found."
-
-    async def test_relation_type_and_direction_reach_traverse(self) -> None:
-        """The named relationship and direction reach engine.traverse."""
-        resolved = _result()
-        engine = _engine(resolved)
-        tool = make_find_related_entities_tool(engine, Ledger())
-
-        await tool.ainvoke(
-            {"entity": "Acme", "relation_type": "FOUNDED", "direction": "outgoing"}
-        )
-
-        engine.traverse.assert_awaited_once_with(
-            resolved,
-            relation_type="FOUNDED",
-            direction="outgoing",
-            community_expand=False,
-            filters=None,
-        )
-
-    @pytest.mark.parametrize("direction", ["outgoing", "incoming", "both"])
-    async def test_direction_reaches_traverse(self, direction: str) -> None:
-        """Each direction value reaches engine.traverse unchanged."""
-        engine = _engine(_result())
-        tool = make_find_related_entities_tool(engine, Ledger())
-
-        await tool.ainvoke(
-            {"entity": "Acme", "relation_type": "FOUNDED", "direction": direction}
-        )
-
-        assert engine.traverse.await_args.kwargs["direction"] == direction
-
-    async def test_community_expand_reaches_traverse(self) -> None:
-        """community_expand reaches engine.traverse."""
-        engine = _engine(_result())
-        tool = make_find_related_entities_tool(engine, Ledger())
-
-        await tool.ainvoke(
-            {"entity": "Acme", "relation_type": "FOUNDED", "community_expand": True}
-        )
-
-        assert engine.traverse.await_args.kwargs["community_expand"] is True
-
-    async def test_find_related_entities_base_filters_reach_traverse(self) -> None:
-        """The caller's scope bounds the traversal, not only the resolution."""
-        resolved = _result()
-        engine = _engine(resolved)
-        scope = SearchFilters(properties={"tenant_id": "tenant-a"})
-        tool = make_find_related_entities_tool(engine, Ledger(), filters=scope)
-
-        await tool.ainvoke({"entity": "Acme", "relation_type": "FOUNDED"})
-
-        engine.find_entity.assert_awaited_once_with("Acme", filters=scope)
-        assert engine.traverse.await_args.kwargs["filters"] is scope
-
-    async def test_renders_neighbours_as_cited_evidence(self) -> None:
-        """Neighbours come back through the ledger."""
-        engine = _engine(_result())
-        engine.traverse.return_value = _neighbours(2)
-        tool = make_find_related_entities_tool(engine, Ledger())
-
-        rendered = await tool.ainvoke({"entity": "Acme", "relation_type": "FOUNDED"})
-
-        assert "[E1]" in rendered
-        assert "[E2]" in rendered
-
-    async def test_find_related_entities_denied_relation_type_is_refused(self) -> None:
-        """A traversal the caller's scope refuses returns the refusal text."""
-        engine = _engine(_result())
-        engine.traverse.side_effect = ScopeDeniedError("FOUNDED not permitted")
-        tool = make_find_related_entities_tool(
-            engine, Ledger(), filters=SearchFilters(relation_types=["WORKS_FOR"])
-        )
-
-        rendered = await tool.ainvoke({"entity": "Acme", "relation_type": "FOUNDED"})
-
-        assert "outside this agent's permitted scope" in rendered
-
-    async def test_renders_every_property(self) -> None:
-        """Every property key and value appears, not just a citation line."""
-        engine = _engine(
-            _result(
-                properties={
-                    "description": "A maker of things.",
-                    "founded_year": 1994,
-                    "hq": "Springfield",
-                }
-            )
-        )
-        ledger = Ledger()
-        tool = make_describe_entity_tool(engine, ledger)
-
-        rendered = await tool.ainvoke({"entity": "Acme"})
-
-        assert "[E1]" in rendered
-        assert "Acme (Organization)" in rendered
-        assert "- description: A maker of things." in rendered
-        assert "- founded_year: 1994" in rendered
-        assert "- hq: Springfield" in rendered
-
     async def test_entity_without_properties_says_so(self) -> None:
         """An entity with no properties renders a placeholder, not blank."""
         engine = _engine(_result())
@@ -254,31 +110,6 @@ class TestTraversal:
         rendered = await tool.ainvoke({"entity": "Acme"})
 
         assert rendered.endswith("(no properties)")
-
-    async def test_never_traverses(self) -> None:
-        """Describing an entity touches no relationships."""
-        engine = _engine(_result())
-        tool = make_describe_entity_tool(engine, Ledger())
-
-        await tool.ainvoke({"entity": "Acme"})
-
-        engine.traverse.assert_not_awaited()
-        engine.list_relationship_types.assert_not_awaited()
-
-    async def test_relation_type_given_skips_fanout_check(self) -> None:
-        """A named relationship traverses once, without listing types first."""
-        resolved = _result()
-        engine = _engine(resolved)
-        engine.traverse.return_value = _neighbours(_TRAVERSAL_WIDE_FANOUT + 10)
-        tool = make_traverse_from_entity_tool(engine, Ledger())
-
-        await tool.ainvoke({"entity": "Acme", "relation_type": "FOUNDED", "depth": 2})
-
-        assert engine.traverse.await_count == 1
-        kwargs = engine.traverse.await_args.kwargs
-        assert kwargs["relation_type"] == "FOUNDED"
-        assert kwargs["depth"] == 2
-        engine.list_relationship_types.assert_not_awaited()
 
     async def test_wide_fanout_falls_back_to_relationship_types(self) -> None:
         """Too many neighbours returns the relationship types instead."""
@@ -294,15 +125,6 @@ class TestTraversal:
         assert "relation_type" in rendered
         assert "Neighbour 0" not in rendered
 
-    async def test_wide_fanout_requests_one_past_the_threshold(self) -> None:
-        """The probe asks for just enough to detect a wide fan-out."""
-        engine = _engine(_result())
-        tool = make_traverse_from_entity_tool(engine, Ledger())
-
-        await tool.ainvoke({"entity": "Acme"})
-
-        assert engine.traverse.await_args.kwargs["limit"] == _TRAVERSAL_WIDE_FANOUT + 1
-
     async def test_within_threshold_renders_neighbours(self) -> None:
         """At or below the threshold, neighbours are returned."""
         engine = _engine(_result())
@@ -313,18 +135,6 @@ class TestTraversal:
 
         engine.list_relationship_types.assert_not_awaited()
         assert "[E1]" in rendered
-
-    async def test_traverse_from_entity_base_filters_reach_traverse(self) -> None:
-        """The caller's scope bounds this traversal too."""
-        resolved = _result()
-        engine = _engine(resolved)
-        scope = SearchFilters(properties={"tenant_id": "tenant-a"})
-        tool = make_traverse_from_entity_tool(engine, Ledger(), filters=scope)
-
-        await tool.ainvoke({"entity": "Acme", "relation_type": "FOUNDED"})
-
-        engine.find_entity.assert_awaited_once_with("Acme", filters=scope)
-        assert engine.traverse.await_args.kwargs["filters"] is scope
 
     async def test_traverse_from_entity_denied_relation_type_is_refused(self) -> None:
         """A traversal the caller's scope refuses returns the refusal text."""

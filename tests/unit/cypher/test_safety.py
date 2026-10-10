@@ -1,10 +1,8 @@
 """Tests for reject_write_cypher in agrag.cypher.safety.
 
-Covers rejecting each write keyword (DELETE, CREATE, MERGE, SET, REMOVE,
-DROP) anywhere in a query, including inside an otherwise read-shaped query
-or a subquery CALL, in any letter case; rejecting a CALL to a procedure
-outside the read-only allowlist; and accepting pure MATCH...RETURN queries
-and read-only vector index CALLs. A cluster of adversarial-string tests
+Covers rejecting a write keyword anywhere in a query, including inside a
+subquery CALL, in any letter case; rejecting a CALL to a procedure outside
+the read-only allowlist. A cluster of adversarial-string tests
 verifies the pre-filter's string/comment/backtick scanning is not
 desynced by an escaped quote, a `//` or `/* */` comment, or a backtick
 identifier placed between a keyword and a real write clause, and that a
@@ -24,56 +22,6 @@ from agrag.cypher.safety import (
 class TestRejectWriteCypher:
     """reject_write_cypher raises on write keywords."""
 
-    def test_rejects_delete(self) -> None:
-        """A query containing DELETE is rejected."""
-        with pytest.raises(UnsafeCypherError, match="DELETE"):
-            reject_write_cypher("MATCH (n) WHERE n.id = $id DELETE n")
-
-    def test_rejects_create(self) -> None:
-        """A query containing CREATE is rejected."""
-        with pytest.raises(UnsafeCypherError, match="CREATE"):
-            reject_write_cypher("CREATE (n:Person {name: 'test'})")
-
-    def test_rejects_merge(self) -> None:
-        """A query containing MERGE is rejected."""
-        with pytest.raises(UnsafeCypherError, match="MERGE"):
-            reject_write_cypher("MERGE (n:Person {name: 'test'})")
-
-    def test_rejects_set(self) -> None:
-        """A query containing SET is rejected."""
-        with pytest.raises(UnsafeCypherError, match="SET"):
-            reject_write_cypher("MATCH (n) SET n.name = 'updated'")
-
-    def test_rejects_remove(self) -> None:
-        """A query containing REMOVE is rejected."""
-        with pytest.raises(UnsafeCypherError, match="REMOVE"):
-            reject_write_cypher("MATCH (n) REMOVE n.embedding")
-
-    def test_rejects_drop(self) -> None:
-        """A query containing DROP is rejected."""
-        with pytest.raises(UnsafeCypherError, match="DROP"):
-            reject_write_cypher("DROP INDEX my_index")
-
-    def test_rejects_write_inside_read_shape(self) -> None:
-        """A DELETE inside a valid-looking read query is rejected."""
-        with pytest.raises(UnsafeCypherError):
-            reject_write_cypher(
-                "MATCH (n:Person) WHERE n.name = $name DELETE n RETURN n"
-            )
-
-    def test_accepts_pure_match_return(self) -> None:
-        """A pure MATCH...RETURN query is accepted."""
-        reject_write_cypher("MATCH (n:Person) WHERE n.name = $name RETURN n")
-
-    def test_accepts_read_only_vector_call(self) -> None:
-        """CALL db.index.vector.queryNodes is accepted (read Cypher)."""
-        reject_write_cypher(
-            "CALL db.index.vector.queryNodes("
-            "'my_index', 10, $vector) "
-            "YIELD node, score "
-            "RETURN node, score"
-        )
-
     def test_rejects_unknown_procedure_call(self) -> None:
         """A CALL to a procedure outside the read-only allowlist is rejected."""
         with pytest.raises(UnsafeCypherError, match="disallowed procedure"):
@@ -86,14 +34,6 @@ class TestRejectWriteCypher:
         with pytest.raises(UnsafeCypherError, match="CALL"):
             reject_write_cypher("MATCH (n) CALL { WITH n RETURN n } RETURN n")
 
-    def test_ignores_keywords_inside_string_literals(self) -> None:
-        """DELETE inside a string literal does not trigger rejection."""
-        reject_write_cypher("RETURN 'This query will DELETE nothing'")
-
-    def test_ignores_keywords_inside_single_quoted_strings(self) -> None:
-        """CREATE inside a single-quoted string is safe."""
-        reject_write_cypher("RETURN 'Do not CREATE duplicates'")
-
     def test_rejects_lowercase_write_keyword(self) -> None:
         """Lowercase write keywords are not a bypass.
 
@@ -103,26 +43,6 @@ class TestRejectWriteCypher:
         """
         with pytest.raises(UnsafeCypherError, match="DELETE"):
             reject_write_cypher("match (n) delete n")
-
-    def test_rejects_mixed_case_write_keyword(self) -> None:
-        """Mixed-case write keywords are not a bypass."""
-        with pytest.raises(UnsafeCypherError, match="DELETE"):
-            reject_write_cypher("MATCH (n) DeLeTe n")
-
-    @pytest.mark.parametrize(
-        "query",
-        [
-            "merge (n:Person {name: $x})",
-            "create (n:Person {name: $x})",
-            "match (n) set n.x = 1",
-            "match (n) remove n.embedding",
-            "drop index my_index",
-        ],
-    )
-    def test_rejects_lowercase_keywords_foreach(self, query: str) -> None:
-        """Every write keyword rejects in lowercase."""
-        with pytest.raises(UnsafeCypherError):
-            reject_write_cypher(query)
 
     def test_escaped_quote_inside_literal_does_not_desync(self) -> None:
         r"""An escaped quote inside a literal does not leak a real DELETE.

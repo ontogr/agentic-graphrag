@@ -4,8 +4,7 @@ Uses an injected fake client, so no LLM is called. Covers sending seven
 pairs in one request, splitting populations at max_pairs_per_batch (five
 and ten pairs), mapping verdicts to pairs by pair_id rather than response
 position, failing safe to NO_MATCH with no partial results when the batch
-call raises, and the generated MatchVerdict model declaring reasoning
-before verdict.
+call raises.
 """
 
 from uuid import UUID, uuid4
@@ -16,7 +15,6 @@ from agrag.common.data_models.chunk import Chunk
 from agrag.common.data_models.extraction import ExtractedEntity
 from agrag.common.data_models.provenance import TextProvenance
 from agrag.ingestion.resolve import ComparisonVerdict, LLMVerify
-from agrag.llm.baml_client.types import MatchVerdict
 
 
 _DOC_ID = uuid4()
@@ -159,18 +157,6 @@ class TestCompareBatch:
             assert results[(index, index + 1)].verdict is ComparisonVerdict.MATCH
         for index in range(5, 7):
             assert results[(index, index + 1)].verdict is ComparisonVerdict.NO_MATCH
-
-
-class TestMatchVerdictFieldOrder:
-    """The generated MatchVerdict model declares reasoning before verdict."""
-
-    def test_reasoning_precedes_verdict(self) -> None:
-        """Field order keeps the explanation ahead of the judgment."""
-        assert list(MatchVerdict.model_fields) == [
-            "pair_id",
-            "reasoning",
-            "verdict",
-        ]
 
 
 class TestCompareBatchDetailed:

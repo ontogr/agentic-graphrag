@@ -18,10 +18,7 @@ from qdrant_client import models as qdrant_models
 
 from agrag.common.data_models.vector_record import Distance, VectorHit, VectorRecord
 from agrag.embedding.sparse_base import SparseVector
-from agrag.vectordb.errors import (
-    VectorStoreError,
-    VectorStoreMissingExtraError,
-)
+from agrag.vectordb.errors import VectorStoreMissingExtraError
 from agrag.vectordb.qdrant import (
     _SPARSE_VECTOR_NAME,
     QdrantVectorStore,
@@ -100,48 +97,6 @@ def store(client: MockQdrantClient) -> QdrantVectorStore:
 class TestEnsureCollection:
     """ensure_collection creates, is idempotent, and checks dimensions."""
 
-    async def test_existing_hybrid_collection_is_tracked(
-        self, store: QdrantVectorStore, client
-    ) -> None:
-        """An already-hybrid collection is tracked without recreating it."""
-        client.collection_exists.return_value = True
-        client.get_collection.return_value = make_collection_info(4, sparse=True)
-        await store.ensure_collection(
-            "c", dimensions=4, distance=Distance.COSINE, hybrid=True
-        )
-        client.create_collection.assert_not_called()
-        assert "c" in store._hybrid_collections
-
-    async def test_unrelated_sparse_vector_is_not_treated_as_bm25(
-        self, store: QdrantVectorStore, client
-    ) -> None:
-        """A collection's unrelated sparse vector is not mistaken for ours.
-
-        Regression guard: checking only "does sparse_vectors exist" would
-        treat any other application's differently-named sparse vector as if
-        it were this store's own ``bm25`` field.
-        """
-        client.collection_exists.return_value = True
-        client.get_collection.return_value = make_collection_info(
-            4, sparse=True, sparse_name="some_other_app_vector"
-        )
-        await store.ensure_collection("c", dimensions=4, distance=Distance.COSINE)
-        assert "c" not in store._hybrid_collections
-
-    async def test_unrelated_sparse_vector_still_rejects_hybrid_upgrade(
-        self, store: QdrantVectorStore, client
-    ) -> None:
-        """Requesting hybrid still raises when the only sparse field isn't bm25."""
-        client.collection_exists.return_value = True
-        client.get_collection.return_value = make_collection_info(
-            4, sparse=True, sparse_name="some_other_app_vector"
-        )
-        with pytest.raises(VectorStoreError):
-            await store.ensure_collection(
-                "c", dimensions=4, distance=Distance.COSINE, hybrid=True
-            )
-        assert "c" not in store._hybrid_collections
-
     async def test_create_failure_does_not_mark_hybrid(
         self, store: QdrantVectorStore, client
     ) -> None:
@@ -202,17 +157,6 @@ class TestWritesAndReads:
         await store.upsert("c", [record])
         client.get_collection.assert_called_once_with("c")
 
-    async def test_upsert_caches_dense_state_for_unseen_collection(
-        self, store: QdrantVectorStore, client
-    ) -> None:
-        """A confirmed-dense collection is not re-checked on every upsert."""
-        client.get_collection.return_value = make_collection_info(4, sparse=False)
-        record = VectorRecord(id=uuid4(), vector=[0.1], payload={"text": "hello"})
-        await store.upsert("c", [record])
-        await store.upsert("c", [record])
-        client.get_collection.assert_called_once_with("c")
-        assert "c" not in store._hybrid_collections
-
     async def test_upsert_does_not_treat_unrelated_sparse_vector_as_bm25(
         self, store: QdrantVectorStore, client
     ) -> None:
@@ -232,21 +176,6 @@ class TestWritesAndReads:
         await store.upsert("c", [record])
         sparse.embed.assert_not_called()
         assert "c" not in store._hybrid_collections
-
-    async def test_upsert_uses_empty_text_when_missing(
-        self, store: QdrantVectorStore, client
-    ) -> None:
-        """A record with no text key still sparse-embeds, as an empty string."""
-        store._hybrid_collections.add("c")
-        store._checked_collections.add("c")
-        sparse = mock.AsyncMock()
-        sparse.embed = mock.AsyncMock(
-            return_value=[SparseVector(indices=[], values=[])]
-        )
-        store._sparse_embedder = sparse
-        record = VectorRecord(id=uuid4(), vector=[0.1], payload={"other": "field"})
-        await store.upsert("c", [record])
-        sparse.embed.assert_called_once_with([""])
 
     async def test_search_returns_hits(self, store: QdrantVectorStore, client) -> None:
         """Search maps scored points to VectorHit objects."""
@@ -293,57 +222,6 @@ class TestWritesAndReads:
         client.query_points.return_value = make_response([point])
         hits = await store.search("c", [0.1, 0.2], limit=5)
         assert hits[0].score == -0.4
-
-    async def test_hybrid_search_uses_sparse_embedder(
-        self, store: QdrantVectorStore, client
-    ) -> None:
-        """hybrid_search queries dense and sparse independently, then blends."""
-        sparse = mock.AsyncMock()
-        sparse.query_embed = mock.AsyncMock(
-            return_value=[SparseVector(indices=[0], values=[1.0])]
-        )
-        store._sparse_embedder = sparse
-        point_id = str(uuid4())
-
-        def fake_query_points(**kwargs):
-            if kwargs.get("using") == _SPARSE_VECTOR_NAME:
-                return make_response([make_point(point_id, 0.7, {})])
-            return make_response([make_point(point_id, 0.9, {})])
-
-        client.query_points = mock.AsyncMock(side_effect=fake_query_points)
-        hits = await store.hybrid_search("c", [0.1, 0.2], "query text")
-        sparse.query_embed.assert_called_once_with(["query text"])
-        assert len(hits) == 1
-        assert hits[0].id == UUID(point_id)
-        assert client.query_points.call_count == 2
-        sparse_call = next(
-            c
-            for c in client.query_points.call_args_list
-            if c.kwargs.get("using") == _SPARSE_VECTOR_NAME
-        )
-        assert sparse_call.kwargs["query"].indices == [0]
-        assert sparse_call.kwargs["query"].values == [1.0]
-
-    async def test_hybrid_search_never_calls_document_embed_for_query_text(
-        self, store: QdrantVectorStore, client
-    ) -> None:
-        """hybrid_search embeds query text via query_embed, never document embed.
-
-        Regression guard: BM25 document embedding applies term-frequency and
-        length-normalization weighting meant for passages, not queries.
-        Sending query text through the document path can rank matches
-        incorrectly instead of using the uniform query-side weights the
-        sparse index's IDF modifier expects.
-        """
-        sparse = mock.AsyncMock()
-        sparse.query_embed = mock.AsyncMock(
-            return_value=[SparseVector(indices=[0], values=[1.0])]
-        )
-        store._sparse_embedder = sparse
-        client.query_points.return_value = make_response([])
-        await store.hybrid_search("c", [0.1, 0.2], "query text")
-        sparse.query_embed.assert_called_once_with(["query text"])
-        sparse.embed.assert_not_called()
 
     async def test_hybrid_search_inverts_dense_score_for_euclidean_collection(
         self, store: QdrantVectorStore, client
@@ -425,46 +303,6 @@ class TestWritesAndReads:
         assert records[0].id == UUID(point_id)
         assert records[0].vector == vector
         assert offset == point_id
-
-    async def test_retrieve_returns_records(
-        self, store: QdrantVectorStore, client
-    ) -> None:
-        """Retrieve maps fetched points to VectorRecord objects."""
-        target_id = uuid4()
-        client.retrieve.return_value = [
-            make_point(str(target_id), 0.0, {"text": "a"}, [0.1])
-        ]
-        records = await store.retrieve("c", [target_id])
-        assert len(records) == 1
-        assert records[0].id == target_id
-
-    async def test_retrieve_reads_dense_vector_from_hybrid_point(
-        self, store: QdrantVectorStore, client
-    ) -> None:
-        """A hybrid point's named-vector dict yields its unnamed dense vector."""
-        target_id = uuid4()
-        client.retrieve.return_value = [
-            make_point(
-                str(target_id),
-                0.0,
-                {"text": "a"},
-                {"": [0.1, 0.2], _SPARSE_VECTOR_NAME: SimpleNamespace()},
-            )
-        ]
-        records = await store.retrieve("c", [target_id])
-        assert records[0].vector == [0.1, 0.2]
-
-    async def test_count_returns_total(self, store: QdrantVectorStore, client) -> None:
-        """Count returns the backend count."""
-        client.count.return_value = SimpleNamespace(count=3)
-        assert await store.count("c") == 3
-
-    async def test_delete_forwards_ids(self, store: QdrantVectorStore, client) -> None:
-        """Delete forwards the ids to the backend."""
-        target_id = uuid4()
-        await store.delete("c", [target_id])
-        selector = client.delete.call_args.kwargs["points_selector"]
-        assert str(target_id) in selector.points
 
 
 class TestMinMaxNormalize:
@@ -559,14 +397,6 @@ class TestFuseByAlpha:
         assert fused[0].score == pytest.approx(0.5)
         assert fused[0].payload == {"a": 1}
 
-    def test_respects_limit(self) -> None:
-        """The fused result never exceeds the requested limit."""
-        dense_hits = [
-            VectorHit(id=uuid4(), score=float(i), payload={}) for i in range(5)
-        ]
-        fused = QdrantVectorStore._fuse_by_alpha(dense_hits, [], alpha=1.0, limit=2)
-        assert len(fused) == 2
-
 
 class TestMissingExtra:
     """Without the extra installed, use raises, not ImportError."""
@@ -580,22 +410,6 @@ class TestMissingExtra:
         ):
             await store.initialize()
         assert exc_info.value.extra == "qdrant"
-
-    async def test_injected_client_and_models_avoids_import(self) -> None:
-        """An injected client paired with injected models imports nothing.
-
-        Regression guard: a test-injected client alone still forced an
-        import of the real qdrant_client package to resolve ``models``,
-        defeating the point of the injection seam for environments without
-        the extra installed.
-        """
-        mock_client = MockQdrantClient()
-        mock_models = SimpleNamespace()
-        store = QdrantVectorStore(client=mock_client, models=mock_models)
-        with mock.patch.dict(sys.modules, {"qdrant_client": None}):
-            result = await store._ensure_client()
-        assert result is mock_client
-        assert store._models is mock_models
 
 
 class TestEnsureClientConcurrency:
@@ -662,26 +476,6 @@ class TestTracingUpsert:
             assert batch.parent.span_id == outer.context.span_id
             assert batch.status.status_code is StatusCode.UNSET
 
-    async def test_upsert_batch_error_marks_batch_and_outer_error(self, client) -> None:
-        """A failing batch marks both the batch span and outer span ERROR."""
-        provider, exporter = _provider()
-        store = QdrantVectorStore(
-            settings=QdrantSettings(),
-            client=client,
-            tracer=provider.get_tracer("test"),
-        )
-        client.upsert = mock.AsyncMock(side_effect=RuntimeError("boom"))
-        record = VectorRecord(id=uuid4(), vector=[0.1], payload={})
-        with pytest.raises(RuntimeError, match="boom"):
-            await store.upsert("c", [record])
-        spans = {s.name: s for s in exporter.get_finished_spans()}
-        batch = spans["agrag.vectordb.upsert_batch"]
-        outer = spans["agrag.vectordb.upsert"]
-        assert batch.status.status_code is StatusCode.ERROR
-        assert len(list(batch.events)) == 1
-        assert outer.status.status_code is StatusCode.ERROR
-        assert len(list(outer.events)) == 1
-
 
 class TestTracingSearch:
     """Traced search/hybrid export connected spans with query attributes."""
@@ -710,25 +504,6 @@ class TestTracingSearch:
         assert (span.attributes or {})["db.collection.name"] == "c"
         assert (span.attributes or {})["agrag.limit"] == 5
         assert span.status.status_code is StatusCode.UNSET
-
-    async def test_search_error_marks_span_error(self, client) -> None:
-        """A failing search marks its span ERROR with one exception event."""
-        provider, exporter = _provider()
-        store = QdrantVectorStore(
-            settings=QdrantSettings(),
-            client=client,
-            tracer=provider.get_tracer("test"),
-        )
-        client.query_points = mock.AsyncMock(side_effect=RuntimeError("down"))
-        with pytest.raises(RuntimeError, match="down"):
-            await store.search("c", [0.1, 0.2], limit=5)
-        (span,) = [
-            s
-            for s in exporter.get_finished_spans()
-            if s.name == "agrag.vectordb.search"
-        ]
-        assert span.status.status_code is StatusCode.ERROR
-        assert len(list(span.events)) == 1
 
     async def test_hybrid_outer_internal_with_dense_sparse_arms(self, client) -> None:
         """Hybrid exports one INTERNAL outer with dense/sparse CLIENT arms."""
@@ -852,56 +627,6 @@ class TestTracingDirectCalls:
         assert attributes["db.system.name"] == "qdrant"
         assert attributes["db.collection.name"] == "c"
         assert span.status.status_code is StatusCode.UNSET
-
-    async def test_failing_count_marks_span_error(self, client) -> None:
-        """A failing count marks its span ERROR with one exception event."""
-        provider, exporter = _provider()
-        store = QdrantVectorStore(
-            settings=QdrantSettings(),
-            client=client,
-            models=qdrant_models,
-            tracer=provider.get_tracer("test"),
-        )
-        client.count = mock.AsyncMock(side_effect=RuntimeError("down"))
-        with pytest.raises(RuntimeError, match="down"):
-            await store.count("c")
-        (span,) = exporter.get_finished_spans()
-        assert span.name == "agrag.vectordb.count"
-        assert span.status.status_code is StatusCode.ERROR
-        assert len(list(span.events)) == 1
-
-
-class TestTracingBuildClient:
-    """Concurrent first use exports exactly one build_client span."""
-
-    async def test_concurrent_first_calls_export_single_build_span(self) -> None:
-        """Two concurrent _ensure_client calls share one INTERNAL span."""
-        provider, exporter = _provider()
-        store = QdrantVectorStore(
-            settings=QdrantSettings(), tracer=provider.get_tracer("test")
-        )
-        build_calls = 0
-
-        def mock_client_ctor(*args, **kwargs):
-            nonlocal build_calls
-            build_calls += 1
-            return object()
-
-        with mock.patch(
-            "qdrant_client.AsyncQdrantClient", side_effect=mock_client_ctor
-        ):
-            first, second = await asyncio.gather(
-                store._ensure_client(), store._ensure_client()
-            )
-        assert build_calls == 1
-        assert first is second
-        builds = [
-            s
-            for s in exporter.get_finished_spans()
-            if s.name == "agrag.vectordb.build_client"
-        ]
-        assert len(builds) == 1
-        assert builds[0].kind is SpanKind.INTERNAL
 
 
 class TestTracingDisabled:

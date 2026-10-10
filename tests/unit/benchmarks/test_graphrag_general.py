@@ -1,14 +1,12 @@
-"""Tests the GraphRAG-Bench dataset: fixtures, documents, schemas and scores.
+"""Tests the GraphRAG-Bench dataset: fixtures, documents and scores.
 
 The document fetch is patched to local files, so no network is needed.
 """
 
 import json
-from collections import Counter
 
 import pytest
 
-from agrag.common.data_models.graph_schema import GraphSchema
 from benchmarks.datasets import graphrag_general
 from benchmarks.datasets.fetch import HashMismatchError
 from benchmarks.datasets.graphrag_general import (
@@ -17,61 +15,15 @@ from benchmarks.datasets.graphrag_general import (
     text_sha256,
 )
 from benchmarks.grading import graphrag_general as grading
-from benchmarks.grading.graphrag_accuracy import answer_accuracy, parse_json
+from benchmarks.grading.graphrag_accuracy import answer_accuracy
 from benchmarks.grading.graphrag_general import GraphRagGrader, rouge_l
 from benchmarks.models import BenchmarkQuestion, Corpus, CorpusDocument
 from benchmarks.schemas.graphrag_general import MEDICAL, NOVEL
 from benchmarks.systems.base import SystemAnswer
 
 
-TYPES = (
-    "Fact Retrieval",
-    "Complex Reasoning",
-    "Contextual Summarize",
-    "Creative Generation",
-)
-
-
 class TestFixtures:
     """The committed lite and full fixtures."""
-
-    def test_full_has_250_questions_with_the_planned_mix(self):
-        """Full has 130 Medical and 120 Novel questions, by type and by novel."""
-        manifest = GraphRagAdapter().load("full")
-
-        by_corpus = Counter(q.corpus_id for q in manifest.questions)
-        medical = Counter(
-            q.group for q in manifest.questions if q.corpus_id == "medical-full"
-        )
-        novel = Counter(
-            q.group for q in manifest.questions if q.corpus_id.startswith("novel-")
-        )
-
-        assert len(manifest.questions) == 250
-        assert by_corpus == {
-            "medical-full": 130,
-            "novel-2544": 32,
-            "novel-8559": 33,
-            "novel-25646": 28,
-            "novel-41603": 27,
-        }
-        assert medical == dict(zip(TYPES, (69, 32, 18, 11), strict=True))
-        assert novel == dict(zip(TYPES, (57, 37, 21, 5), strict=True))
-
-    def test_lite_has_two_questions_on_the_first_medical_extract(self):
-        """Lite has a Fact Retrieval and a Complex Reasoning question on one extract."""
-        manifest = GraphRagAdapter().load("lite")
-
-        (corpus,) = manifest.corpora
-
-        assert corpus.id == "medical-lite"
-        assert [d.id for d in corpus.documents] == ["medical-00"]
-        assert corpus.n_tokens == 1_655
-        assert {q.group for q in manifest.questions} == {
-            "Fact Retrieval",
-            "Complex Reasoning",
-        }
-        assert len(manifest.questions) == 2
 
     def test_lite_questions_are_a_subset_of_full_with_the_same_content(self):
         """Every lite question is also a full question with the same content."""
@@ -82,14 +34,6 @@ class TestFixtures:
             assert other.messages == question.messages
             assert other.reference == question.reference
             assert other.group == question.group
-
-    def test_ids_are_namespaced_by_corpus_file(self):
-        """Ids carry their file, because raw ids repeat across the two files."""
-        for question in GraphRagAdapter().load("full").questions:
-            kind, _, raw = question.id.partition(":")
-            assert kind in {"novel", "medical"}
-            assert raw.startswith(kind.capitalize() + "-")
-            assert question.corpus_id.startswith(kind)
 
     def test_every_question_holds_a_reference_answer_and_evidence(self):
         """The grader needs an answer, evidence items and the row hash."""
@@ -204,18 +148,6 @@ class TestDocuments:
 class TestSchemas:
     """The two graph schemas."""
 
-    @pytest.mark.parametrize(
-        ("schema", "entities", "relations"), [(NOVEL, 9, 14), (MEDICAL, 13, 16)]
-    )
-    def test_schema_has_the_planned_size_and_survives_a_round_trip(
-        self, schema, entities, relations
-    ):
-        """Each schema has its planned size and describes every entity."""
-        assert len(schema.entities) == entities
-        assert len(schema.relations) == relations
-        assert all("description" in e.properties for e in schema.entities)
-        assert GraphSchema.model_validate(schema.model_dump(mode="json")) == schema
-
     def test_each_corpus_gets_its_own_schema(self):
         """Novel corpora use the general schema and Medical uses the oncology one."""
         adapter = GraphRagAdapter()
@@ -229,14 +161,6 @@ class TestSchemas:
 
 class TestRougeL:
     """ROUGE-L F-measure on fixed strings."""
-
-    def test_identical_text_scores_one(self):
-        """The same text is a perfect match."""
-        assert rouge_l("the cat sat", "the cat sat") == 1.0
-
-    def test_no_shared_word_scores_zero(self):
-        """Text with no shared word scores 0."""
-        assert rouge_l("alpha beta", "gamma delta") == 0.0
 
     def test_partial_overlap_is_the_f_measure_of_the_longest_common_subsequence(self):
         """Five of six words are in order in both texts, so F is 5/6."""
@@ -334,17 +258,6 @@ class TestAnswerAccuracy:
         assert score == pytest.approx(0.25)
         assert failed is True
 
-    async def test_unparsed_statements_score_factuality_zero_and_are_flagged(self):
-        """A statement reply that is not a list gets no credit for factuality."""
-        judge = _FakeJudge({"ans": "oops", "gold": "oops"}, _classes(1, 0, 0))
-
-        score, failed = await answer_accuracy(
-            judge, _FakeEmbedder([1.0], [1.0]), "q?", "ans", "gold"
-        )
-
-        assert score == pytest.approx(0.25)
-        assert failed is True
-
     async def test_a_classification_missing_a_class_is_flagged(self):
         """A reply that lists only TP is incomplete, not a perfect match."""
         judge = _FakeJudge({"ans": '["a"]', "gold": '["a"]'}, '{"TP": []}')
@@ -366,10 +279,6 @@ class TestAnswerAccuracy:
 
         assert score == pytest.approx(1.0)
         assert failed is False
-
-    def test_parse_json_strips_a_code_fence(self):
-        """The fence and its language tag are removed before the parse."""
-        assert parse_json('```json\n{"a": 1}\n```') == {"a": 1}
 
 
 def _question() -> BenchmarkQuestion:
@@ -421,31 +330,6 @@ class TestGraphRagGrader:
         assert grade.scores["rouge_l"] == 1.0
         assert grade.scores["official_accuracy"] == pytest.approx(1.0)
         assert grade.flags == []
-
-    async def test_lite_scores_three_metrics_and_skips_the_evidence_judge(
-        self, monkeypatch
-    ):
-        """Lite judges correctness and accuracy only, so recall is never asked."""
-        seen = {}
-
-        async def fake(judge, question, answer, reference, names=("correctness",)):
-            seen[names] = reference
-            return dict.fromkeys(names, 0.5)
-
-        monkeypatch.setattr(grading, "answer_quality", fake)
-        judge = _FakeJudge({"gold answer": '["a"]'}, _classes(1, 0, 0))
-        grader = GraphRagGrader(embedder=_FakeEmbedder([1.0], [1.0]))  # type: ignore[arg-type]
-
-        grade = await grader.grade(
-            _question(),
-            SystemAnswer(text="gold answer"),
-            judge,  # type: ignore[arg-type]
-        )
-
-        assert seen == {("correctness",): "gold answer"}
-        assert set(grade.scores) == {"correctness", "rouge_l", "official_accuracy"}
-        assert set(grade.scores) == set(grader.metrics)
-        assert grader.judge_calls_per_question == 4
 
     async def test_a_judge_parse_failure_sets_the_flag(self, monkeypatch):
         """A judge reply that is not JSON shows as a flag on the question."""

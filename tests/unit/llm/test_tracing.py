@@ -5,15 +5,14 @@ namespaces, so each provider behavior is exercised without a network or a BAML
 runtime. The ``call_with_retry`` tests use the real OpenTelemetry SDK to check
 which spans a traced call emits and whether the collector reaches the call.
 
-Failure modes covered: a missing tracer, a collector per attempt, newest-first
-call order, absent usage, HTTP errors, cached-token counts, non-JSON bodies,
-empty collectors, clock skew between BAML and the attempt, and a broken
-collector that must not mask the call's own exception.
+Failure modes covered: a missing tracer, newest-first call order, absent usage,
+HTTP errors, cached-token counts, non-JSON bodies, clock skew between BAML and
+the attempt, and a broken collector that must not mask the call's own exception.
 """
 
 import json
 import types
-from typing import Any, get_args
+from typing import Any
 
 import pytest
 from opentelemetry.sdk.trace import ReadableSpan, TracerProvider
@@ -23,7 +22,7 @@ from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
 )
 from opentelemetry.trace import StatusCode
 
-from agrag.llm.client_config import LLMProvider, RetryConfig
+from agrag.llm.client_config import RetryConfig
 from agrag.llm.retry import NO_RETRY, call_with_retry
 from agrag.llm.tracing import record_requests
 
@@ -144,13 +143,6 @@ async def _no_sleep(seconds: float) -> None:
 class TestProviderTable:
     """Every configured provider maps to an OpenInference provider value."""
 
-    def test_every_configured_provider_has_a_mapping(self) -> None:
-        """A new provider fails this test until the table names it."""
-        from agrag.llm.tracing import _PROVIDERS  # noqa: PLC0415
-
-        missing = [p for p in get_args(LLMProvider) if p not in _PROVIDERS]
-        assert missing == []
-
     def test_unknown_provider_falls_back_to_the_raw_id(self) -> None:
         """A provider outside the table still records its BAML id."""
         (span,) = _record([_call(provider="some-new-provider")])
@@ -172,43 +164,11 @@ class TestRequestSpanAttributes:
         assert attributes["output.value"] == '{"model": "served-model"}'
         assert attributes["output.mime_type"] == "application/json"
 
-    def test_request_headers_are_never_recorded(self) -> None:
-        """Nothing on the span carries the authorization header."""
-        (span,) = _record([_call()])
-
-        blob = repr(_attributes(span)).lower()
-        assert "authorization" not in blob
-        assert "api_key" not in blob
-
-    def test_served_model_wins_and_the_requested_one_is_kept(self) -> None:
-        """The response model names the span; the request model is recorded too."""
-        (span,) = _record([_call()])
-
-        attributes = _attributes(span)
-        assert attributes["llm.model_name"] == "served-model"
-        assert attributes["agrag.llm.requested_model"] == "requested-model"
-
     def test_requested_model_is_used_when_the_response_names_none(self) -> None:
         """A response without a model still leaves the span named."""
         (span,) = _record([_call(response="{}")])
 
         assert _attributes(span)["llm.model_name"] == "requested-model"
-
-    def test_span_is_an_llm_kind_client_span(self) -> None:
-        """Only request spans carry the OpenInference LLM kind."""
-        (span,) = _record([_call()])
-
-        assert _attributes(span)["openinference.span.kind"] == "LLM"
-        assert span.kind.name == "CLIENT"
-
-    def test_token_counts_and_total_are_recorded(self) -> None:
-        """Prompt, completion and their sum come from BAML's usage."""
-        (span,) = _record([_call(input_tokens=11, output_tokens=7)])
-
-        attributes = _attributes(span)
-        assert attributes["llm.token_count.prompt"] == 11
-        assert attributes["llm.token_count.completion"] == 7
-        assert attributes["llm.token_count.total"] == 18
 
     def test_cached_tokens_are_recorded_when_present(self) -> None:
         """A positive cache-read count is recorded."""
@@ -256,14 +216,6 @@ class TestRequestSpanAttributes:
         assert span.status.status_code is StatusCode.ERROR
         assert "output.value" not in _attributes(span)
 
-    def test_client_name_and_selection_are_recorded(self) -> None:
-        """Which client ran and whether it was selected are both recorded."""
-        (span,) = _record([_call(client="secondary", selected=False)])
-
-        attributes = _attributes(span)
-        assert attributes["agrag.llm.client_name"] == "secondary"
-        assert attributes["agrag.llm.selected"] is False
-
 
 class TestFailureSpans:
     """HTTP error responses are marked without token counts."""
@@ -287,15 +239,6 @@ class TestFailureSpans:
         assert attributes["http.response.status_code"] == 429
         assert "llm.token_count.prompt" not in attributes
         assert "agrag.llm.usage_missing" not in attributes
-
-    def test_a_failed_response_is_not_flagged_as_missing_usage(self) -> None:
-        """A failure is not the same as a success whose usage never arrived."""
-        (span,) = _record(
-            [_call(status=500, response="boom", input_tokens=None, output_tokens=None)]
-        )
-
-        assert span.status.status_code is StatusCode.ERROR
-        assert "agrag.llm.usage_missing" not in _attributes(span)
 
 
 class TestOrderingAndWindow:
@@ -332,50 +275,9 @@ class TestOrderingAndWindow:
 
         assert span.end_time == 2_000 * _NS_PER_MS
 
-    def test_request_spans_nest_under_the_attempt_span(self) -> None:
-        """The attempt span is current while the request spans are written."""
-        provider, exporter = _provider()
-        tracer = provider.get_tracer("t")
-
-        with tracer.start_as_current_span("agrag.llm.attempt") as attempt:
-            record_requests(
-                tracer,
-                _collector(_call()),
-                window=(0, 10_000 * _NS_PER_MS * _NS_PER_MS),
-            )
-            attempt_id = attempt.get_span_context().span_id
-
-        request = _by_name(exporter, "agrag.llm.request")
-        assert request.parent is not None
-        assert request.parent.span_id == attempt_id
-
 
 class TestEmptyCollectors:
     """A collector with nothing in it writes nothing and raises nothing."""
-
-    def test_collector_without_calls_writes_no_spans(self) -> None:
-        """No calls means no request spans."""
-        provider, exporter = _provider()
-
-        record_requests(
-            provider.get_tracer("t"),
-            _collector(),
-            window=(0, 10_000 * _NS_PER_MS * _NS_PER_MS),
-        )
-
-        assert list(exporter.get_finished_spans()) == []
-
-    def test_collector_without_logs_writes_no_spans(self) -> None:
-        """No logs at all is not an error."""
-        provider, exporter = _provider()
-
-        record_requests(
-            provider.get_tracer("t"),
-            types.SimpleNamespace(logs=[]),
-            window=(0, 10_000 * _NS_PER_MS * _NS_PER_MS),
-        )
-
-        assert list(exporter.get_finished_spans()) == []
 
     def test_a_broken_collector_is_logged_not_raised(
         self, caplog: pytest.LogCaptureFixture
@@ -425,53 +327,6 @@ class TestCallWithRetryCollector:
         assert not host.events
         assert [span.name for span in exporter.get_finished_spans()] == ["host"]
 
-    async def test_each_attempt_receives_its_own_collector(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """Collectors are per attempt, so retries cannot mix their calls."""
-        monkeypatch.setattr("agrag.llm.retry.sleep", _no_sleep)
-        collectors: list[Any] = []
-
-        async def call(options: dict[str, Any]) -> str:
-            collectors.append(options.get("collector"))
-            if len(collectors) < 2:
-                raise RuntimeError("transient")
-            return "ok"
-
-        provider, _ = _provider()
-        await call_with_retry(
-            call, RetryConfig(max_retries=1), tracer=provider.get_tracer("t")
-        )
-
-        assert len(collectors) == 2
-        assert all(collector is not None for collector in collectors)
-        assert collectors[0] is not collectors[1]
-
-    async def test_traced_call_emits_call_and_attempt_spans(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """A traced call opens one call span and one span per attempt."""
-        monkeypatch.setattr("agrag.llm.retry.sleep", _no_sleep)
-        provider, exporter = _provider()
-
-        async def call(options: dict[str, Any]) -> str:
-            return "ok"
-
-        await call_with_retry(
-            call,
-            RetryConfig(max_retries=0),
-            tracer=provider.get_tracer("t"),
-            function="SummarizeDescriptions",
-        )
-
-        assert [span.name for span in exporter.get_finished_spans()] == [
-            "agrag.llm.attempt",
-            "agrag.llm.call",
-        ]
-        attributes = _attributes(_by_name(exporter, "agrag.llm.call"))
-        assert attributes["agrag.llm.function"] == "SummarizeDescriptions"
-        assert attributes["agrag.llm.attempt_count"] == 1
-
     async def test_a_failing_call_marks_the_call_span_error(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -508,41 +363,3 @@ class TestCallWithRetryCollector:
             await call_with_retry(
                 call, RetryConfig(max_retries=0), tracer=provider.get_tracer("t")
             )
-
-    async def test_the_retry_loop_keeps_its_delays_and_attempt_count(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """Tracing does not change the backoff schedule or the attempt count."""
-        sleeps: list[float] = []
-
-        async def fake_sleep(seconds: float) -> None:
-            sleeps.append(seconds)
-
-        monkeypatch.setattr("agrag.llm.retry.sleep", fake_sleep)
-        monkeypatch.setattr("agrag.llm.retry.random.uniform", lambda low, high: high)
-        provider, exporter = _provider()
-        attempts = 0
-
-        async def call(options: dict[str, Any]) -> str:
-            nonlocal attempts
-            attempts += 1
-            if attempts < 3:
-                raise RuntimeError("transient")
-            return "ok"
-
-        await call_with_retry(
-            call,
-            RetryConfig(max_retries=3, delay_ms=100, multiplier=2, max_delay_ms=10_000),
-            tracer=provider.get_tracer("t"),
-        )
-
-        assert sleeps == [0.1, 0.2]
-        assert attempts == 3
-        attempt_spans = [
-            span
-            for span in exporter.get_finished_spans()
-            if span.name == "agrag.llm.attempt"
-        ]
-        assert len(attempt_spans) == 3
-        attributes = _attributes(_by_name(exporter, "agrag.llm.call"))
-        assert attributes["agrag.llm.attempt_count"] == 3

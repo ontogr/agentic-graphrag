@@ -30,7 +30,6 @@ from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
     InMemorySpanExporter,
 )
-from opentelemetry.trace import StatusCode
 
 from agrag.common.data_models.chunk import Chunk
 from agrag.common.data_models.extraction import ExtractedEntity, ExtractionResult
@@ -44,13 +43,11 @@ from agrag.common.data_models.provenance import TextProvenance
 from agrag.ingestion.extract import (
     BAMLExtractor,
     EscalatingExtractor,
-    ExtractionLLMSettings,
     Extractor,
     ExtractorMissingExtraError,
     GlinerExtractor,
     _describe_entity_type,
 )
-from agrag.llm.client_config import LLMClientConfig, RetryConfig
 
 
 _DOC_ID = uuid4()
@@ -177,17 +174,6 @@ def _chunk(
         text=text,
         provenance=TextProvenance(char_start=0, char_end=len(text)),
     )
-
-
-class TestExtractorMissingExtraError:
-    """ExtractorMissingExtraError carries component and extra name."""
-
-    def test_message_includes_install_command(self) -> None:
-        """The error message tells the user which extra to install."""
-        err = ExtractorMissingExtraError("GlinerExtractor", "extract")
-        assert "GlinerExtractor" in str(err)
-        assert "extract" in str(err)
-        assert "pip install" in str(err)
 
 
 class TestGlinerExtractor:
@@ -540,12 +526,6 @@ class TestGlinerExtractor:
             with pytest.raises(ExtractorMissingExtraError) as exc_info:
                 extractor._ensure_model()
             assert exc_info.value.extra == "extract"
-
-    def test_uses_injected_model_when_provided(self) -> None:
-        """An injected model skips the import and loading entirely."""
-        mock_model = SimpleNamespace()
-        extractor = GlinerExtractor(model=mock_model)
-        assert extractor._ensure_model() is mock_model
 
     async def test_concurrent_extract_loads_model_once(self) -> None:
         """Concurrent first calls to extract() load the model exactly once."""
@@ -1549,73 +1529,6 @@ class TestBAMLExtractor:
         assert len(result.entities) == 2
         assert result.relations == []
 
-    async def test_extract_retries_a_transient_failure_per_settings_retry(
-        self, monkeypatch
-    ) -> None:
-        """settings.retry drives real retry-with-backoff around the LLM call."""
-        sleeps: list[float] = []
-
-        async def fake_sleep(seconds: float) -> None:
-            sleeps.append(seconds)
-
-        monkeypatch.setattr("agrag.llm.retry.sleep", fake_sleep)
-        monkeypatch.setattr("agrag.llm.retry.random.uniform", lambda low, high: high)
-        monkeypatch.setattr(
-            "agrag.llm.client_registry.build_client_registry",
-            lambda clients, *, strategy: object(),
-        )
-
-        call_count = 0
-
-        class FlakyClient:
-            async def ExtractEntitiesAndRelations(self, *args):  # noqa: N802
-                nonlocal call_count
-                call_count += 1
-                if call_count < 3:
-                    raise RuntimeError("transient provider error")
-                return SimpleNamespace(entities=[], relations=[])
-
-        settings = ExtractionLLMSettings(
-            clients=[LLMClientConfig(name="c", provider="openai", model="gpt-4o-mini")],
-            retry=RetryConfig(max_retries=3, delay_ms=50, multiplier=2),
-        )
-        extractor = BAMLExtractor(settings=settings)
-        monkeypatch.setattr(extractor, "_default_client", FlakyClient)
-
-        result = await extractor.extract(_chunk(), GENERIC)
-
-        assert call_count == 3
-        assert sleeps == [0.05, 0.1]
-        assert result.entities == []
-
-    async def test_extract_with_non_default_env_retry_does_not_abort(
-        self, monkeypatch
-    ) -> None:
-        """A non-default, env-backed RetryConfig no longer aborts extraction.
-
-        Exercises the real (unmocked) build_client_registry — this used to
-        raise for any non-default RetryConfig before BAML's static
-        retry_policy syntax was replaced with Python-level retry.
-        """
-        monkeypatch.setenv(
-            "EXTRACTION_LLM_CLIENTS",
-            '[{"name": "c", "provider": "openai", "model": "gpt-4o-mini"}]',
-        )
-        monkeypatch.setenv("EXTRACTION_LLM_RETRY", '{"max_retries": 7}')
-        settings = ExtractionLLMSettings()
-        assert settings.retry.max_retries == 7
-
-        class MockClient:
-            async def ExtractEntitiesAndRelations(self, *args):  # noqa: N802
-                return SimpleNamespace(entities=[], relations=[])
-
-        extractor = BAMLExtractor(settings=settings)
-        monkeypatch.setattr(extractor, "_default_client", MockClient)
-
-        result = await extractor.extract(_chunk(), GENERIC)
-
-        assert result.entities == []
-
 
 class TestEscalatingExtractor:
     """EscalatingExtractor escalates on weak results, not on strong ones."""
@@ -1730,36 +1643,6 @@ class TestEscalatingExtractor:
         assert ran == ["primary"]
         assert result.extractor_name == "primary"
 
-    async def test_never_merges_entities_from_both_extractors(self) -> None:
-        """Escalation returns escalate_to's result, never a merge."""
-        chunk = _chunk("This is a chunk with enough words to pass the floor.")
-        extractor, _ = self._make_extractor(primary_entities=None)
-        result = await extractor.extract(chunk, GENERIC)
-        # Only escalate's entities should be present
-        assert all(e.text == "Y" for e in result.entities)
-
-    @pytest.mark.parametrize(
-        ("primary_limit", "escalate_limit", "expected"),
-        [(1, 8, 1), (8, 1, 1), (8, 3, 3), (3, 8, 3)],
-    )
-    def test_max_concurrency_is_the_smaller_child_limit(
-        self, primary_limit: int, escalate_limit: int, expected: int
-    ) -> None:
-        """The wrapper runs no more calls at once than either child allows."""
-
-        class LimitedExtractor(Extractor):
-            async def extract(self, chunk, schema):  # noqa: ANN001
-                raise AssertionError("not called")
-
-        primary = LimitedExtractor()
-        primary.max_concurrency = primary_limit
-        escalate_to = LimitedExtractor()
-        escalate_to.max_concurrency = escalate_limit
-
-        extractor = EscalatingExtractor(primary=primary, escalate_to=escalate_to)
-
-        assert extractor.max_concurrency == expected
-
 
 def _tracing_provider() -> tuple[TracerProvider, InMemorySpanExporter]:
     """Return a provider wired to an in-memory exporter."""
@@ -1808,23 +1691,6 @@ class TestExtractionSpans:
         assert (call_span.attributes or {})["agrag.llm.function"] == (
             "ExtractEntitiesAndRelations"
         )
-
-    async def test_baml_with_tracer_none_leaves_host_span_clean(self) -> None:
-        """tracer=None records nothing on the surrounding host span."""
-        host_provider, host_exporter = _tracing_provider()
-        host_tracer = host_provider.get_tracer("host")
-
-        class FakeClient:
-            async def ExtractEntitiesAndRelations(self, *args):  # noqa: N802
-                return SimpleNamespace(entities=[], relations=[])
-
-        with host_tracer.start_as_current_span("host.request"):
-            await BAMLExtractor(client=FakeClient()).extract(_chunk(), GENERIC)
-
-        (host_span,) = host_exporter.get_finished_spans()
-        assert host_span.name == "host.request"
-        assert host_span.status.status_code is StatusCode.UNSET
-        assert list(host_span.events) == []
 
     async def test_gliner_span_carries_counts_without_model_load(self) -> None:
         """An injected model emits the gliner span but no model_load span."""

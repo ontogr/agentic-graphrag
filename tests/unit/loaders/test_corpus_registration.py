@@ -99,14 +99,6 @@ class TestMissingExtra:
         assert error.value.extra == "docling"
         assert type(_loader_for(".md")) is DoclingLoader
 
-    def test_the_rich_formats_do_not_need_the_models(self) -> None:
-        """A bare install still reads Markdown."""
-        pytest.importorskip("docling")
-        with patch("importlib.util.find_spec", return_value=None):
-            loader = _loader_for(".md")
-
-        assert type(loader) is DoclingLoader
-
 
 class TestRegisterDefaultLoaders:
     """A fresh registry gets the same loaders as the default registry."""

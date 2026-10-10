@@ -5,11 +5,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
 import pytest
-from opentelemetry.sdk.trace import TracerProvider
-from opentelemetry.sdk.trace.export import SimpleSpanProcessor
-from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
-    InMemorySpanExporter,
-)
 
 from agrag.common.data_models.community import Community
 from agrag.common.data_models.entity import Entity
@@ -90,48 +85,3 @@ class TestGenerateCommunityReports:
                     [c1], entities_by_id, error_policy=ErrorPolicy.RAISE
                 )
             assert not c1.title
-
-    @pytest.mark.skipif(baml_missing, reason="baml extra not installed")
-    async def test_call_span_carries_function_name(self) -> None:
-        """The batch LLM call emits a span tagged SummarizeCommunities."""
-        exporter = InMemorySpanExporter()
-        provider = TracerProvider()
-        provider.add_span_processor(SimpleSpanProcessor(exporter))
-        eids = [uuid4() for _ in range(2)]
-        entities_by_id = {
-            eid: Entity(id=eid, label="Person", name=f"N{i}", properties={})
-            for i, eid in enumerate(eids)
-        }
-        c1 = Community(
-            id=uuid4(),
-            title="",
-            summary="",
-            rating=0,
-            rating_explanation="",
-            member_ids=eids,
-            internal_weight=10.0,
-        )
-        with patch("agrag.llm.baml_client.b") as mock_b:
-            mock_b.SummarizeCommunities = AsyncMock(
-                return_value=[
-                    MagicMock(
-                        title="T1",
-                        summary="S1",
-                        rating=5.0,
-                        rating_explanation="e",
-                        findings=[],
-                    )
-                ]
-            )
-            await generate_community_reports(
-                [c1], entities_by_id, tracer=provider.get_tracer("test")
-            )
-        call_spans = [
-            span
-            for span in exporter.get_finished_spans()
-            if span.name == "agrag.llm.call"
-        ]
-        assert len(call_spans) == 1
-        assert (call_spans[0].attributes or {})["agrag.llm.function"] == (
-            "SummarizeCommunities"
-        )

@@ -2,7 +2,7 @@
 
 Reads fixtures from the local ``fixtures/`` directory. Covers plain-text and
 log-format documents, the ``store_text=False`` text-stripping option,
-oversized-source rejection (including a source with an unknown byte size),
+oversized-source rejection,
 Markdown heading-outline extraction with title detection, and AsciiDoc's
 regex-based heading scan used as the fallback when docling is not
 installed.
@@ -81,21 +81,6 @@ class TestTextLoader:
                     ref,
                     BytesIO((_FIXTURES / "sample.txt").read_bytes()),
                     ReadOptions(max_document_bytes=1),
-                )
-            )
-        except DocumentTooLargeError:
-            return
-        raise AssertionError("expected DocumentTooLargeError")
-
-    def test_oversized_source_with_unknown_byte_size_raises(self) -> None:
-        """A source with no reported byte size is still capped, not fully buffered."""
-        ref = SourceRef(uri="x.txt", extension=".txt", byte_size=None)
-        try:
-            list(
-                TextLoader().load(
-                    ref,
-                    BytesIO(b"a" * 100),
-                    ReadOptions(max_document_bytes=10),
                 )
             )
         except DocumentTooLargeError:

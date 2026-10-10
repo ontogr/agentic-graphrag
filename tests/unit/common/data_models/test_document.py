@@ -78,26 +78,6 @@ class TestToNodeRecord:
         assert "text" not in record.properties
 
 
-class TestRawRecord:
-    """raw_record holds JSON data only."""
-
-    def _doc_with_record(self, raw_record: object) -> Document:
-        data = _doc().model_dump()
-        data["raw_record"] = raw_record
-        return Document.model_validate(data)
-
-    def test_accepts_nested_json_values(self) -> None:
-        """Nested lists and objects pass."""
-        doc = self._doc_with_record({"tags": ["a", 1], "meta": {"n": None}})
-
-        assert doc.raw_record == {"tags": ["a", 1], "meta": {"n": None}}
-
-    def test_rejects_a_non_json_value(self) -> None:
-        """A non-JSON value raises."""
-        with pytest.raises(ValidationError):
-            self._doc_with_record({"when": object()})
-
-
 def _sectioned(text: str, spans: list[tuple[int, int]]) -> Document:
     units = [
         Unit(

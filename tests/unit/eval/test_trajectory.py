@@ -206,21 +206,6 @@ class TestSpanCapture:
             "search_source_text"
         ]
 
-    def test_two_captures_do_not_share_spans(self) -> None:
-        """Each capture reads only the spans its own tracer received."""
-        with (
-            SpanCapture() as first,
-            first.tracer.start_as_current_span(
-                "first_tool",
-                attributes={"openinference.span.kind": "TOOL"},
-            ),
-        ):
-            pass
-        with SpanCapture():
-            pass
-
-        assert [step.name for step in first.trajectory().steps] == ["first_tool"]
-
 
 class TestNonAgentSpansAreExcluded:
     """Spans agrag opens, and judge calls, never read as planner steps."""

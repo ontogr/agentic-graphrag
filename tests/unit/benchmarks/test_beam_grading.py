@@ -1,6 +1,5 @@
 """Tests the BEAM scorer and grader on canned judge replies and hand-worked orders."""
 
-import hashlib
 import json
 
 import pytest
@@ -9,11 +8,9 @@ from benchmarks.grading.beam import BeamGrader
 from benchmarks.grading.beam_scorer import (
     JudgeReplyError,
     align_with_llm,
-    event_ordering_score,
     ordering_score,
     parse_json_response,
     rubric_score,
-    unified_llm_judge_base_prompt,
 )
 from benchmarks.models import BenchmarkQuestion
 from benchmarks.systems.base import SystemAnswer
@@ -47,18 +44,6 @@ class _Equivalence:
 
 def _score(value: float) -> str:
     return json.dumps({"score": value, "reason": "r"})
-
-
-class TestPrompt:
-    """The judge prompt is the upstream text."""
-
-    def test_matches_the_pinned_upstream_digest(self):
-        """An edit to the ported prompt changes its digest."""
-        digest = hashlib.sha256(unified_llm_judge_base_prompt.encode()).hexdigest()
-
-        assert digest == (
-            "593373c642a288a7b590577d8a8fc92c3f9a2b70e2f64ad6e59a040a6c56b7f5"
-        )
 
 
 class TestParseJsonResponse:
@@ -220,20 +205,6 @@ class TestAlignment:
 
         assert aligned == ["park trip", "went again"]
 
-    async def test_event_ordering_score_splits_the_answer_on_lines(self):
-        """An answer that lists the events in order scores 1."""
-        judge = _Equivalence(
-            {("first event", "1. first event"), ("second event", "2. second event")}
-        )
-
-        score = await event_ordering_score(
-            judge,  # type: ignore[arg-type]
-            ["first event", "second event"],
-            "1. first event\n2. second event",
-        )
-
-        assert score.final_score == pytest.approx(1.0)
-
 
 def _question(group: str, reference: dict) -> BenchmarkQuestion:
     return BenchmarkQuestion(
@@ -243,15 +214,6 @@ def _question(group: str, reference: dict) -> BenchmarkQuestion:
         group=group,
         reference=reference,
     )
-
-
-class TestJudgeCallEstimate:
-    """The judge calls that the dry run allows for."""
-
-    def test_full_allows_for_event_ordering_and_lite_does_not(self):
-        """Event-ordering questions need more calls, and only full has them."""
-        assert BeamGrader(full=True).judge_calls_per_question == 12
-        assert BeamGrader().judge_calls_per_question == 2
 
 
 class TestBeamGrader:

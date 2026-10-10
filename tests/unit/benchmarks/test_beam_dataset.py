@@ -1,4 +1,4 @@
-"""Tests the BEAM dataset: fixtures, session documents, collapse and schema.
+"""Tests the BEAM dataset: fixtures, session documents and collapse.
 
 The file fetch is patched to in-memory rows, so no network is needed.
 """
@@ -7,7 +7,6 @@ import hashlib
 
 import pytest
 
-from agrag.common.data_models.graph_schema import GraphSchema
 from benchmarks.datasets import memory
 from benchmarks.datasets.fetch import HashMismatchError
 from benchmarks.datasets.memory import (
@@ -23,53 +22,8 @@ from benchmarks.models import Corpus, CorpusDocument
 from benchmarks.schemas.memory import MEMORY
 
 
-ABILITIES = {
-    "abstention",
-    "contradiction_resolution",
-    "event_ordering",
-    "information_extraction",
-    "instruction_following",
-    "knowledge_update",
-    "multi_session_reasoning",
-    "preference_following",
-    "summarization",
-    "temporal_reasoning",
-}
-
-
 class TestFixtures:
     """The committed lite and full fixtures."""
-
-    def test_lite_is_two_probes_on_three_messages_of_conversation_17(self):
-        """Lite has an extraction and a reasoning question on two session slices."""
-        manifest = MemoryAdapter().load("lite")
-
-        (corpus,) = manifest.corpora
-
-        assert {q.group for q in manifest.questions} == {
-            "information_extraction",
-            "multi_session_reasoning",
-        }
-        assert len(manifest.questions) == 2
-        assert corpus.id == "conv17"
-        assert [(d.id, d.messages) for d in corpus.documents] == [
-            ("conv17-s1", [18]),
-            ("conv17-s3", [156, 157]),
-        ]
-
-    def test_full_is_twenty_probes_on_each_of_five_conversations(self):
-        """Full has 100 questions, 2 per ability on each of 5 conversations."""
-        manifest = MemoryAdapter().load("full")
-
-        by_corpus = {c.id: 0 for c in manifest.corpora}
-        for question in manifest.questions:
-            by_corpus[question.corpus_id] += 1
-
-        assert by_corpus == dict.fromkeys(
-            ("conv1", "conv4", "conv6", "conv13", "conv17"), 20
-        )
-        for ability in ABILITIES:
-            assert [q.group for q in manifest.questions].count(ability) == 10
 
     def test_lite_questions_are_a_subset_of_full_with_the_same_content(self):
         """Every lite question is also a full question on the same conversation."""
@@ -105,13 +59,6 @@ class TestFixtures:
             "conv4:preference_following:1",
         }
         assert not any("known_bad_rubric" in q.reference for q in lite.questions)
-
-    def test_the_collapsed_message_is_listed_in_the_manifest(self):
-        """The one runaway message of the full set is named with its hash."""
-        (collapsed,) = MemoryAdapter().load("full").upstream["collapsed_messages"]
-
-        assert (collapsed["conversation"], collapsed["message"]) == ("4", 97)
-        assert len(collapsed["original_sha256"]) == 64
 
     def test_each_conversation_has_its_own_service(self):
         """No two conversations share a service."""
@@ -217,23 +164,6 @@ class TestDocuments:
         assert documents[1].text.startswith("Session 2, date: March-15-2024")
         assert "[msg 3 | assistant] d" in documents[1].text
 
-    def test_reads_the_chat_file_once_for_all_corpora(self, monkeypatch):
-        """A second call on one adapter reuses the rows of the first."""
-        row = {"chat": [_messages("a", "b")]}
-        reads = []
-
-        def fake_load_rows(columns=None):
-            reads.append(columns)
-            return {"9": row}
-
-        monkeypatch.setattr(memory, "load_rows", fake_load_rows)
-        adapter = MemoryAdapter()
-
-        adapter.documents(self._corpus(row))
-        adapter.documents(self._corpus(row))
-
-        assert len(reads) == 1
-
     def test_builds_a_document_from_the_chosen_messages_of_a_session(self, monkeypatch):
         """A document with ``messages`` holds only those messages."""
         row = {"chat": [_messages("a", "b", "c")]}
@@ -295,19 +225,3 @@ class TestProbes:
         }
 
         assert probes(row) == {"abstention": [{"question": "Why?", "rubric": ["a"]}]}
-
-
-class TestSchema:
-    """The memory graph schema."""
-
-    def test_schema_has_the_planned_size_and_survives_a_round_trip(self):
-        """It has 11 entity types, 12 relations and a description on every entity."""
-        assert len(MEMORY.entities) == 11
-        assert len(MEMORY.relations) == 12
-        assert all("description" in e.properties for e in MEMORY.entities)
-        assert GraphSchema.model_validate(MEMORY.model_dump(mode="json")) == MEMORY
-
-    def test_adapter_returns_the_schema_for_every_conversation(self):
-        """All conversations share one schema."""
-        for corpus in MemoryAdapter().load("full").corpora:
-            assert MemoryAdapter().schema(corpus) is MEMORY

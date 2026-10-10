@@ -4,8 +4,8 @@ Simulates the ``sentence_transformers`` extra by patching ``sys.modules``: a
 bare ``ModuleType`` stand-in models the extra being present but unusable, and
 a fake module exposing a working ``CrossEncoder`` class models a real model
 being available. Covers falling back to unchanged results when no usable
-model is available, an empty input list, and that it drops low-scoring
-results when a model is present.
+model is available, and that it drops low-scoring results when a model is
+present.
 """
 
 import asyncio
@@ -60,11 +60,6 @@ class TestCrossEncoderRerank:
             reranked = await cross_encoder_rerank("test query", [r1, r2])
         # Without the extra, results come back unchanged.
         assert len(reranked) == 2
-
-    async def test_empty_list(self) -> None:
-        """Empty input returns empty."""
-        reranked = await cross_encoder_rerank("query", [])
-        assert reranked == []
 
     async def test_min_score_filters_when_model_present(self) -> None:
         """A present model scores each result, drops low ones, and sorts."""

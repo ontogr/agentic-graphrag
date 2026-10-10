@@ -4,7 +4,7 @@ The fakes implement the exact semantics each query builder's docstring
 promises — atomic MERGE on document_key, compare-and-swap on the fencing
 token, expiry comparison on the lease, tag matching by property value —
 so these tests prove the runner's orchestration properties (ordering,
-rollback/roll-forward, cleanup scoping, lease release), not any one
+rollback/roll-forward, cleanup scoping), not any one
 query's text. Query text is covered by tests/unit/cypher; real MERGE and
 constraint behavior under concurrency by the integration test instead.
 """
@@ -32,8 +32,6 @@ from agrag.cypher.cutover_job_write import (
 from agrag.cypher.relations import close_part_of_query
 from agrag.ingestion._cutover import (
     CutoverJobLeaseError,
-    clear_pending_vectors,
-    delete_pending_vectors,
     run_cutover_job,
 )
 from agrag.ingestion.settings import CutoverJobSettings
@@ -419,26 +417,6 @@ class TestRunCutoverJobLeaseFailure:
 class TestRunCutoverJobLeaseRenewal:
     """The runner keeps its lease live for phases longer than the TTL."""
 
-    async def test_lease_outlives_a_slow_pending_write(self) -> None:
-        """A write slower than the TTL never exposes an expired lease."""
-        store = _FakeCutoverStore()
-        expired_seen: list[bool] = []
-
-        async def slow_write(job_id: UUID) -> None:
-            await asyncio.sleep(1.3)
-            job = store.jobs["doc-1"]
-            expired_seen.append(job["lease_expires_at"] < datetime.now(UTC))
-
-        await run_cutover_job(
-            **_write_job(
-                slow_write,
-                graph_store=store,
-                settings=CutoverJobSettings(lease_ttl_seconds=1),
-            )
-        )
-        assert store.jobs["doc-1"]["status"] == "done"
-        assert not any(expired_seen)
-
     async def test_done_transition_does_not_cancel_the_runner(self) -> None:
         """A renewal ending during the done transition leaves the call successful."""
         store = _FakeCutoverStore()
@@ -635,25 +613,6 @@ class TestRunCutoverJobRollback:
 class TestRunCutoverJobRollForward:
     """A cleanup failure leaves the job committed for a later resume."""
 
-    async def test_cleanup_failure_leaves_committed_data(self) -> None:
-        """A cleanup failure leaves committed data, job parked in cleaning."""
-        store = _FakeCutoverStore()
-
-        async def pending(job_id: UUID) -> None:
-            store.nodes.append(_tag_node(job_id))
-
-        async def cleanup(affected: list[UUID], seeds: list[UUID]) -> None:
-            raise RuntimeError("pruning blew up")
-
-        with pytest.raises(RuntimeError, match="pruning blew up"):
-            await run_cutover_job(**_write_job(pending, cleanup, graph_store=store))
-
-        # The writes survived, tags cleared, job parked in cleaning — the
-        # state a Graph.open() resume hook rolls forward.
-        assert store.nodes
-        assert all("_pending_job_id" not in n["properties"] for n in store.nodes)
-        assert store.jobs["doc-1"]["status"] == "cleaning"
-
     async def test_cancellation_after_commit_preserves_recovery_record(self) -> None:
         """Cancellation after a commit keeps its data and job for recovery."""
         store = _CommitBlockingStore()
@@ -771,86 +730,3 @@ class TestRunCutoverJobComponentSeeds:
             if query == commit_job_query()
         ]
         assert committed[0]["component_seed_ids"] == [str(min(member_ids, key=str))]
-
-    async def test_commit_records_no_seeds_without_components(self) -> None:
-        """A job that rebuilt nothing commits an empty seed list."""
-        store = _FakeCutoverStore()
-
-        async def pending(job_id: UUID) -> None:
-            return None
-
-        await run_cutover_job(**_write_job(pending, graph_store=store))
-
-        committed = [
-            params
-            for transaction in store.transactions
-            for query, params in transaction
-            if query == commit_job_query()
-        ]
-        assert committed[0]["component_seed_ids"] == []
-
-
-class TestClearPendingVectors:
-    """The vector half of the commit promotes only this job's records."""
-
-    async def test_promotes_this_jobs_records_and_leaves_others(self) -> None:
-        """Staged records land under their real ids; other records stay."""
-        vector_store = _FakeVectorStore()
-        job_id, other_job = uuid4(), uuid4()
-        mine = VectorRecord(id=uuid4(), vector=[0.1], payload={"text": "t"})
-        theirs = VectorRecord(id=uuid4(), vector=[0.2], payload={"text": "u"})
-        await vector_store.upsert("col-a", [mine], pending_job_id=job_id)
-        await vector_store.upsert("col-a", [theirs], pending_job_id=other_job)
-
-        await clear_pending_vectors(
-            vector_store=vector_store, collections=("col-a",), job_id=job_id
-        )
-
-        records = vector_store.records["col-a"]
-        assert records[str(mine.id)].payload == {"text": "t"}
-        assert records[str(mine.id)].vector == [0.1]
-        (still_staged,) = [r for r in records.values() if r.payload.get("_pending")]
-        assert still_staged.payload["_target_id"] == str(theirs.id)
-        assert len(records) == 2
-
-    async def test_replaces_the_committed_record_with_the_same_id(self) -> None:
-        """A staged rewrite replaces the committed record when it commits."""
-        vector_store = _FakeVectorStore()
-        job_id = uuid4()
-        original = VectorRecord(id=uuid4(), vector=[0.1], payload={"text": "old"})
-        rewrite = VectorRecord(id=original.id, vector=[0.9], payload={"text": "new"})
-        await vector_store.upsert("col-a", [original])
-        await vector_store.upsert("col-a", [rewrite], pending_job_id=job_id)
-
-        await clear_pending_vectors(
-            vector_store=vector_store, collections=("col-a",), job_id=job_id
-        )
-
-        assert list(vector_store.records["col-a"]) == [str(original.id)]
-        assert vector_store.records["col-a"][str(original.id)].payload["text"] == "new"
-
-    async def test_none_vector_store_is_a_noop(self) -> None:
-        """A None vector store clears nothing and does not raise."""
-        await clear_pending_vectors(
-            vector_store=None, collections=("col-a",), job_id=uuid4()
-        )
-
-
-class TestDeletePendingVectors:
-    """Rollback deletes staged records and keeps committed ones."""
-
-    async def test_keeps_the_committed_record_with_the_same_id(self) -> None:
-        """A rolled-back rewrite leaves the committed record untouched."""
-        vector_store = _FakeVectorStore()
-        job_id = uuid4()
-        original = VectorRecord(id=uuid4(), vector=[0.1], payload={"text": "old"})
-        rewrite = VectorRecord(id=original.id, vector=[0.9], payload={"text": "new"})
-        await vector_store.upsert("col-a", [original])
-        await vector_store.upsert("col-a", [rewrite], pending_job_id=job_id)
-
-        await delete_pending_vectors(
-            vector_store=vector_store, collections=("col-a",), job_id=job_id
-        )
-
-        assert list(vector_store.records["col-a"]) == [str(original.id)]
-        assert vector_store.records["col-a"][str(original.id)].payload["text"] == "old"

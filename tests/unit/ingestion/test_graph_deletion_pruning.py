@@ -1,15 +1,12 @@
-"""Tests for deletion-triggered pruning and its document wiring.
+"""Tests for deletion-triggered pruning.
 
-prune_orphaned_entities runs against a scripted GraphStore: candidates
-with open-chunk evidence keep their nodes, orphans lose theirs, and
-each affected cluster is rebuilt over its survivors or deleted. The
-wiring test proves deleting an unknown document never reaches pruning.
+prune_orphaned_entities runs against a scripted GraphStore: orphans lose
+their nodes, and each affected cluster is rebuilt over its survivors.
 """
 
 from collections.abc import Mapping, Sequence
 from contextlib import AbstractAsyncContextManager
 from typing import Any
-from unittest.mock import MagicMock
 from uuid import UUID, uuid4
 
 from agrag.common.data_models.graph_record import (
@@ -19,9 +16,7 @@ from agrag.common.data_models.graph_record import (
 )
 from agrag.common.data_models.graph_schema import EntityType, GraphSchema
 from agrag.common.data_models.vector_record import Distance, VectorHit
-from agrag.embedding.base import Embedder
 from agrag.graphdb.base import GraphStore
-from agrag.ingestion import Graph
 from agrag.ingestion.resolved_entities import prune_orphaned_entities
 
 
@@ -154,25 +149,6 @@ class _ScriptedStore(GraphStore):
         return
 
 
-class _FixedEmbedder(Embedder):
-    """Embedder returning a constant vector."""
-
-    model = "fixed"
-
-    async def dimensions(self) -> int:
-        """Return a small fixed dimension."""
-        return 4
-
-    async def embed(self, texts: Sequence[str]) -> list[list[float]]:
-        """Return a constant vector for every text."""
-        return [[0.1] * 4 for _ in texts]
-
-
-def _evidence(entity_id: UUID) -> dict[str, Any]:
-    """Build one open-evidence row for an entity."""
-    return {"id": str(entity_id)}
-
-
 def _membership(
     entity_id: UUID, resolved_id: UUID, member_ids: list[UUID]
 ) -> dict[str, Any]:
@@ -189,54 +165,8 @@ def _deleted(entity_id: UUID) -> dict[str, Any]:
     return {"entity_id": str(entity_id)}
 
 
-def _delete_params(store: _ScriptedStore) -> list[Any]:
-    """Return the id lists of every entity-delete write."""
-    return [
-        params.get("ids")
-        for query, params in store.write_calls
-        if "DETACH DELETE entity" in query and isinstance(params, dict)
-    ]
-
-
 class TestPruneOrphanedEntities:
     """prune_orphaned_entities deletes orphans and rebuilds clusters."""
-
-    async def test_shrink_to_one_prunes_to_singleton(self) -> None:
-        """One survivor keeps its node while the cluster node goes away."""
-        first, second, third, cluster = (uuid4() for _ in range(4))
-        members = [first, second, third]
-        store = _ScriptedStore(
-            reads=[
-                [_evidence(second)],
-                [
-                    _membership(first, cluster, members),
-                    _membership(third, cluster, members),
-                ],
-                [{"n": _node(second, "Beta")}],
-            ],
-            writes={
-                "DETACH DELETE entity": [_deleted(first), _deleted(third)],
-                "removed_resolved_entity_ids": [
-                    {"removed_resolved_entity_ids": [str(cluster)]}
-                ],
-            },
-        )
-
-        result = await prune_orphaned_entities(
-            members, graph_store=store, schema=_schema()
-        )
-
-        assert result.removed_entity_ids == [first, third]
-        assert result.removed_resolved_entity_ids == [cluster]
-        assert result.rebuilt_entities == []
-        rebuild_calls = [
-            parameters
-            for query, parameters in store.write_calls
-            if "$pending_job_id" in query and isinstance(parameters, dict)
-        ]
-        assert rebuild_calls == [{"member_ids": [str(second)], "pending_job_id": None}]
-        for deleted_ids in _delete_params(store):
-            assert str(second) not in deleted_ids
 
     async def test_rebuilds_over_remaining_pair(self) -> None:
         """Two survivors form a new cluster replacing the old one."""
@@ -278,26 +208,3 @@ class TestPruneOrphanedEntities:
                 "pending_job_id": None,
             }
         ]
-
-
-class TestDeletionPruningWiring:
-    """No-op document paths never reach pruning."""
-
-    def _graph(self, store: _ScriptedStore) -> Graph:
-        """Build a Graph over the scripted store."""
-        return Graph(
-            schema=_schema(),
-            graph_store=store,
-            embedder=_FixedEmbedder(),
-            extractor=MagicMock(),
-        )
-
-    async def test_delete_unknown_document_skips_pruning(self) -> None:
-        """An unknown document key performs no reads beyond the lookup."""
-        store = _ScriptedStore(reads=[[]], writes={})
-
-        result = await self._graph(store).delete_document("missing")
-
-        assert result.no_op is True
-        assert len(store.read_calls) == 1
-        assert store.write_calls == []

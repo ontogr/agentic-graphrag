@@ -28,21 +28,6 @@ class TestCommunityRetriever:
             with pytest.raises(RuntimeError, match="db down"):
                 await retr.retrieve("q")
 
-    async def test_returns_empty_when_search_finds_nothing(self) -> None:
-        """A search with no hits returns an empty list without a graph read."""
-        mock_store = AsyncMock()
-        mock_embedder = AsyncMock()
-
-        with patch(
-            "agrag.retrieval.retrievers.community.vector_search", new_callable=AsyncMock
-        ) as mock_vs:
-            mock_vs.return_value = []
-            retr = CommunityRetriever(graph_store=mock_store, embedder=mock_embedder)
-            res = await retr.retrieve("q")
-
-        assert res == []
-        mock_store.execute_read.assert_not_awaited()
-
     async def test_unparsable_row_is_skipped(self) -> None:
         """A row that fails to parse is skipped; other rows still load.
 

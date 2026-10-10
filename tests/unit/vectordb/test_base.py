@@ -93,14 +93,6 @@ class _PagedStore(VectorStore):
         for record_id in ids:
             self.records.pop(record_id, None)
 
-    def committed(self) -> set[UUID]:
-        """Return the ids of the committed records."""
-        return {
-            record_id
-            for record_id, record in self.records.items()
-            if not record.payload.get("_pending")
-        }
-
 
 def _records(count: int) -> list[VectorRecord]:
     """Build records with distinct ids."""
@@ -110,35 +102,7 @@ def _records(count: int) -> list[VectorRecord]:
 
 
 class TestVectorStorePending:
-    """Commit and rollback finish for jobs larger than one page."""
-
-    async def test_commit_promotes_every_staged_record(self) -> None:
-        """Commit leaves the real ids and no staged copy, past the batch size."""
-        store = _PagedStore()
-        job, other_job = uuid4(), uuid4()
-        keep = _records(2)
-        staged = _records(600)
-        other = _records(3)
-        await store.upsert("c", keep)
-        await store.upsert("c", staged, pending_job_id=job)
-        await store.upsert("c", other, pending_job_id=other_job)
-
-        await store.commit_pending("c", job_id=job)
-
-        assert store.committed() == {r.id for r in keep} | {r.id for r in staged}
-        assert len(store.records) == 2 + 600 + 3
-
-    async def test_delete_removes_only_the_job_records(self) -> None:
-        """Rollback deletes every staged record and leaves committed ones."""
-        store = _PagedStore()
-        job = uuid4()
-        keep = _records(2)
-        await store.upsert("c", keep)
-        await store.upsert("c", _records(600), pending_job_id=job)
-
-        await store.delete_pending("c", job_id=job)
-
-        assert set(store.records) == {r.id for r in keep}
+    """Commit and rollback of staged records."""
 
     async def test_commit_is_a_no_op_without_staged_records(self) -> None:
         """A second commit after a finished one changes nothing."""

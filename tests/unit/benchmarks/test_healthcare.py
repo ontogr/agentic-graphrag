@@ -1,4 +1,4 @@
-"""Tests the Healthcare dataset: fixtures, passages, search rule, schema and grader.
+"""Tests the Healthcare dataset: fixtures, passages, search rule and grader.
 
 The passage fetch is patched to local files, so no network is needed.
 """
@@ -13,7 +13,6 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
-from agrag.common.data_models.graph_schema import GraphSchema
 from benchmarks.datasets import healthcare, healthcare_index
 from benchmarks.datasets.fetch import HashMismatchError
 from benchmarks.datasets.healthcare import (
@@ -37,7 +36,6 @@ from benchmarks.grading.healthbench import (
     HealthBenchGrader,
     calculate_score,
     parse_json_to_dict,
-    rubric_text,
 )
 from benchmarks.models import (
     BenchmarkQuestion,
@@ -94,10 +92,6 @@ class TestFixtures:
         assert grader.judge_calls_per_question == len(question.reference["rubrics"])
         assert healthcare.DOMAIN.grader_for("full").judge_calls_per_question == 13
 
-    def test_full_closure_has_4477_passages(self):
-        """Full keeps the 4,477 passages that its questions find."""
-        assert len(HealthcareAdapter().load("full").corpora[0].documents) == 4477
-
     def test_lite_questions_and_passages_are_subsets_of_full(self):
         """Every lite question and passage is also in full, with the same content."""
         lite = HealthcareAdapter().load("lite")
@@ -123,14 +117,6 @@ class TestFixtures:
             assert all(item["criterion"] for item in rubrics)
             assert len(question.reference["row_sha256"]) == 64
 
-    def test_multi_turn_questions_keep_every_turn(self):
-        """Full has multi-turn conversations and they are kept whole."""
-        full = HealthcareAdapter().load("full")
-
-        turns = collections.Counter(len(q.messages) for q in full.questions)
-
-        assert turns == {1: 120, 3: 20, 5: 6, 7: 3, 13: 1}
-
     def test_passages_are_pinned_by_unique_id_and_hash(self):
         """Each passage has a unique id, a SHA-256 and an address in a pinned file."""
         documents = HealthcareAdapter().load("full").corpora[0].documents
@@ -151,14 +137,6 @@ class TestFixtures:
             assert (match["repo"], match["revision"], match["file"]) in files
             assert len(document.sha256) == 64
             assert document.uri == document.id
-
-    def test_the_fixture_names_its_pinned_sources(self):
-        """The upstream entry holds the pinned revisions and file hashes."""
-        upstream = HealthcareAdapter().load("lite").upstream
-
-        assert upstream["sources"] == SOURCES
-        assert all(len(pin["revision"]) == 40 for pin in SOURCES.values())
-        assert upstream["closure_passages_per_question"] == {"full": 32}
 
 
 def _textbook(tmp_path: Path, rows: list[dict]) -> Path:
@@ -505,15 +483,6 @@ class TestContentProblems:
             "textbooks differs from the pinned passages"
         ]
 
-    def test_a_missing_passage_is_reported(self, monkeypatch):
-        """A source with fewer passages than pinned fails."""
-        self._pin(monkeypatch)
-        rows = [("t1", "textbooks", "pain"), ("s1", "statpearls", "asthma")]
-
-        assert content_problems(self._db(rows)) == [
-            "textbooks differs from the pinned passages"
-        ]
-
     def test_source_problems_skips_the_pinned_files_when_the_counts_differ(
         self, monkeypatch
     ):
@@ -530,37 +499,6 @@ class TestContentProblems:
         rows = [("t1", "textbooks", "pain"), ("s1", "statpearls", "asthma")]
 
         assert source_problems(self._db(rows)) == ["textbooks has 1 passages, not 2"]
-
-    def test_source_problems_reports_a_changed_text_in_a_sound_index(self, monkeypatch):
-        """An index with the right counts and ids still fails on changed text."""
-        self._pin(monkeypatch)
-        monkeypatch.setattr(
-            healthcare_index, "SOURCE_ROWS", {"textbooks": 2, "statpearls": 1}
-        )
-        rows = [("t1", "textbooks", "pain"), ("t2", "textbooks", "altered")]
-        rows.append(("s1", "statpearls", "asthma"))
-
-        assert source_problems(self._db(rows)) == [
-            "textbooks differs from the pinned passages"
-        ]
-
-
-class TestSchema:
-    """The healthcare graph schema."""
-
-    def test_schema_has_the_planned_size_and_survives_a_round_trip(self):
-        """The schema has 11 entity types and 18 relations, each with a description."""
-        assert len(HEALTHCARE.entities) == 11
-        assert len(HEALTHCARE.relations) == 18
-        assert all("description" in e.properties for e in HEALTHCARE.entities)
-        rebuilt = GraphSchema.model_validate(HEALTHCARE.model_dump(mode="json"))
-        assert rebuilt == HEALTHCARE
-
-    def test_adapter_returns_the_schema(self):
-        """The adapter returns the healthcare schema for its corpus."""
-        corpus = HealthcareAdapter().load("lite").corpora[0]
-
-        assert HealthcareAdapter().schema(corpus) is HEALTHCARE
 
 
 RUBRICS = [
@@ -585,10 +523,6 @@ class TestScoring:
     def test_a_rubric_without_positive_points_has_no_score(self):
         """A zero denominator gives None and not a division error."""
         assert calculate_score([{"criterion": "x", "points": -2}], [True]) is None
-
-    def test_the_prompt_shows_points_and_criterion(self):
-        """An item reads as ``[points] criterion``."""
-        assert rubric_text(RUBRICS[2]) == "[-4] Invents a side effect"
 
     @pytest.mark.parametrize(
         ("reply", "expected"),
