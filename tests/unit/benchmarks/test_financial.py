@@ -14,8 +14,11 @@ from agrag.common.data_models.document import DocumentFamily, SourceFormat
 from agrag.loaders.errors import MissingExtraError
 from benchmarks.datasets import financial
 from benchmarks.datasets.financial import FinancialAdapter
-from benchmarks.models import Corpus, CorpusDocument
+from benchmarks.grading import financial as grading
+from benchmarks.grading.financial import FinancialGrader
+from benchmarks.models import BenchmarkQuestion, Corpus, CorpusDocument
 from benchmarks.schemas.financial import FINANCIAL
+from benchmarks.systems.base import SystemAnswer
 
 
 class TestFixtures:
@@ -194,8 +197,87 @@ class TestDocuments:
             FinancialAdapter().documents(self._corpus("A_2022_10K"))
 
 
+class _FakeJudge:
+    """Stands in for the judge; the patched quality function ignores it."""
+
+
+def _question() -> BenchmarkQuestion:
+    return BenchmarkQuestion(
+        id="financebench_id_1",
+        corpus_id="financial-lite",
+        messages=[{"role": "user", "content": "What was revenue?"}],
+        group="domain-relevant",
+        reference={
+            "answer": "$5466.00",
+            "evidence": [
+                {"text": "Total 5,466", "page": 3},
+                {"text": "Note 2", "page": 9},
+            ],
+        },
+    )
+
+
 class TestFinancialGrader:
     """Grading one answer."""
+
+    async def test_judges_the_answer_and_the_evidence_with_their_own_references(
+        self, monkeypatch
+    ):
+        """Correctness uses the answer. Context recall adds the evidence text."""
+        seen = {}
+
+        async def _fake_answer_quality(
+            judge, question, answer, reference, names=("correctness",)
+        ):
+            seen[names] = reference
+            return dict.fromkeys(names, 0.5)
+
+        monkeypatch.setattr(grading, "answer_quality", _fake_answer_quality)
+
+        grade = await FinancialGrader().grade(
+            _question(),
+            SystemAnswer(text="5,466"),
+            _FakeJudge(),  # type: ignore[arg-type]
+        )
+
+        assert seen == {
+            ("correctness",): "$5466.00",
+            ("context_recall",): "$5466.00\nTotal 5,466\nNote 2",
+        }
+        assert set(grade.scores) == set(FinancialGrader().metrics)
+        assert grade.flags == []
+
+    async def test_full_grader_scores_five_metrics_with_the_right_references(
+        self, monkeypatch
+    ):
+        """Full mode adds faithfulness, citation accuracy and context precision."""
+        seen = {}
+
+        async def _fake_answer_quality(
+            judge, question, answer, reference, names=("correctness",)
+        ):
+            seen[names] = reference
+            return dict.fromkeys(names, 0.5)
+
+        monkeypatch.setattr(grading, "answer_quality", _fake_answer_quality)
+
+        grade = await FinancialGrader(full=True).grade(
+            _question(),
+            SystemAnswer(text="5,466"),
+            _FakeJudge(),  # type: ignore[arg-type]
+        )
+
+        assert seen == {
+            ("correctness", "faithfulness", "citation_accuracy"): "$5466.00",
+            ("context_precision", "context_recall"): "$5466.00\nTotal 5,466\nNote 2",
+        }
+        assert set(grade.scores) == {
+            "correctness",
+            "faithfulness",
+            "citation_accuracy",
+            "context_precision",
+            "context_recall",
+        }
 
     def test_domain_uses_the_full_grader_only_in_full_mode(self):
         """Lite scores two metrics and full scores five."""

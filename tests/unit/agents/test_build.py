@@ -5,7 +5,8 @@ and stubs the ``deepagents`` module in ``sys.modules`` to capture the
 subagents and middleware passed to ``create_deep_agent``
 without installing the real dependency. The retrieval engine and LLM are
 mocked with ``MagicMock``/``AsyncMock``. Covers per-run citation ledger and
-research-attempt-limiter isolation, that ``_SimpleAgent`` synthesizes its
+research-attempt-limiter isolation, that search filters reach the engine
+through both agent implementations, that ``_SimpleAgent`` synthesizes its
 answer through a model call rather than returning raw concatenated evidence,
 and that every run returns its own ``Ledger`` so a citation key resolves to
 the evidence behind it.
@@ -38,6 +39,7 @@ from agrag.common.data_models.graph_schema import GENERIC, GraphSchema
 from agrag.common.data_models.provenance import TextProvenance
 from agrag.common.data_models.search_result import SearchResult
 from agrag.llm.client_config import LLMClientConfig
+from agrag.retrieval.filters import SearchFilters
 
 
 def _capture_deepagents(monkeypatch: pytest.MonkeyPatch, captured: dict) -> None:
@@ -206,6 +208,24 @@ class TestBuildAgent:
         except ImportError:
             pytest.skip("agent provider extra is not installed")
 
+    async def test_simple_agent_passes_filters_to_search(self) -> None:
+        """_SimpleAgent scopes its search with the given filters."""
+        ent = Entity(id=uuid4(), label="Person", name="Alice")
+        result = SearchResult(item=ent, score=0.9, method="entity")
+        engine = MagicMock()
+        engine.search = AsyncMock(return_value=[result])
+        filters = SearchFilters(document_ids=["doc-1"])
+        model = AsyncMock(ainvoke=AsyncMock(return_value=MagicMock(text="answer")))
+
+        agent = _SimpleAgent(model=model, engine=engine, filters=filters)
+        await agent.ainvoke({"messages": [{"role": "user", "content": "question"}]})
+
+        call = engine.search.await_args
+        if call is None:
+            pytest.fail("engine.search was not awaited")
+        _, kwargs = call
+        assert kwargs["filters"] == filters
+
     async def test_simple_agent_synthesizes_answer_via_model_call(self) -> None:
         """_SimpleAgent calls the model to synthesize the returned answer."""
         ent = Entity(id=uuid4(), label="Person", name="Alice")
@@ -310,6 +330,38 @@ class TestBuildAgent:
         ]
         assert len(limiters) == 2
         assert limiters[0] is not limiters[1]
+
+    async def test_run_scoped_agent_rebuilds_tools_with_filters(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """RunScopedAgent forwards filters to the per-run tool set."""
+        captured: dict = {}
+        _capture_deepagents(monkeypatch, captured)
+
+        ent = Entity(id=uuid4(), label="Person", name="Alice")
+        result = SearchResult(item=ent, score=0.9, method="entity")
+        engine = _engine()
+        engine.search = AsyncMock(return_value=[result])
+        filters = SearchFilters(document_ids=["doc-1"])
+
+        agent = _RunScopedAgent(
+            engine=engine,
+            model=MagicMock(),
+            settings=AgentSettings(),
+            filters=filters,
+        )
+        await agent.ainvoke({"messages": [{"role": "user", "content": "q"}]})
+
+        researcher = captured["subagents"][0]
+        tools = researcher["tools"]
+        search_tool = next(tool for tool in tools if tool.name == "search_source_text")
+        await search_tool.ainvoke({"query": "test"})
+        call = engine.search.await_args
+        if call is None:
+            pytest.fail("engine.search was not awaited")
+        _, kwargs = call
+        assert kwargs["filters"] == filters
+        assert kwargs["filters"] is not filters
 
     async def test_run_scoped_agent_has_no_callbacks_without_a_tracer(
         self, monkeypatch: pytest.MonkeyPatch
