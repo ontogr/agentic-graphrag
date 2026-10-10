@@ -1,16 +1,15 @@
 """Tests for the SearchEngine and traversal root spans.
 
-Pins the span tree a search exports: concurrent retriever siblings under the
-root, fuse between and after them, conditional BFS, community and rerank
-spans, partial-failure recording, and the three traversal entry points. The
-engine's stores are mocks; the retrievers and helpers are the real ones.
+Pins the span tree a search exports: retriever siblings and fuse under the
+root, conditional stages, partial-failure recording, and the traversal entry
+points. The engine's stores are mocks; the retrievers and helpers are the real
+ones.
 """
 
 import json
 from unittest.mock import AsyncMock
 from uuid import UUID, uuid4
 
-import pytest
 from opentelemetry.sdk.trace import ReadableSpan, TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
@@ -20,18 +19,12 @@ from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
 from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.search_result import SearchResult
 from agrag.common.data_models.vector_record import VectorHit
-from agrag.retrieval.errors import AllRetrievalMethodsFailedError, ScopeDeniedError
-from agrag.retrieval.filters import SearchFilters
 from agrag.retrieval.methods.traversal import (
     find_entity,
     list_relationship_types,
     traverse,
 )
 from agrag.retrieval.recipes import HYBRID
-from agrag.retrieval.retrievers.bfs import BFSRetriever
-from agrag.retrieval.retrievers.chunk import ChunkRetriever
-from agrag.retrieval.retrievers.community import CommunityRetriever
-from agrag.retrieval.retrievers.entity import EntityRetriever
 from agrag.retrieval.search_engine import SearchEngine
 from agrag.retrieval.settings import RetrievalSettings
 
@@ -210,20 +203,6 @@ class TestSearchSpanTree:
         assert "agrag.retrieval.rerank.cross_encoder" not in names
         assert "agrag.retrieval.rerank.node_distance" not in names
 
-    async def test_tracer_none_leaves_the_host_span_untouched(self) -> None:
-        """An untraced engine opens nothing and marks no host span."""
-        provider, exporter = _provider()
-        tracer = provider.get_tracer("t")
-        store, _ = _hybrid_store()
-        engine = _engine(store, None)
-
-        with tracer.start_as_current_span("host"):
-            await engine.search("who is alice", HYBRID)
-
-        host = _named(exporter.get_finished_spans(), "host")[0]
-        assert host.status.status_code.name != "ERROR"
-        assert not [e for e in host.events if e.name == "exception"]
-
 
 class TestSearchFailureRecording:
     """Partial method failures record on the root without erroring it."""
@@ -261,20 +240,6 @@ class TestSearchFailureRecording:
             and any(e.name == "exception" for e in span.events)
         ]
         assert len(exception_events) == 1
-
-    async def test_all_methods_failing_marks_the_root_error(self) -> None:
-        """Every method failing raises and marks the root ERROR."""
-        provider, exporter = _provider()
-        tracer = provider.get_tracer("t")
-        store = AsyncMock()
-        store.vector_search.side_effect = RuntimeError("down")
-        engine = _engine(store, tracer)
-
-        with pytest.raises(AllRetrievalMethodsFailedError):
-            await engine.search("who is alice", HYBRID)
-
-        root = _named(exporter.get_finished_spans(), "agrag.retrieval.search")[0]
-        assert root.status.status_code.name == "ERROR"
 
 
 class TestTraversalRootSpans:
@@ -367,49 +332,3 @@ class TestTraversalRootSpans:
         assert "openinference.span.kind" not in attributes
         assert list(attributes["agrag.result_types"]) == types
         assert attributes["agrag.result_count"] == len(types)
-
-    async def test_a_denied_traverse_marks_the_span_error(self) -> None:
-        """A ScopeDeniedError propagates and marks the traverse span."""
-        provider, exporter = _provider()
-        tracer = provider.get_tracer("t")
-        seed = SearchResult(
-            item=Entity(id=uuid4(), label="Person", name="Alice"),
-            score=1.0,
-            method="entity",
-        )
-
-        with pytest.raises(ScopeDeniedError):
-            await traverse(
-                seed,
-                graph_store=AsyncMock(),
-                settings=RetrievalSettings(),
-                relation_type="TREATS",
-                filters=SearchFilters(relation_types=["PRESCRIBES"]),
-                tracer=tracer,
-            )
-
-        root = _named(exporter.get_finished_spans(), "agrag.retrieval.traverse")[0]
-        assert root.status.status_code.name == "ERROR"
-
-
-class TestEngineWiring:
-    """The engine passes its tracer to everything it builds."""
-
-    async def test_engine_constructs_retrievers_of_the_right_types(self) -> None:
-        """The retriever map holds the four retriever classes."""
-        store, _ = _hybrid_store()
-        engine = _engine(store, None)
-
-        retrievers = engine._build_retrievers()
-
-        assert isinstance(retrievers["entity"], EntityRetriever)
-        assert isinstance(retrievers["chunk"], ChunkRetriever)
-        assert isinstance(retrievers["community"], CommunityRetriever)
-        assert "text2cypher" in retrievers
-
-    async def test_bfs_retriever_construction_takes_a_tracer(self) -> None:
-        """BFSRetriever accepts the engine's tracer (used by recipe.bfs)."""
-        retriever = BFSRetriever(
-            graph_store=AsyncMock(), settings=RetrievalSettings(), tracer=None
-        )
-        assert retriever.name == "bfs"

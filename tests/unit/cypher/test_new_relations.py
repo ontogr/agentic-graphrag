@@ -1,19 +1,15 @@
-"""Tests for bfs_expand_query and the MENTIONED_IN walk builders in cypher.relations.
+"""Tests for bfs_expand_query and relationship_types_from_query in cypher.relations.
 
 Covers bfs_expand_query rejecting an injection attempt in a relation type or
 an unsupported direction, and clamping depth to [1, 10] and limit to
 [1, 1000] rather than passing extreme values through. Also covers
-relationship_types_from_query rejecting an unsafe relation type, and
-chunks_mentioning_entities_query and entities_mentioned_in_chunks_query
-traversing MENTIONED_IN in each direction.
+relationship_types_from_query rejecting an unsafe relation type.
 """
 
 import pytest
 
 from agrag.cypher.relations import (
     bfs_expand_query,
-    chunks_mentioning_entities_query,
-    entities_mentioned_in_chunks_query,
     relationship_types_from_query,
 )
 
@@ -62,21 +58,3 @@ class TestRelationshipTypesFromQuery:
             relationship_types_from_query(
                 relation_types=["TREATS]->() MATCH (x) DETACH DELETE x //"]
             )
-
-
-class TestChunksMentioningEntitiesQuery:
-    """chunks_mentioning_entities_query walks MENTIONED_IN."""
-
-    def test_walks_mentioned_in(self) -> None:
-        """The query traverses MENTIONED_IN edges."""
-        q = chunks_mentioning_entities_query()
-        assert "MENTIONED_IN" in q
-
-
-class TestEntitiesMentionedInChunksQuery:
-    """entities_mentioned_in_chunks_query walks MENTIONED_IN reverse."""
-
-    def test_walks_mentioned_in(self) -> None:
-        """The query traverses MENTIONED_IN edges."""
-        q = entities_mentioned_in_chunks_query()
-        assert "MENTIONED_IN" in q

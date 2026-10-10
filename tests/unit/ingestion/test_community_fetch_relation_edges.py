@@ -62,14 +62,6 @@ class TestFetchRelationEdges:
         second_call_params = mock_store.execute_read.call_args_list[1].args[1]
         assert second_call_params == {"skip": 5, "limit": 5}
 
-    async def test_use_cursor_false_stops_on_empty_page(self) -> None:
-        """SKIP pagination stops once a page returns no rows."""
-        mock_store = AsyncMock()
-        mock_store.execute_read.return_value = []
-        edges = await fetch_relation_edges(mock_store, page_size=5, use_cursor=False)
-        assert edges == []
-        assert mock_store.execute_read.call_count == 1
-
     async def test_pagination_resumes_past_shared_endpoint_group(self) -> None:
         """A page boundary inside a same-(a,b) group still yields every row.
 

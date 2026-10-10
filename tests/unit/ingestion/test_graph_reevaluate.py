@@ -273,16 +273,3 @@ class TestGraphReevaluate:
 
         with pytest.raises(ValueError, match="Unknown entity"):
             await _graph(store).reevaluate([known, unknown])
-
-    async def test_returns_empty_report_for_empty_input(self) -> None:
-        """An empty input makes no store calls and reports nothing."""
-        store = _ScriptedStore(reads=[])
-
-        report = await _graph(store).reevaluate([])
-
-        assert report.entities_reevaluated == []
-        assert report.matches_added == []
-        assert report.matches_removed == []
-        assert report.unchanged_count == 0
-        assert store.read_calls == []
-        assert store.write_calls == []

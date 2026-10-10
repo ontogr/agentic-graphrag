@@ -31,13 +31,6 @@ class TestFuse:
         assert len(fused) == 2
         assert fused[0].score >= fused[1].score
 
-    def test_different_entities_not_deduped(self) -> None:
-        """Results for different entities stay separate."""
-        r1 = _make_entity_result()
-        r2 = _make_entity_result()
-        fused = fuse({"entity": [r1], "chunk": [r2]})
-        assert len(fused) == 2
-
     def test_rrf_k_affects_ranking(self) -> None:
         """Higher rrf_k flattens rank influence."""
         ent1 = Entity(id=uuid4(), label="Person", name="First")
@@ -75,19 +68,6 @@ class TestFuse:
         scores = {r.item.id: r.score for r in fused}
         assert scores[a.id] == 1 / 61
         assert scores[b.id] == 1 / 61
-
-    def test_duplicate_within_one_method_uses_best_rank(self) -> None:
-        """A duplicate in later positions uses the better rank for scoring.
-
-        The same item at rank 0 and rank 2 of one method contributes
-        1/(rrf_k + 0 + 1), not the sum of both positions.
-        """
-        a = Entity(id=uuid4(), label="Person", name="A")
-        a_first = SearchResult(item=a, score=1.0, method="entity")
-        a_last = SearchResult(item=a, score=0.1, method="entity")
-        fused = fuse({"entity": [a_first, a_last]}, rrf_k=60)
-        assert len(fused) == 1
-        assert fused[0].score == 1 / 61
 
     def test_keeps_highest_score_per_identity(self) -> None:
         """The per-method best-rank vote still keeps the best individual score.

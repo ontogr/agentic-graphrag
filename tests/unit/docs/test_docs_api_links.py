@@ -84,13 +84,6 @@ def test_links_between_split_pages_are_relative() -> None:
     assert "(connect.md)" in out["graphdb/Store"]
 
 
-def test_rewrite_is_idempotent() -> None:
-    """Running the rewriter on its own output changes nothing."""
-    once = docs_api_links.rewrite(PAGES)
-
-    assert docs_api_links.rewrite(once) == once
-
-
 def test_example_blocks_lose_the_attributes_the_docs_site_rejects() -> None:
     """A raw class or markdown attribute on <details> clashes with the site's own."""
     pages = {

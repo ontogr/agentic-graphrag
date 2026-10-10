@@ -2,8 +2,7 @@
 
 Each tool is invoked with ``config={"callbacks": run_callbacks(tracer)}`` over
 a stub engine whose methods open a span: that span must have the tool's own
-``TOOL`` span as its parent, and ``callbacks`` must stay out of the tool
-schema the model sees. Parallel calls nest under their own tool spans and a
+``TOOL`` span as its parent. Parallel calls nest under their own tool spans and a
 span opened after the tool call is the caller's child again, so the bridge
 leaks nothing.
 """
@@ -21,7 +20,6 @@ from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
 
 from agrag.agents.tools import search as search_tools
 from agrag.agents.tools import traversal as traversal_tools
-from agrag.agents.tools.aggregate import compute_over_evidence
 from agrag.agents.tracing import run_callbacks
 from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.search_result import SearchResult
@@ -151,40 +149,6 @@ class TestToolBridge:
             assert probe.parent is not None
             assert probe.parent.span_id == tool_spans[0].context.span_id
 
-    @pytest.mark.parametrize(("factory", "args"), TOOLS)
-    async def test_callbacks_is_not_in_the_schema(self, factory, args) -> None:
-        """The model-visible tool schema omits the callbacks argument."""
-        engine = _stub_engine()
-        tool = factory(engine, _Ledger())
-        schema_properties = tool.args_schema.model_json_schema()["properties"]
-        assert "callbacks" not in schema_properties
-
-    @pytest.mark.parametrize(("factory", "args"), TOOLS)
-    async def test_no_callbacks_still_returns_text(self, factory, args) -> None:
-        """Without a tracer the tool works and no TOOL span bridges."""
-        provider, exporter = _provider()
-        tracer = provider.get_tracer("t")
-        engine = _stub_engine()
-        engine.tracer = tracer
-        tool = factory(engine, _Ledger())
-
-        text = await tool.ainvoke(args, config={"callbacks": []})
-
-        assert isinstance(text, str)
-        tool_spans = [
-            span
-            for span in exporter.get_finished_spans()
-            if span.attributes.get("openinference.span.kind") == "TOOL"
-        ]
-        assert tool_spans == []
-        # The stub's probe spans still export under the caller's context;
-        # nothing nested under a TOOL span because there was none.
-        for span in exporter.get_finished_spans():
-            if span.name.startswith("agrag.probe."):
-                assert span.parent is None or span.parent.span_id not in {
-                    s.context.span_id for s in tool_spans
-                }
-
     async def test_two_parallel_calls_nest_under_their_own_tool_spans(self) -> None:
         """Two parallel calls of one tool each nest under their own span."""
         provider, exporter = _provider()
@@ -264,14 +228,3 @@ class TestToolBridge:
         assert len(tool_spans) == 1
         exceptions = [e for e in tool_spans[0].events if e.name == "exception"]
         assert len(exceptions) == 1
-
-
-class TestComputeOverEvidenceUnchanged:
-    """compute_over_evidence takes no callbacks (it calls no engine)."""
-
-    def test_schema_has_no_callbacks(self) -> None:
-        """The aggregate tool's schema never grew a callbacks argument."""
-        schema_properties = compute_over_evidence.args_schema.model_json_schema()[
-            "properties"
-        ]
-        assert "callbacks" not in schema_properties

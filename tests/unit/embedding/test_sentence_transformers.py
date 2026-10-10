@@ -11,9 +11,9 @@ share one model build rather than racing it (using ``threading.Event`` pairs
 and ``mock.patch.object(..., autospec=True)``), that a failed build can be
 retried, and cache read/write behavior including that embedders differing
 only in ``normalize`` do not share cache entries. Tracing tests use a real
-SDK ``TracerProvider`` with an in-memory exporter: ``tracer=None`` leaves a
-host span untouched, concurrent first use exports exactly one
-``agrag.embedding.model_load`` span, and a full cache hit exports no
+SDK ``TracerProvider`` with an in-memory exporter: concurrent first use
+exports exactly one ``agrag.embedding.model_load`` span, and a full cache hit
+exports no
 ``agrag.embedding.encode`` span.
 """
 
@@ -29,7 +29,6 @@ from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
     InMemorySpanExporter,
 )
-from opentelemetry.trace import StatusCode
 
 from agrag.embedding.base import EmbeddingCache
 from agrag.embedding.errors import EmbeddingMissingExtraError
@@ -294,21 +293,7 @@ class TestEmbedCaching:
 
 
 class TestSentenceTransformerTracing:
-    """Tracing spans real model work without touching a host span."""
-
-    async def test_tracer_none_leaves_host_span_untouched(self) -> None:
-        """Embed with tracer=None keeps the host span UNSET and event-free."""
-        host_provider, host_exporter = _tracing_provider()
-        host_tracer = host_provider.get_tracer("host")
-        with host_tracer.start_as_current_span("host.request"):
-            embedder = SentenceTransformerEmbedder(
-                model=MockSentenceTransformer(), tracer=None
-            )
-            await embedder.embed(["a"])
-        (host_span,) = host_exporter.get_finished_spans()
-        assert host_span.name == "host.request"
-        assert host_span.status.status_code is StatusCode.UNSET
-        assert list(host_span.events) == []
+    """Tracing spans real model work."""
 
     async def test_concurrent_first_call_exports_single_model_load_span(
         self,

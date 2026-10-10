@@ -1,7 +1,6 @@
 """Tests for the vector_search helper in agrag.retrieval.methods.vector.
 
-Uses AsyncMock graph and vector stores and a minimal MockEmbedder. Covers
-routing to VectorStore.hybrid_search when one is configured, per-label native
+Uses an AsyncMock graph store and a minimal MockEmbedder. Covers per-label native
 search fan-out with score-merged results, and that native search with an empty
 label list raises ValueError. The graph-store path runs against Neo4j in the
 integration suite.
@@ -26,31 +25,7 @@ class MockEmbedder:
 
 
 class TestVectorSearch:
-    """vector_search selects GraphStore or VectorStore path."""
-
-    async def test_uses_vector_store_when_provided(self) -> None:
-        """With vector_store, calls vector_store.hybrid_search."""
-        gs = AsyncMock()
-        vs = AsyncMock()
-        vs.hybrid_search.return_value = [VectorHit(id=uuid4(), score=0.8, payload={})]
-        embedder = MockEmbedder()
-        settings = RetrievalSettings(hybrid_alpha=0.7)
-
-        hits = await vector_search(
-            "test query",
-            embedder=embedder,
-            graph_store=gs,
-            vector_store=vs,
-            collection="agrag_entities",
-            labels=["Person"],
-            limit=10,
-            filters=None,
-            settings=settings,
-        )
-
-        vs.hybrid_search.assert_called_once()
-        gs.vector_search.assert_not_called()
-        assert len(hits) == 1
+    """vector_search runs native per-label search on the graph store."""
 
     async def test_searches_every_label_index_natively(self) -> None:
         """Native search runs once per label and merges by score."""

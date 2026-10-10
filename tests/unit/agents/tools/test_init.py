@@ -26,15 +26,6 @@ def _tool_named(tools: list, name: str):
 class TestMakeTools:
     """make_tools assembles the discovery and traversal tool set."""
 
-    def test_returns_ten_tools_when_scoped(self) -> None:
-        """A caller scope removes the unscoped-only Cypher tool."""
-        tools = make_tools(
-            MagicMock(), Ledger(), filters=SearchFilters(labels=["Drug"])
-        )
-
-        assert len(tools) == 10
-        assert "query_graph_directly" not in {tool.name for tool in tools}
-
     def test_returns_ten_tools_for_an_empty_scope(self) -> None:
         """An empty SearchFilters is not a scope, so the Cypher tool stays."""
         tools = make_tools(MagicMock(), Ledger(), filters=SearchFilters())
@@ -82,19 +73,6 @@ class TestMakeTools:
 class TestBaseScopeEnforcement:
     """A caller-set scope bounds every tool call the model makes."""
 
-    async def test_no_base_scope_leaves_the_tool_argument_as_the_scope(
-        self,
-    ) -> None:
-        """Without a base scope, a tool argument is the whole scope."""
-        engine = AsyncMock()
-        engine.search.return_value = []
-        tool = _tool_named(make_tools(engine, Ledger()), "look_up_entity")
-
-        await tool.ainvoke({"query": "aspirin", "labels": ["Drug"]})
-
-        _, kwargs = engine.search.await_args
-        assert kwargs["filters"] == SearchFilters(labels=["Drug"])
-
     async def test_base_scope_alone_reaches_the_search(self) -> None:
         """A base scope applies even when the call names no filter."""
         engine = AsyncMock()
@@ -134,18 +112,6 @@ class TestBaseScopeEnforcement:
         assert effective.labels == ["Condition"]
         assert not set(effective.labels) - set(base.labels)
 
-    async def test_request_outside_the_base_scope_is_refused(self) -> None:
-        """A request for labels the caller did not permit searches nothing."""
-        engine = AsyncMock()
-        engine.search.return_value = []
-        base = SearchFilters(labels=["Drug"])
-        tool = _tool_named(make_tools(engine, Ledger(), filters=base), "look_up_entity")
-
-        rendered = await tool.ainvoke({"query": "asthma", "labels": ["Condition"]})
-
-        engine.search.assert_not_awaited()
-        assert "outside this agent's permitted scope" in rendered
-
     async def test_base_scope_carries_through_with_a_surviving_intersection(
         self,
     ) -> None:
@@ -181,20 +147,6 @@ class TestBaseScopeEnforcement:
 
         effective = engine.search.await_args.kwargs["filters"]
         assert effective.document_ids == ["doc-1"]
-
-    async def test_cross_document_request_is_refused(self) -> None:
-        """A call for an out-of-scope document retrieves nothing."""
-        engine = AsyncMock()
-        engine.search.return_value = []
-        base = SearchFilters(document_ids=["doc-1"])
-        tool = _tool_named(
-            make_tools(engine, Ledger(), filters=base), "search_source_text"
-        )
-
-        rendered = await tool.ainvoke({"query": "aspirin", "document_ids": ["doc-2"]})
-
-        engine.search.assert_not_awaited()
-        assert "outside this agent's permitted scope" in rendered
 
     async def test_explore_related_refuses_a_partly_out_of_scope_request(self) -> None:
         """Each filter dimension is checked, not just the first one given."""

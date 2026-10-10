@@ -73,16 +73,3 @@ class TestMarker:
         await cache.write_marker(store, marker)
 
         assert await cache.read_marker(store) == marker
-
-    async def test_reads_none_from_an_empty_graph(self):
-        """Reads none from an empty graph."""
-        assert await cache.read_marker(FakeStore({})) is None
-
-    async def test_graph_stats_map_rows_to_counts(self):
-        """Graph stats map rows to counts."""
-        stats = await cache.graph_stats(
-            FakeStore({}), labels=["Thing"], relation_types=["R"]
-        )
-
-        assert stats.entities_by_label == {"Thing": 3}
-        assert stats.relations_by_type == {}

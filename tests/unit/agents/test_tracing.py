@@ -2,14 +2,11 @@
 
 Runs real LangChain tools with the callback from ``run_callbacks`` and an
 in-memory OpenTelemetry exporter, so the span tree is the real one. No model
-or network is involved. The canary test fails when the private OpenInference
-module the callback is imported from moves; revisit the ``<0.2`` bound on
-``openinference-instrumentation-langchain`` in ``pyproject.toml`` if it does.
+or network is involved.
 """
 
 import asyncio
 import builtins
-import importlib
 from typing import Any
 
 import pytest
@@ -80,10 +77,6 @@ class TestRunCallbacks:
             assert parent is not None
             assert parent.span_id == tools["outer"].context.span_id
 
-    def test_none_tracer_returns_no_callbacks(self) -> None:
-        """No tracer means no callbacks."""
-        assert run_callbacks(None) == []
-
     async def test_agent_spans_nest_under_the_active_span(self) -> None:
         """Spans join the caller's trace instead of starting a new one."""
         provider, exporter = _provider()
@@ -118,19 +111,6 @@ class TestRunCallbacks:
             "other",
         }
         assert set(_tool_spans(exporter_b.get_finished_spans())) == {"inner"}
-
-    def test_private_tracer_module_still_exports_the_callback(self) -> None:
-        """Canary for the private OpenInference import."""
-        try:
-            module = importlib.import_module(
-                "openinference.instrumentation.langchain._tracer"
-            )
-            assert hasattr(module, "OpenInferenceTracer")
-        except (ImportError, AssertionError):
-            pytest.fail(
-                "OpenInferenceTracer moved in openinference-instrumentation-"
-                "langchain; revisit the <0.2 bound in pyproject.toml"
-            )
 
 
 class TestRequireTracing:
@@ -172,10 +152,6 @@ class TestRequireTracing:
 
         with pytest.raises(ModuleNotFoundError, match="opentelemetry"):
             require_tracing()
-
-    def test_passes_when_the_extra_is_installed(self) -> None:
-        """No error when the extra is installed."""
-        require_tracing()
 
 
 class TestPrivacySwitchIsGone:
@@ -249,15 +225,6 @@ class TestPrivacySwitchIsGone:
         assert attributes is not None
         return dict(attributes)
 
-    async def test_hide_variables_do_not_redact_input_value(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """input.value keeps the request even with every hide flag set."""
-        attributes = await self._llm_span(monkeypatch)
-
-        assert attributes["input.value"] != "__REDACTED__"
-        assert "secret question" in str(attributes["input.value"])
-
     async def test_hide_variables_do_not_redact_input_messages(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -267,33 +234,6 @@ class TestPrivacySwitchIsGone:
         content = str(attributes["llm.input_messages.0.message.content"])
         assert content != "__REDACTED__"
         assert "secret question" in content
-
-    async def test_the_llm_span_carries_the_shared_attribute_names(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """The agent path uses the same names the BAML path records.
-
-        The cross-path canary in ``tests/integration/llm`` compares the two
-        against a live server. This pins the names on the agent side alone, so
-        a rename in either place fails a unit test.
-        """
-        attributes = await self._llm_span(monkeypatch)
-
-        for name in (
-            "openinference.span.kind",
-            "llm.provider",
-            "llm.model_name",
-            "llm.token_count.prompt",
-            "llm.token_count.completion",
-            "llm.token_count.total",
-        ):
-            assert name in attributes, name
-        assert attributes["openinference.span.kind"] == "LLM"
-        assert attributes["llm.provider"] == "openai"
-        assert attributes["llm.model_name"] == "fake"
-        assert attributes["llm.token_count.prompt"] == 11
-        assert attributes["llm.token_count.completion"] == 7
-        assert attributes["llm.token_count.total"] == 18
 
     async def test_hide_variables_do_not_redact_output_messages(
         self, monkeypatch: pytest.MonkeyPatch

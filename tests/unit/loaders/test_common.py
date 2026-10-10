@@ -4,10 +4,9 @@ Covers Document id derivation (content hash versus an explicit record id,
 and that identical text still gets distinct ids by row position or source
 uri when no record id or source hash disambiguates it), read_within_limit
 rejecting a non-positive ``max_document_bytes``, resolve_text_column's
-named-column and known-default-column resolution, and build_prose_document
-and build_record_document producing well-formed documents (text stripping
-under ``store_text=False``, null-field normalization, title-column
-resolution, and rejecting a missing or null configured id column).
+named-column and known-default-column resolution, and build_record_document
+producing well-formed documents (null-field normalization, title-column
+fallback, and rejecting a missing or null configured id column).
 """
 
 from io import BytesIO
@@ -16,13 +15,10 @@ import pytest
 
 from agrag.common.data_models.document import Document, DocumentFamily, SourceFormat
 from agrag.loaders.common import (
-    build_prose_document,
     build_record_document,
     paragraph_units,
     read_within_limit,
-    record_source_hash,
     resolve_text_column,
-    source_title,
 )
 from agrag.loaders.errors import MalformedRecordError
 from agrag.loaders.types import DecodedText, ReadOptions, SourceRef
@@ -153,43 +149,6 @@ class TestResolveTextColumn:
 class TestBuildHelpers:
     """The build helpers produce well-formed documents."""
 
-    def test_build_prose_document_strips_text_when_store_text_false(self) -> None:
-        """Build prose document strips text when store text false."""
-        doc = build_prose_document(
-            source=_ref(".txt"),
-            text="secret",
-            encoding="utf-8",
-            source_format=SourceFormat.TXT,
-            loader_name="text",
-            opts=ReadOptions(store_text=False),
-            title="t",
-        )
-        assert doc.text == ""
-
-    def test_build_record_document_has_unique_hash_per_text(self) -> None:
-        """Build record document has unique hash per text."""
-        opts = ReadOptions()
-        common = {
-            "source": _ref(".csv"),
-            "decoded": _decoded("row"),
-            "source_format": SourceFormat.CSV,
-            "loader_name": "csv",
-            "opts": opts,
-            "source_hash": "s",
-            "title": "0",
-        }
-        one = build_record_document(record_index=0, record={"body": "alpha"}, **common)
-        two = build_record_document(record_index=1, record={"body": "beta"}, **common)
-        assert one.id != two.id
-
-    def test_source_title_uses_file_stem(self) -> None:
-        """Source title uses file stem."""
-        assert source_title(_ref(".csv")) == "file.csv"
-
-    def test_record_source_hash_is_stable(self) -> None:
-        """Record source hash is stable."""
-        assert record_source_hash(b"abc") == record_source_hash(b"abc")
-
     def test_build_record_document_normalizes_null_text_to_empty_string(self) -> None:
         """A null field value becomes an empty string, not the literal ``"None"``."""
         opts = ReadOptions()
@@ -205,39 +164,6 @@ class TestBuildHelpers:
             title="0",
         )
         assert doc.text == ""
-
-    def test_build_record_document_strips_text_when_store_text_false(self) -> None:
-        """Store text false hides text but keeps char_count from the real value."""
-        opts = ReadOptions(store_text=False)
-        doc = build_record_document(
-            source=_ref(".csv"),
-            decoded=_decoded("row"),
-            source_format=SourceFormat.CSV,
-            loader_name="csv",
-            opts=opts,
-            record_index=0,
-            record={"body": "alpha"},
-            source_hash="s",
-            title="0",
-        )
-        assert doc.text == ""
-        assert doc.char_count == len("alpha")
-
-    def test_build_record_document_uses_title_column(self) -> None:
-        """The configured title column overrides the caller's fallback title."""
-        opts = ReadOptions(title_column="name")
-        doc = build_record_document(
-            source=_ref(".csv"),
-            decoded=_decoded("row"),
-            source_format=SourceFormat.CSV,
-            loader_name="csv",
-            opts=opts,
-            record_index=0,
-            record={"name": "Alpha", "body": "text"},
-            source_hash="s",
-            title="0",
-        )
-        assert doc.title == "Alpha"
 
     def test_build_record_document_falls_back_when_title_column_missing(self) -> None:
         """A missing title column value falls back to the caller's title."""

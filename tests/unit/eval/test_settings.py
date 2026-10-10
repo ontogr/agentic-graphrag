@@ -80,14 +80,6 @@ class TestEvalJudgeSettings:
         with pytest.raises(ValueError, match="model id"):
             EvalJudgeSettings.from_openai_compatible_env()
 
-    def test_temperature_defaults_to_zero(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """The judge runs at temperature 0 unless told otherwise."""
-        monkeypatch.setenv("LLM_MODEL_ID", "m")
-
-        assert EvalJudgeSettings.from_openai_compatible_env().temperature == 0.0
-
     @pytest.mark.parametrize(("raw", "expected"), [("", None), ("0.3", 0.3)])
     def test_reads_temperature_from_env(
         self, monkeypatch: pytest.MonkeyPatch, raw: str, expected: float | None

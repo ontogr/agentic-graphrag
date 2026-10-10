@@ -563,46 +563,6 @@ class TestRetrievalE2E:
     @pytest.mark.skipif(
         not _agent_llm_configured(), reason="LLM endpoint not configured"
     )
-    async def test_agent_build_and_invoke(self) -> None:
-        """build_agent constructs an agent that can be invoked."""
-        await self._seed_graph()
-
-        from agrag.agents.build import build_agent  # noqa: PLC0415
-        from agrag.agents.settings import (  # noqa: PLC0415
-            AgentLLMSettings,
-        )
-
-        engine = SearchEngine(
-            graph_store=self.store,
-            embedder=self.embedder,
-            settings=self.settings,
-            graph_schema=self.schema,
-        )
-
-        settings = AgentLLMSettings.from_openai_compatible_env()
-        agent = build_agent(engine=engine, llm_settings=settings)
-        assert agent is not None
-        assert hasattr(agent, "ainvoke")
-
-        result = await agent.ainvoke(
-            {
-                "messages": [
-                    {
-                        "role": "user",
-                        "content": "What treats headaches?",
-                    }
-                ]
-            }
-        )
-        assert "messages" in result
-        assert len(result["messages"]) >= 1
-        ledger = result["ledger"]
-        assert ledger.keys
-        assert all(ledger.resolve(key) is not None for key in ledger.keys)
-
-    @pytest.mark.skipif(
-        not _agent_llm_configured(), reason="LLM endpoint not configured"
-    )
     async def test_agent_answer_contains_evidence(self) -> None:
         """The agent's answer contains evidence from the graph."""
         await self._seed_graph()

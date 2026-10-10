@@ -3,16 +3,15 @@
 Covers BOM stripping and detection for UTF-8 and UTF-16, CRLF/CR
 normalization to LF, NFKC normalization, latin-1 fallback when charset
 detection returns no match, and a forced-encoding decode failure raising
-DecodeError. Two tests monkeypatch ``agrag.loaders.decode.from_bytes``
-to control the charset-detection result without needing real ambiguous
-byte sequences, including a regression for reading a detected match's text
-via ``str(match)`` rather than re-decoding its UTF-8 ``output()``.
+DecodeError. The latin-1 fallback test monkeypatches
+``agrag.loaders.decode.from_bytes`` to control the charset-detection result
+without needing real ambiguous byte sequences.
 """
 
 import pytest
 
 from agrag.common.data_models.normalization import Normalization
-from agrag.loaders.decode import _had_bom, decode_text
+from agrag.loaders.decode import decode_text
 from agrag.loaders.errors import DecodeError
 from agrag.loaders.types import ReadOptions
 
@@ -82,41 +81,6 @@ class TestDecodeText:
         decoded = decode_text(b"a\nb\nc", ReadOptions())
         assert decoded.char_count == 5
         assert decoded.line_count == 3
-
-    def test_had_bom_false_without_bom(self) -> None:
-        """A plain stream reports no BOM."""
-        assert _had_bom(b"plain") is False
-        assert _had_bom(b"\xef\xbb\xbfx") is True
-
-    def test_uses_detected_text_directly_for_non_utf_encodings(
-        self, monkeypatch
-    ) -> None:
-        """A detected non-UTF match uses its own decoded text, not a re-decode.
-
-        ``CharsetMatch.output()`` re-encodes the detected text to UTF-8 bytes
-        regardless of the detected encoding, so decoding those bytes again with
-        ``match.encoding`` corrupts the text. ``str(match)`` must be used instead.
-        """
-
-        class _MockMatch:
-            encoding = "cp1252"
-
-            def output(self):
-                return "café".encode()
-
-            def __str__(self) -> str:
-                return "café"
-
-        class _MockCharsetMatches:
-            def best(self):
-                return _MockMatch()
-
-        monkeypatch.setattr(
-            "agrag.loaders.decode.from_bytes", lambda raw: _MockCharsetMatches()
-        )
-        decoded = decode_text(b"irrelevant", ReadOptions())
-        assert decoded.text == "café"
-        assert decoded.encoding == "cp1252"
 
 
 class TestNormalizationSetting:

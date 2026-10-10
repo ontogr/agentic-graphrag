@@ -98,9 +98,3 @@ class TestConverterCache:
     def test_each_ocr_choice_has_its_own_converter(self) -> None:
         """The OCR setting is part of the pipeline options."""
         assert pdf_converter("off") is not pdf_converter("full")
-
-    def test_clearing_drops_the_cached_converters(self) -> None:
-        """A cleared cache rebuilds on next use."""
-        first = slim_converter()
-        clear_converters()
-        assert slim_converter() is not first

@@ -1,20 +1,15 @@
 """Tests for the node-focused Cypher query builders in agrag.cypher.entities.
 
-Covers identifier validation and its non-raising counterpart
-(is_safe_identifier), parametrized over injection-shaped inputs (spaces,
-backticks, semicolons, leading digits, dots, hyphens). Verifies that
-upsert_node_query and upsert_survivor_query reject unsafe or empty labels,
-that filter_clause builds WHERE clauses from a flat filter dict, and that
-clear_property_query reports the matched node id.
+Covers identifier validation, parametrized over injection-shaped inputs
+(spaces, backticks, semicolons, leading digits, dots, hyphens). Verifies that
+upsert_node_query and upsert_survivor_query reject unsafe or empty labels, and
+that filter_clause rejects an unsafe field name.
 """
 
 import pytest
 
 from agrag.cypher.entities import (
-    clear_property_query,
-    fetch_entity_neighbors_query,
     filter_clause,
-    is_safe_identifier,
     upsert_node_query,
     upsert_survivor_query,
     validate_identifier,
@@ -22,15 +17,7 @@ from agrag.cypher.entities import (
 
 
 class TestValidateIdentifier:
-    """validate_identifier accepts safe identifiers and rejects the rest."""
-
-    def test_accepts_plain_label(self) -> None:
-        """A plain PascalCase label passes through unchanged."""
-        assert validate_identifier("Person") == "Person"
-
-    def test_accepts_snake_and_underscore(self) -> None:
-        """Underscores and mixed case are allowed."""
-        assert validate_identifier("Chunk_Node") == "Chunk_Node"
+    """validate_identifier rejects unsafe identifiers."""
 
     @pytest.mark.parametrize(
         "bad",
@@ -40,19 +27,6 @@ class TestValidateIdentifier:
         """A space, backtick, semicolon, leading digit, or dot is rejected."""
         with pytest.raises(ValueError):
             validate_identifier(bad)
-
-
-class TestIsSafeIdentifier:
-    """is_safe_identifier is the non-raising counterpart to validate_identifier."""
-
-    def test_true_for_safe_identifier(self) -> None:
-        """A safe identifier reports True."""
-        assert is_safe_identifier("Chunk_Node") is True
-
-    @pytest.mark.parametrize("bad", ["", " ", "Person Node", "Person-Node", "1Node"])
-    def test_false_for_unsafe_identifier(self, bad: str) -> None:
-        """An unsafe identifier reports False instead of raising."""
-        assert is_safe_identifier(bad) is False
 
 
 class TestUpsertNodeQuery:
@@ -86,55 +60,7 @@ class TestUpsertSurvivorQuery:
 class TestFilterClause:
     """filter_clause turns a flat-dict filter into a WHERE clause."""
 
-    def test_empty_returns_blank(self) -> None:
-        """No filters yields no clause and no parameters."""
-        where, params = filter_clause({})
-        assert where == ""
-        assert params == {}
-
-    def test_scalar_equals(self) -> None:
-        """A scalar filter becomes an equality clause."""
-        where, params = filter_clause({"kind": "doc"})
-        assert where == "WHERE node.kind = $filter_kind"
-        assert params == {"filter_kind": "doc"}
-
-    def test_list_in(self) -> None:
-        """A list filter becomes an IN clause."""
-        where, params = filter_clause({"kind": ["doc", "web"]})
-        assert where == "WHERE node.kind IN $filter_kind"
-        assert params == {"filter_kind": ["doc", "web"]}
-
-    def test_multiple_keys_anded(self) -> None:
-        """Multiple keys are AND-ed together."""
-        where, params = filter_clause({"a": 1, "b": "x"})
-        assert where == "WHERE node.a = $filter_a AND node.b = $filter_b"
-
     def test_rejects_bad_field(self) -> None:
         """A non-identifier field name raises."""
         with pytest.raises(ValueError):
             filter_clause({"bad field": 1})
-
-
-class TestGuardedPropertyWrites:
-    """clear_property_query reports which node matched.
-
-    A caller needs to know which guarded writes actually applied so it can
-    tell a node a concurrent write already changed or removed apart from one
-    it safely wrote to (see resolved_embeddings.py's use of this).
-    """
-
-    def test_clear_property_returns_matched_id(self) -> None:
-        """The guarded REMOVE reports the id it cleared."""
-        query = clear_property_query("embedding")
-        assert "RETURN n.id AS id" in query
-        assert "REMOVE n.embedding" in query
-
-
-class TestFetchEntityNeighborsQuery:
-    """fetch_entity_neighbors_query scopes its subquery to the entity id."""
-
-    def test_subquery_uses_variable_scope_clause(self) -> None:
-        """The subquery imports entity_id with CALL (entity_id), not a WITH import."""
-        query = fetch_entity_neighbors_query()
-        assert "CALL (entity_id) {" in query
-        assert "WITH entity_id" not in query

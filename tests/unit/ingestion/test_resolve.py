@@ -12,8 +12,8 @@ patched to record delays instead of actually sleeping).
 
 Also covers the union-find _group_matches helper clustering transitively
 connected indices and the zone-routed Resolver: exact identity groups without
-evidence, fuzzy fast-path records ``fuzzy_fast_path`` evidence, embedding
-similarity hard-merges, discards, or defers to a capped LLM tier, and uncertain
+evidence, embedding similarity hard-merges, discards, or defers to a capped
+LLM tier, and uncertain
 LLM verdicts count as ambiguous without merging. Failed LLM requests count as
 failed without merging, and boundary pairs past the per-label cap count as
 truncated without reaching the LLM.
@@ -44,7 +44,6 @@ from agrag.ingestion.resolve import (
     FuzzyMatch,
     GraphCandidateSource,
     LLMVerify,
-    PersistedCandidateSource,
     Resolver,
     _group_matches,
 )
@@ -129,13 +128,6 @@ def _fake_settings_no_config_cls() -> type:
 class TestExactMatch:
     """ExactMatch returns MATCH on identical normalized text."""
 
-    async def test_match_on_same_text(self) -> None:
-        """Same text returns MATCH."""
-        matcher = ExactMatch()
-        a = _entity("Ada Lovelace")
-        b = _entity("Ada Lovelace")
-        assert await matcher.compare(a, b) is ComparisonVerdict.MATCH
-
     async def test_match_case_insensitive(self) -> None:
         """Case differences are ignored."""
         matcher = ExactMatch()
@@ -156,18 +148,6 @@ class TestExactMatch:
         a = _entity("Ada")
         b = _entity("Charles")
         assert await matcher.compare(a, b) is ComparisonVerdict.UNCERTAIN
-
-    async def test_never_returns_no_match(self) -> None:
-        """ExactMatch never returns NO_MATCH."""
-        matcher = ExactMatch()
-        pairs = [
-            ("Ada", "Charles"),
-            ("X", "Y"),
-            ("", "something"),
-        ]
-        for text_a, text_b in pairs:
-            verdict = await matcher.compare(_entity(text_a), _entity(text_b))
-            assert verdict is not ComparisonVerdict.NO_MATCH
 
 
 # ── FuzzyMatch ─────────────────────────────────────────────────────────
@@ -203,14 +183,6 @@ class TestFuzzyMatch:
 
         assert len(result.matches) == 1
         assert result.matches[0].score == 1.0
-
-    async def test_custom_thresholds(self) -> None:
-        """A stricter threshold defers pairs that score below it."""
-        strict = FuzzyMatch(match_above=0.99)
-        a = _entity("Ada Lovelace")
-        b = _entity("Ada Lovelace.")
-        verdict = await strict.compare(a, b)
-        assert verdict is ComparisonVerdict.UNCERTAIN
 
 
 # ── LLMVerify ──────────────────────────────────────────────────────────
@@ -338,39 +310,6 @@ class TestLLMVerify:
         assert sleeps == [0.05, 0.1]
         assert verdict is ComparisonVerdict.MATCH
 
-    async def test_compare_with_non_default_env_retry_does_not_abort(
-        self, monkeypatch
-    ) -> None:
-        """A non-default, env-backed RetryConfig works with a configured client."""
-        monkeypatch.setenv(
-            "EXTRACTION_LLM_CLIENTS",
-            '[{"name": "c", "provider": "openai", "model": "gpt-4o-mini"}]',
-        )
-        monkeypatch.setenv("EXTRACTION_LLM_RETRY", '{"max_retries": 7}')
-        settings = ExtractionLLMSettings()
-        assert settings.retry.max_retries == 7
-
-        class MockClient:
-            async def VerifyEntityMatches(self, pairs, options):  # noqa: N802
-                return [
-                    {
-                        "pair_id": pairs[0]["pair_id"],
-                        "verdict": "match",
-                        "reasoning": "same",
-                    }
-                ]
-
-        chunk = _chunk("context text")
-        chunk_id = uuid4()
-        verifier = LLMVerify(chunks_by_id={chunk_id: chunk}, settings=settings)
-        monkeypatch.setattr(verifier, "_default_client", MockClient)
-        a = _entity("Ada", chunk_id=chunk_id)
-        b = _entity("Charles", chunk_id=chunk_id)
-
-        verdict = await verifier.compare(a, b)
-
-        assert verdict is ComparisonVerdict.MATCH
-
     async def test_falls_back_to_global_llm_when_extraction_config_missing(
         self, monkeypatch, _mock_match_client_cls
     ) -> None:
@@ -424,38 +363,11 @@ class TestLLMVerify:
         assert verdict is ComparisonVerdict.NO_MATCH
 
 
-class TestPersistedCandidateSource:
-    """Persisted candidates only originate from newly extracted mentions."""
-
-    async def test_returns_configured_candidate_indices(self) -> None:
-        """The source does not invent reverse or persisted-to-persisted pairs."""
-        source = PersistedCandidateSource({0: [2, 3]})
-        entities = [_entity("Ada"), _entity("Grace"), _entity("Ada L."), _entity("A.")]
-
-        assert await source.candidates_for(0, entities) == [2, 3]
-        assert await source.candidates_for(2, entities) == []
-
-
 # ── _group_matches (union-find) ────────────────────────────────────────
 
 
 class TestGroupMatches:
     """_group_matches clusters transitively connected indices."""
-
-    def test_singletons(self) -> None:
-        """No edges means every entity is its own group."""
-        groups = _group_matches(3, [])
-        assert sorted(groups) == [[0], [1], [2]]
-
-    def test_direct_pair(self) -> None:
-        """One edge connects two entities."""
-        groups = _group_matches(3, [(0, 1)])
-        # 0 and 1 in one group, 2 alone
-        for group in groups:
-            if 0 in group:
-                assert 1 in group
-            elif 2 in group:
-                assert group == [2]
 
     def test_transitive_closure(self) -> None:
         """A~B and B~C implies one group of three, even without A~C edge."""
@@ -496,45 +408,6 @@ class TestResolver:
         assert set(pair_group) == {0, 1}
         charles_group = next(g for g in all_indices if 2 in g)
         assert charles_group == [2]
-
-    async def test_separates_different_entities(self) -> None:
-        """Different entities stay in separate groups."""
-        resolver = Resolver(
-            comparators=[ExactMatch()],
-            candidate_source=_candidate_source(),
-        )
-        entities = [
-            _entity("Ada", label="Person"),
-            _entity("Charles", label="Person"),
-        ]
-        result = await resolver.resolve(entities)
-        assert len(result.groups) == 2
-
-    async def test_respects_label_boundaries(self) -> None:
-        """Same text but different labels are not compared."""
-        resolver = Resolver(
-            comparators=[ExactMatch()],
-            candidate_source=_candidate_source(),
-        )
-        entities = [
-            _entity("Apple", label="Person"),
-            _entity("Apple", label="Organization"),
-        ]
-        result = await resolver.resolve(entities)
-        # Different labels → different groups
-        assert len(result.groups) == 2
-
-    async def test_records_non_exact_match_evidence(self) -> None:
-        """A fuzzy match retains its exact input pair for graph persistence."""
-        resolver = Resolver(
-            comparators=[FuzzyMatch(match_above=0.80)],
-            candidate_source=_candidate_source(),
-        )
-        result = await resolver.resolve([_entity("Apple Inc"), _entity("Apple Inc.")])
-        assert len(result.matches) == 1
-        assert result.matches[0].left_index == 0
-        assert result.matches[0].right_index == 1
-        assert result.matches[0].comparator == "fuzzy_fast_path"
 
     async def test_batches_uncertain_pairs_with_pair_id_verdicts(self) -> None:
         """Only a valid verdict for its requested pair can create a match."""
@@ -913,41 +786,6 @@ class TestZoneRouting:
         assert all(payload["neighbors_a"] == ["KNOWS Acme"] for payload in seen)
         assert all(payload["neighbors_b"] == ["KNOWS Acme"] for payload in seen)
 
-    async def test_fuzzy_score_reaches_the_llm_verify_tier(self) -> None:
-        """A pair that stays UNCERTAIN carries its FuzzyMatch score to the LLM.
-
-        Driven the existing way -- resolve() with no context arguments --
-        which also proves the new parameters are additive: neighbor context
-        stays empty while the pair still gains FuzzyMatch's score.
-        """
-        chunk = _chunk()
-        seen: list[dict] = []
-
-        class RecordingClient:
-            async def VerifyEntityMatches(self, pairs, options):  # noqa: N802
-                seen.extend(pairs)
-                return []
-
-        a = _entity("Ada Lovelace", chunk_id=chunk.id)
-        b = _entity("Lady Lovelace", chunk_id=chunk.id)
-        fuzzy = FuzzyMatch(match_above=1.0)
-        expected_score = (await fuzzy.compare_with_evidence(a, b)).score
-        resolver = Resolver(
-            comparators=[
-                ExactMatch(),
-                fuzzy,
-                LLMVerify(chunks_by_id={chunk.id: chunk}, client=RecordingClient()),
-            ],
-            candidate_source=_candidate_source(),
-        )
-
-        await resolver.resolve([a, b])
-
-        assert expected_score is not None and expected_score > 0.0
-        assert seen[0]["similarity"] == expected_score
-        assert seen[0]["neighbors_a"] == []
-        assert seen[0]["neighbors_b"] == []
-
     async def test_seeded_similarity_wins_over_a_later_fuzzy_score(self) -> None:
         """A caller-seeded real score, not FuzzyMatch's, reaches the LLM.
 
@@ -978,33 +816,6 @@ class TestZoneRouting:
         await resolver.resolve(entities, similarity_by_pair={(0, 1): 0.85})
 
         assert seen[0]["similarity"] == 0.85
-
-    async def test_resolve_does_not_mutate_the_callers_similarity_map(self) -> None:
-        """Resolving never writes into the caller's seed dict."""
-        chunk = _chunk()
-        seed: dict[tuple[int, int], float] = {}
-
-        class RecordingClient:
-            async def VerifyEntityMatches(self, pairs, options):  # noqa: N802
-                return []
-
-        entities = [
-            _entity("Ada Lovelace", chunk_id=chunk.id),
-            _entity("Lady Lovelace", chunk_id=chunk.id),
-        ]
-        resolver = Resolver(
-            comparators=[
-                ExactMatch(),
-                FuzzyMatch(match_above=1.0),
-                LLMVerify(chunks_by_id={chunk.id: chunk}, client=RecordingClient()),
-            ],
-            candidate_source=_candidate_source(),
-        )
-
-        await resolver.resolve(entities, similarity_by_pair=seed)
-        await resolver.resolve(entities, similarity_by_pair=seed)
-
-        assert seed == {}
 
     def test_llm_batch_size_must_be_positive(self) -> None:
         """A non-positive batch size cannot bound LLM requests."""

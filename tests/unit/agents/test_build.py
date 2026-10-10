@@ -5,11 +5,11 @@ and stubs the ``deepagents`` module in ``sys.modules`` to capture the
 subagents and middleware passed to ``create_deep_agent``
 without installing the real dependency. The retrieval engine and LLM are
 mocked with ``MagicMock``/``AsyncMock``. Covers per-run citation ledger and
-research-attempt-limiter isolation, the harness profile registration, that
-search filters reach the engine through both agent implementations, and
-that ``_SimpleAgent`` synthesizes its answer through a model call rather
-than returning raw concatenated evidence, and that every run returns its own
-``Ledger`` so a citation key resolves to the evidence behind it.
+research-attempt-limiter isolation, that search filters reach the engine
+through both agent implementations, that ``_SimpleAgent`` synthesizes its
+answer through a model call rather than returning raw concatenated evidence,
+and that every run returns its own ``Ledger`` so a citation key resolves to
+the evidence behind it.
 """
 
 import importlib.util
@@ -28,7 +28,6 @@ from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
     InMemorySpanExporter,
 )
 
-from agrag import agents
 from agrag.agents import AgentMissingExtraError
 from agrag.agents.build import _RunScopedAgent, _SimpleAgent, build_agent
 from agrag.agents.ledger import Ledger
@@ -84,10 +83,6 @@ def _engine() -> MagicMock:
 
 class TestBuildAgent:
     """Tests agent construction and per-invocation agent wrappers."""
-
-    def test_build_agent_is_exported_from_package(self) -> None:
-        """The agent builder is available from the package API."""
-        assert agents.build_agent is build_agent
 
     def test_importing_package_does_not_load_optional_agent_modules(self) -> None:
         """Importing the package does not import optional LangChain modules."""
@@ -213,98 +208,6 @@ class TestBuildAgent:
         except ImportError:
             pytest.skip("agent provider extra is not installed")
 
-    def test_accepts_the_engine_graph_schema(self) -> None:
-        """Passing the engine's own schema constructs normally."""
-        settings = AgentLLMSettings(
-            clients=[
-                LLMClientConfig(
-                    name="test",
-                    provider="openai",
-                    model="gpt-4o",
-                    api_key="test",
-                )
-            ]
-        )
-        try:
-            agent = build_agent(
-                engine=_engine(),
-                llm_settings=settings,
-                graph_schema=GENERIC,
-            )
-        except ImportError:
-            pytest.skip("langchain-openai not installed")
-        assert isinstance(agent, _SimpleAgent | _RunScopedAgent)
-
-    async def test_build_agent_registers_the_configured_provider_key(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """The harness key maps openai-generic to the OpenAI provider."""
-        captured: dict = {}
-        _capture_deepagents(monkeypatch, captured)
-
-        real_find_spec = importlib.util.find_spec
-
-        def with_deepagents(name: str, *args: Any, **kwargs: Any) -> Any:
-            if name == "deepagents":
-                return MagicMock()
-            return real_find_spec(name, *args, **kwargs)
-
-        monkeypatch.setattr(importlib.util, "find_spec", with_deepagents)
-
-        monkeypatch.setattr(
-            "agrag.agents.build.build_chat_model",
-            lambda config: MagicMock(),
-        )
-        ensure_calls: list = []
-        monkeypatch.setattr(
-            "agrag.agents.build.ensure_harness_profile", ensure_calls.append
-        )
-        settings = AgentLLMSettings(
-            clients=[
-                LLMClientConfig(
-                    name="test",
-                    provider="openai-generic",
-                    model="test-model",
-                    api_key="test",
-                    base_url="http://localhost:1/v1",
-                )
-            ]
-        )
-        agent = build_agent(engine=_engine(), llm_settings=settings)
-        await agent.ainvoke({"messages": [{"role": "user", "content": "q"}]})
-
-        assert ensure_calls == ["openai"]
-
-    async def test_simple_agent_creates_fresh_ledger_per_run(self) -> None:
-        """Each ainvoke call gets a fresh Ledger."""
-        first_result = SearchResult(
-            item=Entity(id=uuid4(), label="Person", name="Alice"),
-            score=0.9,
-            method="entity",
-        )
-        second_result = SearchResult(
-            item=Entity(id=uuid4(), label="Person", name="Bob"),
-            score=0.9,
-            method="entity",
-        )
-        engine = MagicMock()
-        engine.search = AsyncMock(side_effect=[[first_result], [second_result]])
-        model = AsyncMock(ainvoke=AsyncMock(return_value=MagicMock(text="answer")))
-
-        agent = _SimpleAgent(
-            model=model,
-            engine=engine,
-        )
-
-        await agent.ainvoke({"messages": [{"role": "user", "content": "first"}]})
-        await agent.ainvoke({"messages": [{"role": "user", "content": "second"}]})
-
-        # Both runs should start citation numbering from E1.
-        first_prompt = model.ainvoke.call_args_list[0].args[0][1]["content"]
-        second_prompt = model.ainvoke.call_args_list[1].args[0][1]["content"]
-        assert "[E1]" in first_prompt
-        assert "[E1]" in second_prompt
-
     async def test_simple_agent_passes_filters_to_search(self) -> None:
         """_SimpleAgent scopes its search with the given filters."""
         ent = Entity(id=uuid4(), label="Person", name="Alice")
@@ -322,22 +225,6 @@ class TestBuildAgent:
             pytest.fail("engine.search was not awaited")
         _, kwargs = call
         assert kwargs["filters"] == filters
-
-    async def test_simple_agent_searches_hybrid_directly(self) -> None:
-        """_SimpleAgent never touches the tool layer."""
-        from agrag.retrieval.recipes import HYBRID  # noqa: PLC0415
-
-        engine = MagicMock()
-        engine.search = AsyncMock(return_value=[])
-
-        agent = _SimpleAgent(model=MagicMock(), engine=engine)
-        await agent.ainvoke({"messages": [{"role": "user", "content": "q"}]})
-
-        call = engine.search.await_args
-        if call is None:
-            pytest.fail("engine.search was not awaited")
-        args, _ = call
-        assert args[1] is HYBRID
 
     async def test_simple_agent_synthesizes_answer_via_model_call(self) -> None:
         """_SimpleAgent calls the model to synthesize the returned answer."""

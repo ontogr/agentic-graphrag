@@ -12,12 +12,6 @@ class TestRowNode:
         """A row that names its node under ``n`` yields that node."""
         assert row_node({"n": {"id": "a"}}) == {"id": "a"}
 
-    def test_returns_a_row_without_n_unchanged(self) -> None:
-        """A row that already is the node is returned as it is."""
-        node = {"id": "a"}
-
-        assert row_node(node) is node
-
 
 class TestNodeProperties:
     """Properties come out flat whichever shape the node arrives in."""

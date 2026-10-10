@@ -6,8 +6,8 @@ model methods (a query must not use document-side term weighting), that
 concurrent first-time embeds share one model build via
 ``mock.patch.object(..., autospec=True)`` and threading events rather than
 racing to build it twice. Tracing tests use a real SDK ``TracerProvider`` with
-an in-memory exporter: ``tracer=None`` leaves a host span untouched, and
-concurrent first use exports exactly one ``agrag.embedding.model_load`` span.
+an in-memory exporter: concurrent first use exports exactly one
+``agrag.embedding.model_load`` span.
 """
 
 import asyncio
@@ -19,10 +19,8 @@ from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
     InMemorySpanExporter,
 )
-from opentelemetry.trace import StatusCode
 
 from agrag.embedding.fastembed_bm25 import DEFAULT_BM25_MODEL, FastEmbedBM25Embedder
-from agrag.embedding.sparse_base import SparseVector
 
 
 class MockSparseModel:
@@ -56,16 +54,6 @@ def _tracing_provider() -> tuple[TracerProvider, InMemorySpanExporter]:
 
 class TestFastEmbedBM25Embed:
     """Embed delegates to FastEmbed in a worker thread."""
-
-    async def test_embed_returns_sparse_vectors(self) -> None:
-        """Embed returns one SparseVector per text in order."""
-        embedder = FastEmbedBM25Embedder(model=MockSparseModel.model_name)
-        embedder._model = MockSparseModel()
-        vectors = await embedder.embed(["a", "b"])
-        assert len(vectors) == 2
-        assert all(isinstance(v, SparseVector) for v in vectors)
-        assert vectors[0].indices == [0]
-        assert vectors[0].values == [1.0]
 
     async def test_query_embed_uses_query_side_weighting(self) -> None:
         """query_embed delegates to the model's query_embed, not its embed.
@@ -122,20 +110,7 @@ class TestFastEmbedBM25ConcurrentLoad:
 
 
 class TestFastEmbedBM25Tracing:
-    """Tracing spans real model work without touching a host span."""
-
-    async def test_tracer_none_leaves_host_span_untouched(self) -> None:
-        """Embed with tracer=None keeps the host span UNSET and event-free."""
-        host_provider, host_exporter = _tracing_provider()
-        host_tracer = host_provider.get_tracer("host")
-        with host_tracer.start_as_current_span("host.request"):
-            embedder = FastEmbedBM25Embedder(tracer=None)
-            embedder._model = MockSparseModel()
-            await embedder.embed(["a"])
-        (host_span,) = host_exporter.get_finished_spans()
-        assert host_span.name == "host.request"
-        assert host_span.status.status_code is StatusCode.UNSET
-        assert list(host_span.events) == []
+    """Tracing spans real model work."""
 
     async def test_concurrent_first_call_exports_single_model_load_span(
         self,

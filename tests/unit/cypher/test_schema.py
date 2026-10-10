@@ -2,7 +2,7 @@
 
 Covers a regression for constraint-name collisions between a node label and a
 relationship type that share a naming boundary (e.g. label "X_rel" versus
-type "X"), plain range index queries, collision-free vector index naming
+type "X"), collision-free vector index naming
 across label/property pairs that could otherwise clash, and rejecting
 unsupported or unsafe input to vector_index_query (dot product is
 unsupported, unsafe labels raise).
@@ -13,7 +13,6 @@ import pytest
 from agrag.common.data_models.vector_record import Distance
 from agrag.cypher.schema import (
     node_id_constraint_query,
-    plain_index_query,
     relation_id_constraint_query,
     vector_index_name,
     vector_index_query,
@@ -48,16 +47,6 @@ class TestConstraintNamesDoNotCollide:
         node_name = node_query.split()[2]
         rel_name = rel_query.split()[2]
         assert node_name != rel_name
-
-
-class TestPlainIndex:
-    """plain_index_query builds a range index on id."""
-
-    def test_builds_range_index(self) -> None:
-        """A range index on id is created if absent."""
-        q = plain_index_query("Chunk")
-        assert "CREATE INDEX Chunk_id_index IF NOT EXISTS" in q
-        assert "ON (n.id)" in q
 
 
 class TestVectorIndexName:

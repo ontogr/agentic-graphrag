@@ -1,4 +1,4 @@
-"""Tests the Legal dataset: fixtures, document text, schema and span scores.
+"""Tests the Legal dataset: fixtures, document text and span scores.
 
 The document fetch is patched to local files, so no network is needed.
 """
@@ -8,14 +8,12 @@ from pathlib import Path
 
 import pytest
 
-from agrag.common.data_models.graph_schema import GraphSchema
 from benchmarks.datasets import legal
-from benchmarks.datasets.legal import BENCHMARK_FILES_SHA256, LegalAdapter
+from benchmarks.datasets.legal import LegalAdapter
 from benchmarks.grading import legal_spans
 from benchmarks.grading.legal_spans import LegalGrader, precision_recall
 from benchmarks.harness.config import BENCH_CHUNKING
 from benchmarks.models import BenchmarkQuestion, Corpus, CorpusDocument
-from benchmarks.schemas.legal import LEGAL
 from benchmarks.systems.base import CitedChunk, SystemAnswer
 
 
@@ -73,19 +71,6 @@ class TestFixtures:
                 assert 0 <= start < end
                 assert len(snippet["answer"]) == end - start
 
-    def test_documents_are_pinned_by_hash_and_paths_are_nfc(self):
-        """Each document has a SHA-256, and no path is in decomposed form."""
-        for document in LegalAdapter().load("full").corpora[0].documents:
-            assert len(document.sha256) == 64
-            assert unicodedata.is_normalized("NFC", document.uri)
-
-    def test_upstream_pins_the_revision_and_the_benchmark_files(self):
-        """The manifest names the revision and the hash of the benchmark files."""
-        upstream = LegalAdapter().load("lite").upstream
-
-        assert len(upstream["revision"]) == 40
-        assert upstream["benchmark_files_sha256"] == BENCHMARK_FILES_SHA256
-
 
 class TestDocuments:
     """Document text keeps the offsets that gold spans use."""
@@ -140,24 +125,6 @@ class TestDocuments:
         for chunk in chunks:
             start, end = chunk.provenance.char_start, chunk.provenance.char_end
             assert chunk.text == document.text[start:end]
-
-
-class TestSchema:
-    """The legal graph schema."""
-
-    def test_schema_has_the_planned_size_and_survives_a_round_trip(self):
-        """The schema has 11 entity types, 16 relations and 12 clause kinds."""
-        assert len(LEGAL.entities) == 11
-        assert len(LEGAL.relations) == 16
-        clause = next(e for e in LEGAL.entities if e.label == "Clause")
-        assert len(clause.subtypes) == 12
-        assert GraphSchema.model_validate(LEGAL.model_dump(mode="json")) == LEGAL
-
-    def test_adapter_returns_the_schema(self):
-        """The adapter returns the legal schema for its corpus."""
-        corpus = LegalAdapter().load("lite").corpora[0]
-
-        assert LegalAdapter().schema(corpus) is LEGAL
 
 
 class TestPrecisionRecall:

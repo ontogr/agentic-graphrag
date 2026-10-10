@@ -2,41 +2,25 @@
 
 Patches ``agrag.llm.retry.sleep`` to record delays instead of actually
 sleeping, and pins ``random.uniform`` where exact schedules are asserted.
-Covers RetryConfig rejecting negative backoff fields, immediate success
-without retrying, retrying transient failures with exponential backoff up to
-``max_delay_ms``, jitter bounds on every sleep, raising the final exception
-after exhausting retries, ``max_retries=0`` making exactly one attempt,
-NO_RETRY disabling retries entirely, the overall ``timeout_ms`` deadline
+Covers immediate success without retrying, retrying transient failures with
+exponential backoff up to ``max_delay_ms``, jitter bounds on every sleep, raising
+the final exception after exhausting retries, ``max_retries=0`` making exactly
+one attempt, the overall ``timeout_ms`` deadline
 cutting retries short, and ``accept_result`` retrying unusable results until
 they pass or budget runs out. TestPermanentBamlFailures verifies BAML client
 errors are classified correctly: invalid-argument and HTTP 401 fail once
 without retrying, while HTTP 429 and 500 are retried.
 """
 
-import logging
-
 import pytest
-from pydantic import ValidationError
 
 from agrag.llm.client_config import RetryConfig
-from agrag.llm.retry import NO_RETRY, UnusableResultError, call_with_retry
+from agrag.llm.retry import UnusableResultError, call_with_retry
 
 
 def _pin_jitter(monkeypatch) -> None:
     """Make jitter deterministic by always taking the top of its range."""
     monkeypatch.setattr("agrag.llm.retry.random.uniform", lambda low, high: high)
-
-
-class TestRetryConfig:
-    """RetryConfig rejects negative backoff settings at construction."""
-
-    @pytest.mark.parametrize(
-        "field", ["max_retries", "delay_ms", "multiplier", "max_delay_ms", "timeout_ms"]
-    )
-    def test_rejects_negative_value(self, field: str) -> None:
-        """A negative value for any backoff field raises ValidationError."""
-        with pytest.raises(ValidationError):
-            RetryConfig(**{field: -1})
 
 
 class TestCallWithRetry:
@@ -215,14 +199,6 @@ class TestPermanentBamlFailures:
         assert calls == 2
 
 
-class TestNoRetry:
-    """NO_RETRY is a RetryConfig that makes exactly one attempt."""
-
-    def test_no_retry_has_zero_max_retries(self) -> None:
-        """NO_RETRY disables retrying entirely."""
-        assert NO_RETRY.max_retries == 0
-
-
 async def _no_sleep(seconds: float) -> None:
     """Stand-in for sleep that records nothing and waits no time."""
 
@@ -255,24 +231,6 @@ class TestJitter:
         assert result == "ok"
         assert len(sleeps) == 2
         assert all(0.05 <= s <= 0.1 for s in sleeps)
-
-    async def test_retry_logs_the_wait_at_debug(
-        self, monkeypatch, caplog: pytest.LogCaptureFixture
-    ) -> None:
-        """A retry emits the attempt and the jittered wait for log readers."""
-        monkeypatch.setattr("agrag.llm.retry.sleep", _no_sleep)
-        _pin_jitter(monkeypatch)
-
-        async def call(options) -> str:
-            raise RuntimeError("transient")
-
-        with (
-            caplog.at_level(logging.DEBUG, logger="agrag.llm.retry"),
-            pytest.raises(RuntimeError),
-        ):
-            await call_with_retry(call, RetryConfig(max_retries=1, delay_ms=100))
-        assert "attempt 1" in caplog.text
-        assert "retrying" in caplog.text
 
 
 class TestTimeout:

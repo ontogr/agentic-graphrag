@@ -43,6 +43,7 @@ DIM = 4
 class TestNeo4jGraphStoreIntegration:
     """End-to-end behavior against a real Neo4j instance."""
 
+    @pytest.mark.xdist_group(name="neo4j_schema")
     async def test_node_upsert_and_vector_search_round_trip(self) -> None:
         """Writes nodes, indexes them, and dense-searches them back."""
         store = build_graph_store("neo4j")
@@ -182,6 +183,7 @@ class TestNeo4jGraphStoreIntegration:
             finally:
                 await store.close()
 
+    @pytest.mark.xdist_group(name="neo4j_schema")
     async def test_schema_cleanup_ignores_constraint_backing_indexes(self) -> None:
         """Schema cleanup preserves the constraint-owned index drop path."""
         label = validate_identifier(f"Cleanup_{uuid4().hex[:8]}")
@@ -234,6 +236,7 @@ class TestNeo4jGraphStoreIntegration:
             await store.execute_write(f"DROP INDEX `{index_name}` IF EXISTS")
             await store.close()
 
+    @pytest.mark.xdist_group(name="neo4j_schema")
     async def test_setup_constraints_is_idempotent(self) -> None:
         """Running setup_constraints twice does not error the second time."""
         store = build_graph_store("neo4j")
@@ -250,6 +253,7 @@ class TestNeo4jGraphStoreIntegration:
             await store.execute_write(f"MATCH (n:{label}) DETACH DELETE n")
             await store.close()
 
+    @pytest.mark.xdist_group(name="neo4j_schema")
     async def test_fresh_store_sets_up_constraints_for_existing_database(
         self,
     ) -> None:
@@ -284,6 +288,7 @@ class TestNeo4jGraphStoreIntegration:
             await fresh.execute_write(f"MATCH (n:{label}) DETACH DELETE n")
             await fresh.close()
 
+    @pytest.mark.xdist_group(name="neo4j_schema")
     async def test_unsafe_live_label_does_not_block_setup(self) -> None:
         """A pre-existing label outside our identifier subset does not halt setup.
 
@@ -762,6 +767,7 @@ class TestConnectionFailure:
 class TestPerItemFailureIsolation:
     """Per-record fallback behavior against a real Neo4j instance."""
 
+    @pytest.mark.xdist_group(name="neo4j_schema")
     async def test_merge_key_collision_isolates_one_record_in_a_batch(self) -> None:
         """A merge-key collision does not block the other record."""
         store = build_graph_store("neo4j")
@@ -814,6 +820,7 @@ class TestPerItemFailureIsolation:
             await store.execute_write(f"MATCH (n:{label}) DETACH DELETE n")
             await store.close()
 
+    @pytest.mark.xdist_group(name="neo4j_schema")
     async def test_failure_does_not_block_a_later_batch(self) -> None:
         """A failed batch does not prevent a later batch from landing."""
         store = build_graph_store("neo4j")

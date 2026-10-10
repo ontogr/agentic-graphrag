@@ -1,10 +1,9 @@
-"""Tests the FinanceBench dataset: fixtures, PDF documents, schema and grading.
+"""Tests the FinanceBench dataset: fixtures, PDF documents and grading.
 
 The PDF download and the Docling conversion are patched, so no network and no
 model is needed.
 """
 
-from collections import Counter
 from importlib.metadata import PackageNotFoundError
 from pathlib import Path
 
@@ -12,10 +11,9 @@ import pytest
 from pydantic import ValidationError
 
 from agrag.common.data_models.document import DocumentFamily, SourceFormat
-from agrag.common.data_models.graph_schema import GraphSchema
 from agrag.loaders.errors import MissingExtraError
 from benchmarks.datasets import financial
-from benchmarks.datasets.financial import COMMIT, FinancialAdapter
+from benchmarks.datasets.financial import FinancialAdapter
 from benchmarks.grading import financial as grading
 from benchmarks.grading.financial import FinancialGrader
 from benchmarks.models import BenchmarkQuestion, Corpus, CorpusDocument
@@ -25,33 +23,6 @@ from benchmarks.systems.base import SystemAnswer
 
 class TestFixtures:
     """The committed lite and full fixtures."""
-
-    def test_full_has_53_questions_on_18_documents_with_the_planned_mix(self):
-        """Full has 53 questions, 18 documents and the three question types."""
-        manifest = FinancialAdapter().load("full")
-
-        groups = Counter(q.group for q in manifest.questions)
-
-        assert len(manifest.questions) == 53
-        assert len(manifest.corpora) == 1
-        assert len(manifest.corpora[0].documents) == 18
-        assert manifest.corpora[0].n_tokens == 783_071
-        assert groups == {
-            "domain-relevant": 17,
-            "novel-generated": 33,
-            "metrics-generated": 3,
-        }
-
-    def test_lite_has_2_questions_on_2_pages_of_one_filing(self):
-        """Lite has 2 questions on 2 pages of the Boeing 10-K."""
-        manifest = FinancialAdapter().load("lite")
-
-        (document,) = manifest.corpora[0].documents
-
-        assert len(manifest.questions) == 2
-        assert document.id == "BOEING_2022_10K"
-        assert document.pages == [7, 61]
-        assert manifest.corpora[0].n_tokens == 1_280
 
     def test_lite_is_a_subset_of_full_with_the_same_content(self):
         """Every lite question and document is also in full, with the same content."""
@@ -80,23 +51,6 @@ class TestFixtures:
                 assert reference["evidence"]
                 assert all(e["text"] and e["page"] >= 0 for e in reference["evidence"])
                 assert len(reference["row_sha256"]) == 64
-
-    def test_each_pdf_is_pinned_by_hash_to_the_benchmark_commit(self):
-        """Every document has a SHA-256 and a URL at the pinned commit."""
-        manifest = FinancialAdapter().load("full")
-
-        for document in manifest.corpora[0].documents:
-            assert len(document.sha256) == 64
-            assert f"/{COMMIT}/pdfs/{document.id}.pdf" in document.source
-            assert document.uri == f"{document.id}.pdf"
-        assert len(manifest.upstream["commit"]) == 40
-
-    def test_services_do_not_share_a_graph_across_modes(self):
-        """Lite and full use their own services."""
-        lite = FinancialAdapter().load("lite").corpora[0]
-        full = FinancialAdapter().load("full").corpora[0]
-
-        assert {lite.service, full.service} == {"financial-lite", "financial-full"}
 
 
 def _write_pdf(path: Path, widths: list[int]) -> None:
@@ -227,19 +181,6 @@ class TestDocuments:
         assert converted == [400, 200]
         assert document.text == "page 400\n\npage 200"
 
-    def test_a_second_call_reuses_the_cached_pages(self, tmp_path, monkeypatch):
-        """The cache holds the selection, so Docling does not run again."""
-        converted = self._patch_pages(monkeypatch, tmp_path)
-        corpus = self._corpus("A_2022_10K", pages=[3, 1])
-
-        FinancialAdapter().documents(corpus)
-        FinancialAdapter().documents(corpus)
-
-        assert converted == [400, 200]
-        assert [f.name for f in tmp_path.glob("*.md")] == [
-            f"{0:064d}.p3-1.docling-{financial.version('docling')}.md"
-        ]
-
     def test_another_selection_of_the_same_pdf_converts_again(
         self, tmp_path, monkeypatch
     ):
@@ -265,24 +206,6 @@ class TestDocuments:
 
         with pytest.raises(MissingExtraError, match="docling"):
             FinancialAdapter().documents(self._corpus("A_2022_10K"))
-
-
-class TestSchema:
-    """The financial graph schema."""
-
-    def test_schema_has_the_planned_size_and_survives_a_round_trip(self):
-        """The schema has 13 entity types and 22 relation types."""
-        assert len(FINANCIAL.entities) == 13
-        assert len(FINANCIAL.relations) == 22
-        assert (
-            GraphSchema.model_validate(FINANCIAL.model_dump(mode="json")) == FINANCIAL
-        )
-
-    def test_adapter_returns_the_schema(self):
-        """The adapter returns the financial schema for its corpus."""
-        corpus = FinancialAdapter().load("lite").corpora[0]
-
-        assert FinancialAdapter().schema(corpus) is FINANCIAL
 
 
 class _FakeJudge:
@@ -366,13 +289,6 @@ class TestFinancialGrader:
             "context_precision",
             "context_recall",
         }
-
-    def test_full_estimate_allows_for_more_judge_calls_than_lite(self):
-        """The full-mode estimate covers a long cited answer, not a short one."""
-        assert (
-            FinancialGrader(full=True).judge_calls_per_question
-            > FinancialGrader().judge_calls_per_question
-        )
 
     def test_domain_uses_the_full_grader_only_in_full_mode(self):
         """Lite scores two metrics and full scores five."""

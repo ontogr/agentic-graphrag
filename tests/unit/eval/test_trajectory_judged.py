@@ -1,8 +1,8 @@
 """Tests for the judged trajectory metrics.
 
-The judges are scripted: a fake DeepEval judge answers task completion, and
-a fake chat model answers the trajectory judge. No endpoint is called. These
-tests cover how agrag builds the case and the judge input, not what the
+The judges are scripted: a fake chat model answers the trajectory judge, and a
+fake DeepEval judge fills the slot that requires one. No endpoint is called.
+These tests cover how agrag builds the case and the judge input, not what the
 libraries score.
 """
 
@@ -16,7 +16,6 @@ from pydantic import BaseModel, Field
 from agrag.eval.judge import ChatModelJudge
 from agrag.eval.trajectory import (
     Trajectory,
-    task_completion,
     trajectory_case,
     trajectory_quality,
 )
@@ -24,11 +23,10 @@ from tests.unit.eval.conftest import _answer, _research_tool, _task
 
 
 class _ScriptedJudge(DeepEvalBaseLLM):
-    """Judge that completes every task with 0.9 and records its prompts."""
+    """Judge that answers every schema with a fixed verdict."""
 
     def __init__(self) -> None:
-        """Create the judge with an empty prompt log."""
-        self.prompts: list[str] = []
+        """Create the judge."""
         super().__init__("scripted")
 
     def load_model(self) -> Any:
@@ -40,14 +38,9 @@ class _ScriptedJudge(DeepEvalBaseLLM):
         return "scripted"
 
     def generate(self, prompt: str, schema: type[BaseModel] | None = None) -> Any:
-        """Answer the outcome and verdict schemas with fixed values."""
-        self.prompts.append(prompt)
+        """Answer a schema with a fixed verdict."""
         if schema is None:
             return ""
-        if "outcome" in schema.model_fields:
-            return schema.model_validate(
-                {"task": "answer the question", "outcome": "the answer"}
-            )
         return schema.model_validate({"verdict": 0.9, "reason": "scripted"})
 
     async def a_generate(
@@ -117,24 +110,6 @@ def _case() -> Any:
     return trajectory_case(
         "Who founded Zephyra Robotics?", "Marlow Quist founded it.", _trajectory()
     )
-
-
-class TestTaskCompletion:
-    """task_completion judges the goal from the question and the tool calls."""
-
-    async def test_judge_sees_researcher_tools_and_task_calls(self) -> None:
-        """The judge prompt holds the researcher tools, not only delegations."""
-        judge = _ScriptedJudge()
-        metric = task_completion(judge)
-
-        await metric.a_measure(_case())
-
-        assert metric.score == 0.9
-        assert metric.success
-        # One measure makes two judge calls: outcome, then verdict.
-        assert len(judge.prompts) == 2
-        assert any("search_source_text" in prompt for prompt in judge.prompts)
-        assert any("task" in prompt for prompt in judge.prompts)
 
 
 class TestTrajectoryQuality:

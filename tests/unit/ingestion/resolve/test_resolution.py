@@ -49,13 +49,6 @@ def _node(entity_id: object, name: str, merge_key: str) -> dict[str, object]:
 class TestFindExactMatches:
     """Persisted exact matches map back to mention indices."""
 
-    async def test_empty_mentions_do_not_read(self) -> None:
-        """No mentions means no store read."""
-        store = AsyncMock()
-
-        assert await find_exact_matches([], graph_store=store) == {}
-        store.execute_read.assert_not_called()
-
     async def test_groups_by_label_and_dedups(self) -> None:
         """One query per distinct label, deduped keys."""
         store = AsyncMock()

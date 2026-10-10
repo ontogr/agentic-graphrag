@@ -99,20 +99,6 @@ class TestRoundRobinModelMiddleware:
 
         assert seen == [first, second]
 
-    def test_preserves_other_request_fields(self) -> None:
-        """Only the model is overridden; the rest of the request is kept."""
-        first, second = object(), object()
-        request = _request(first)
-        middleware = RoundRobinModelMiddleware([second])
-
-        def handler(overridden: ModelRequest) -> object:
-            assert overridden.messages == request.messages
-            assert overridden.tools == request.tools
-            assert overridden.model is second
-            return "ok"
-
-        middleware.wrap_model_call(request, handler)
-
 
 def _tool_call_request(name: str, args: dict | None = None) -> object:
     """Build a minimal ToolCallRequest for middleware tests."""

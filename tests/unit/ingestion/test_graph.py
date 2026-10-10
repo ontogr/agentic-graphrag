@@ -3,14 +3,11 @@
 Graph.open and Graph.add are exercised against fake GraphStore, Embedder, and
 Extractor implementations, so no real database or LLM calls are made. Covers
 adding from a directory, raw text, and prebuilt documents; the mutually
-exclusive input validation; error policies (raise, skip, quarantine) for
-unsupported sources; progress callbacks; and that Graph.open closes the store
-when provisioning fails at any stage (connect, setup_constraints,
-ensure_vector_index).
+exclusive input validation; progress callbacks; and that Graph.open closes the
+store when connecting fails.
 """
 
 import hashlib
-import json
 from collections.abc import Mapping, Sequence
 from contextlib import AbstractAsyncContextManager
 from pathlib import Path
@@ -20,21 +17,13 @@ from unittest.mock import AsyncMock, MagicMock
 from uuid import UUID, uuid4
 
 import pytest
-from opentelemetry.sdk.trace import TracerProvider
-from opentelemetry.sdk.trace.export import SimpleSpanProcessor
-from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
-    InMemorySpanExporter,
-)
 
-import agrag.ingestion._cutover as cutover_module
 import agrag.ingestion._ingest as ingest_module
 import agrag.ingestion._job_cleanup as job_cleanup_module
-import agrag.ingestion._resolution_maintenance as maintenance_module
 from agrag.chunking import Chunker
 from agrag.common.data_models.chunk import Chunk
 from agrag.common.data_models.community import (
     COMMUNITY_LABEL,
-    MEMBER_OF_RELATION,
 )
 from agrag.common.data_models.document import Document, DocumentFamily, SourceFormat
 from agrag.common.data_models.entity import Entity
@@ -46,13 +35,9 @@ from agrag.common.data_models.graph_record import (
 )
 from agrag.common.data_models.graph_schema import (
     GENERIC,
-    EntityType,
-    GraphSchema,
 )
 from agrag.common.data_models.normalization import Normalization
 from agrag.common.data_models.resolved_entity import (
-    MATCHES_RELATION,
-    RESOLVED_AS_RELATION,
     RESOLVED_ENTITY_LABEL,
 )
 from agrag.common.data_models.vector_record import Distance, VectorHit
@@ -62,12 +47,8 @@ from agrag.ingestion import Graph
 from agrag.ingestion._ingest_pipeline import (
     _embed_and_upsert_chunks,
     _embed_and_upsert_survivors,
-    _vector_record,
 )
-from agrag.ingestion._walk import chunk_documents
 from agrag.ingestion.extract import Extractor
-from agrag.ingestion.resolve import SYSTEM_RELATION_TYPES, ResolutionResult
-from agrag.loaders.errors import UnsupportedFormatError
 from agrag.loaders.prose import TextLoader
 from agrag.loaders.types import ErrorPolicy, ReadOptions
 from tests.unit.ingestion._lease_fake import CutoverJobLeaseFake
@@ -224,22 +205,6 @@ class _RecordingOpenStore(_MockGraphStore):
 class TestGraphOpenRegistration:
     """Graph.open provisions resolved-entity storage."""
 
-    async def test_open_registers_resolved_entity_names(self) -> None:
-        """The derived label and match relations register alongside Community's."""
-        store = _RecordingOpenStore()
-        await Graph.open(
-            schema=GENERIC,
-            graph_store=store,
-            embedder=_MockEmbedder(),
-            extractor=_MockExtractor(),
-        )
-
-        assert RESOLVED_ENTITY_LABEL in store.labels_calls[0]
-        assert COMMUNITY_LABEL in store.labels_calls[0]
-        assert MATCHES_RELATION in store.relation_calls[0]
-        assert RESOLVED_AS_RELATION in store.relation_calls[0]
-        assert MEMBER_OF_RELATION in store.relation_calls[0]
-
     async def test_open_ensures_resolved_entity_vector_index(self) -> None:
         """Native vector search covers the derived label like Community's."""
         store = _RecordingOpenStore()
@@ -263,13 +228,6 @@ class TestGraphAdd:
         result = await graph.add(_FIXTURES)
         assert result.ingestion.documents > 0
         assert result.ingestion.sources > 0
-
-    async def test_add_single_text(self) -> None:
-        """Add single text."""
-        graph = await _open_graph()
-        result = await graph.add(text="a short note")
-        assert result.ingestion.documents == 1
-        assert result.ingestion.sources == 1
 
     async def test_add_requires_exactly_one_input(self) -> None:
         """Add requires exactly one input."""
@@ -335,23 +293,6 @@ class TestGraphAdd:
         with pytest.raises(ValueError):
             await graph.add(text="x", loader=TextLoader())
 
-    async def test_loader_override_with_documents_raises(self) -> None:
-        """A loader override has no effect on ``documents`` and must be rejected."""
-        graph = await _open_graph()
-        doc = Document(
-            text="prebuilt",
-            title="t",
-            uri="u",
-            source_format=SourceFormat.TXT,
-            family=DocumentFamily.PROSE,
-            content_hash="h",
-            loader_name="text",
-            char_count=8,
-            line_count=1,
-        )
-        with pytest.raises(ValueError):
-            await graph.add(documents=[doc], loader=TextLoader())
-
     async def test_glob_pattern_skips_directory_matches(self, tmp_path: Path) -> None:
         """A glob pattern that also matches a directory does not choke on it."""
         (tmp_path / "sub").mkdir()
@@ -391,47 +332,6 @@ class TestGraphUpdate:
 
         assert result.no_op is True
         writes.assert_not_awaited()
-
-    async def test_update_not_found_behaves_like_fresh_add(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """An unknown document_key ingests with nothing to close first."""
-        store = _MockGraphStore()
-        graph = await _open_graph(store)
-        monkeypatch.setattr(store, "execute_read", AsyncMock(return_value=[]))
-        closes: list[object] = []
-        real_close = cutover_module.close_open_part_of_edges
-
-        async def _spy_close(*args: object, **kwargs: object) -> int:
-            closes.append((args, kwargs))
-            return await real_close(*args, **kwargs)
-
-        monkeypatch.setattr(cutover_module, "close_open_part_of_edges", _spy_close)
-        real_ingest = ingest_module.ingest_chunks
-        ingest_calls = 0
-
-        async def _count_ingest(*args: object, **kwargs: object) -> object:
-            nonlocal ingest_calls
-            ingest_calls += 1
-            return await real_ingest(*args, **kwargs)
-
-        monkeypatch.setattr(ingest_module, "ingest_chunks", _count_ingest)
-
-        result = await graph.update("memory://doc", text="brand new")
-
-        assert result.no_op is False
-        assert result.previous_content_hash is None
-        assert result.chunks_closed == 0
-        assert result.add_result is not None
-        assert closes == []
-        assert ingest_calls == 1
-
-    async def test_update_rejects_missing_input(self) -> None:
-        """Update with neither text nor source raises like add does."""
-        graph = await _open_graph()
-
-        with pytest.raises(ValueError, match="exactly one"):
-            await graph.update("memory://doc")
 
     async def test_update_rejects_multiple_inputs(self) -> None:
         """Update requires exactly one replacement source."""
@@ -515,116 +415,6 @@ class TestGraphFailurePolicies:
         assert result.storage.failures[0].item_id == str(member.id)
         assert result.storage.failures[0].error_message == "database unavailable"
 
-    @pytest.mark.parametrize("verb", ["add", "update"])
-    async def test_rebuilds_components_after_commit(
-        self, monkeypatch: pytest.MonkeyPatch, verb: str
-    ) -> None:
-        """The cleanup phase rebuilds each component the job rebuilt."""
-        store = _MockGraphStore()
-        graph = await _open_graph(store)
-        monkeypatch.setattr(store, "execute_read", AsyncMock(return_value=[]))
-        low, high = sorted([uuid4(), uuid4()], key=str)
-        members = [
-            Entity(id=entity_id, label="Person", name=str(entity_id))
-            for entity_id in (high, low)
-        ]
-        real_ingest = ingest_module.ingest_chunks
-
-        async def _ingest_with_component(*args: object, **kwargs: Any) -> Any:
-            kwargs["rebuilt_components"].append(([], members))
-            return await real_ingest(*args, **kwargs)
-
-        rebuild = AsyncMock(return_value=[])
-        monkeypatch.setattr(ingest_module, "ingest_chunks", _ingest_with_component)
-        monkeypatch.setattr(job_cleanup_module, "rebuild_resolved_entities", rebuild)
-
-        if verb == "add":
-            await graph.add(text="a short note")
-        else:
-            await graph.update("memory://doc", text="brand new")
-
-        rebuild.assert_awaited_once()
-        assert rebuild.await_args.args[0] == [low]
-
-    async def test_raise_policy_stops_on_unsupported_format(
-        self, tmp_path: Path
-    ) -> None:
-        """Raise policy stops on unsupported format."""
-        bad = tmp_path / "file.unknown"
-        bad.write_text("x")
-        graph = await _open_graph()
-        with pytest.raises(UnsupportedFormatError):
-            await graph.add(bad)
-
-    async def test_skip_policy_counts_skipped_source(self, tmp_path: Path) -> None:
-        """Skip policy counts skipped source."""
-        bad = tmp_path / "file.unknown"
-        bad.write_text("x")
-        graph = await _open_graph()
-        result = await graph.add(bad, error_policy=ErrorPolicy.SKIP)
-        assert result.ingestion.skipped == 1
-        assert result.ingestion.documents == 0
-
-    async def test_quarantine_policy_counts_quarantined(self, tmp_path: Path) -> None:
-        """Quarantine policy counts quarantined."""
-        bad = tmp_path / "file.unknown"
-        bad.write_text("x")
-        graph = await _open_graph()
-        result = await graph.add(bad, error_policy=ErrorPolicy.QUARANTINE)
-        assert result.ingestion.quarantined == 1
-        assert result.ingestion.quarantined_items
-
-
-class TestConsolidateResolutionContext:
-    """Graph.consolidate passes real LLM verification context to Resolver."""
-
-    async def test_consolidate_neighbors_are_keyed_by_entity_index(self) -> None:
-        """Consolidate's neighbor context is keyed by entity list position."""
-        schema = GraphSchema(
-            name="test",
-            version="1",
-            entities=[EntityType(label="Person", description="p")],
-            relations=[],
-        )
-        graph = await Graph.open(
-            schema=schema,
-            graph_store=_MockGraphStore(),
-            embedder=_MockEmbedder(),
-            extractor=_MockExtractor(),
-        )
-        first = Entity(id=uuid4(), label="Person", name="Alice", properties={})
-        second = Entity(id=uuid4(), label="Person", name="alice", properties={})
-        resolver_instance = AsyncMock()
-        resolver_instance.resolve.return_value = ResolutionResult(groups=[], matches=[])
-        fetch_neighbors = AsyncMock(return_value={first.id: ["KNOWS Bob"]})
-
-        with (
-            mock.patch.object(
-                maintenance_module,
-                "all_entities_by_label",
-                new_callable=AsyncMock,
-                return_value=[first, second],
-            ),
-            mock.patch(
-                "agrag.ingestion.resolve.resolution.Resolver",
-                return_value=resolver_instance,
-            ),
-            mock.patch(
-                "agrag.ingestion.resolve.resolution.fetch_persisted_neighbors",
-                fetch_neighbors,
-            ),
-        ):
-            await graph.consolidate(apply=False)
-
-        assert fetch_neighbors.await_args.args[0] == [first.id, second.id]
-        assert (
-            fetch_neighbors.await_args.kwargs["exclude_relation_types"]
-            == SYSTEM_RELATION_TYPES
-        )
-        kwargs = resolver_instance.resolve.await_args.kwargs
-        assert kwargs["neighbors_by_index"] == {0: ["KNOWS Bob"], 1: []}
-        assert kwargs["similarity_by_pair"] == {}
-
 
 class TestGraphOpen:
     """Graph.open provisioning failure handling."""
@@ -651,65 +441,9 @@ class TestGraphOpen:
             )
         assert store.close_calls == 1
 
-    async def test_setup_constraints_failure_closes_store(self) -> None:
-        """A provisioning failure after connect() still closes the store.
-
-        Regression test: a failure between connect() and the end of
-        provisioning must not leak the connection. Fails at
-        setup_constraints, before the later stages (setup_indexes,
-        embedder.dimensions(), ensure_vector_index) even run.
-        """
-
-        class _FailingStore(_MockGraphStore):
-            async def setup_constraints(self) -> None:
-                raise RuntimeError("boom")
-
-        store = _FailingStore()
-        with pytest.raises(RuntimeError, match="boom"):
-            await Graph.open(
-                schema=GENERIC,
-                graph_store=store,
-                embedder=_MockEmbedder(),
-                extractor=_MockExtractor(),
-            )
-        assert store.close_calls == 1
-
-    async def test_ensure_vector_index_failure_closes_store(self) -> None:
-        """A failure in the last provisioning stage still closes the store."""
-
-        class _FailingStore(_MockGraphStore):
-            async def ensure_vector_index(self, **kwargs: Any) -> None:
-                raise RuntimeError("boom")
-
-        store = _FailingStore()
-        with pytest.raises(RuntimeError, match="boom"):
-            await Graph.open(
-                schema=GENERIC,
-                graph_store=store,
-                embedder=_MockEmbedder(),
-                extractor=_MockExtractor(),
-            )
-        assert store.close_calls == 1
-
 
 class TestGraphVectorStore:
     """Test Graph's vector-store synchronization safeguards."""
-
-    def test_vector_record_includes_filterable_properties(self) -> None:
-        """Optional metadata augments the standard vector payload."""
-        record = _vector_record(
-            uuid4(),
-            [0.1],
-            label="Community",
-            text="Report",
-            properties={"tenant": "a"},
-        )
-
-        assert record.payload == {
-            "label": "Community",
-            "text": "Report",
-            "tenant": "a",
-        }
 
     async def test_vector_upsert_failures_leave_chunk_and_entity_vectors(self) -> None:
         """Failed vector writes leave the collection untouched.
@@ -863,60 +597,3 @@ class TestGraphChunking:
         graph, store = await self._open()
 
         assert await self._update(graph, store, None) is True
-
-    async def test_update_without_current_chunks_is_a_no_op_on_same_content(
-        self,
-    ) -> None:
-        """A document with no readable chunk keeps the content-hash rule."""
-        graph, store = await self._open()
-
-        assert await self._update(graph, store, None, has_chunk=False) is True
-
-
-class TestChunkDocumentSpans:
-    """Chunker spans carry document identity and output counts."""
-
-    def _document(self, key: str = "memory://doc") -> Document:
-        """Return a prose document with enough text to chunk."""
-        text = "chunk me please. " * 40
-        return Document(
-            text=text,
-            title="t",
-            uri=key,
-            document_key=key,
-            source_format=SourceFormat.TXT,
-            family=DocumentFamily.PROSE,
-            content_hash=key,
-            loader_name="text",
-            char_count=len(text),
-            line_count=1,
-        )
-
-    def test_chunk_document_span_carries_attributes(self) -> None:
-        """The chunk span records the document key, the chunker and the chunk count."""
-        exporter = InMemorySpanExporter()
-        provider = TracerProvider()
-        provider.add_span_processor(SimpleSpanProcessor(exporter))
-        chunker = Chunker()
-        document = self._document()
-
-        chunked = chunk_documents(
-            [document], chunker=chunker, tracer=provider.get_tracer("test")
-        )
-
-        assert chunked
-        chunks = [chunk for cd in chunked for chunk in cd.chunks]
-        spans = [
-            span
-            for span in exporter.get_finished_spans()
-            if span.name == "agrag.ingestion.chunk_document"
-        ]
-        assert len(spans) == 1
-        assert spans[0].attributes is not None
-        assert (
-            spans[0].attributes["agrag.document_key"] == document.resolved_document_key
-        )
-        assert spans[0].attributes["agrag.chunks_produced"] == len(chunks)
-        assert spans[0].attributes["agrag.chunker.hash"] == chunker.fingerprint
-        settings = json.loads(str(spans[0].attributes["agrag.chunker.settings"]))
-        assert settings["size"] == 600

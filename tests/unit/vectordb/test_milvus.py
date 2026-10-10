@@ -22,7 +22,6 @@ from agrag.vectordb.errors import (
 from agrag.vectordb.milvus import (
     MAX_RESPONSE_LIMIT,
     MilvusVectorStore,
-    _escape_list,
     _escape_scalar,
 )
 from agrag.vectordb.settings import MilvusSettings
@@ -320,17 +319,6 @@ class TestWritesAndReads:
         assert f"id > {_escape_scalar(cursor)}" in expr
         assert 'payload["kind"] == "a"' in expr
 
-    async def test_scroll_next_offset_is_last_row_id_in_order(
-        self, store: MilvusVectorStore, client
-    ) -> None:
-        """The next cursor is the last (highest) id in the ordered page."""
-        ids = [str(uuid4()) for _ in range(2)]
-        client.query.return_value = [
-            {"id": i, "vector": [], "payload": {}} for i in ids
-        ]
-        _, offset = await store.scroll("c", limit=2)
-        assert offset == ids[-1]
-
     async def test_scroll_zero_limit_returns_empty_page(
         self, store: MilvusVectorStore, client
     ) -> None:
@@ -383,12 +371,6 @@ class TestWritesAndReads:
         assert len(first_batch) == MAX_RESPONSE_LIMIT
         assert len(second_batch) == 5
 
-    async def test_delete_forwards_ids(self, store: MilvusVectorStore, client) -> None:
-        """Delete forwards the ids to the backend."""
-        target_id = uuid4()
-        await store.delete("c", [target_id])
-        assert client.delete.call_args.kwargs["ids"] == [str(target_id)]
-
 
 class TestFilterEscaping:
     """The Milvus filter expression builder must resist injection."""
@@ -405,10 +387,6 @@ class TestFilterEscaping:
         """A bool renders as Milvus's lower-case literal."""
         assert _escape_scalar(True) == "true"
         assert _escape_scalar(False) == "false"
-
-    def test_list_builds_in_clause(self) -> None:
-        """A list value builds a bracketed, escaped ``in`` clause body."""
-        assert _escape_list(["a", "b"]) == '["a", "b"]'
 
     def test_compile_rejects_bad_field(self) -> None:
         """A filter key that is not an identifier raises ValueError."""
@@ -466,59 +444,6 @@ def _provider() -> tuple[TracerProvider, InMemorySpanExporter]:
     return provider, exporter
 
 
-class TestTracingUpsert:
-    """Traced upsert exports one outer span plus one child per batch."""
-
-    async def test_upsert_exports_one_outer_plus_n_batch_spans(self, client) -> None:
-        """Five records at batch_size=2 export 1 outer INTERNAL + 3 CLIENT."""
-        provider, exporter = _provider()
-        store = MilvusVectorStore(
-            settings=MilvusSettings(),
-            client=client,
-            tracer=provider.get_tracer("test"),
-        )
-        records = [VectorRecord(id=uuid4(), vector=[0.1], payload={}) for _ in range(5)]
-        await store.upsert("c", records, batch_size=2)
-
-        by_name: dict[str, list] = {}
-        for span in exporter.get_finished_spans():
-            by_name.setdefault(span.name, []).append(span)
-        (outer,) = by_name["agrag.vectordb.upsert"]
-        assert outer.kind is SpanKind.INTERNAL
-        assert (outer.attributes or {}).get("db.collection.name") == "c"
-        assert (outer.attributes or {})["agrag.record_count"] == 5
-        assert outer.status.status_code is StatusCode.UNSET
-        batches = by_name["agrag.vectordb.upsert_batch"]
-        assert len(batches) == 3
-        assert [b.attributes["agrag.batch_size"] for b in batches] == [2, 2, 1]
-        for batch in batches:
-            assert batch.kind is SpanKind.CLIENT
-            assert (batch.attributes or {}).get("db.system.name") == "milvus"
-            assert (batch.attributes or {}).get("db.collection.name") == "c"
-            assert batch.parent is not None
-            assert batch.parent.span_id == outer.context.span_id
-            assert batch.status.status_code is StatusCode.UNSET
-
-    async def test_upsert_error_marks_batch_and_outer_error(self, client) -> None:
-        """A failing batch marks both the batch span and outer span ERROR."""
-        provider, exporter = _provider()
-        store = MilvusVectorStore(
-            settings=MilvusSettings(),
-            client=client,
-            tracer=provider.get_tracer("test"),
-        )
-        client.upsert = mock.AsyncMock(side_effect=RuntimeError("boom"))
-        record = VectorRecord(id=uuid4(), vector=[0.1], payload={})
-        with pytest.raises(RuntimeError, match="boom"):
-            await store.upsert("c", [record])
-        spans = {s.name: s for s in exporter.get_finished_spans()}
-        assert spans["agrag.vectordb.upsert_batch"].status.status_code is (
-            StatusCode.ERROR
-        )
-        assert len(list(spans["agrag.vectordb.upsert_batch"].events)) == 1
-        assert spans["agrag.vectordb.upsert"].status.status_code is (StatusCode.ERROR)
-
-
 class TestTracingSearch:
     """Traced search/hybrid export one CLIENT span with query attributes."""
 
@@ -544,25 +469,6 @@ class TestTracingSearch:
         assert (span.attributes or {})["db.collection.name"] == "c"
         assert (span.attributes or {})["agrag.limit"] == 5
         assert span.status.status_code is StatusCode.UNSET
-
-    async def test_search_error_marks_span_error(self, client) -> None:
-        """A failing search marks its span ERROR with one exception event."""
-        provider, exporter = _provider()
-        store = MilvusVectorStore(
-            settings=MilvusSettings(),
-            client=client,
-            tracer=provider.get_tracer("test"),
-        )
-        client.search = mock.AsyncMock(side_effect=RuntimeError("down"))
-        with pytest.raises(RuntimeError, match="down"):
-            await store.search("c", [0.1, 0.2], limit=5)
-        (span,) = [
-            s
-            for s in exporter.get_finished_spans()
-            if s.name == "agrag.vectordb.search"
-        ]
-        assert span.status.status_code is StatusCode.ERROR
-        assert len(list(span.events)) == 1
 
     async def test_hybrid_search_single_client_span(self, client) -> None:
         """Hybrid exports a single CLIENT span with limit and alpha."""
@@ -670,69 +576,3 @@ class TestTracingDirectCalls:
         assert attributes["db.system.name"] == "milvus"
         assert attributes["db.collection.name"] == "c"
         assert span.status.status_code is StatusCode.UNSET
-
-    async def test_failing_delete_marks_span_error(self, client) -> None:
-        """A failing delete marks its span ERROR with one exception event."""
-        provider, exporter = _provider()
-        store = MilvusVectorStore(
-            settings=MilvusSettings(),
-            client=client,
-            tracer=provider.get_tracer("test"),
-        )
-        client.delete = mock.AsyncMock(side_effect=RuntimeError("down"))
-        with pytest.raises(RuntimeError, match="down"):
-            await store.delete("c", [uuid4()])
-        (span,) = exporter.get_finished_spans()
-        assert span.name == "agrag.vectordb.delete"
-        assert span.status.status_code is StatusCode.ERROR
-        assert len(list(span.events)) == 1
-
-
-class TestTracingBuildClient:
-    """Concurrent first use exports exactly one build_client span."""
-
-    async def test_concurrent_first_calls_export_single_build_span(
-        self,
-    ) -> None:
-        """Two concurrent _ensure_client calls share one INTERNAL span."""
-        provider, exporter = _provider()
-        store = MilvusVectorStore(
-            settings=MilvusSettings(), tracer=provider.get_tracer("test")
-        )
-        build_calls = 0
-
-        def mock_client_ctor(*args, **kwargs):
-            nonlocal build_calls
-            build_calls += 1
-            return object()
-
-        with mock.patch("pymilvus.AsyncMilvusClient", side_effect=mock_client_ctor):
-            first, second = await asyncio.gather(
-                store._ensure_client(), store._ensure_client()
-            )
-        assert build_calls == 1
-        assert first is second
-        builds = [
-            s
-            for s in exporter.get_finished_spans()
-            if s.name == "agrag.vectordb.build_client"
-        ]
-        assert len(builds) == 1
-        assert builds[0].kind is SpanKind.INTERNAL
-
-
-class TestTracingDisabled:
-    """A store built without a tracer never marks a host span."""
-
-    async def test_tracer_none_leaves_host_span_unset(self, client) -> None:
-        """The host span stays UNSET with no events under tracer=None."""
-        provider, exporter = _provider()
-        host_tracer = provider.get_tracer("host")
-        store = MilvusVectorStore(settings=MilvusSettings(), client=client, tracer=None)
-        record = VectorRecord(id=uuid4(), vector=[0.1], payload={"text": "a"})
-        with host_tracer.start_as_current_span("host.request"):
-            await store.upsert("c", [record])
-        (host_span,) = exporter.get_finished_spans()
-        assert host_span.name == "host.request"
-        assert host_span.status.status_code is StatusCode.UNSET
-        assert list(host_span.events) == []

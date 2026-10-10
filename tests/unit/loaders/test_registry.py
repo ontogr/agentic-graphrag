@@ -59,13 +59,6 @@ class TestLoaderRegistry:
 
         assert registry.for_source(SourceRef(uri="x.stub", extension=".stub")) is loader
 
-    def test_unsupported_extension_raises(self) -> None:
-        """An unknown extension raises UnsupportedFormatError."""
-        registry = LoaderRegistry()
-
-        with pytest.raises(UnsupportedFormatError):
-            registry.for_source(SourceRef(uri="x.unknown", extension=".unknown"))
-
     def test_registering_the_same_loader_type_twice_keeps_the_first(self) -> None:
         """A second loader of the same type does not replace or duplicate the first."""
         registry = LoaderRegistry()

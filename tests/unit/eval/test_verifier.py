@@ -15,8 +15,6 @@ from langchain_core.outputs import ChatGeneration, ChatResult
 from agrag.eval import (
     VerdictItem,
     run_verifier,
-    verdict_case,
-    verdict_match_metric,
     verdict_report,
 )
 
@@ -96,18 +94,6 @@ class TestRunVerifier:
 class TestVerdictReport:
     """verdict_report scores three fixed classes."""
 
-    def test_perfect_predictions_give_macro_f1_one(self) -> None:
-        """Every class right gives 1.0."""
-        gold = LABELS * 2
-
-        assert verdict_report(gold, gold).macro_f1 == 1.0
-
-    def test_always_pass_scores_well_below_one(self) -> None:
-        """A verifier that always says PASS is not calibrated."""
-        gold = LABELS * 4
-
-        assert verdict_report(gold, ["PASS"] * len(gold)).macro_f1 < 0.5
-
     def test_class_never_predicted_scores_zero_without_error(self) -> None:
         """No prediction of a class gives 0 precision and 0 recall."""
         report = verdict_report(["PASS", "INSUFFICIENT"], ["PASS", "PASS"])
@@ -131,14 +117,3 @@ class TestVerdictReport:
 
         assert report.errors == 1
         assert report.per_class["PASS"].recall == 0.5
-
-
-class TestVerdictMatchMetric:
-    """The match metric is 1.0 on equal labels."""
-
-    @pytest.mark.parametrize(("predicted", "score"), [("PASS", 1.0), ("ERROR", 0.0)])
-    def test_scores_equality(self, predicted: str, score: float) -> None:
-        """Equal gold and predicted labels score 1.0, others 0.0."""
-        metric = verdict_match_metric()
-
-        assert metric.measure(verdict_case(_item("q", "PASS"), predicted)) == score

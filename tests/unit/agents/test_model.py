@@ -2,12 +2,10 @@
 
 Covers unsupported providers (aws-bedrock, vertex-ai, openai-responses,
 azure-openai) raising UnsupportedAgentProviderError, parametrized over
-provider names, and that each provider (openai, anthropic, google-ai)
-builds its LangChain chat model, skipping when the
-matching optional integration package is not installed. Also covers
-build_model_middleware's strategy handling: "single" and a single client
-never produce middleware, "fallback" composes the clients after the first,
-and "round_robin" wraps all clients in RoundRobinModelMiddleware.
+provider names. Also covers build_model_middleware's strategy handling:
+"single" and a single client never produce middleware, "fallback" composes
+the clients after the first, and "round_robin" wraps all clients in
+RoundRobinModelMiddleware.
 """
 
 import pytest
@@ -36,48 +34,6 @@ class TestBuildChatModel:
         )
         with pytest.raises(UnsupportedAgentProviderError):
             build_chat_model(config)
-
-    def test_openai_provider_succeeds(self) -> None:
-        """OpenAI provider creates a ChatOpenAI instance."""
-        config = LLMClientConfig(
-            name="test",
-            provider="openai",
-            model="gpt-4o",
-            api_key="test-key",
-        )
-        try:
-            model = build_chat_model(config)
-            assert model is not None
-        except ImportError:
-            pytest.skip("langchain-openai not installed")
-
-    def test_anthropic_provider_succeeds(self) -> None:
-        """Anthropic provider creates a ChatAnthropic instance."""
-        config = LLMClientConfig(
-            name="test",
-            provider="anthropic",
-            model="claude-3-sonnet",
-            api_key="test-key",
-        )
-        try:
-            model = build_chat_model(config)
-            assert model is not None
-        except ImportError:
-            pytest.skip("langchain-anthropic not installed")
-
-    def test_google_ai_provider_succeeds(self) -> None:
-        """Google AI provider creates a ChatGoogleGenerativeAI instance."""
-        config = LLMClientConfig(
-            name="test",
-            provider="google-ai",
-            model="gemini-pro",
-            api_key="test-key",
-        )
-        try:
-            model = build_chat_model(config)
-            assert model is not None
-        except ImportError:
-            pytest.skip("langchain-google-genai not installed")
 
 
 class TestBuildModelMiddleware:

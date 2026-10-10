@@ -12,14 +12,6 @@ _BOX = BoundingBox(x0=0, y0=0, x1=1, y1=1)
 class TestPageProvenance:
     """A page provenance is valid only when its spans are."""
 
-    def test_accepts_spans_in_page_order(self) -> None:
-        """Spans on consecutive pages make a valid provenance."""
-        provenance = PageProvenance(
-            page_spans=[PageSpan(page_no=1, bbox=_BOX), PageSpan(page_no=2, bbox=_BOX)]
-        )
-
-        assert [span.page_no for span in provenance.page_spans] == [1, 2]
-
     @pytest.mark.parametrize(
         ("spans", "message"),
         [

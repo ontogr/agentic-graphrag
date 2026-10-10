@@ -3,7 +3,7 @@
 The fake implements find_incomplete_jobs_query, both recovery claims,
 rollback_claimed_job_query, and finish_cleaning_query, mirroring the fake in
 test_cutover.py. These tests prove resume_incomplete_jobs's orchestration
-(which jobs it skips, rolls back, or rolls forward) rather than any one
+(which jobs it skips or rolls forward) rather than any one
 query's text.
 """
 
@@ -156,44 +156,6 @@ class _FakeResumeStore:
 class TestResumeIncompleteJobs:
     """resume_incomplete_jobs rolls back or forward, per job status."""
 
-    async def test_pending_job_with_lapsed_lease_is_rolled_back(self) -> None:
-        """A pending job whose lease expired is deleted, not left behind."""
-        job_id = str(uuid4())
-        store = _FakeResumeStore(
-            [
-                {
-                    "id": job_id,
-                    "status": "pending",
-                    "affected_entity_ids": [],
-                    "lease_expired": True,
-                }
-            ]
-        )
-
-        handled = await resume_incomplete_jobs(store)
-
-        assert handled == [job_id]
-        assert job_id not in store.jobs
-
-    async def test_pending_job_with_live_lease_is_left_alone(self) -> None:
-        """A pending job whose worker may still be running is skipped."""
-        job_id = str(uuid4())
-        store = _FakeResumeStore(
-            [
-                {
-                    "id": job_id,
-                    "status": "pending",
-                    "affected_entity_ids": [],
-                    "lease_expired": False,
-                }
-            ]
-        )
-
-        handled = await resume_incomplete_jobs(store)
-
-        assert handled == []
-        assert store.jobs[job_id]["status"] == "pending"
-
     async def test_pending_job_renewed_after_scan_is_not_rolled_back(self) -> None:
         """Recovery does not delete a job that renewed after its scan result."""
         job_id = str(uuid4())
@@ -214,25 +176,6 @@ class TestResumeIncompleteJobs:
         assert handled == []
         assert store.jobs[job_id]["status"] == "pending"
         assert store.rollback_count == 0
-
-    async def test_committed_job_rolls_forward_to_done(self) -> None:
-        """A committed job's cleanup finishes and it reaches the done state."""
-        job_id = str(uuid4())
-        store = _FakeResumeStore(
-            [
-                {
-                    "id": job_id,
-                    "status": "committed",
-                    "affected_entity_ids": [],
-                    "lease_expired": True,
-                }
-            ]
-        )
-
-        handled = await resume_incomplete_jobs(store)
-
-        assert handled == [job_id]
-        assert store.jobs[job_id]["status"] == "done"
 
     async def test_roll_forward_receives_both_recorded_lists(self) -> None:
         """Cleanup gets the snapshot and component seeds the job recorded."""

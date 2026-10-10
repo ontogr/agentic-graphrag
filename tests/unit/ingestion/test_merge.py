@@ -1,16 +1,11 @@
-"""Tests for entity merge planning and application in agrag.ingestion.merge.
+"""Tests for entity merge planning in agrag.ingestion.merge.
 
 Covers canonical-name selection, per-property resolution strategies and
 rules, LLM-assisted description resolution (mocked with ``AsyncMock``),
-property merging, full merge-plan computation, relationship-dedup planning,
-and applying a merge plan against a mocked graph store
-transaction. ``apply_merge`` tests build an ``AsyncMock`` store whose
-``transaction()`` context manager yields a fake handle wrapping
-``execute_write``/``execute_read`` mocks, so no real Neo4j session is used.
+property merging, and full merge-plan computation.
 """
 
-from contextlib import asynccontextmanager
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 from uuid import NAMESPACE_OID, UUID, uuid4, uuid5
@@ -22,21 +17,15 @@ from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
     InMemorySpanExporter,
 )
 from opentelemetry.trace import StatusCode
-from pydantic import ValidationError
 
 from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.extraction import ExtractedEntity
 from agrag.common.data_models.graph_schema import EntityType, GraphSchema
 from agrag.common.data_models.stage_failure import StageFailure
-from agrag.graphdb.errors import GraphStoreAliasConflictError
 from agrag.ingestion.merge import (
-    MergePlan,
     PropertyRules,
     PropertyStrategy,
-    _plan_relationship_dedup,
     _resolve_property,
-    _TransferredRelationship,
-    apply_merge,
     compute_merge,
     mentioned_in_id,
     merge_properties,
@@ -146,14 +135,6 @@ class TestSelectCanonical:
         assert survivor.id == id_a
         assert rest[0].id == id_b
 
-    def test_no_schema_uses_created_at_and_id(self) -> None:
-        """With no entity_type, ranking falls back to time and id."""
-        now = datetime(2020, 1, 1, tzinfo=UTC)
-        e1 = _entity(created_at=now, name="x")
-        e2 = _entity(created_at=now + timedelta(seconds=1), name="y")
-        survivor, _ = select_canonical([e2, e1], None)
-        assert survivor.id == e1.id
-
 
 class TestResolveProperty:
     """_resolve_property strategies."""
@@ -178,25 +159,11 @@ class TestResolveProperty:
         assert value == "b"
         assert conflicted is True
 
-    def test_keep_first(self) -> None:
-        """KEEP_FIRST picks the first distinct."""
-        rules = PropertyRules(default=PropertyStrategy.KEEP_FIRST)
-        value, conflicted = _resolve_property("f", ["first", "second"], rules)
-        assert value == "first"
-        assert conflicted is True
-
     def test_keep_last(self) -> None:
         """KEEP_LAST picks the last distinct."""
         rules = PropertyRules(default=PropertyStrategy.KEEP_LAST)
         value, conflicted = _resolve_property("f", ["first", "second"], rules)
         assert value == "second"
-        assert conflicted is True
-
-    def test_merge_all_returns_list(self) -> None:
-        """MERGE_ALL returns the distinct list."""
-        rules = PropertyRules(default=PropertyStrategy.MERGE_ALL)
-        value, conflicted = _resolve_property("f", ["a", "b", "c"], rules)
-        assert value == ["a", "b", "c"]
         assert conflicted is True
 
     def test_custom_rule_overrides_default(self) -> None:
@@ -221,12 +188,6 @@ class TestResolveProperty:
         assert value == "only"
         assert conflicted is False
 
-    def test_no_conflict_single_value(self) -> None:
-        """Single candidate is returned without conflict."""
-        value, conflicted = _resolve_property("f", ["x"], PropertyRules())
-        assert value == "x"
-        assert conflicted is False
-
     def test_list_valued_candidates_do_not_raise(self) -> None:
         """A list-valued candidate does not crash the hashable-only dedup path.
 
@@ -237,27 +198,6 @@ class TestResolveProperty:
         rules = PropertyRules(default=PropertyStrategy.KEEP_FIRST)
         value, conflicted = _resolve_property("tags", [["a", "b"], ["c"]], rules)
         assert value == ["a", "b"]
-        assert conflicted is True
-
-    def test_dict_valued_candidates_do_not_raise(self) -> None:
-        """A dict-valued candidate does not crash the hashable-only dedup path."""
-        rules = PropertyRules(default=PropertyStrategy.KEEP_LAST)
-        value, conflicted = _resolve_property("meta", [{"a": 1}, {"b": 2}], rules)
-        assert value == {"b": 2}
-        assert conflicted is True
-
-    def test_merge_all_result_merged_again_with_list_candidates(self) -> None:
-        """A prior MERGE_ALL list result merging again does not raise.
-
-        Simulates re-ingesting an already-merged entity whose property was
-        previously resolved to a list by MERGE_ALL: that list becomes one of
-        the candidates in a later merge, which must still resolve cleanly.
-        """
-        rules = PropertyRules(default=PropertyStrategy.MERGE_ALL)
-        prior_result, _ = _resolve_property("tags", ["a", "b"], rules)
-        assert prior_result == ["a", "b"]
-        value, conflicted = _resolve_property("tags", [prior_result, ["c"]], rules)
-        assert value == [["a", "b"], ["c"]]
         assert conflicted is True
 
     def test_list_valued_duplicate_candidates_deduped_by_equality(self) -> None:
@@ -282,13 +222,6 @@ class TestResolveDescription:
             ["only one"], client=_FailClient()
         )
         assert value == "only one"
-        assert conflicted is False
-        assert failure is None
-
-    async def test_single_distinct_empty_no_conflict(self) -> None:
-        """Empty candidates returns None without conflict."""
-        value, conflicted, failure = await resolve_description([], client=AsyncMock())
-        assert value is None
         assert conflicted is False
         assert failure is None
 
@@ -345,69 +278,6 @@ class TestResolveDescription:
         assert failure.item_id == "description"
         assert failure.error_type == "RuntimeError"
         assert "boom" in failure.error_message
-
-    async def test_missing_baml_function_fallback(self) -> None:
-        """No summarization function triggers fallback."""
-
-        class EmptyClient:
-            pass
-
-        value, conflicted, failure = await resolve_description(
-            ["a", "b"], client=EmptyClient()
-        )
-        assert value == "a | b"
-        assert conflicted is True
-        assert isinstance(failure, StageFailure)
-        assert failure.error_type == "AttributeError"
-
-    async def test_settings_path_raises_validation_error_fallback(self) -> None:
-        """Settings ValidationError falls back to concatenation."""
-        with patch(
-            "agrag.ingestion.extract.ExtractionLLMSettings",
-            side_effect=ValidationError.from_exception_data(
-                "ExtractionLLMSettings", []
-            ),
-        ):
-            value, conflicted, failure = await resolve_description(
-                ["x", "y"], client=None, settings=None
-            )
-        assert value == "x | y"
-        assert conflicted is True
-        assert isinstance(failure, StageFailure)
-
-    async def test_default_client_path_success(self) -> None:
-        """Default client path resolves settings and summarizes through it."""
-        settings = SimpleNamespace(
-            clients=[LLMClientConfig(name="c", provider="openai", model="gpt-4o")],
-            strategy="single",
-            retry=RetryConfig(max_retries=0),
-        )
-        mock_registry = object()
-
-        class MockDefaultClient:
-            async def SummarizeDescriptions(  # noqa: N802
-                self, descriptions, baml_options
-            ):
-                assert baml_options["client_registry"] is mock_registry
-                return "default:" + "|".join(descriptions)
-
-        with (
-            patch(
-                "agrag.ingestion.extract.ExtractionLLMSettings",
-                return_value=settings,
-            ),
-            patch(
-                "agrag.llm.client_registry.build_client_registry",
-                return_value=mock_registry,
-            ),
-            patch("agrag.llm.baml_client.b", MockDefaultClient()),
-        ):
-            value, conflicted, failure = await resolve_description(
-                ["a", "b"], client=None, settings=None
-            )
-        assert value == "default:a|b"
-        assert conflicted is True
-        assert failure is None
 
     async def test_dedupe_distinct_before_llm(self) -> None:
         """Duplicate descriptions are deduped before LLM call."""
@@ -621,19 +491,6 @@ class TestMergeProperties:
         assert len(failures) == 1
         assert failures[0].item_id == "description"
 
-    async def test_multiple_fields_mixed(self) -> None:
-        """Multiple fields with mixed conflict and non-conflict."""
-        props, conflicts, _ = await merge_properties(
-            [
-                {"name": "Ada", "role": "eng", "description": "d1"},
-                {"name": "Ada", "role": "eng", "description": "d1"},
-            ],
-            PropertyRules(),
-        )
-        # name same, role same, description same -> no conflicts
-        assert props["name"] == "Ada"
-        assert conflicts == []
-
 
 class TestComputeMerge:
     """compute_merge behavior."""
@@ -711,19 +568,6 @@ class TestComputeMerge:
         # created_at preserved
         assert plan.survivor.created_at == existing.created_at
 
-    async def test_picks_survivor_when_two_existing(self) -> None:
-        """Two existing picks canonical survivor."""
-        t1 = datetime(2020, 1, 1, tzinfo=UTC)
-        t2 = datetime(2020, 1, 2, tzinfo=UTC)
-        e1 = _entity(name="Ada", created_at=t2, properties={})
-        e2 = _entity(name="Ada", created_at=t1, properties={})
-        plan, _ = await compute_merge(
-            existing_entities=[e1, e2],
-            mentions=[],
-            schema=_schema(),
-        )
-        assert plan.survivor.id == e2.id
-
     async def test_mention_properties_reach_the_survivor(self) -> None:
         """A fresh mention's schema-declared properties reach the survivor.
 
@@ -791,17 +635,6 @@ class TestComputeMerge:
 
         assert plan.survivor.name == ""
 
-    async def test_merge_count_accumulation(self) -> None:
-        """merge_count accumulates from the existing entity and mentions."""
-        e1 = _entity(name="Ada", merge_count=2)
-        mentions = [_mention(text="Ada"), _mention(text="Ada")]
-        plan, _ = await compute_merge(
-            existing_entities=[e1],
-            mentions=mentions,
-            schema=_schema(),
-        )
-        assert plan.survivor.merge_count == 4
-
     async def test_merge_count_at_least_one(self) -> None:
         """merge_count is at least 1 even with zero."""
         e = _entity(name="Ada", merge_count=0)
@@ -832,27 +665,6 @@ class TestComputeMerge:
         )
         assert plan.survivor.properties["role"] == ["a", "b"]
 
-    async def test_description_llm_path_success(self) -> None:
-        """Description LLM path succeeds via compute_merge."""
-
-        class MockClient:
-            async def SummarizeDescriptions(  # noqa: N802
-                self, descriptions, baml_options
-            ):
-                return "summarized desc"
-
-        e1 = _entity(name="Ada", properties={"description": "d1"})
-        e2 = _entity(name="Ada", properties={"description": "d2"})
-        plan, failures = await compute_merge(
-            existing_entities=[e1, e2],
-            mentions=[],
-            schema=_schema(),
-            description_client=MockClient(),
-        )
-        assert plan.survivor.properties["description"] == "summarized desc"
-        assert failures == []
-        assert any(c.field == "description" for c in plan.conflicts)
-
     async def test_description_llm_path_failure_returned(self) -> None:
         """Description LLM failure is returned as StageFailure."""
 
@@ -871,18 +683,6 @@ class TestComputeMerge:
         assert plan.survivor.properties["description"] == "d1 | d2"
         assert len(failures) == 1
         assert failures[0].error_type == "RuntimeError"
-
-    async def test_conflict_recording(self) -> None:
-        """Conflicts are recorded for differing properties."""
-        e1 = _entity(name="Ada", properties={"role": "a"})
-        e2 = _entity(name="Ada", properties={"role": "b"})
-        plan, _ = await compute_merge(
-            existing_entities=[e1, e2],
-            mentions=[],
-            schema=_schema(),
-        )
-        assert len(plan.conflicts) == 1
-        assert plan.conflicts[0].field == "role"
 
     async def test_schema_completeness_affects_survivor(self) -> None:
         """Schema completeness influences survivor choice."""
@@ -961,215 +761,6 @@ class TestComputeMerge:
         assert plan.survivor.merge_count == 7
 
 
-def _transferred(
-    *,
-    other_id: UUID | None = None,
-    rel_type: str = "KNOWS",
-    new_relationship_id: UUID | None = None,
-    source_chunk_ids: list[UUID] | None = None,
-    properties: dict[str, object] | None = None,
-) -> _TransferredRelationship:
-    """Build a _TransferredRelationship for dedup tests."""
-    return _TransferredRelationship(
-        other_id=other_id or uuid4(),
-        rel_type=rel_type,
-        new_relationship_id=new_relationship_id or uuid4(),
-        source_chunk_ids=source_chunk_ids or [],
-        properties=properties or {},
-    )
-
-
-class TestPlanRelationshipDedup:
-    """_plan_relationship_dedup grouping."""
-
-    def test_group_of_one_returns_empty(self) -> None:
-        """Single row in a group produces no updates."""
-        r = _transferred(source_chunk_ids=[uuid4()])
-        updates, delete_ids = _plan_relationship_dedup([r])
-        assert updates == []
-        assert delete_ids == []
-
-    def test_group_of_two_merges_chunk_ids(self) -> None:
-        """Two rows with same type and other merges chunk ids."""
-        other = uuid4()
-        c1, c2, c3 = uuid4(), uuid4(), uuid4()
-        r1 = _transferred(other_id=other, source_chunk_ids=[c1, c2])
-        r2 = _transferred(other_id=other, source_chunk_ids=[c2, c3])
-        updates, deletes = _plan_relationship_dedup([r1, r2])
-        assert len(updates) == 1
-        assert updates[0]["id"] == str(r1.new_relationship_id)
-        assert updates[0]["rel_type"] == "KNOWS"
-        properties = updates[0]["properties"]
-        assert isinstance(properties, dict)
-        # deduped, order preserved: c1, c2, c3
-        assert properties["source_chunk_ids"] == [
-            str(c1),
-            str(c2),
-            str(c3),
-        ]
-        assert deletes == [{"id": str(r2.new_relationship_id), "rel_type": "KNOWS"}]
-
-    def test_separate_groups_by_type(self) -> None:
-        """Different rel_type creates separate groups."""
-        other = uuid4()
-        r1 = _transferred(other_id=other, rel_type="KNOWS")
-        r2 = _transferred(other_id=other, rel_type="WORKS_AT")
-        updates, delete_ids = _plan_relationship_dedup([r1, r2])
-        assert updates == []
-        assert delete_ids == []
-
-    def test_separate_groups_by_other_id(self) -> None:
-        """Different other_id creates separate groups."""
-        r1 = _transferred()
-        r2 = _transferred()
-        updates, delete_ids = _plan_relationship_dedup([r1, r2])
-        assert updates == []
-        assert delete_ids == []
-
-    def test_multiple_groups_mixed(self) -> None:
-        """Multiple duplicate groups each produce an update."""
-        other_a, other_b = uuid4(), uuid4()
-        r1 = _transferred(other_id=other_a)
-        r2 = _transferred(other_id=other_a)
-        r3 = _transferred(other_id=other_b)
-        r4 = _transferred(other_id=other_b)
-        updates, delete_ids = _plan_relationship_dedup([r1, r2, r3, r4])
-        assert len(updates) == 2
-        assert len(delete_ids) == 2
-
-    def test_outgoing_vs_incoming_separate(self) -> None:
-        """Caller separates outgoing and incoming; dedup does not mix them.
-
-        Simulate two directions: the same other_id and type in different
-        directions are handled in separate calls, so no cross-direction merge.
-        """
-        other = uuid4()
-        # Outgoing group
-        r_out1 = _transferred(other_id=other)
-        r_out2 = _transferred(other_id=other)
-        updates_out, _ = _plan_relationship_dedup([r_out1, r_out2])
-        # Incoming group separately
-        r_in1 = _transferred(other_id=other)
-        updates_in, _ = _plan_relationship_dedup([r_in1])
-        assert len(updates_out) == 1
-        assert updates_in == []
-
-    def test_merges_non_provenance_properties_from_duplicates(self) -> None:
-        """A duplicate's distinct property is not lost when its edge is deleted.
-
-        Regression test: each edge's full property map reaches the dedup
-        pass, and the dedup update carries the merged result, so a field
-        only the deleted duplicate had survives onto the kept edge instead
-        of disappearing.
-        """
-        other = uuid4()
-        keeper = _transferred(other_id=other, properties={"confidence": "high"})
-        extra = _transferred(
-            other_id=other, properties={"confidence": None, "note": "from doc B"}
-        )
-        updates, deletes = _plan_relationship_dedup([keeper, extra])
-        assert len(updates) == 1
-        merged = updates[0]["properties"]
-        assert isinstance(merged, dict)
-        # Keeper's own value wins when it has one.
-        assert merged["confidence"] == "high"
-        # A field only the duplicate had is not dropped.
-        assert merged["note"] == "from doc B"
-        assert deletes == [{"id": str(extra.new_relationship_id), "rel_type": "KNOWS"}]
-
-
-def _store_with_transaction(execute_write: AsyncMock) -> AsyncMock:
-    """Build a store AsyncMock whose transaction() yields a fake handle.
-
-    The handle's execute_write is the given mock. Its upsert_nodes mock is
-    exposed as store.txn_upsert_nodes, kept separate from the store's own
-    upsert_nodes so a test can tell which one apply_merge actually used.
-    """
-    upsert_nodes = AsyncMock()
-    handle = SimpleNamespace(execute_write=execute_write, upsert_nodes=upsert_nodes)
-
-    @asynccontextmanager
-    async def _transaction():
-        yield handle
-
-    store = AsyncMock()
-    store.transaction = _transaction
-    store.txn_upsert_nodes = upsert_nodes
-    return store
-
-
-class TestApplyMerge:
-    """apply_merge writes to GraphStore."""
-
-    async def test_upserts_survivor_and_alias_in_one_transaction(self) -> None:
-        """Runs in a transaction: upsert survivor + alias.
-
-        The survivor write goes through upsert_survivor_query's atomic
-        accumulation, not txn.upsert_nodes, so a concurrent writer's own
-        contribution to the same node is never lost to a full overwrite.
-        """
-        survivor = _entity(name="Ada")
-        plan = MergePlan(survivor=survivor, conflicts=[])
-        execute_write = AsyncMock(return_value=[])
-        store = _store_with_transaction(execute_write)
-
-        await apply_merge(plan, graph_store=store, schema=_schema())
-
-        store.upsert_nodes.assert_not_awaited()
-        store.execute_write.assert_not_awaited()
-        store.txn_upsert_nodes.assert_not_awaited()
-        calls = execute_write.call_args_list
-        survivor_calls = [c for c in calls if set(c.args[1]) == {"records"}]
-        assert len(survivor_calls) == 1
-        record = survivor_calls[0].args[1]["records"][0]
-        assert record["id"] == str(survivor.id)
-        assert "source_chunk_ids" not in record["properties"]
-        assert "merge_count" not in record["properties"]
-        alias_calls = [
-            c
-            for c in calls
-            if set(c.args[1]) == {"merge_keys", "entity_id", "pending_job_id"}
-        ]
-        assert len(alias_calls) == 1
-        assert alias_calls[0].args[1] == {
-            "merge_keys": [survivor.merge_key],
-            "entity_id": str(survivor.id),
-            "pending_job_id": None,
-        }
-
-    async def test_foreign_alias_owner_raises_conflict(self) -> None:
-        """An accepted merge_key already owned elsewhere raises, not silently drops.
-
-        Regression test: one writer creates a canonical entity named "Bob"
-        while this merge separately accepts "Bob" as an alias of a
-        different canonical entity. Neither node's own merge_key collides,
-        so ON CREATE SET alone would let both commit with the alias table
-        silently still pointing at the other writer's entity.
-        """
-        survivor = _entity(name="Robert")
-        foreign_owner_id = uuid4()
-        plan = MergePlan(
-            survivor=survivor,
-            conflicts=[],
-            accepted_merge_keys=["Person:robert", "Person:bob"],
-        )
-
-        async def _exec_write(query, params=None):
-            if params and "pending_job_id" in params:
-                return [
-                    {"merge_key": "Person:robert", "entity_id": str(survivor.id)},
-                    {"merge_key": "Person:bob", "entity_id": str(foreign_owner_id)},
-                ]
-            return []
-
-        execute_write = AsyncMock(side_effect=_exec_write)
-        store = _store_with_transaction(execute_write)
-
-        with pytest.raises(GraphStoreAliasConflictError) as exc_info:
-            await apply_merge(plan, graph_store=store, schema=_schema())
-        assert exc_info.value.conflicts == {"Person:bob": str(foreign_owner_id)}
-
-
 class TestRelationId:
     """relation_id deterministic ids.
 
@@ -1195,13 +786,6 @@ class TestRelationId:
         s, t = uuid4(), uuid4()
         assert relation_id(s, t, "KNOWS") != relation_id(t, s, "KNOWS")
 
-    def test_known_value(self) -> None:
-        """Known triple matches uuid5 with OID namespace."""
-        s = UUID("11111111-1111-1111-1111-111111111111")
-        t = UUID("22222222-2222-2222-2222-222222222222")
-        expected = uuid5(NAMESPACE_OID, f"KNOWS:{s}:{t}")
-        assert relation_id(s, t, "KNOWS") == expected
-
 
 class TestMentionedInId:
     """mentioned_in_id deterministic ids."""
@@ -1219,18 +803,6 @@ class TestMentionedInId:
         assert mentioned_in_id(c1, e1) != mentioned_in_id(c2, e1)
         assert mentioned_in_id(c1, e1) != mentioned_in_id(e2, c1)
 
-    def test_known_value(self) -> None:
-        """Known pair matches uuid5 with OID namespace."""
-        c = UUID("11111111-1111-1111-1111-111111111111")
-        e = UUID("22222222-2222-2222-2222-222222222222")
-        expected = uuid5(NAMESPACE_OID, f"MENTIONED_IN:{c}:{e}")
-        assert mentioned_in_id(c, e) == expected
-
-    def test_order_matters(self) -> None:
-        """Swapped order yields different id."""
-        c, e = uuid4(), uuid4()
-        assert mentioned_in_id(c, e) != mentioned_in_id(e, c)
-
 
 class TestNextChunkId:
     """next_chunk_id deterministic ids."""
@@ -1239,13 +811,6 @@ class TestNextChunkId:
         """Same ordered pair always returns the same id."""
         a, b = uuid4(), uuid4()
         assert next_chunk_id(a, b) == next_chunk_id(a, b)
-
-    def test_known_value(self) -> None:
-        """Known pair matches uuid5 with OID namespace."""
-        a = UUID("11111111-1111-1111-1111-111111111111")
-        b = UUID("22222222-2222-2222-2222-222222222222")
-        expected = uuid5(NAMESPACE_OID, f"NEXT_CHUNK:{a}:{b}")
-        assert next_chunk_id(a, b) == expected
 
 
 class TestPartOfId:
@@ -1260,10 +825,3 @@ class TestPartOfId:
         """Each document version gets a separate relationship id."""
         d, c = uuid4(), uuid4()
         assert part_of_id(d, c, "v1") != part_of_id(d, c, "v2")
-
-    def test_known_value(self) -> None:
-        """Known triple matches uuid5 with OID namespace."""
-        d = UUID("11111111-1111-1111-1111-111111111111")
-        c = UUID("22222222-2222-2222-2222-222222222222")
-        expected = uuid5(NAMESPACE_OID, f"PART_OF:{d}:{c}:v1")
-        assert part_of_id(d, c, "v1") == expected

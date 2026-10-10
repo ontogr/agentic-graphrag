@@ -1,13 +1,12 @@
 """Tests for the retrieval helper spans.
 
 Pins the span names, attributes and swallow-site behavior of the shared
-helpers: ``vector_search``, ``load_resolved_entities``, ``fuse``, the community
-helpers and both rerankers. Runs real spans through an
-in-memory exporter; stores are mocks at the driver boundary.
+helpers: ``vector_search``, ``fuse``, the cross-encoder reranker and the
+node-distance reranker. Runs real spans through an in-memory exporter; stores
+are mocks at the driver boundary.
 """
 
 import asyncio
-import contextlib
 import json
 import sys
 from types import ModuleType
@@ -136,33 +135,6 @@ class TestVectorSearchSpan:
         assert attributes["agrag.hit_count"] == 0
         assert "agrag.hit_ids" not in attributes
         assert "agrag.hit_scores" not in attributes
-
-    async def test_native_search_without_labels_marks_the_span_error(self) -> None:
-        """The ValueError a misconfiguration raises marks the span ERROR."""
-        provider, exporter = _provider()
-        tracer = provider.get_tracer("t")
-
-        with _raises_value_error():
-            await vector_search(
-                "q",
-                embedder=_MockEmbedder(),
-                graph_store=AsyncMock(),
-                vector_store=None,
-                collection="agrag_entities",
-                labels=[],
-                limit=5,
-                filters=None,
-                settings=RetrievalSettings(),
-                tracer=tracer,
-            )
-
-        span = _named(exporter.get_finished_spans(), "agrag.retrieval.vector_search")[0]
-        assert span.status.status_code.name == "ERROR"
-
-
-def _raises_value_error():
-    """Return the context manager the misconfiguration test uses."""
-    return contextlib.suppress(ValueError)
 
 
 class TestFuseSpan:
@@ -312,72 +284,3 @@ class TestNodeDistanceSpan:
 def _seed_entity(seed_id):
     """Return the entity the seed id names."""
     return Entity(id=seed_id, label="Person", name="Seed")
-
-
-class TestNoTracerLeavesHostSpanUntouched:
-    """Every helper with tracer=None leaves a host span unmarked."""
-
-    async def test_vector_search(self) -> None:
-        """vector_search adds no exception event to the host span."""
-        provider, exporter = _provider()
-        tracer = provider.get_tracer("t")
-        gs = AsyncMock()
-        gs.vector_search.return_value = [VectorHit(id=uuid4(), score=0.5, payload={})]
-
-        with tracer.start_as_current_span("host"):
-            await vector_search(
-                "q",
-                embedder=_MockEmbedder(),
-                graph_store=gs,
-                vector_store=None,
-                collection="c",
-                labels=["Person"],
-                limit=5,
-                filters=None,
-                settings=RetrievalSettings(),
-            )
-
-        host = _named(exporter.get_finished_spans(), "host")[0]
-        assert host.status.status_code.name != "ERROR"
-        assert not [e for e in host.events if e.name == "exception"]
-
-    async def test_fuse(self) -> None:
-        """Fuse adds no exception event to the host span."""
-        provider, exporter = _provider()
-        tracer = provider.get_tracer("t")
-
-        with tracer.start_as_current_span("host"):
-            fuse({"entity": [_entity_result()]})
-
-        host = _named(exporter.get_finished_spans(), "host")[0]
-        assert host.status.status_code.name != "ERROR"
-        assert not [e for e in host.events if e.name == "exception"]
-
-    async def test_rerankers(self) -> None:
-        """Both rerankers add no exception event to the host span."""
-        provider, exporter = _provider()
-        tracer = provider.get_tracer("t")
-        results = [_entity_result()]
-
-        class _FakeCrossEncoder:
-            def __init__(self, *args: object, **kwargs: object) -> None:
-                pass
-
-            def predict(self, pairs: list[tuple[str, str]]) -> list[float]:
-                return [0.5 for _ in pairs]
-
-        module = ModuleType("fake")
-        module.CrossEncoder = _FakeCrossEncoder
-        gs = AsyncMock()
-        gs.execute_read.return_value = [{"dist": 1}]
-
-        with tracer.start_as_current_span("host"):
-            with patch.dict(sys.modules, {"sentence_transformers": module}):
-                await cross_encoder_rerank(
-                    "q", results, model=f"host-model-{uuid4().hex}"
-                )
-            await node_distance_rerank(results, graph_store=gs, seed_ids=[uuid4()])
-
-        host = _named(exporter.get_finished_spans(), "host")[0]
-        assert host.status.status_code.name != "ERROR"
-        assert not [e for e in host.events if e.name == "exception"]

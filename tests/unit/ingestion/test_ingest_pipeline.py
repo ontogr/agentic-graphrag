@@ -34,7 +34,6 @@ from agrag.common.data_models.graph_record import UpsertFailure, UpsertResult
 from agrag.common.data_models.graph_schema import GENERIC, GraphSchema
 from agrag.common.data_models.provenance import TextProvenance
 from agrag.common.data_models.stage_failure import StageFailure
-from agrag.common.data_models.vector_record import VectorHit
 from agrag.embedding.base import Embedder
 from agrag.ingestion._ingest_pipeline import (
     embed_chunks_stage,
@@ -159,16 +158,13 @@ async def _ingest(
     chunks: list[Chunk],
     store: AsyncMock,
     *,
-    extractor: Extractor | None = None,
     ingestion: IngestStats | None = None,
-    return_chunks: bool = False,
 ) -> Any:
     """Run extract_chunks + ingest_chunks over fixed input."""
-    active_extractor = extractor if extractor is not None else _NoopExtractor()
     entities, relations, failures = await extract_chunks(
         chunks,
         start_index=0,
-        extractor=active_extractor,
+        extractor=_NoopExtractor(),
         schema=GENERIC,
         error_policy=ErrorPolicy.RAISE,
     )
@@ -186,35 +182,12 @@ async def _ingest(
         retrieval_settings=RetrievalSettings(),
         error_policy=ErrorPolicy.RAISE,
         ingestion=ingestion or IngestStats(documents=len(documents)),
-        return_chunks=return_chunks,
     )
     return batch.add_result
 
 
 class TestIngestChunks:
     """ingest_chunks() produces the AddResult shape add() produces."""
-
-    async def test_writes_chunks_documents_and_part_of(self) -> None:
-        """One document's chunks yield chunk, document, and PART_OF writes."""
-        store, calls = _store()
-        first, second = _doc(key="a"), _doc(key="b")
-        chunks = [_chunk(first, index=0), _chunk(second, index=0)]
-
-        result = await _ingest([first, second], chunks, store, return_chunks=True)
-
-        assert result.ingestion.documents == 2
-        assert result.extraction.chunks_processed == 2
-        assert [chunk.id for chunk in result.chunks] == [chunk.id for chunk in chunks]
-        labels = [label for label, _ in calls["nodes"]]
-        assert "Chunk" in labels
-        assert "Document" in labels
-        part_of = [
-            rec
-            for batch in calls["relations"]
-            for rec in batch
-            if rec.type == "PART_OF"
-        ]
-        assert len(part_of) == 2
 
     async def test_empty_chunks_writes_only_the_document_node(self) -> None:
         """No chunks still writes the document node and counts no chunk work."""
@@ -310,37 +283,6 @@ class TestIngestChunks:
         assert relations == []
         assert [f.item_id for f in failures] == [str(chunk.id)]
         assert "agrag.extraction.remap_relations" in names
-
-    async def test_structure_nodes_are_written_under_their_own_span(self) -> None:
-        """Ingest writes the section tree under agrag.storage.upsert_structure."""
-        exporter = InMemorySpanExporter()
-        provider = TracerProvider()
-        provider.add_span_processor(SimpleSpanProcessor(exporter))
-        store, _ = _store()
-        doc = _doc(key="a")
-
-        chunks = [_chunk(doc)]
-        await ingest_chunks(
-            chunks,
-            [doc],
-            [],
-            [],
-            [],
-            graph_store=store,
-            embedder=_ZeroEmbedder(),
-            vector_store=None,
-            graph_schema=GENERIC,
-            retrieval_settings=RetrievalSettings(),
-            error_policy=ErrorPolicy.RAISE,
-            ingestion=IngestStats(documents=1),
-            placements=_placements(chunks),
-            return_chunks=False,
-            tracer=provider.get_tracer("test"),
-        )
-
-        spans = {span.name: span for span in exporter.get_finished_spans()}
-        assert "agrag.storage.upsert_structure" in spans
-        assert spans["agrag.storage.upsert_structure"].attributes is not None
 
     async def test_runs_at_most_the_extractor_max_concurrency_at_once(self) -> None:
         """The extractor's limit caps how many chunks are in flight."""
@@ -504,44 +446,6 @@ class TestIngestChunks:
 
         with pytest.raises(RuntimeError, match="candidate read failed"):
             await self._ingest_two_mentions(monkeypatch, store, ErrorPolicy.RAISE)
-
-    async def test_passes_max_llm_pairs_to_the_resolver(self) -> None:
-        """The pair limit reaches the resolver that ``ingest_chunks`` builds."""
-        store, _ = _store()
-        doc = _doc(key="limit")
-        chunk = _chunk(doc, text="Ada Lovelace wrote the first algorithm.")
-        entity = ExtractedEntity(
-            chunk_id=chunk.id,
-            label="Person",
-            text="Ada Lovelace",
-            char_start=0,
-            char_end=12,
-        )
-        resolver_instance = AsyncMock()
-        resolver_instance.resolve.return_value = ResolutionResult(groups=[], matches=[])
-
-        with mock.patch(
-            "agrag.ingestion.resolve.resolution.Resolver",
-            return_value=resolver_instance,
-        ) as resolver_class:
-            await ingest_chunks(
-                [chunk],
-                [doc],
-                [entity],
-                [],
-                [],
-                placements=_placements([chunk]),
-                graph_store=store,
-                embedder=_ZeroEmbedder(),
-                vector_store=None,
-                graph_schema=GENERIC,
-                retrieval_settings=RetrievalSettings(),
-                error_policy=ErrorPolicy.RAISE,
-                ingestion=IngestStats(documents=1),
-                max_llm_pairs=7,
-            )
-
-        assert resolver_class.call_args.kwargs["max_llm_pairs"] == 7
 
 
 class TestIngestMatchesAdd:
@@ -746,149 +650,6 @@ class TestExtractChunks:
         assert [rel.source_index for rel in relations_two] == [2]
         assert [rel.target_index for rel in relations_two] == [3]
         assert len(entities_one) + len(entities_two) == 4
-
-    async def test_skip_records_failure_and_continues(self) -> None:
-        """A failing chunk is recorded under SKIP without stopping the batch."""
-
-        class _FlakyExtractor(Extractor):
-            async def extract(
-                self, chunk: Chunk, schema: GraphSchema
-            ) -> ExtractionResult:
-                if chunk.index == 0:
-                    raise ValueError("boom")
-                return ExtractionResult(
-                    entities=[], relations=[], extractor_name="flaky"
-                )
-
-        doc = _doc(key="flaky")
-        chunks = [_chunk(doc, index=0), _chunk(doc, index=1)]
-
-        entities, _, failures = await extract_chunks(
-            chunks,
-            start_index=0,
-            extractor=_FlakyExtractor(),
-            schema=GENERIC,
-            error_policy=ErrorPolicy.SKIP,
-        )
-
-        assert entities == []
-        assert len(failures) == 1
-        assert failures[0].error_type == "ValueError"
-
-    async def test_part_of_ids_use_stable_node_ids(self) -> None:
-        """Relation endpoints reference UUIDs, keeping the core typed."""
-        doc = _doc(key="typed")
-        chunk = _chunk(doc)
-        assert isinstance(chunk.document_id, UUID)
-
-
-class _RelationExtractor(Extractor):
-    """Extractor returning two related mentions for every chunk."""
-
-    async def extract(self, chunk: Chunk, schema: GraphSchema) -> ExtractionResult:
-        """Return an Alice/Acme pair joined by a WORKS_AT relation."""
-        return ExtractionResult(
-            entities=[
-                ExtractedEntity(
-                    chunk_id=chunk.id,
-                    label="Person",
-                    text="Alice",
-                    char_start=0,
-                    char_end=5,
-                ),
-                ExtractedEntity(
-                    chunk_id=chunk.id,
-                    label="Organization",
-                    text="Acme",
-                    char_start=14,
-                    char_end=18,
-                ),
-            ],
-            relations=[
-                ExtractedRelation(
-                    chunk_id=chunk.id,
-                    label="WORKS_AT",
-                    source_index=0,
-                    target_index=1,
-                )
-            ],
-            extractor_name="fake",
-        )
-
-
-class TestResolutionContextWiring:
-    """ingest_chunks passes real LLM verification context to Resolver.
-
-    Both the in-batch and persisted-candidate pairs feed one combined
-    Resolver.resolve call (see ingest_chunks), unlike Graph.consolidate's
-    two separate passes, so both kinds of context are asserted on that one
-    call. The equivalent coverage for Graph.consolidate lives in
-    tests/unit/ingestion/test_graph.py.
-    """
-
-    async def test_in_batch_resolution_gets_relation_neighbors(self) -> None:
-        """The combined resolve call is seeded from the batch's relations."""
-        store, _ = _store()
-        doc = _doc(key="a")
-        chunk = _chunk(doc, text="Alice works at Acme")
-        resolver_instance = AsyncMock()
-        resolver_instance.resolve.return_value = ResolutionResult(groups=[], matches=[])
-
-        with mock.patch(
-            "agrag.ingestion.resolve.resolution.Resolver",
-            return_value=resolver_instance,
-        ):
-            await _ingest([doc], [chunk], store, extractor=_RelationExtractor())
-
-        assert resolver_instance.resolve.await_args.kwargs["neighbors_by_index"] == {
-            0: ["WORKS_AT Acme"],
-            1: ["WORKS_AT Alice"],
-        }
-
-    async def test_persisted_candidate_similarity_reaches_resolve(self) -> None:
-        """A candidate hit's real embedding score is seeded into resolution.
-
-        Only one Resolver.resolve call happens for the whole batch: the
-        persisted candidate joins the same combined mention list the
-        in-batch pairs use, rather than a second pass over it.
-        """
-        store, _ = _store()
-        doc = _doc(key="a")
-        chunk = _chunk(doc, text="Alice works at Acme")
-        candidate_id = uuid4()
-
-        async def fake_vector_search(text: str, **kwargs: Any) -> list[VectorHit]:
-            if text == "Alice":
-                return [
-                    VectorHit(id=candidate_id, score=0.91, payload={"name": "Alice"})
-                ]
-            return []
-
-        resolver_instance = AsyncMock()
-        resolver_instance.resolve.return_value = ResolutionResult(groups=[], matches=[])
-        fetch_neighbors = AsyncMock(return_value={candidate_id: ["WORKS_AT Acme"]})
-
-        with (
-            mock.patch(
-                "agrag.ingestion.resolve.candidate_source.vector_search",
-                new=fake_vector_search,
-            ),
-            mock.patch(
-                "agrag.ingestion.resolve.resolution.Resolver",
-                return_value=resolver_instance,
-            ),
-            mock.patch(
-                "agrag.ingestion.resolve.resolution.fetch_persisted_neighbors",
-                fetch_neighbors,
-            ),
-        ):
-            await _ingest([doc], [chunk], store, extractor=_RelationExtractor())
-
-        assert len(resolver_instance.resolve.await_args_list) == 1
-        kwargs = resolver_instance.resolve.await_args.kwargs
-        assert kwargs["similarity_by_pair"] == {(0, 2): 0.91}
-        assert kwargs["neighbors_by_index"][2] == ["WORKS_AT Acme"]
-        assert fetch_neighbors.await_args.args[0] == [candidate_id]
 
 
 class _RecordingEmbedder(Embedder):

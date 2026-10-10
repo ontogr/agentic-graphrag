@@ -7,6 +7,15 @@ description: Testing rules for unit and integration tests. Use when adding, chan
 
 Use these rules for tests in this repository.
 
+## Core rules
+
+- Never write unit tests after you write code.
+- Highly prefer E2E or integration tests as the sole testing mechanism. Use them to verify complex features work. At the end of those tests, produce a verifiable and repeatable artifact.
+- If you must test a system in isolation, first write down all the ways it could fail, then write the code.
+- A test that breaks under a behavior-preserving refactor is asserting implementation, not behavior. Do not add it.
+- Never delete or weaken a failing test to make the suite pass. Fix the code, or ask.
+- Do not add tests that restate the code, assert mock call shapes, grep source or docs text, compute the expected value with the code under test, or only keep a test-only export or seam alive.
+
 ## Organization
 
 - Use `pytest` and `pytest-asyncio` for tests, including async tests.
@@ -25,17 +34,15 @@ Use these rules for tests in this repository.
   details. Avoid accessing private members in tests unless there is no public
   seam and adding one would be worse for the design.
 - Follow nearby test patterns before introducing new fixtures or helpers.
-- For bug fixes, write a failing test that reproduces the reported symptom,
-  then make it pass. Extend the existing mapped test file when one already
-  covers the affected module; do not create new scaffolding when a suite for
-  the module exists.
-- One focused regression test that fails without the fix is better than many
-  shallow tests that do not prove behavior.
+- For bug fixes, extend the E2E or integration test that covers the behavior so
+  it fails without the fix. Add a unit test only when the core rules allow it.
+- One focused test that fails without the fix is better than many shallow tests
+  that do not prove behavior.
 
 ## Isolation
 
-- Unit tests must mock external dependencies such as Neo4j, Qdrant, Weaviate,
-  Hugging Face, and LLM APIs.
+- Unit tests are the exception. When you write one, it must mock external
+  dependencies such as Neo4j, Qdrant, Weaviate, Hugging Face, and LLM APIs.
 - Unit tests must not enable sockets. If a unit test hits `SocketBlockedError`,
   fix the mock rather than enabling network access.
 - `pytest-socket` disables network by default with
@@ -56,8 +63,9 @@ Use these rules for tests in this repository.
   may be too coupled to implementation details.
 - When changing public APIs, update tests for the new public contract.
 - When deleting behavior, delete or update the corresponding tests.
-- Use `@pytest.mark.skip(reason="...")` or `@pytest.mark.xfail` for known-broken
-  tests. Do not silently delete tests to hide failures.
+- Do not delete, skip, or weaken a failing test to hide the failure. Use
+  `@pytest.mark.skip(reason="...")` or `@pytest.mark.xfail` only for a known,
+  documented reason the user has accepted.
 - Do not write assertion-free tests only to increase coverage.
 - Target 80-90% coverage for core/domain logic; do not chase 100% coverage.
 

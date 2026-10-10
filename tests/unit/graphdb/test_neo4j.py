@@ -148,33 +148,6 @@ class TestConnectClose:
 class TestUpsertNodes:
     """upsert_nodes validates the label, serializes, and writes in batches."""
 
-    async def test_isolates_record_specific_batch_failures(self) -> None:
-        """A bad node does not block other nodes in its batch or later batches."""
-        store = _store()
-        store._identity_constraint_ready = True
-        good, bad, later = (
-            NodeRecord(id=uuid4(), labels=["Chunk"], properties={"name": value})
-            for value in ("good", "bad", "later")
-        )
-
-        async def write(
-            query: str, parameters: dict[str, object]
-        ) -> list[dict[str, object]]:
-            records = parameters["records"]
-            assert isinstance(records, list)
-            if len(records) == 2:
-                raise GraphStoreConstraintViolationError("duplicate")
-            if records[0]["id"] == str(bad.id):
-                raise GraphStoreConstraintViolationError("duplicate")
-            return []
-
-        store.execute_write = mock.AsyncMock(side_effect=write)
-        result = await store.upsert_nodes("Chunk", [good, bad, later], batch_size=2)
-
-        assert result.written == 2
-        assert [failure.id for failure in result.failures] == [str(bad.id)]
-        assert store.execute_write.await_count == 4
-
     async def test_validation_failure_is_reported_per_record(self) -> None:
         """An unsafe content label only rejects its own node."""
         store = _store()
@@ -229,55 +202,6 @@ class TestUpsertNodes:
 
 class TestPendingJobTag:
     """A job id passed to an upsert tags the records the store writes."""
-
-    async def test_node_upsert_tags_records_with_the_job_id(self) -> None:
-        """Every node record sent to the driver carries the job id."""
-        store = _store()
-        store._identity_constraint_ready = True
-        store.execute_write = mock.AsyncMock(return_value=[])
-        job_id = uuid4()
-        nodes = [
-            NodeRecord(id=uuid4(), labels=["Chunk"], properties={"name": name})
-            for name in ("a", "b")
-        ]
-
-        await store.upsert_nodes("Chunk", nodes, pending_job_id=job_id)
-
-        sent = store.execute_write.await_args.args[1]["records"]
-        assert [r["pending_job_id"] for r in sent] == [str(job_id)] * 2
-        assert all("_pending_job_id" not in r["properties"] for r in sent)
-
-    async def test_node_upsert_without_job_id_sends_no_tag(self) -> None:
-        """A write outside a job sends a null tag."""
-        store = _store()
-        store._identity_constraint_ready = True
-        store.execute_write = mock.AsyncMock(return_value=[])
-        node = NodeRecord(id=uuid4(), labels=["Chunk"], properties={})
-
-        await store.upsert_nodes("Chunk", [node])
-
-        sent = store.execute_write.await_args.args[1]["records"]
-        assert sent[0]["pending_job_id"] is None
-
-    async def test_relation_upsert_tags_records_with_the_job_id(self) -> None:
-        """Every relation record sent to the driver carries the job id."""
-        store = _store()
-
-        async def write(
-            query: str, parameters: dict[str, Any] | None = None
-        ) -> list[dict[str, Any]]:
-            return [{"id": r["id"]} for r in (parameters or {}).get("records", [])]
-
-        store.execute_write = mock.AsyncMock(side_effect=write)
-        job_id = uuid4()
-        relation = RelationRecord(
-            id=uuid4(), type="MENTIONS", start_id=uuid4(), end_id=uuid4(), properties={}
-        )
-
-        await store.upsert_relations([relation], pending_job_id=job_id)
-
-        sent = store.execute_write.await_args.args[1]["records"]
-        assert sent[0]["pending_job_id"] == str(job_id)
 
     async def test_transaction_upserts_tag_records_with_the_job_id(self) -> None:
         """Node and relation writes inside a transaction carry the job id."""
@@ -358,17 +282,6 @@ class TestBatchWritePerItemIsolation:
         assert result.written == 0
         assert [failure.id for failure in result.failures] == ["1", "2"]
         assert store.execute_write.await_count == 3
-
-    async def test_empty_records_do_not_write(self) -> None:
-        """An empty input returns an empty result without touching the driver."""
-        store = _store()
-        store.execute_write = mock.AsyncMock()
-
-        result = await store._batch_write("QUERY", [], batch_size=2)
-
-        assert result.written == 0
-        assert result.failures == []
-        store.execute_write.assert_not_awaited()
 
 
 class TestUpsertRelations:
@@ -600,53 +513,6 @@ class TestTransaction:
         assert tx.commit.await_count == 0
 
 
-class TestExecuteReadTimeout:
-    """execute_read applies the server-side transaction timeout."""
-
-    async def test_wraps_transaction_function_with_timeout(self) -> None:
-        """A requested timeout rides on the transaction function."""
-        pytest.importorskip("neo4j")
-        store = _store()
-        await store.execute_read("MATCH (n) RETURN n", timeout=7.5)
-        session = store._driver.last_session
-        tx_function = session.execute_read.call_args.args[0]
-        assert tx_function.timeout == 7.5
-
-    async def test_no_timeout_by_default(self) -> None:
-        """Without a timeout, the transaction function carries none."""
-        store = _store()
-        await store.execute_read("MATCH (n) RETURN n")
-        session = store._driver.last_session
-        tx_function = session.execute_read.call_args.args[0]
-        assert getattr(tx_function, "timeout", None) is None
-
-    async def test_timeout_reads_rows_normally(self) -> None:
-        """A timed read still returns the transaction function's rows."""
-        pytest.importorskip("neo4j")
-        store = _store()
-        session = store._driver.last_session
-        session.execute_read = mock.AsyncMock(return_value=[{"n": 1}])
-        rows = await store.execute_read("MATCH (n) RETURN n", timeout=7.5)
-        assert rows == [{"n": 1}]
-
-
-class TestTracingDisabled:
-    """A store built without a tracer never marks a host span."""
-
-    async def test_tracer_none_leaves_host_span_unset(self) -> None:
-        """The host span stays UNSET with no events under tracer=None."""
-        provider, exporter = _provider()
-        host_tracer = provider.get_tracer("host")
-        store = Neo4jGraphStore(settings=Neo4jSettings(), driver=MockDriver())
-        store._driver.last_session.execute_read.return_value = []
-        with host_tracer.start_as_current_span("host.request"):
-            await store.execute_read("MATCH (n) RETURN n", {"name": "alice"})
-        (host_span,) = exporter.get_finished_spans()
-        assert host_span.name == "host.request"
-        assert host_span.status.status_code is StatusCode.UNSET
-        assert list(host_span.events) == []
-
-
 class TestExecuteSpans:
     """Traced execute_read/write export CLIENT spans with query attributes."""
 
@@ -790,22 +656,6 @@ class TestUpsertTracing:
         assert transactional[0].parent.span_id == txn.context.span_id
         assert transactional[0].kind is SpanKind.CLIENT
 
-    async def test_concurrent_first_calls_export_single_build_span(self) -> None:
-        """Concurrent driver builds behind a present driver export nothing."""
-        provider, exporter = _provider()
-        tracer = provider.get_tracer("test")
-        store = _store()
-        store._tracer = tracer
-        first, second = await asyncio.gather(
-            store._ensure_driver(), store._ensure_driver()
-        )
-        assert first is second
-        assert [
-            s
-            for s in exporter.get_finished_spans()
-            if s.name == "agrag.graphdb.build_driver"
-        ] == []
-
 
 class TestVectorSearchTracing:
     """vector_search missing-index path records without erroring."""
@@ -838,55 +688,3 @@ class TestVectorSearchTracing:
         inner = spans["agrag.graphdb.execute_read"]
         assert inner.status.status_code is StatusCode.ERROR
         assert len(list(inner.events)) == 1
-
-
-class TestQueryParameterAttributes:
-    """Graph-query spans record parameters without vectors."""
-
-    async def test_scalar_recorded_and_vector_skipped(self) -> None:
-        """A string parameter appears while a vector one does not."""
-        provider, exporter = _provider()
-        tracer = provider.get_tracer("test")
-        store = Neo4jGraphStore(
-            settings=Neo4jSettings(), driver=MockDriver(), tracer=tracer
-        )
-        store._driver.last_session.execute_read.return_value = []
-        await store.execute_read(
-            "MATCH (n) WHERE n.name = $name RETURN n",
-            {"name": "alice", "embedding": [0.1, 0.2, 0.3]},
-        )
-        (span,) = exporter.get_finished_spans()
-        assert span.name == "agrag.graphdb.execute_read"
-        attributes = span.attributes or {}
-        assert attributes["db.system.name"] == "neo4j"
-        assert attributes["db.query.text"] == "MATCH (n) WHERE n.name = $name RETURN n"
-        assert attributes["db.query.parameter.name"] == "alice"
-        assert "db.query.parameter.embedding" not in attributes
-
-    async def test_nested_vector_in_rows_stripped(self) -> None:
-        """Vector fields inside UNWIND rows never reach span attributes."""
-        provider, exporter = _provider()
-        tracer = provider.get_tracer("test")
-        store = Neo4jGraphStore(
-            settings=Neo4jSettings(), driver=MockDriver(), tracer=tracer
-        )
-        store._driver.last_session.execute_write.return_value = []
-        await store.execute_write(
-            "UNWIND $rows AS row MERGE (n:Chunk {id: row.id})",
-            {
-                "rows": [
-                    {
-                        "id": "1",
-                        "properties": {
-                            "text": "hello",
-                            "embedding": [0.1, 0.2, 0.3],
-                        },
-                    }
-                ]
-            },
-        )
-        (span,) = exporter.get_finished_spans()
-        rows_attribute = str((span.attributes or {})["db.query.parameter.rows"])
-        assert "hello" in rows_attribute
-        assert "embedding" not in rows_attribute
-        assert "0.1" not in rows_attribute

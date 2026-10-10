@@ -15,17 +15,14 @@ from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
 )
 
 from agrag.common.data_models.chunk import Chunk
-from agrag.common.data_models.community import Community
 from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.provenance import TextProvenance
 from agrag.common.data_models.query_value import QueryValue
 from agrag.common.data_models.relation import Relation
-from agrag.common.data_models.resolved_entity import ResolvedEntity
 from agrag.common.data_models.search_result import SearchResult
 from agrag.retrieval.filters import SearchFilters
 from agrag.retrieval.tracing import (
     MAX_DOCUMENT_ATTRIBUTES,
-    filters_json,
     record_results,
     result_text,
     retrieval_span,
@@ -80,36 +77,6 @@ def _relation_result() -> SearchResult:
     )
 
 
-def _resolved_result() -> SearchResult:
-    """Return one resolved-entity result."""
-    return SearchResult(
-        item=ResolvedEntity(
-            id=uuid4(),
-            name="Alice",
-            label="Person",
-            member_ids=[uuid4()],
-        ),
-        score=1.0,
-        method="entity",
-    )
-
-
-def _community_result() -> SearchResult:
-    """Return one community result."""
-    return SearchResult(
-        item=Community(
-            id=uuid4(),
-            title="C",
-            summary="a summary",
-            rating=7.0,
-            rating_explanation="well attested",
-            member_ids=[uuid4()],
-        ),
-        score=1.0,
-        method="community",
-    )
-
-
 def _query_value_result() -> SearchResult:
     """Return one scalar query-row result."""
     return SearchResult(item=QueryValue(value={"count": 3}), score=1.0, method="t2c")
@@ -118,54 +85,10 @@ def _query_value_result() -> SearchResult:
 class TestResultText:
     """result_text renders every item type."""
 
-    def test_entity_gives_embedding_text(self) -> None:
-        """An entity renders as its embedding text."""
-        result = _entity_result()
-        entity = result.item
-        assert result_text(result) == entity.embedding_text
-
-    def test_resolved_entity_gives_embedding_text(self) -> None:
-        """A resolved entity renders as its embedding text."""
-        result = _resolved_result()
-        resolved = result.item
-        assert result_text(result) == resolved.embedding_text
-
-    def test_community_gives_embedding_text(self) -> None:
-        """A community renders as its embedding text."""
-        result = _community_result()
-        community = result.item
-        assert result_text(result) == community.embedding_text
-
-    def test_chunk_gives_its_text(self) -> None:
-        """A chunk renders as its text."""
-        result = _chunk_result()
-        assert result_text(result) == "a passage of source text"
-
-    def test_relation_gives_type_source_target(self) -> None:
-        """A relation renders as TYPE(source_id, target_id)."""
-        result = _relation_result()
-        relation = result.item
-        assert result_text(result) == (
-            f"{relation.type}({relation.source_id}, {relation.target_id})"
-        )
-
     def test_query_value_gives_json(self) -> None:
         """A scalar query row renders as JSON."""
         result = _query_value_result()
         assert result_text(result) == '{"count": 3}'
-
-
-class TestFiltersJson:
-    """filters_json always returns a JSON scope."""
-
-    def test_none_gives_an_empty_scope(self) -> None:
-        """None becomes the empty scope's JSON."""
-        assert json.loads(filters_json(None)) == SearchFilters().model_dump()
-
-    def test_filters_round_trip(self) -> None:
-        """Filters round-trip through the JSON."""
-        filters = SearchFilters(labels=["Person"], document_ids=["d1"])
-        assert json.loads(filters_json(filters)) == filters.model_dump()
 
 
 class TestRecordResults:
@@ -246,20 +169,6 @@ class TestRecordResults:
             not in attributes
         )
 
-    async def test_five_hundred_results_record_in_full(self) -> None:
-        """A 500-result list records every id in the array attribute."""
-        provider, exporter = _provider()
-        tracer = provider.get_tracer("t")
-        results = [_entity_result(float(index)) for index in range(500)]
-        with retrieval_span(
-            tracer, "agrag.retrieval.entity", query="q", filters=None
-        ) as span:
-            record_results(span, results)
-
-        attributes = _single_span(exporter).attributes
-        assert attributes is not None
-        assert list(attributes["agrag.result_ids"]) == [str(r.item.id) for r in results]
-
     async def test_query_value_result_uses_its_own_id(self) -> None:
         """A QueryValue result records its own id and JSON text."""
         provider, exporter = _provider()
@@ -274,15 +183,6 @@ class TestRecordResults:
         assert attributes is not None
         assert list(attributes["agrag.result_ids"]) == [str(result.item.id)]
         assert list(attributes["agrag.result_texts"]) == ['{"count": 3}']
-
-    async def test_a_non_recording_span_is_a_no_op(self) -> None:
-        """Recording onto a host span that agrag did not open does nothing."""
-        provider, exporter = _provider()
-        tracer = provider.get_tracer("t")
-        with tracer.start_as_current_span("host"):
-            record_results(tracer.start_span("never"), [_entity_result()])
-
-        assert _single_span(exporter).name == "host"
 
 
 class TestRetrievalSpan:
@@ -323,18 +223,3 @@ class TestRetrievalSpan:
         attributes = _single_span(exporter).attributes
         assert attributes is not None
         assert json.loads(attributes["agrag.filters"]) == SearchFilters().model_dump()
-
-    async def test_tracer_none_under_a_host_span_leaves_it_untouched(self) -> None:
-        """A no-op tracer opens nothing and leaves the host span alone."""
-        provider, exporter = _provider()
-        tracer = provider.get_tracer("t")
-        with (
-            tracer.start_as_current_span("host"),
-            retrieval_span(None, "agrag.retrieval.chunk", query="q", filters=None),
-        ):
-            pass
-
-        span = _single_span(exporter)
-        assert span.name == "host"
-        assert span.parent is None
-        assert span.status.is_ok

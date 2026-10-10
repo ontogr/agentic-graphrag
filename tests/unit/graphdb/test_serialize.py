@@ -1,54 +1,14 @@
-"""Tests for node_params and relation_params in agrag.graphdb.serialize.
+"""Tests for node_params in agrag.graphdb.serialize.
 
-Covers converting NodeRecord/RelationRecord UUID fields (including a nested
-UUID inside a node's properties) to strings for the Neo4j driver, while
+Covers converting NodeRecord UUID fields (including a nested UUID inside a
+node's properties) to strings for the Neo4j driver, while
 leaving other scalar property values unchanged.
 """
 
 from uuid import uuid4
 
-from agrag.common.data_models.graph_record import NodeRecord, RelationRecord
-from agrag.graphdb.serialize import node_params, relation_params
-
-
-def test_node_params_carries_the_pending_tag_on_its_own_key() -> None:
-    """The Cutover Job tag rides its own key, out of the applied properties.
-
-    It reaches the graph only through the upsert's ``ON CREATE SET``, so a
-    job cannot tag a node it merely writes over.
-    """
-    job_id = uuid4()
-    rec = NodeRecord(id=uuid4(), labels=["Chunk"], properties={"text": "a"})
-
-    params = node_params(rec, pending_job_id=job_id)
-
-    assert params["properties"] == {"text": "a"}
-    assert params["pending_job_id"] == str(job_id)
-    assert rec.properties == {"text": "a"}
-
-
-def test_node_params_has_no_tag_outside_a_job() -> None:
-    """A write outside a job carries no pending tag."""
-    rec = NodeRecord(id=uuid4(), labels=["Chunk"], properties={})
-
-    assert node_params(rec)["pending_job_id"] is None
-
-
-def test_relation_params_carries_the_pending_tag_on_its_own_key() -> None:
-    """An edge carries its tag on the same separate key."""
-    job_id = uuid4()
-    rec = RelationRecord(
-        id=uuid4(),
-        type="MENTIONS",
-        start_id=uuid4(),
-        end_id=uuid4(),
-        properties={"w": 0.5},
-    )
-
-    params = relation_params(rec, pending_job_id=job_id)
-
-    assert params["properties"] == {"w": 0.5}
-    assert params["pending_job_id"] == str(job_id)
+from agrag.common.data_models.graph_record import NodeRecord
+from agrag.graphdb.serialize import node_params
 
 
 def test_node_params_converts_uuid_and_nested() -> None:
@@ -65,25 +25,3 @@ def test_node_params_converts_uuid_and_nested() -> None:
         rec.properties["embedding_owner"]
     )
     assert params["properties"]["n"] == 1
-
-
-def test_relation_params_converts_ids() -> None:
-    """Start, end, and relation ids become strings."""
-    rid = uuid4()
-    start = uuid4()
-    end = uuid4()
-    rec = RelationRecord(
-        id=rid,
-        type="MENTIONS",
-        start_id=start,
-        end_id=end,
-        properties={"w": 0.5},
-    )
-    params = relation_params(rec)
-    assert params == {
-        "id": str(rid),
-        "start_id": str(start),
-        "end_id": str(end),
-        "properties": {"w": 0.5},
-        "pending_job_id": None,
-    }

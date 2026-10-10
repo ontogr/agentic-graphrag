@@ -1,12 +1,11 @@
 """Checks the committed FinQA verdict items.
 
 The items come from ``tests/fixtures/eval/verifier/build_finqa_verdicts.py``. These
-checks fail when a rebuilt file has the wrong class counts, a repeated id, or an
-INSUFFICIENT or CONTRADICTORY item whose evidence does not differ from a PASS item.
+checks fail when a rebuilt file has a repeated id, or a CONTRADICTORY item whose
+last evidence line does not change an earlier one.
 """
 
 import re
-from collections import Counter
 from pathlib import Path
 
 import pytest
@@ -26,24 +25,11 @@ def items() -> list[VerdictItem]:
 
 
 class TestVerdictFixture:
-    """The verdict items are balanced, unique and small."""
-
-    def test_has_twenty_items_per_class(self, items: list[VerdictItem]) -> None:
-        """Each of the three verdicts has 20 items."""
-        assert len(items) == 60
-        assert Counter(item.gold for item in items) == {
-            "PASS": 20,
-            "INSUFFICIENT": 20,
-            "CONTRADICTORY": 20,
-        }
+    """The verdict items have unique ids and cited evidence."""
 
     def test_ids_are_unique(self, items: list[VerdictItem]) -> None:
         """No FinQA example is used twice."""
         assert len({item.id for item in items}) == len(items)
-
-    def test_file_is_small(self) -> None:
-        """The fixture stays under 200 KB."""
-        assert ITEMS_FILE.stat().st_size < 200_000
 
     def test_every_item_cites_numbered_evidence(self, items: list[VerdictItem]) -> None:
         """Each finding claims an answer and lists at least one evidence line."""

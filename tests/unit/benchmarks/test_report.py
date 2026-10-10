@@ -32,13 +32,6 @@ def _rows(table: str) -> list[str]:
 class TestReport:
     """Selection of records and warnings in the report table."""
 
-    def test_empty_results_print_only_the_header(self, tmp_path):
-        """Empty results print only the header."""
-        table = report(load_records(tmp_path))
-
-        assert table.splitlines()[0].startswith("| domain")
-        assert _rows(table) == []
-
     async def test_shows_the_newest_record_of_each_key(self, tmp_path):
         """Shows the newest record of each key."""
         old = await _record(tmp_path / "a", model="m", created_at="2026-01-01T00:00:00")

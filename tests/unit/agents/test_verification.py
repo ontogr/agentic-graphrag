@@ -1,4 +1,4 @@
-"""Validate verdict statuses and evidence defaults for verifier responses."""
+"""Validate verdict statuses and the verifier's model calls."""
 
 from typing import Any
 
@@ -61,14 +61,6 @@ def _verdict_call(status: str = "PASS") -> AIMessage:
 class TestVerificationResult:
     """VerificationResult validates its status literal."""
 
-    @pytest.mark.parametrize("status", ["PASS", "INSUFFICIENT", "CONTRADICTORY"])
-    def test_valid_status_values_accepted(self, status: str) -> None:
-        """Each documented verdict constructs."""
-        result = VerificationResult(
-            reasoning="checked every sub-question", status=status
-        )
-        assert result.status == status
-
     def test_invalid_status_rejected(self) -> None:
         """A value outside the three literals is a validation error."""
         data: dict[str, Any] = {
@@ -97,16 +89,6 @@ class TestVerifyFindings:
         assert isinstance(user, HumanMessage)
         for part in ("Q-main?", "1. sub one", "2. sub two", "[E1] finding text"):
             assert part in user.content
-
-    async def test_model_must_answer_through_the_verdict_tool(self) -> None:
-        """Only the verdict tool is bound, and the model must call a tool."""
-        model = _ScriptedModel(reply=_verdict_call())
-
-        await verify_findings(model, "q", [], "f")
-
-        tools, options = model.bound_tools
-        assert [tool.name for tool in tools] == ["VerificationResult"]
-        assert options["tool_choice"] == "any"
 
     async def test_model_error_propagates(self) -> None:
         """A failing model call raises; no default verdict is invented."""

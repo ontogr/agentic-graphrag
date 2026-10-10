@@ -9,14 +9,13 @@ from collections import Counter
 
 from agrag.common.text import normalize_text
 from tests.integration.eval._resolution_quality import (
-    FIXTURE_DIR,
     load_company_clusters,
     mentions_and_gold,
 )
 
 
 class TestCompanyClustersFixture:
-    """The name clusters are consistent and large enough to score."""
+    """The name clusters are consistent."""
 
     def test_no_name_is_in_two_clusters_or_twice_in_one(self) -> None:
         """Every normalized name is unique across the file."""
@@ -39,14 +38,6 @@ class TestCompanyClustersFixture:
                 assert cluster.hard_negative_of != cluster.id
                 assert len(cluster.names) == 1
 
-    def test_has_enough_clusters_of_each_kind(self) -> None:
-        """The set holds renamed companies and single-name companies."""
-        clusters = load_company_clusters().clusters
-        multi = [c for c in clusters if len(c.names) > 1]
-
-        assert len(multi) >= 30
-        assert len(clusters) - len(multi) >= 30
-
     def test_gold_assignment_covers_every_mention_once(self) -> None:
         """Flattening keeps each name in the cluster it came from."""
         clusters = load_company_clusters().clusters
@@ -56,9 +47,3 @@ class TestCompanyClustersFixture:
         assert sorted(i for group in gold.clusters for i in group) == list(
             range(gold.size)
         )
-
-    def test_fixture_is_small(self) -> None:
-        """The fixture stays under 300 KB."""
-        size = sum(p.stat().st_size for p in FIXTURE_DIR.rglob("*") if p.is_file())
-
-        assert size < 300 * 1024

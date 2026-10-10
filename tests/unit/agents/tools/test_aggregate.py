@@ -12,27 +12,9 @@ from agrag.agents.tools.aggregate import compute_over_evidence
 class TestComputeOverEvidence:
     """compute_over_evidence does exact arithmetic on supplied numbers."""
 
-    def test_count_ignores_value_contents(self) -> None:
-        """Count reports how many values there are, not what they are."""
-        assert (
-            compute_over_evidence.invoke(
-                {"operation": "count", "values": [99.0, -1.5, 0.0]}
-            )
-            == "3"
-        )
-
     def test_count_of_nothing(self) -> None:
         """An empty list counts as zero."""
         assert compute_over_evidence.invoke({"operation": "count", "values": []}) == "0"
-
-    def test_sum(self) -> None:
-        """Sum adds the values."""
-        assert (
-            compute_over_evidence.invoke(
-                {"operation": "sum", "values": [1.5, 2.0, 0.5]}
-            )
-            == "4"
-        )
 
     def test_sum_avoids_floating_point_noise(self) -> None:
         """Sum of 0.1 and 0.2 reads as 0.3, not 0.30000000000000004."""
