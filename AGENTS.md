@@ -38,6 +38,7 @@ support can open `.claude/skills/<name>/SKILL.md` directly.
 
 | When you are doing... | Use |
 | --- | --- |
+| Drafting or revising prose, including replies, instruction files, docs, comments, docstrings, commits, and PRs | `writing-plain` plus the relevant task skill |
 | Adding or changing tests | `writing-tests` |
 | Adding or updating docstrings or comments | `writing-docstrings` |
 | Writing docs pages or user-facing Markdown or MDX | `writing-diataxis-docs` |
@@ -48,6 +49,8 @@ For setup, contribution, PR, or broader project commands, read @CONTRIBUTING.md.
 The Pre-1.0 policy above overrides every skill. Where this file and a skill
 overlap, the skill is authoritative. More specific task instructions control
 implementation details.
+
+For prose style, `writing-plain` is authoritative. Its docwriter rules take precedence over its STE guidance. Task skills govern technical content, structure, and required formatting, not competing prose styles. Preserve technical meaning, uncertainty, and requirement strength, and apply the shared skill's scope and format exceptions.
 
 ## Repository structure
 
@@ -285,20 +288,16 @@ errors.
   as a first resort.
 - Do not add helper abstractions solely to satisfy the type checker.
 
-## Writing Style
+## Writing style
 
-- Never use a metaphor, simile, or other figure of speech which you are used to seeing in print.
-- Never use a long word where a short one will do.
-- If it is possible to cut a word out, always cut it out.
-- Never use the passive where you can use the active.
-- Never use a foreign phrase, a scientific word, or a jargon word if you can think of an everyday English equivalent.
-- Break any of these rules sooner than say anything outright barbarous.
-- Use the ASD-STE100 Simplified Technical English (STE) standard writing style.
+Use the `writing-plain` skill before drafting or revising prose. Write literal explanations with familiar words and precise technical terms. Keep necessary facts and qualifications. The shared skill combines plain-writing rules with compatible STE guidance; it does not claim ASD-STE100 compliance.
 
 ## Docstrings and comments
 
 Use the `writing-docstrings` skill before adding or changing docstrings or
 comments.
+
+Google style governs docstring structure and formatting; `writing-plain` governs prose.
 
 - Use Google-style docstrings with triple double quotes.
 - Start every docstring with a one-line summary ending in punctuation.
@@ -433,7 +432,7 @@ Use judgment based on scope, but default to these artifacts.
 
 ### Documentation-only changes
 
-- Follow the `writing-diataxis-docs` skill.
+- Follow `writing-plain` for prose and instruction files. Also use `writing-diataxis-docs` for user-facing documentation pages.
 - Be concrete and concise. Include examples, command invocations, data formats,
   or short flows when they make behavior easier to understand.
 - Explain the why behind non-obvious design decisions and tradeoffs.

@@ -3,10 +3,9 @@ name: writing-docstrings
 description: Google-style docstring and comment rules. Use when adding or changing docstrings or comments in Python code or test modules.
 ---
 
-# Google Style Docstrings And Comments
+# Google-style docstrings and comments
 
-Use the Google Python Style Guide as the governing policy for docstrings and
-use the examples below as the preferred local formatting examples.
+Use the Google Python Style Guide for docstring structure, API coverage, and formatting. Use the examples below as the preferred local formatting examples. Use [writing-plain](../writing-plain/SKILL.md) for prose style, including its exceptions for concise summaries and field entries.
 
 Diátaxis is primarily for docs pages. For docstrings, apply only the lightweight
 version below: prefer precise reference-style API facts, with brief explanation
@@ -31,11 +30,10 @@ or examples only when they help the caller use the API correctly.
 - Document call semantics and caller-visible side effects, not implementation
   details. Put implementation notes in comments near the code.
 - Explain purpose, behavior, edge cases, and constraints. Do not restate the
-  function, class, or parameter names in prose.
+  names as their descriptions. Repeat API or parameter names when needed to remove ambiguity.
 - Keep docstrings synchronized with code changes. Update docstrings whenever a
   code change makes existing documentation stale.
-- If a docstring exceeds the 88-character line limit, rewrite it concisely. Do
-  not truncate text or wrap awkwardly mid-phrase.
+- Keep each physical line within 88 characters. Wrap longer descriptions naturally without dropping necessary facts. Keep the summary on one line as required above.
 - Use either descriptive style (`"""Fetches rows."""`) or imperative style
   (`"""Fetch rows."""`) consistently within a file.
 
