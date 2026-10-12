@@ -99,7 +99,7 @@ Leiden clustering groups related entities into communities. `Graph.detect_commun
 
 Load OWL and RDFS Turtle ontologies with `load_schema("ontology.ttl")` after installing the `schema-formats` extra. See the [OWL and RDFS Turtle import reference](https://ontogr.github.io/agentic-graphrag/stable/reference/owl-import).
 
-Use the `GENERIC` preset for open-domain data or provide a schema for a specific domain. The same schema guides extraction, validation, resolution, storage, and query generation.
+Use `DEFAULT_SCHEMA` for general text or provide a schema for a specific domain. Add a preset such as `OPERATIONS` for more types. The same schema guides extraction, validation, resolution, storage, and query generation.
 
 ## Architecture
 

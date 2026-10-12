@@ -1,30 +1,4 @@
-"""Errors and results for schema format importers."""
-
-from dataclasses import dataclass
-from dataclasses import field as dataclass_field
-
-from agrag.common.data_models.graph_schema import GraphSchema
-
-
-@dataclass(frozen=True, slots=True)
-class FormatWarning:
-    """One lossy or unsupported construct found in an imported format."""
-
-    code: str
-    element: str
-    message: str
-
-    def __str__(self) -> str:
-        """Format the warning for logs and command-line output."""
-        return f"{self.code} [{self.element}]: {self.message}"
-
-
-@dataclass(frozen=True, slots=True)
-class ImportResult:
-    """A validated schema and the warnings produced while importing it."""
-
-    schema: GraphSchema
-    warnings: list[FormatWarning] = dataclass_field(default_factory=list)
+"""Errors raised by schema format importers."""
 
 
 class SchemaFormatError(ValueError):

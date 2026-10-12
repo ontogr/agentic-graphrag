@@ -5,9 +5,10 @@ import json
 import logging
 from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Any, NamedTuple
+from typing import Any, NamedTuple, cast
 
 import yaml
+from pydantic import BaseModel
 
 from agrag.common.data_models.graph_schema import (
     Cardinality,
@@ -32,7 +33,9 @@ from agrag.schema.shorthand import (
 
 logger = logging.getLogger(__name__)
 
-SchemaSource = GraphSchema | Mapping[str, Any] | Sequence[Any] | Path | str
+SchemaSource = (
+    GraphSchema | Mapping[str, Any] | Sequence[Any] | type[BaseModel] | Path | str
+)
 
 DEFAULT_NAME = "custom"
 DEFAULT_VERSION = "1"
@@ -131,9 +134,17 @@ def _from_parsed(parsed: object, name: str, origin: str | None) -> _Raw:
     )
 
 
-def _read_source(source: SchemaSource) -> GraphSchema | _Raw:
+def _read_source(source: SchemaSource) -> GraphSchema | _Raw:  # noqa: PLR0911
     if isinstance(source, GraphSchema):
         return source
+    # The format modules import this package, so the import runs at call time.
+    from agrag.schema.formats.dispatch import (  # noqa: PLC0415
+        is_model_source,
+        read_models,
+    )
+
+    if is_model_source(source):
+        return read_models(source)
     if isinstance(source, Mapping):
         return _Raw(dict(source), DEFAULT_NAME, None)
     if isinstance(source, str):
@@ -605,6 +616,10 @@ def _pick_extends(
         chosen, (GraphSchema, Mapping, Sequence, Path, str)
     ):
         return chosen
+    from agrag.schema.formats.dispatch import is_model_source  # noqa: PLC0415
+
+    if is_model_source(chosen):
+        return cast(SchemaSource, chosen)
     issues.add(
         "extends",
         f"extends must be a name, a path or a schema, got {describe(chosen)}.",
@@ -708,8 +723,9 @@ def load_schema(
 
     ``source`` may be a ``GraphSchema``, a dict, a list of entity labels and
     relations, JSON text, a path to a ``.json``, ``.yaml``, ``.yml`` or
-    ``.ttl`` file, or the name of a shipped schema. Turtle import needs the
-    optional ``schema-formats`` extra. Shorthand is accepted at every level. The
+    ``.ttl`` file, a Pydantic class or a list of Pydantic classes, or the name
+    of a shipped schema. Turtle import needs the optional ``schema-formats``
+    extra. Shorthand is accepted at every level. The
     result is always the canonical ``GraphSchema``.
 
     A schema with no ``extends`` stands alone and replaces the default schema.

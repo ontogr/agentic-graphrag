@@ -15,12 +15,12 @@ from uuid import UUID, uuid4
 
 import pytest
 
+from agrag.common.data_models.default_schema import DEFAULT_SCHEMA
 from agrag.common.data_models.graph_record import (
     NodeRecord,
     RelationRecord,
     UpsertResult,
 )
-from agrag.common.data_models.graph_schema import GENERIC
 from agrag.common.data_models.vector_record import Distance, VectorHit
 from agrag.embedding.base import Embedder
 from agrag.graphdb.base import GraphStore
@@ -194,7 +194,7 @@ def _edge_row(match_id: UUID, first: UUID, second: UUID) -> dict[str, Any]:
 def _graph(store: _ScriptedStore) -> Graph:
     """Build a Graph over the scripted store and one-hot embedder."""
     return Graph(
-        schema=GENERIC,
+        schema=DEFAULT_SCHEMA,
         graph_store=store,
         embedder=_OneHotEmbedder(),
         extractor=MagicMock(),

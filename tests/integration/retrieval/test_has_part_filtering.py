@@ -14,9 +14,10 @@ from uuid import uuid4
 import pytest
 
 from agrag.common.data_models.chunk import Chunk
+from agrag.common.data_models.default_schema import DEFAULT_SCHEMA
 from agrag.common.data_models.document import Document, DocumentFamily, SourceFormat
 from agrag.common.data_models.extraction import ExtractedEntity, ExtractionResult
-from agrag.common.data_models.graph_schema import GENERIC, GraphSchema
+from agrag.common.data_models.graph_schema import GraphSchema
 from agrag.common.data_models.provenance import TextProvenance
 from agrag.cypher.entities import load_chunks_by_id_query
 from agrag.cypher.relations import entities_in_documents_query
@@ -122,7 +123,7 @@ class TestHasPartFiltering:
         await store.connect()
         probe_name = f"Zzxqy Filterprobe {uuid4().hex[:8]}"
         graph = await Graph.open(
-            schema=GENERIC,
+            schema=DEFAULT_SCHEMA,
             graph_store=store,
             embedder=_FixedEmbedder(),
             extractor=_KeywordExtractor(probe_name),

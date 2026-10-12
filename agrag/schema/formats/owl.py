@@ -6,11 +6,10 @@ from pathlib import Path
 from typing import Any
 
 from agrag.schema.formats.errors import (
-    FormatWarning,
-    ImportResult,
     SchemaFormatError,
     SchemaFormatMissingExtraError,
 )
+from agrag.schema.formats.result import FormatWarning, ImportResult
 
 
 _EXTRA = "schema-formats"

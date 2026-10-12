@@ -17,18 +17,18 @@ pip install 'agentic-graphrag[neo4j,extract]'
 pip install 'agentic-graphrag[agents]'
 ```
 
-Each code block on this page is complete. It opens a graph with the `GENERIC` schema, adds two sentences, and closes the graph at the end. The agent examples read `LLM_BASE_URL`, `LLM_MODEL_ID`, and `LLM_API_KEY` from the environment or from `.env`.
+Each code block on this page is complete. It opens a graph with `DEFAULT_SCHEMA`, adds two sentences, and closes the graph at the end. The agent examples read `LLM_BASE_URL`, `LLM_MODEL_ID`, and `LLM_API_KEY` from the environment or from `.env`.
 
 ## Direct SearchEngine Usage
 
-`SearchEngine` searches entity labels that exist in your graph. The example below ingests its data with the `GENERIC` schema, so `GENERIC` labels match. If you ingested with another schema, pass that schema's labels in `entity_labels`.
+`SearchEngine` searches entity labels that exist in your graph. The example below ingests its data with `DEFAULT_SCHEMA`, so its labels match. If you ingested with another schema, pass that schema's labels in `entity_labels`.
 
 ```python
 import asyncio
 
 from agrag.retrieval.recipes import HYBRID
 from agrag.retrieval.search_engine import SearchEngine
-from agrag.common.data_models.graph_schema import GENERIC
+from agrag.common.data_models import DEFAULT_SCHEMA
 from agrag.embedding import build_embedder
 from agrag.graphdb import build_graph_store
 from agrag.ingestion import Graph
@@ -39,7 +39,7 @@ async def main() -> None:
     graph_store = build_graph_store("neo4j")
     embedder = build_embedder("ibm-granite/granite-embedding-small-english-r2")
     graph = await Graph.open(
-        schema=GENERIC,
+        schema=DEFAULT_SCHEMA,
         graph_store=graph_store,
         embedder=embedder,
         extractor=GlinerExtractor(),
@@ -49,7 +49,7 @@ async def main() -> None:
         engine = SearchEngine(
             graph_store=graph_store,
             embedder=embedder,
-            entity_labels=[entity.label for entity in GENERIC.entities],
+            entity_labels=[entity.label for entity in DEFAULT_SCHEMA.entities],
         )
 
         results = await engine.search("What treats headaches?", HYBRID)
@@ -73,7 +73,7 @@ import asyncio
 from agrag.agents.build import build_agent
 from agrag.agents.settings import AgentLLMSettings
 from agrag.retrieval.search_engine import SearchEngine
-from agrag.common.data_models.graph_schema import GENERIC
+from agrag.common.data_models import DEFAULT_SCHEMA
 from agrag.embedding import build_embedder
 from agrag.graphdb import build_graph_store
 from agrag.ingestion import Graph
@@ -84,7 +84,7 @@ async def main() -> None:
     graph_store = build_graph_store("neo4j")
     embedder = build_embedder("ibm-granite/granite-embedding-small-english-r2")
     graph = await Graph.open(
-        schema=GENERIC,
+        schema=DEFAULT_SCHEMA,
         graph_store=graph_store,
         embedder=embedder,
         extractor=GlinerExtractor(),
@@ -96,7 +96,7 @@ async def main() -> None:
         agent = build_agent(
             engine=engine,
             llm_settings=AgentLLMSettings.from_openai_compatible_env(),
-            graph_schema=GENERIC,
+            graph_schema=DEFAULT_SCHEMA,
         )
 
         result = await agent.ainvoke({
@@ -116,7 +116,7 @@ asyncio.run(main())
 
 `result["ledger"]` holds the citation keys the agent assigned during the run. Call `result["ledger"].resolve("C1")` to get the `SearchResult` behind a key in the answer. It returns `None` for a key the run never assigned. Each call to `ainvoke` returns a new ledger.
 
-The deep-agent path returns LangChain message objects, so the last message's text is `.content`. The optional-dependency fallback returns dictionaries, as shown above. `graph_schema` tells the researcher's prompt and the generated-query tool which labels and relationship types the graph uses. Omit it to use the engine's own schema, which falls back to `GENERIC` when the engine was built without one. If you pass a schema that differs from the engine's schema, `build_agent` raises `ValueError`. The prompt can never describe a graph that the engine does not search.
+The deep-agent path returns LangChain message objects, so the last message's text is `.content`. The optional-dependency fallback returns dictionaries, as shown above. `graph_schema` tells the researcher's prompt and the generated-query tool which labels and relationship types the graph uses. Omit it to use the engine's own schema, which falls back to `DEFAULT_SCHEMA` when the engine was built without one. If you pass a schema that differs from the engine's schema, `build_agent` raises `ValueError`. The prompt can never describe a graph that the engine does not search.
 
 ### Scoping agent retrieval
 
@@ -132,7 +132,7 @@ from agrag.agents.build import build_agent
 from agrag.agents.settings import AgentLLMSettings
 from agrag.retrieval.filters import SearchFilters
 from agrag.retrieval.search_engine import SearchEngine
-from agrag.common.data_models.graph_schema import GENERIC
+from agrag.common.data_models import DEFAULT_SCHEMA
 from agrag.embedding import build_embedder
 from agrag.graphdb import build_graph_store
 from agrag.ingestion import Graph
@@ -143,7 +143,7 @@ async def main() -> None:
     graph_store = build_graph_store("neo4j")
     embedder = build_embedder("ibm-granite/granite-embedding-small-english-r2")
     graph = await Graph.open(
-        schema=GENERIC,
+        schema=DEFAULT_SCHEMA,
         graph_store=graph_store,
         embedder=embedder,
         extractor=GlinerExtractor(),

@@ -34,8 +34,9 @@ from agrag.agents.ledger import Ledger
 from agrag.agents.middleware import ResearchAttemptLimiter
 from agrag.agents.settings import AgentLLMSettings, AgentSettings
 from agrag.common.data_models.chunk import Chunk
+from agrag.common.data_models.default_schema import DEFAULT_SCHEMA
 from agrag.common.data_models.entity import Entity
-from agrag.common.data_models.graph_schema import GENERIC, GraphSchema
+from agrag.common.data_models.graph_schema import GraphSchema
 from agrag.common.data_models.provenance import TextProvenance
 from agrag.common.data_models.search_result import SearchResult
 from agrag.llm.client_config import LLMClientConfig
@@ -77,7 +78,7 @@ def _engine() -> MagicMock:
     """Return a mock engine whose schema property resolves."""
     engine = MagicMock()
     engine.search = AsyncMock(return_value=[])
-    engine.graph_schema = GENERIC
+    engine.graph_schema = DEFAULT_SCHEMA
     return engine
 
 
