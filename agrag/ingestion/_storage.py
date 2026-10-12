@@ -204,7 +204,7 @@ class NodeStageResult:
         nodes_written: The nodes the store reports as written by all writes.
         record_failures: Chunks whose node record could not be built.
         node_failures: The failures of the Chunk, structure and Document writes.
-        structure_relation_records: The PART_OF and NEXT_CHUNK edges of this
+        structure_relation_records: The HAS_PART and NEXT_CHUNK edges of this
             batch. They are written with the domain relations.
         structure_node_ids: The Section, Table and Figure ids of this batch.
     """

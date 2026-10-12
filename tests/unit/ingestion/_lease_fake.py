@@ -22,26 +22,26 @@ from agrag.cypher.cutover_job_write import (
     start_cleaning_query,
     steal_expired_lease_query,
 )
-from agrag.cypher.relations import close_part_of_query
+from agrag.cypher.relations import close_has_part_query
 
 
 class CutoverJobLeaseFake:
     """Mixin adding the Cutover Job query contracts to a fake store.
 
     Attributes:
-        closed_part_of_edges: The count the PART_OF close reports, so a
+        closed_has_part_edges: The count the HAS_PART close reports, so a
             test can assert the number of superseded document edges
             without standing up a graph.
         persisted_jobs: The job table, keyed by document_key.
     """
 
-    closed_part_of_edges: int
+    closed_has_part_edges: int
     persisted_jobs: dict[str, dict[str, Any]]
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         """Create the mixin's job table before the wrapped store's init."""
         self.persisted_jobs = {}
-        self.closed_part_of_edges = 0
+        self.closed_has_part_edges = 0
         super().__init__(*args, **kwargs)
 
     @property
@@ -83,7 +83,7 @@ class CutoverJobLeaseFake:
             claim_job_query(): self._claim,
             clear_pending_tag_query(): self._clear_tags,
             rollback_job_query(): self._rollback,
-            close_part_of_query(): self._close_part_of,
+            close_has_part_query(): self._close_has_part,
         }
 
     def _acquire(self, params: dict[str, Any]) -> list[dict[str, Any]]:
@@ -127,11 +127,11 @@ class CutoverJobLeaseFake:
                 job["status"] = "rolled_back"
         return [{"deleted_nodes": 0, "deleted_relationships": 0}]
 
-    def _close_part_of(self, params: dict[str, Any]) -> list[dict[str, Any]]:
+    def _close_has_part(self, params: dict[str, Any]) -> list[dict[str, Any]]:
         """Report the configured superseded-edge count."""
         del params
         # A fake whose __init__ skipped the mixin's has no count yet.
-        return [{"closed": getattr(self, "closed_part_of_edges", 0)}]
+        return [{"closed": getattr(self, "closed_has_part_edges", 0)}]
 
     def _steal(self, params: dict[str, Any]) -> list[dict[str, Any]]:
         """Take over a job only when its lease lapsed or it went terminal.

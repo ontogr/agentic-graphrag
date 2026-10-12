@@ -572,6 +572,20 @@ class TestTraversalIntegration:
 
         assert [result.item.id for result in inward] == [person.id]
 
+    async def test_default_traversal_and_listing_include_part_of(self) -> None:
+        """A domain PART_OF edge appears in default traversal and type listings."""
+        component = await self._write_entity(self.person_label, "Component")
+        assembly = await self._write_entity(self.org_label, "Assembly")
+        await self._write_relation("PART_OF", component.id, assembly.id)
+
+        neighbours = await self.engine.traverse(await self._resolved_seed("Component"))
+        relation_types = await self.engine.list_relationship_types(
+            await self._resolved_seed("Component")
+        )
+
+        assert [result.item.id for result in neighbours] == [assembly.id]
+        assert sorted(relation_types) == ["PART_OF"]
+
     async def test_direction_is_not_ignored(self) -> None:
         """Reversing the direction on either endpoint finds nothing."""
         person = await self._write_entity(self.person_label, "Ada")

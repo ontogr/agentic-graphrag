@@ -201,7 +201,7 @@ async def _remove_created(store: GraphStore, env: _Env) -> None:
     params = {"prefix": str(env.root)}
     await store.execute_write(
         f"MATCH (d:{DOCUMENT_LABEL}) WHERE d.uri STARTS WITH $prefix "
-        f"OPTIONAL MATCH (c:{CHUNK_LABEL})-[:PART_OF]-(d) DETACH DELETE c, d",
+        f"OPTIONAL MATCH (c:{CHUNK_LABEL})-[:HAS_PART]-(d) DETACH DELETE c, d",
         params,
     )
     await store.execute_write(
@@ -261,7 +261,7 @@ async def env(tmp_path: Path) -> AsyncGenerator[_Env, None]:
 async def _document_rows(env: _Env) -> list[dict]:
     """Return one row per chunk stored for this test's documents, in stable order."""
     return await env.store.execute_read(
-        f"MATCH (c:{CHUNK_LABEL})-[:PART_OF]-(d:{DOCUMENT_LABEL}) "
+        f"MATCH (c:{CHUNK_LABEL})-[:HAS_PART]-(d:{DOCUMENT_LABEL}) "
         "WHERE d.uri STARTS WITH $prefix "
         "RETURN d.document_key AS key, d.title AS title, c.text AS text "
         "ORDER BY key",

@@ -1,7 +1,7 @@
 """Tests that graph-reading queries leave the document structure out.
 
 Communities and neighbor search read the entity graph. The Section tree, the
-``PART_OF`` edges and the record sources are not part of it.
+``HAS_PART`` edges and the record sources are not part of it.
 """
 
 import pytest
@@ -14,7 +14,7 @@ from agrag.cypher.relations import (
 )
 
 
-STRUCTURE_TYPES = ("PART_OF", "HAS_CHILD", "HAS_DOCUMENT", "MENTIONED_IN", "MEMBER_OF")
+STRUCTURE_TYPES = ("HAS_PART", "HAS_CHILD", "HAS_DOCUMENT", "MENTIONED_IN", "MEMBER_OF")
 
 
 class TestRelationListings:

@@ -18,7 +18,7 @@ from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.extraction import ExtractedEntity, ExtractedRelation
 from agrag.common.data_models.provenance import TextProvenance
 from agrag.common.data_models.stage_failure import StageFailure
-from agrag.common.data_models.structure import HAS_CHILD, HAS_DOCUMENT
+from agrag.common.data_models.structure import HAS_CHILD, HAS_DOCUMENT, HAS_PART
 from agrag.common.text import normalize_text
 from agrag.cypher.entities import fetch_by_merge_keys_query
 from agrag.embedding.base import Embedder
@@ -52,7 +52,7 @@ from agrag.vectordb.base import VectorStore
 SYSTEM_RELATION_TYPES = [
     "MENTIONED_IN",
     MEMBER_OF_RELATION,
-    "PART_OF",
+    HAS_PART,
     "NEXT_CHUNK",
     HAS_CHILD,
     HAS_DOCUMENT,

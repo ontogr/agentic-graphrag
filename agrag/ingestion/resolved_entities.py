@@ -553,7 +553,7 @@ async def prune_orphaned_entities(
 ) -> PruningResult:
     """Delete candidates with no open-chunk evidence and rebuild clusters.
 
-    A candidate mentioned by any chunk with an open PART_OF edge keeps its
+    A candidate mentioned by any chunk with an open HAS_PART edge keeps its
     node. Any other candidate loses its node with its incident MENTIONED_IN
     and RESOLVED_AS edges; each affected cluster is then recomputed over
     its remaining members, or deleted when fewer than two remain and the

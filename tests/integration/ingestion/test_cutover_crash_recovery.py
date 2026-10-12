@@ -173,7 +173,7 @@ def _die_after_pending_writes(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 async def _graph_state(store: GraphStore, key: str) -> dict[str, Any]:
-    """Return one document's Document and Chunk nodes, plus their PART_OF edges.
+    """Return one document's Document and Chunk nodes, plus their HAS_PART edges.
 
     Scoped to a single document key rather than the whole store: these
     tests run alongside others against the same shared Neo4j instance, so
@@ -184,7 +184,7 @@ async def _graph_state(store: GraphStore, key: str) -> dict[str, Any]:
     """
     nodes = await store.execute_read(
         "OPTIONAL MATCH (d:Document {document_key: $key}) "
-        "OPTIONAL MATCH (d)-[:PART_OF]->(c:Chunk) "
+        "OPTIONAL MATCH (d)-[:HAS_PART]->(c:Chunk) "
         "WITH collect(DISTINCT d) + collect(DISTINCT c) AS ns "
         "UNWIND ns AS n WITH DISTINCT n WHERE n IS NOT NULL "
         "RETURN n.id AS id, labels(n) AS labels, properties(n) AS properties "
@@ -192,7 +192,7 @@ async def _graph_state(store: GraphStore, key: str) -> dict[str, Any]:
         {"key": key},
     )
     relations = await store.execute_read(
-        "MATCH (d:Document {document_key: $key})-[r:PART_OF]->(c:Chunk) "
+        "MATCH (d:Document {document_key: $key})-[r:HAS_PART]->(c:Chunk) "
         "RETURN d.id AS start_id, c.id AS end_id, type(r) AS type, "
         "properties(r) AS properties ORDER BY d.id, c.id",
         {"key": key},
@@ -234,7 +234,7 @@ async def _age_lease(store: GraphStore, key: str) -> None:
 async def _open_chunk_ids(store: GraphStore, key: str) -> set[str]:
     """Return the ids of the chunks the document's current version holds."""
     rows = await store.execute_read(
-        "MATCH (:Document {document_key: $key})-[r:PART_OF]->(c:Chunk) "
+        "MATCH (:Document {document_key: $key})-[r:HAS_PART]->(c:Chunk) "
         "WHERE r.invalid_at IS NULL RETURN collect(c.id) AS ids",
         {"key": key},
     )
@@ -257,7 +257,7 @@ async def _cleanup(store: GraphStore, key: str, probe_name: str | None) -> None:
     )
     await store.execute_write(
         "MATCH (d:Document {document_key: $key}) "
-        "OPTIONAL MATCH (d)-[:PART_OF]->(c:Chunk) "
+        "OPTIONAL MATCH (d)-[:HAS_PART]->(c:Chunk) "
         "DETACH DELETE d, c",
         {"key": key},
     )
@@ -436,7 +436,7 @@ class TestCrashBeforeCommit:
     ) -> None:
         """An interrupted update leaves the current version and its entity.
 
-        The job wrote new chunks and a new PART_OF version, and also wrote
+        The job wrote new chunks and a new HAS_PART version, and also wrote
         over the existing Document node. Rollback may only delete what the
         job created: the Document node and the entity the current version
         mentions both predate the call and must survive it.

@@ -89,7 +89,7 @@ async def test_open_and_add_log_no_server_notifications(
     finally:
         try:
             await store.execute_write(
-                "MATCH (d:Document)-[:PART_OF]->(:Chunk)-[:MENTIONED_IN]->"
+                "MATCH (d:Document)-[:HAS_PART]->(:Chunk)-[:MENTIONED_IN]->"
                 f"(:{label}) DETACH DELETE d"
             )
             await store.execute_write(

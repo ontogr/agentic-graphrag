@@ -29,7 +29,7 @@ from agrag.cypher.cutover_job_write import (
     start_cleaning_query,
     steal_expired_lease_query,
 )
-from agrag.cypher.relations import close_part_of_query
+from agrag.cypher.relations import close_has_part_query
 from agrag.ingestion._cutover import (
     CutoverJobLeaseError,
     run_cutover_job,
@@ -185,7 +185,7 @@ class _FakeCutoverStore:
                 self, query: str, parameters: dict[str, Any] | None = None
             ) -> list[dict[str, Any]]:
                 runner.transactions[-1].append((query, parameters or {}))
-                if query == close_part_of_query():
+                if query == close_has_part_query():
                     return [{"closed": 0}]
                 return await runner.execute_write(query, parameters)
 
@@ -219,7 +219,7 @@ class _CommitBlockingStore(_FakeCutoverStore):
                 self, query: str, parameters: dict[str, Any] | None = None
             ) -> list[dict[str, Any]]:
                 runner.transactions[-1].append((query, parameters or {}))
-                if query == close_part_of_query():
+                if query == close_has_part_query():
                     return [{"closed": 0}]
                 return await runner.execute_write(query, parameters)
 

@@ -1,5 +1,6 @@
 """Cypher reads for persisted Document nodes."""
 
+from agrag.common.data_models.structure import HAS_PART
 from agrag.cypher._pending_filter import pending_filter_clause
 from agrag.cypher.entities import NODE_IDENTITY_LABEL
 
@@ -22,7 +23,7 @@ def find_document_query() -> str:
 def current_chunker_hash_query() -> str:
     """Build Cypher reading the chunker fingerprint of a document's chunks.
 
-    Follows only open ``PART_OF`` edges to committed chunks, so a version a
+    Follows only open ``HAS_PART`` edges to committed chunks, so a version a
     pending job wrote is never read as the current one.
 
     Returns:
@@ -31,7 +32,7 @@ def current_chunker_hash_query() -> str:
     """
     return (
         f"MATCH (d:{NODE_IDENTITY_LABEL}:Document {{document_key: $document_key}})"
-        f"-[p:PART_OF]->(c:{NODE_IDENTITY_LABEL}:Chunk) "
+        f"-[p:{HAS_PART}]->(c:{NODE_IDENTITY_LABEL}:Chunk) "
         f"WHERE p.invalid_at IS NULL AND {pending_filter_clause('p')} "
         f"AND {pending_filter_clause('c')} "
         "RETURN c.chunker_hash AS chunker_hash LIMIT 1"

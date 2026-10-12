@@ -190,7 +190,7 @@ class _Env:
     async def supported_entities(self, name: str) -> list[str]:
         """Return entities mentioned by the open chunks of one document."""
         rows = await self.store.execute_read(
-            "MATCH (:Document {document_key: $key})-[r:PART_OF]->(c:Chunk)"
+            "MATCH (:Document {document_key: $key})-[r:HAS_PART]->(c:Chunk)"
             "-[:MENTIONED_IN]->(e) WHERE r.invalid_at IS NULL "
             "RETURN DISTINCT e.name AS name",
             {"key": self.key(name)},
@@ -200,16 +200,16 @@ class _Env:
     async def open_topics(self, name: str) -> list[str]:
         """Return the topics of each open chunk of one document."""
         rows = await self.store.execute_read(
-            "MATCH (:Document {document_key: $key})-[r:PART_OF]->(c:Chunk) "
+            "MATCH (:Document {document_key: $key})-[r:HAS_PART]->(c:Chunk) "
             "WHERE r.invalid_at IS NULL RETURN c.text AS text",
             {"key": self.key(name)},
         )
         return sorted(_topics(str(row["text"])) for row in rows)
 
     async def edge_counts(self, name: str) -> dict[str, int]:
-        """Return total and open PART_OF edge counts of one document."""
+        """Return total and open HAS_PART edge counts of one document."""
         rows = await self.store.execute_read(
-            "MATCH (:Document {document_key: $key})-[r:PART_OF]->(:Chunk) "
+            "MATCH (:Document {document_key: $key})-[r:HAS_PART]->(:Chunk) "
             "RETURN count(r) AS total, "
             "count(CASE WHEN r.invalid_at IS NULL THEN 1 END) AS open",
             {"key": self.key(name)},
@@ -376,7 +376,7 @@ class TestDocumentLifecycleE2E:
         assert await env.snapshot() == added
         same = await env.graph.update(key_a, text=text_a1)
         assert same.no_op is True
-        assert same.chunks_closed == 0
+        assert same.parts_closed == 0
         assert same.add_result is None
         assert same.previous_content_hash == same.new_content_hash
         assert await env.snapshot() == added
@@ -389,7 +389,7 @@ class TestDocumentLifecycleE2E:
         # old text supported go away, and shared entities stay.
         updated = await env.graph.update(key_a, text=text_a2)
         assert updated.no_op is False
-        assert updated.chunks_closed == 1
+        assert updated.parts_closed == 1
         assert updated.previous_content_hash == _content_hash(text_a1)
         assert updated.new_content_hash == _content_hash(text_a2)
         assert updated.add_result is not None
@@ -426,7 +426,7 @@ class TestDocumentLifecycleE2E:
         # because the new version of document a still mentions it.
         deleted = await env.graph.delete_document(key_b)
         assert deleted.no_op is False
-        assert deleted.chunks_closed == 1
+        assert deleted.parts_closed == 1
         assert deleted.new_content_hash is None
         after_delete = await env.snapshot()
         assert after_delete["entities"] == ["Headache", "Inflammation", "Naproxen"]
@@ -461,7 +461,7 @@ class TestDocumentLifecycleE2E:
         updated = await env.graph.update(key, text=after)
 
         assert updated.no_op is False
-        assert updated.chunks_closed == 1
+        assert updated.parts_closed == 1
         state = await env.snapshot()
         assert state["open_topics"] == {
             "a": ["headache+naproxen"],

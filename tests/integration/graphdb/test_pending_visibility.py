@@ -187,7 +187,7 @@ class TestPendingVisibility:
                 "document_key: $key, current_content_hash: 'h'}) "
                 "CREATE (c:_Node:Chunk {id: $chunk, probe: $tag, "
                 "chunker_hash: 'staged', _pending_job_id: $job}) "
-                "CREATE (d)-[:PART_OF {_pending_job_id: $job}]->(c)",
+                "CREATE (d)-[:HAS_PART {_pending_job_id: $job}]->(c)",
                 doc=str(uuid4()),
                 chunk=str(uuid4()),
                 key=key,

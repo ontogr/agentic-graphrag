@@ -9,6 +9,7 @@ from collections.abc import Sequence
 from typing import Any
 
 from agrag.common.data_models.graph_record import PENDING_JOB_ID_PROPERTY
+from agrag.common.data_models.structure import HAS_PART
 from agrag.cypher._pending_filter import pending_filter_clause
 
 
@@ -443,9 +444,9 @@ def load_entities_by_id_query() -> str:
 def load_chunks_by_id_query() -> str:
     """Build Cypher fetching chunks by id.
 
-    The query follows only currently valid PART_OF edges, so superseded
+    The query follows only currently valid ``HAS_PART`` edges, so superseded
     document versions cannot surface in retrieval. Chunks without any
-    PART_OF edge are also returned for direct or legacy chunk fixtures.
+    ``HAS_PART`` edge are also returned for direct or legacy chunk fixtures.
 
     Pending visibility is job-scoped: the storage stage runs inside its
     own job's pending phase and must see the chunks that same job just
@@ -462,10 +463,10 @@ def load_chunks_by_id_query() -> str:
         f"UNWIND $ids AS id "
         f"MATCH (n:{NODE_IDENTITY_LABEL}:Chunk {{id: id}}) "
         f"WHERE (NOT EXISTS {{ "
-        f"MATCH (d:{NODE_IDENTITY_LABEL}:Document)-[p:PART_OF]->(n) "
+        f"MATCH (d:{NODE_IDENTITY_LABEL}:Document)-[p:{HAS_PART}]->(n) "
         f"WHERE {pending_filter_clause('p', 'job_id')} "
         f"}} OR EXISTS {{ "
-        f"MATCH (d:{NODE_IDENTITY_LABEL}:Document)-[p:PART_OF]->(n) "
+        f"MATCH (d:{NODE_IDENTITY_LABEL}:Document)-[p:{HAS_PART}]->(n) "
         f"WHERE p.invalid_at IS NULL "
         f"AND {pending_filter_clause('p', 'job_id')} }}) "
         f"AND {pending_filter_clause('n', 'job_id')} "

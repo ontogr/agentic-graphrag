@@ -22,11 +22,11 @@ by `open()` when missing.
 - [**add**](#agrag-ingestion-graph-Graph-add) – Add content to the graph.
 - [**consolidate**](#agrag-ingestion-graph-Graph-consolidate) – Run non-destructive resolution against every persisted raw entity.
 - [**deactivate_match**](#agrag-ingestion-graph-Graph-deactivate_match) – Deactivate a semantic match and synchronize replacement retrieval vectors.
-- [**delete_document**](#agrag-ingestion-graph-Graph-delete_document) – Soft-delete a document by closing its current PART_OF edges.
+- [**delete_document**](#agrag-ingestion-graph-Graph-delete_document) – Soft-delete a document by closing its current HAS_PART edges.
 - [**detect_communities**](#agrag-ingestion-graph-Graph-detect_communities) – Detect entity communities via hierarchical Leiden.
 - [**open**](#agrag-ingestion-graph-Graph-open) – Open a graph, connecting and fully provisioning graph_store.
 - [**reevaluate**](#agrag-ingestion-graph-Graph-reevaluate) – Reevaluate matches among the given entities, adding and removing edges.
-- [**update**](#agrag-ingestion-graph-Graph-update) – Replace one document version, closing its former PART_OF edges.
+- [**update**](#agrag-ingestion-graph-Graph-update) – Replace one document version, closing its former HAS_PART edges.
 
 **Attributes:**
 
@@ -170,9 +170,9 @@ Deactivate a semantic match and synchronize replacement retrieval vectors.
 delete_document(document_key:str) -> UpdateResult
 ```
 
-Soft-delete a document by closing its current PART_OF edges.
+Soft-delete a document by closing its current HAS_PART edges.
 
-Currency is read transitively through `PART_OF`: closing the
+Currency is read transitively through `HAS_PART`: closing the
 open edges removes the document from retrieval while its chunks,
 the `Document` node, and contributed entities stay in the graph
 for provenance. An unknown `document_key` is a no-op. Entities
@@ -188,7 +188,7 @@ leaves the document untouched or completes the deletion.
 **Returns:**
 
 - <code>[UpdateResult](../reports/update_result/UpdateResult.md)</code> – The deletion summary: `no_op=True` when nothing was stored
-  under the key, otherwise `chunks_closed` with
+  under the key, otherwise `parts_closed` with
   `new_content_hash=None` and no `add_result`.
 
 <details open>
@@ -333,7 +333,7 @@ requests for L labels, as in Graph.add.
 update(document_key:str, *, text:str | None = None, source:SourcesType | None = None, loader:Loader | None = None, error_policy:ErrorPolicy = ErrorPolicy.RAISE, read_options:ReadOptions | None = None) -> UpdateResult
 ```
 
-Replace one document version, closing its former PART_OF edges.
+Replace one document version, closing its former HAS_PART edges.
 
 Looks up the persisted `Document` node by `document_key`. An
 unchanged content hash is a no-op returning before any chunking,
@@ -343,7 +343,7 @@ re-chunks the document as a content change
 does. Chunks written before chunkers were recorded count as unchanged.
 Otherwise the fresh content ingests under a Cutover Job holding this
 document's lease, and the commit flips the job, closes the document's
-open `PART_OF` edges, and clears every pending tag in one
+open `HAS_PART` edges, and clears every pending tag in one
 transaction — so a crash either leaves
 the old version untouched or completes the replacement including
 cleanup. Entities that lose their last evidence are pruned after
@@ -365,10 +365,10 @@ must resolve to exactly one document.
 **Returns:**
 
 - <code>[UpdateResult](../reports/update_result/UpdateResult.md)</code> – The update summary. A no-op reports `no_op=True` with no
-  `add_result`. A change reports `chunks_closed` plus the
+  `add_result`. A change reports `parts_closed` plus the
   fresh ingestion's `add_result`. An unknown `document_key`
   ingests fresh with `previous_content_hash=None` and
-  `chunks_closed=0`.
+  `parts_closed=0`.
 
 **Raises:**
 

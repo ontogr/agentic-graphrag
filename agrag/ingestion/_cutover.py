@@ -24,7 +24,7 @@ from agrag.cypher.cutover_job_write import (
     steal_expired_lease_query,
 )
 from agrag.graphdb.base import GraphStore
-from agrag.ingestion._document_lifecycle import close_open_part_of_edges
+from agrag.ingestion._document_lifecycle import close_open_has_part_edges
 from agrag.ingestion.resolved_entities import MatchComponent
 from agrag.ingestion.settings import CutoverJobSettings
 from agrag.observability import get_tracer
@@ -233,16 +233,16 @@ async def _commit_pending_writes(
         # The close runs before the tag clear so it can tell the
         # superseded version's edges from the ones this job just
         # wrote; both land in the same transaction as the flip.
-        chunks_closed = 0
+        parts_closed = 0
         if close_document_node_id is not None:
-            chunks_closed = await close_open_part_of_edges(
+            parts_closed = await close_open_has_part_edges(
                 txn,
                 document_node_id=close_document_node_id,
                 job_id=job_id,
                 keep_node_ids=keep_node_ids,
             )
         await txn.execute_write(clear_pending_tag_query(), {"job_id": job_arg})
-    return chunks_closed
+    return parts_closed
 
 
 async def run_cutover_job(
@@ -362,7 +362,7 @@ async def _run_leased(
         )
     )
     try:
-        chunks_closed = await asyncio.shield(commit_task)
+        parts_closed = await asyncio.shield(commit_task)
     except asyncio.CancelledError:
         try:
             await asyncio.shield(commit_task)
@@ -400,4 +400,4 @@ async def _run_leased(
     )
     if not finished:
         raise CutoverJobLeaseError(f"Job {job_arg} lost its lease after cleanup.")
-    return pending_result, cleanup_result, chunks_closed
+    return pending_result, cleanup_result, parts_closed

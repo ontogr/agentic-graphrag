@@ -18,14 +18,14 @@ Stable keys, node ids, reading order and ancestry for the sections of a Document
 - [**section_keys**](section_keys.md) – Return one stable key for each section.
 - [**source_node_id**](source_node_id.md) – Return the id of the Source node for a file.
 - [**unit_keys**](unit_keys.md) – Return a stable key for each table and figure.
-- [**version_id**](version_id.md) – Return the id of one version of a document, as `PART_OF` edges use it.
+- [**version_id**](version_id.md) – Return the id of one version of a document, as `HAS_PART` edges use it.
 
 **Attributes:**
 
 - [**FIGURE_LABEL**](FIGURE_LABEL.md) –
 - [**HAS_CHILD**](HAS_CHILD.md) –
 - [**HAS_DOCUMENT**](HAS_DOCUMENT.md) –
-- [**PART_OF**](PART_OF.md) –
+- [**HAS_PART**](HAS_PART.md) –
 - [**SECTION_LABEL**](SECTION_LABEL.md) –
 - [**SOURCE_LABEL**](SOURCE_LABEL.md) –
 - [**TABLE_LABEL**](TABLE_LABEL.md) –
