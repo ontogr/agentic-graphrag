@@ -320,7 +320,7 @@ async def _cleanup(
         ),
         (
             "MATCH (d:Document) WHERE d.document_key IN $keys "
-            "OPTIONAL MATCH (d)-[:PART_OF]->(c:Chunk) DETACH DELETE d, c",
+            "OPTIONAL MATCH (d)-[:HAS_PART]->(c:Chunk) DETACH DELETE d, c",
             {"keys": document_keys},
         ),
         (

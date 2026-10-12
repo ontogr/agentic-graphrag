@@ -106,7 +106,7 @@ async def _cleanup(store: Any, uris: Sequence[str], suffix: str) -> None:
     """Delete only this run's nodes: its documents plus suffixed names."""
     await store.execute_write(
         "MATCH (d:Document) WHERE d.uri IN $uris "
-        "OPTIONAL MATCH (d)-[:PART_OF]->(c:Chunk) "
+        "OPTIONAL MATCH (d)-[:HAS_PART]->(c:Chunk) "
         "DETACH DELETE d, c",
         {"uris": list(uris)},
     )

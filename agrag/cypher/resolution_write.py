@@ -6,6 +6,7 @@ from agrag.common.data_models.resolved_entity import (
     RESOLVED_AS_RELATION,
     RESOLVED_ENTITY_LABEL,
 )
+from agrag.common.data_models.structure import HAS_PART
 from agrag.cypher.entities import MERGE_ALIAS_LABEL, NODE_IDENTITY_LABEL
 
 
@@ -107,7 +108,7 @@ def delete_entities_query() -> str:
         f"MATCH (entity:{NODE_IDENTITY_LABEL} {{id: entity_id}}) "
         "WHERE NOT EXISTS { "
         f"MATCH (chunk:{NODE_IDENTITY_LABEL}:Chunk)-[:MENTIONED_IN]->(entity) "
-        f"MATCH (document:{NODE_IDENTITY_LABEL}:Document)-[part:PART_OF]->(chunk) "
+        f"MATCH (document:{NODE_IDENTITY_LABEL}:Document)-[part:{HAS_PART}]->(chunk) "
         "WHERE part.invalid_at IS NULL } "
         "OPTIONAL MATCH (entity)-[mention:MENTIONED_IN]-() "
         f"OPTIONAL MATCH (entity)-[membership:{RESOLVED_AS_RELATION}]->"

@@ -31,10 +31,10 @@ from agrag.ingestion.merge import (
     PropertyStrategy,
     _resolve_property,
     compute_merge,
+    has_part_id,
     mentioned_in_id,
     merge_properties,
     next_chunk_id,
-    part_of_id,
     relation_id,
     resolve_description,
     select_canonical,
@@ -827,15 +827,15 @@ class TestNextChunkId:
         assert next_chunk_id(a, b) == next_chunk_id(a, b)
 
 
-class TestPartOfId:
-    """part_of_id versioned deterministic ids."""
+class TestHasPartId:
+    """has_part_id versioned deterministic ids."""
 
     def test_deterministic_for_same_version(self) -> None:
         """Same triple always returns the same id."""
         d, c = uuid4(), uuid4()
-        assert part_of_id(d, c, "v1") == part_of_id(d, c, "v1")
+        assert has_part_id(d, c, "v1") == has_part_id(d, c, "v1")
 
     def test_distinct_versions_differ(self) -> None:
         """Each document version gets a separate relationship id."""
         d, c = uuid4(), uuid4()
-        assert part_of_id(d, c, "v1") != part_of_id(d, c, "v2")
+        assert has_part_id(d, c, "v1") != has_part_id(d, c, "v2")

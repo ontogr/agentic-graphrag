@@ -20,6 +20,7 @@ from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.extraction import ExtractedEntity
 from agrag.common.data_models.graph_schema import EntityType, GraphSchema
 from agrag.common.data_models.stage_failure import StageFailure
+from agrag.common.data_models.structure import HAS_PART
 from agrag.common.text import normalize_text
 from agrag.observability import get_tracer, record_stage_failure
 
@@ -511,8 +512,8 @@ def relation_id(source_id: UUID, target_id: UUID, rel_type: str) -> UUID:
     return uuid5(NAMESPACE_OID, f"{rel_type}:{source_id}:{target_id}")
 
 
-def part_of_id(document_node_id: UUID, node_id: UUID, version_id: UUID | str) -> UUID:
-    """Return the id for one versioned Document -[:PART_OF]-> node edge.
+def has_part_id(document_node_id: UUID, node_id: UUID, version_id: UUID | str) -> UUID:
+    """Return the id for one versioned edge from a Document node to a part.
 
     Args:
         document_node_id: The id of the Document graph node.
@@ -522,7 +523,7 @@ def part_of_id(document_node_id: UUID, node_id: UUID, version_id: UUID | str) ->
     Returns:
         The edge id. Each document version gets a separate relationship id.
     """
-    return uuid5(NAMESPACE_OID, f"PART_OF:{document_node_id}:{node_id}:{version_id}")
+    return uuid5(NAMESPACE_OID, f"{HAS_PART}:{document_node_id}:{node_id}:{version_id}")
 
 
 def has_child_id(parent_id: UUID, child_id: UUID, version_id: UUID | str) -> UUID:

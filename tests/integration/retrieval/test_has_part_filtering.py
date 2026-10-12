@@ -1,4 +1,4 @@
-"""Integration tests for PART_OF currency filtering in retrieval reads.
+"""Integration tests for HAS_PART currency filtering in retrieval reads.
 
 add() -> update() against a real Neo4j instance, then the retrieval-side
 loading queries: superseded chunks stay out, current and legacy chunks
@@ -86,7 +86,7 @@ def _document(key: str, text: str) -> Document:
 
 
 def _legacy_chunk() -> Chunk:
-    """Build a chunk with no Document node and no PART_OF edge."""
+    """Build a chunk with no Document node and no HAS_PART edge."""
     return Chunk(
         id=uuid4(),
         document_id=uuid4(),
@@ -113,8 +113,8 @@ def _loaded_id(row: dict[str, object]) -> str | None:
 
 
 @pytest.mark.skipif(neo4j_missing, reason="neo4j extra not installed")
-class TestPartOfFiltering:
-    """Retrieval loading honors PART_OF currency after an update."""
+class TestHasPartFiltering:
+    """Retrieval loading honors HAS_PART currency after an update."""
 
     async def _setup(self) -> tuple[Graph, GraphStore, str, str]:
         """Open a graph and ingest two versions of one probe document."""
@@ -137,7 +137,7 @@ class TestPartOfFiltering:
         updated = await graph.update(key, text=second_text)
         assert updated.no_op is False
         rows = await store.execute_read(
-            "MATCH (:Document {document_key: $key})-[r:PART_OF]->(c:Chunk) "
+            "MATCH (:Document {document_key: $key})-[r:HAS_PART]->(c:Chunk) "
             "WHERE r.invalid_at IS NULL RETURN collect(c.id) AS open_ids",
             {"key": key},
         )
@@ -155,7 +155,7 @@ class TestPartOfFiltering:
         merge_keys = [row["merge_key"] for row in rows if row.get("merge_key")]
         await store.execute_write(
             "MATCH (d:Document {document_key: $key}) "
-            "OPTIONAL MATCH (d)-[:PART_OF]->(c:Chunk) "
+            "OPTIONAL MATCH (d)-[:HAS_PART]->(c:Chunk) "
             "OPTIONAL MATCH (c)-[:MENTIONED_IN]->(e:Person) "
             "DETACH DELETE d, c, e",
             {"key": key},
@@ -179,7 +179,7 @@ class TestPartOfFiltering:
         legacy_ids: list[str] = []
         try:
             rows = await store.execute_read(
-                "MATCH (:Document {document_key: $key})-[r:PART_OF]->(c:Chunk) "
+                "MATCH (:Document {document_key: $key})-[r:HAS_PART]->(c:Chunk) "
                 "RETURN c.id AS id, r.invalid_at AS invalid_at",
                 {"key": key},
             )
