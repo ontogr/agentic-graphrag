@@ -631,19 +631,22 @@ async def prune_orphaned_entities(
 
             async def rebuild_cluster(
                 transaction: GraphStoreTransaction,
-                members: list[Entity] = members,
+                cluster_members: tuple[Entity, ...] = tuple(members),
             ) -> tuple[list[UUID], ResolvedEntity]:
+                member_list = list(cluster_members)
                 replacement_rows = await transaction.execute_write(
                     replace_component_resolved_entities_query(),
                     {
-                        "member_ids": [str(member.id) for member in members],
+                        "member_ids": [str(member.id) for member in member_list],
                         "pending_job_id": None,
                     },
                 )
                 removed_ids = _uuid_list(
                     replacement_rows, "removed_resolved_entity_ids"
                 )
-                resolved = await compute_resolved_entity(members, schema, tracer=tracer)
+                resolved = await compute_resolved_entity(
+                    member_list, schema, tracer=tracer
+                )
                 _raise_for_write_failure(
                     await transaction.upsert_nodes(
                         RESOLVED_ENTITY_LABEL, [resolved.to_node_record()]
@@ -663,7 +666,7 @@ async def prune_orphaned_entities(
                                 properties={},
                             )
                             for member in sorted(
-                                members, key=lambda candidate: str(candidate.id)
+                                member_list, key=lambda candidate: str(candidate.id)
                             )
                         ]
                     )
@@ -679,12 +682,12 @@ async def prune_orphaned_entities(
 
             async def remove_singleton(
                 transaction: GraphStoreTransaction,
-                members: list[Entity] = members,
+                sole_member_id: UUID = members[0].id,
             ) -> list[UUID]:
                 replacement_rows = await transaction.execute_write(
                     replace_component_resolved_entities_query(),
                     {
-                        "member_ids": [str(members[0].id)],
+                        "member_ids": [str(sole_member_id)],
                         "pending_job_id": None,
                     },
                 )
