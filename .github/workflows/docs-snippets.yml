@@ -8,21 +8,7 @@ on:
   push:
     branches:
       - main
-    paths:
-      - "docs/**"
-      - "agrag/**"
-      - "pyproject.toml"
-      - "uv.lock"
-      - "Makefile"
-      - ".github/workflows/docs-snippets.yml"
   pull_request:
-    paths:
-      - "docs/**"
-      - "agrag/**"
-      - "pyproject.toml"
-      - "uv.lock"
-      - "Makefile"
-      - ".github/workflows/docs-snippets.yml"
   schedule:
     - cron: "0 3 * * 1"
   workflow_dispatch:
@@ -39,8 +25,13 @@ env:
   FORCE_COLOR: "1"
 
 jobs:
+  changes:
+    uses: $/.github/workflows/changes.yml
+
   snippets:
     name: Docs code blocks (shard ${{ matrix.shard }})
+    needs: [changes]
+    if: needs.changes.outputs.snippets == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 40
     strategy:
@@ -112,14 +103,24 @@ jobs:
   # skipped job as passing. It does not run for a cancelled workflow.
   result:
     name: Run docs code blocks
-    needs: snippets
-    if: ${{ !cancelled() }}
+    needs: [changes, snippets]
+    if: ${{ always() }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     env:
+      SELECTOR_RESULT: ${{ needs.changes.result }}
+      SELECTED: ${{ needs.changes.outputs.snippets }}
       SHARDS_RESULT: ${{ needs.snippets.result }}
     steps:
       - name: Require every shard to pass
         run: |
-          echo "Shards: $SHARDS_RESULT"
-          test "$SHARDS_RESULT" = "success"
+          test "$SELECTOR_RESULT" = success
+          echo "Selected: $SELECTED; shards: $SHARDS_RESULT"
+          if [ "$SELECTED" = true ]; then
+            test "$SHARDS_RESULT" = success
+          elif [ "$SELECTED" = false ]; then
+            test "$SHARDS_RESULT" = skipped
+          else
+            echo "::error::Snippet selection output is missing or invalid"
+            exit 1
+          fi
