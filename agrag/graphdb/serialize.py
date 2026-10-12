@@ -115,12 +115,12 @@ def candidate_params(
     ):
         if value:
             properties[name] = value
-    for name, value in (
+    for name, entity_id in (
         ("source_entity_id", record.source_entity_id),
         ("target_entity_id", record.target_entity_id),
     ):
-        if value is not None:
-            properties[name] = str(value)
+        if entity_id is not None:
+            properties[name] = str(entity_id)
     return {
         "id": str(record.evidence_edge_id),
         "candidate_id": str(record.id),
