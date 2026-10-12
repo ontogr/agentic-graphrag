@@ -32,4 +32,4 @@ class TestResolvedEntityVectorDeletionLabel:
     )
     def test_query_uses_the_public_label(self, build_query: Callable[[], str]) -> None:
         """Each pending-deletion query addresses the shared label."""
-        assert f":{RESOLVED_ENTITY_VECTOR_DELETION_LABEL}" in build_query()
+        assert f"(pending:{RESOLVED_ENTITY_VECTOR_DELETION_LABEL}" in build_query()
