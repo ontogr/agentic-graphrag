@@ -11,7 +11,6 @@ from agrag.common.data_models.candidate import CANDIDATE_LABEL, CandidateRecord
 from agrag.common.data_models.graph_record import NodeRecord
 from agrag.common.data_models.structure import HAS_PART
 from agrag.cypher.candidates import (
-    blocked_candidate_keys_query,
     delete_stale_candidates_query,
     list_candidates_query,
 )
@@ -57,8 +56,9 @@ async def _delete_candidates(store: GraphStore, ids: list[str]) -> None:
 class TestCandidateStore:
     """Candidate store behavior against Neo4j."""
 
+    @staticmethod
     async def test_count_is_immutable_and_same_key_counts_aggregate(
-        self, store: GraphStore
+        store: GraphStore,
     ) -> None:
         """Separate writes retain their counts and list as one total."""
         chunks = [uuid4(), uuid4()]
@@ -113,8 +113,9 @@ class TestCandidateStore:
                 {"ids": [str(chunk) for chunk in chunks]},
             )
 
+    @staticmethod
     async def test_missing_chunk_is_reported_without_a_candidate(
-        self, store: GraphStore
+        store: GraphStore,
     ) -> None:
         """A candidate with no evidence chunk is not written."""
         record = CandidateRecord(
@@ -140,8 +141,9 @@ class TestCandidateStore:
             == []
         )
 
+    @staticmethod
     async def test_job_commit_makes_candidate_visible_and_rollback_removes_it(
-        self, store: GraphStore
+        store: GraphStore,
     ) -> None:
         """Committed tagged rows stay; rolled-back tagged rows disappear."""
         committed_chunk, rollback_chunk = uuid4(), uuid4()
@@ -210,8 +212,9 @@ class TestCandidateStore:
                 {"ids": [str(committed_chunk), str(rollback_chunk)]},
             )
 
+    @staticmethod
     async def test_reviewed_keys_stay_blocked_and_stale_delete_keeps_reviewed(
-        self, store: GraphStore
+        store: GraphStore,
     ) -> None:
         """A reviewed candidate blocks recapture and survives stale cleanup."""
         chunk_id, document_id = uuid4(), uuid4()
@@ -238,9 +241,7 @@ class TestCandidateStore:
                 {"id": str(record.id)},
             )
 
-            blocked = await store.execute_read(
-                blocked_candidate_keys_query(), {"keys": [record.key]}
-            )
+            blocked = await store.blocked_candidate_keys([record.key])
             await store.upsert_candidates([stale_record])
             stale = await store.execute_write(
                 delete_stale_candidates_query(), {"document_node_id": str(document_id)}
@@ -250,7 +251,7 @@ class TestCandidateStore:
                 {"id": str(record.id)},
             )
 
-            assert blocked == [{"key": record.key}]
+            assert blocked == {record.key}
             assert stale == [{"removed": 1}]
             assert state == [{"state": "rejected"}]
         finally:

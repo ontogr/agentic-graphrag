@@ -54,11 +54,23 @@ _LABEL_NAME = r"[A-Za-z_]\w*"
 _PLAIN_LABELS = re.compile(rf"(?:\s*:\s*{_LABEL_NAME})+\s*")
 _LABEL_NAMES = re.compile(rf":\s*({_LABEL_NAME})")
 _CANDIDATE_LABEL_WORD = re.compile(rf"\b{CANDIDATE_LABEL}\b")
+# ``ALL(x IN nodes(path) WHERE x:Label)``. Group 2 is the path variable the
+# guard covers, group 3 the required label.
 _PATH_LABEL_GUARD = re.compile(
-    rf"\bALL\s*\(\s*(\w+)\s+IN\s+nodes\s*\([^)]*\)\s+WHERE\s+\1\s*:\s*"
+    rf"\bALL\s*\(\s*(\w+)\s+IN\s+nodes\s*\(\s*(\w+)\s*\)\s+WHERE\s+\1\s*:\s*"
     rf"({_LABEL_NAME})\b",
     flags=re.IGNORECASE,
 )
+# ``p = (`` or ``p = shortestPath(`` before a pattern, naming the path ``p``.
+_PATH_VARIABLE = re.compile(
+    rf"(?<![\w.])({_LABEL_NAME})\s*=\s*(?:(?:all)?shortestpath\s*)?\(",
+    flags=re.IGNORECASE,
+)
+# A quantifier on a relationship or a parenthesised pattern, such as
+# ``-[r]-{1,2}``, ``->{2}``, ``((a)-->(b)){1,3}`` or ``(a)-->(b)+``. The
+# quantified form can repeat through nodes the other checks never see.
+_QUANTIFIED_PATTERN = re.compile(r"[\])]\s*(?:[*+]|\{\s*\d)|[->]\s*\{\s*\d")
+_WITH_CLAUSE = re.compile(r"\bWITH\b", flags=re.IGNORECASE)
 _TYPED_PATH = re.compile(
     rf"\s*(?:\w+)?\s*:\s*({_LABEL_NAME}(?:\s*\|\s*:?\s*{_LABEL_NAME})*)\s*\*"
 )
@@ -372,9 +384,12 @@ def _path_is_typed_away_from_candidates(relation_body: str) -> bool:
 def find_candidate_exposure(query: str) -> str | None:
     """Explain how a query could return a candidate, or return None.
 
-    A query is safe when each bound node has a non-candidate label, a
-    positive label test, or a variable-length path is restricted away from
-    candidate edge types or has a positive label test on every path node.
+    The check fails closed. A query is safe only when every node pattern has
+    a non-candidate label or a positive label test on its own variable, and
+    every variable-length path is typed away from candidate edges or guarded
+    through its own path variable. A UNION, a quantified pattern, or a WITH
+    that precedes a variable-length path is rejected because this text check
+    cannot follow it.
 
     Args:
         query: The Cypher text to inspect.
@@ -385,25 +400,39 @@ def find_candidate_exposure(query: str) -> str | None:
     stripped = strip_cypher_syntax(query)
     if _CANDIDATE_LABEL_WORD.search(stripped):
         return f"the query names the {CANDIDATE_LABEL} label"
+    if _UNION.search(stripped):
+        return "a UNION branch cannot be checked on its own"
+    if _QUANTIFIED_PATTERN.search(stripped):
+        return "a quantified pattern can repeat through unlabelled nodes"
     text = _SUBQUERY_SCOPE.sub("CALL {", stripped)
-    node_matches = []
-    for match in _NODE_PATTERN.finditer(text):
-        clauses = list(_CLAUSE_TOKEN.finditer(text[: match.start()]))
-        if clauses and clauses[-1].group(1).upper() == "MATCH":
-            node_matches.append(match)
-    patterns = [(match.group(1), match.group(2) or "") for match in node_matches]
-    outside = text
-    for match in reversed(node_matches):
-        outside = (
-            outside[: match.start()] + " " * len(match.group()) + outside[match.end() :]
-        )
+    patterns = [
+        (match.group(1), match.group(2) or "") for match in _NODE_PATTERN.finditer(text)
+    ]
+    outside = _blank_node_patterns(text)
+    # WITH can rebind a name, so a label test elsewhere in the query may
+    # describe a different node. Without WITH, tests are trusted.
+    has_with = _WITH_CLAUSE.search(text) is not None
+    if has_with:
+        outside = ""
     labelled = {
         alias for alias, labels in patterns if alias and _names_other_label(labels)
     }
-    reason = _node_exposure_reason(patterns, outside, labelled)
+    reason = _node_exposure_reason(patterns, outside)
     if reason is not None:
         return reason
-    return _exposed_yield_reason(text, outside, labelled) or _exposed_path_reason(text)
+    return _exposed_yield_reason(text, outside, labelled) or _exposed_path_reason(
+        text, has_with=has_with
+    )
+
+
+def _blank_node_patterns(text: str) -> str:
+    """Return the text with every node pattern blanked, keeping its layout."""
+    outside = text
+    for match in reversed(list(_NODE_PATTERN.finditer(text))):
+        outside = (
+            outside[: match.start()] + " " * len(match.group()) + outside[match.end() :]
+        )
+    return outside
 
 
 def _exposed_yield_reason(text: str, outside: str, labelled: set[str]) -> str | None:
@@ -417,14 +446,38 @@ def _exposed_yield_reason(text: str, outside: str, labelled: set[str]) -> str | 
     return None
 
 
-def _exposed_path_reason(text: str) -> str | None:
+def _path_variable_before(text: str, position: int) -> str | None:
+    """Return the path variable of the pattern that contains ``position``.
+
+    The variable must be the nearest ``name =`` before the relationship, with
+    no clause keyword or comma between them. Otherwise the relationship could
+    belong to a different pattern than the one the name refers to.
+    """
+    found = None
+    for match in _PATH_VARIABLE.finditer(text, 0, position):
+        found = match
+    if found is None:
+        return None
+    between = text[found.end() : position]
+    if _CLAUSE_TOKEN.search(between) or "," in between:
+        return None
+    return found.group(1)
+
+
+def _exposed_path_reason(text: str, *, has_with: bool) -> str | None:
     """Return the reason a variable-length path can cross a candidate."""
     for match in _RELATION_PATTERN.finditer(text):
         body = match.group(1)
         if "*" not in body or _path_is_typed_away_from_candidates(body):
             continue
+        if has_with:
+            return "a variable-length path follows WITH, so its guard is not trusted"
+        path = _path_variable_before(text, match.start())
+        if path is None:
+            return "a variable-length path has no path variable to guard"
         if not any(
-            guard.group(2) != CANDIDATE_LABEL
+            guard.group(3) != CANDIDATE_LABEL
+            and guard.group(2) == path
             and _is_positive_where_filter(text, guard.start())
             for guard in _PATH_LABEL_GUARD.finditer(text)
         ):
@@ -433,11 +486,16 @@ def _exposed_path_reason(text: str) -> str | None:
 
 
 def _node_exposure_reason(
-    patterns: list[tuple[str | None, str]], outside: str, labelled: set[str]
+    patterns: list[tuple[str | None, str]], outside: str
 ) -> str | None:
-    """Return the reason a bound node has no non-candidate label, if one does."""
+    """Return the reason a node pattern can bind a candidate, if one can.
+
+    Each pattern is checked on its own. A label on another pattern that uses
+    the same variable does not protect this one, because a later pattern can
+    rebind the name.
+    """
     for alias, labels in patterns:
-        if _names_other_label(labels) or alias in labelled:
+        if _names_other_label(labels):
             continue
         if alias is None:
             return "a node has neither a variable nor a label"

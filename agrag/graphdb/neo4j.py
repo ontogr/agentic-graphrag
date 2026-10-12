@@ -881,6 +881,10 @@ class Neo4jGraphStore(GraphStore):
             for rel in relations:
                 try:
                     validate_identifier(rel.type)
+                    if rel.type in CANDIDATE_EDGE_TYPES:
+                        raise ValueError(
+                            f"{rel.type!r} is reserved for the candidate store"
+                        )
                 except ValueError as exc:
                     outcome.failures.append(
                         UpsertFailure(

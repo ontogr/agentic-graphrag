@@ -190,12 +190,39 @@ class TestRequireIdentityGuard:
         with pytest.raises(MissingIdentityGuardError):
             require_identity_guard(query)
 
-    def test_label_text_in_string_does_not_guard_an_unlabelled_node(self) -> None:
+    @staticmethod
+    def test_label_text_in_string_does_not_guard_an_unlabelled_node() -> None:
         """A string literal cannot constrain the matched node label."""
         query = "MATCH (n) WHERE n.note = 'n:Person' RETURN n"
 
         reason = find_candidate_exposure(query)
 
         assert reason is not None
+        with pytest.raises(MissingIdentityGuardError):
+            require_identity_guard(query)
+
+    @staticmethod
+    @pytest.mark.parametrize(
+        "query",
+        [
+            # A pattern comprehension after RETURN binds an unlabelled node.
+            "MATCH (n:Person) RETURN [(n)-->(m) | m] AS x",
+            # A later UNION branch reuses a name whose label test is elsewhere.
+            "MATCH (n) WHERE n:Person RETURN n UNION MATCH (n) RETURN n",
+            # A quantified relationship can repeat through an unlabelled node.
+            "MATCH (a:Person)-[r]-{1,2}(b:Person) RETURN a",
+            # A path guard on a different path variable does not guard this path.
+            "MATCH p = (a:Person)-[*1..3]-(b:Person) "
+            "WHERE ALL(x IN nodes(q) WHERE x:Person) RETURN p",
+            # WITH can rebind a labelled name to an unlabelled node.
+            "MATCH (a:Person) WITH a MATCH (a) RETURN a",
+            # A variable-length path whose nodes are guarded only after WITH.
+            "MATCH (a:Person) WITH a MATCH p = (a)-[*1..3]-(b:Person) "
+            "WHERE ALL(x IN nodes(p) WHERE x:Person) RETURN b",
+        ],
+    )
+    def test_rejects_bypasses_of_the_identity_guard(query: str) -> None:
+        """Each construct the text check could not follow is rejected."""
+        assert find_candidate_exposure(query) is not None
         with pytest.raises(MissingIdentityGuardError):
             require_identity_guard(query)

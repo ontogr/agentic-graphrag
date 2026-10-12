@@ -58,8 +58,8 @@ async def store() -> AsyncIterator[GraphStore]:
 class TestCandidateVisibility:
     """Readers stay inside the identity graph when candidate edges exist."""
 
+    @staticmethod
     async def test_read_paths_skip_candidate_and_keep_real_control_data(  # noqa: PLR0915
-        self,
         store: GraphStore,  # noqa: PLR0915
     ) -> None:
         """Graph traversals and lookups omit candidates but return real edges."""

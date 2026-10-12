@@ -47,10 +47,11 @@ def candidate_key(
 ) -> str:
     """Build a stable deduplication key for candidate content."""
     label_part = normalize_candidate_text(label)
+    parts: tuple[str, ...]
     if isinstance(subject, tuple):
         parts = subject
     else:
-        parts = tuple(normalize_candidate_text(part) for part in subject.split("|"))
+        parts = (normalize_candidate_text(subject),)
     return f"{kind}|{label_part}|{'|'.join(parts)}"
 
 

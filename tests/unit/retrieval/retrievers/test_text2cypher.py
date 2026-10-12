@@ -616,7 +616,8 @@ class TestText2CypherRetry:
         executed = [call.args[0] for call in gs.execute_read.await_args_list]
         assert all("_pending_job_id IS NULL" in query for query in executed)
 
-    async def test_query_that_can_return_a_candidate_is_regenerated(self) -> None:
+    @staticmethod
+    async def test_query_that_can_return_a_candidate_is_regenerated() -> None:
         """An unlabelled node is rejected once, then the repair runs."""
         gs = AsyncMock()
         gs.execute_read.return_value = []
@@ -640,7 +641,8 @@ class TestText2CypherRetry:
         executed = [call.args[0] for call in gs.execute_read.await_args_list]
         assert all("(n:Person)" in query for query in executed)
 
-    async def test_query_naming_candidate_never_runs(self) -> None:
+    @staticmethod
+    async def test_query_naming_candidate_never_runs() -> None:
         """A query naming Candidate fails before graph execution."""
         gs = AsyncMock()
         retriever = Text2CypherRetriever(graph_store=gs, schema=DEFAULT_SCHEMA)
