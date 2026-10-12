@@ -104,11 +104,11 @@ settings = ExtractionSettings(dtype="bf16", label_thresholds={"Person": 0.7})
 extractor = GlinerExtractor(settings=settings)
 ```
 
-`Graph` takes the settings from an injected `GlinerExtractor`. For a custom extractor, pass `extraction_settings=` to `Graph.open`. If you pass settings to both the graph and GLiNER, their values must match.
+`Graph` takes the settings from an injected, top-level `GlinerExtractor`. For a custom extractor, pass `extraction_settings=` to `Graph.open`. If you pass settings to both the graph and a top-level GLiNER extractor, their values must match. Graph does not inherit or compare GLiNER settings inside an `EscalatingExtractor`, including nested wrappers. When composing extractors, pass the same settings to Graph and the wrapped GLiNER extractor yourself.
 
 See the [configuration reference](../reference/configuration.mdx#local-extraction) for all extraction settings. Each extracted entity and relation has a `confidence` score from the model.
 
-`EXTRACTION_MODE` accepts `gliner`, `hybrid` (the default), and `llm`. `Graph.effective_mode` reports the mode selected for the graph. When `hybrid` has no LLM configured, `Graph` uses GLiNER and logs a warning. `Graph` can configure both extractor slots in `hybrid`, but it does not yet escalate automatically between them. To escalate now, compose `GlinerExtractor` and an LLM extractor with `EscalatingExtractor`, as shown below.
+`EXTRACTION_MODE` accepts `gliner`, `hybrid` (the default), and `llm`. `Graph.effective_mode` reports the mode selected for the graph, not the class of the extractor. When `hybrid` has no LLM configured, the mode becomes `gliner` and Graph logs a warning. An injected custom local extractor still runs unchanged in that mode; Graph does not replace it with GLiNER. `Graph` can configure both extractor slots in `hybrid`, but it does not yet escalate automatically between them. To escalate now, compose `GlinerExtractor` and an LLM extractor with `EscalatingExtractor`, as shown below.
 
 For LLM-only ingestion, pass `extraction_settings=ExtractionSettings(mode="llm")` and `llm_extractor=BAMLExtractor(...)` to `Graph.open`. Do not pass `extractor=` in that mode. If you omit `llm_extractor=`, `Graph` reads `EXTRACTION_LLM_CLIENTS`, or `LLM_BASE_URL` with `LLM_MODEL_ID`, to build it. `Graph.llm_model_name` reports the configured client models, or the class name of a custom LLM extractor.
 
