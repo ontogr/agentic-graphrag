@@ -13,6 +13,7 @@ import pytest
 import agrag.ingestion._resolution_maintenance as maintenance_module
 from agrag.common.data_models.chunk import CHUNK_LABEL
 from agrag.common.data_models.chunk import Chunk as ChunkModel
+from agrag.common.data_models.default_schema import DEFAULT_SCHEMA
 from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.extraction import (
     ExtractedEntity,
@@ -26,7 +27,6 @@ from agrag.common.data_models.graph_record import (
     UpsertResult,
 )
 from agrag.common.data_models.graph_schema import (
-    GENERIC,
     EntityType,
     GraphSchema,
     RelationType,
@@ -822,7 +822,7 @@ class TestGraphOpenVectorStore:
 
         vector_store = RecordingStore()
         graph = await Graph.open(
-            schema=GENERIC,
+            schema=DEFAULT_SCHEMA,
             graph_store=MockStore(),
             embedder=MockEmbedder(),
             extractor=MockExtractor(),
@@ -881,7 +881,10 @@ class TestGraphAddPipeline:
         (tmp_path / "a.txt").write_text("a")
         store, embed, extractor = MockStore(), MockEmbedder(), MockExtractor()
         graph = await Graph.open(
-            schema=GENERIC, graph_store=store, embedder=embed, extractor=extractor
+            schema=DEFAULT_SCHEMA,
+            graph_store=store,
+            embedder=embed,
+            extractor=extractor,
         )
         with pytest.raises(ValueError):
             await graph.add(str(tmp_path), loader=TextLoader())
@@ -919,7 +922,7 @@ class TestGraphAddPipeline:
 
         store = PartialChunkStore({})
         graph = await Graph.open(
-            schema=GENERIC,
+            schema=DEFAULT_SCHEMA,
             graph_store=store,
             embedder=MockEmbedder(),
             extractor=MockExtractor(),
@@ -966,7 +969,7 @@ class TestGraphAddPipeline:
                 return result
 
         graph = await Graph.open(
-            schema=GENERIC,
+            schema=DEFAULT_SCHEMA,
             graph_store=NonUuidFailureStore(),
             embedder=MockEmbedder(),
             extractor=MockExtractor(),
@@ -983,7 +986,10 @@ class TestGraphAddPipeline:
         """add() includes NEXT_CHUNK edges alongside HAS_PART records."""
         store, embed, extractor = MockStore(), MockEmbedder(), MockExtractor()
         graph = await Graph.open(
-            schema=GENERIC, graph_store=store, embedder=embed, extractor=extractor
+            schema=DEFAULT_SCHEMA,
+            graph_store=store,
+            embedder=embed,
+            extractor=extractor,
         )
         result = await graph.add(text="one two three four five six", return_chunks=True)
         next_records = [
@@ -1000,7 +1006,10 @@ class TestGraphAddPipeline:
         """on_progress fires per batch plus final."""
         store, embed, extractor = MockStore(), MockEmbedder(), MockExtractor()
         graph = await Graph.open(
-            schema=GENERIC, graph_store=store, embedder=embed, extractor=extractor
+            schema=DEFAULT_SCHEMA,
+            graph_store=store,
+            embedder=embed,
+            extractor=extractor,
         )
         seen: list[AddResult] = []
 
@@ -1022,7 +1031,10 @@ class TestGraphAddPipeline:
 
         store, embed, extractor = MockStore(), MockEmbedder(), MockExtractor()
         graph = await Graph.open(
-            schema=GENERIC, graph_store=store, embedder=embed, extractor=extractor
+            schema=DEFAULT_SCHEMA,
+            graph_store=store,
+            embedder=embed,
+            extractor=extractor,
         )
         result = await graph.add(text="hi", on_progress=bad_cb)
         assert result.ingestion.documents == 1
@@ -1038,7 +1050,10 @@ class TestGraphAddPipeline:
 
         store, embed = MockStore(), MockEmbedder()
         graph = await Graph.open(
-            schema=GENERIC, graph_store=store, embedder=embed, extractor=FailExtractor()
+            schema=DEFAULT_SCHEMA,
+            graph_store=store,
+            embedder=embed,
+            extractor=FailExtractor(),
         )
         result = await graph.add(text="hi", error_policy=ErrorPolicy.SKIP)
         assert result.extraction.failures
@@ -1056,7 +1071,10 @@ class TestGraphAddPipeline:
 
         store, embed = MockStore(), MockEmbedder()
         graph = await Graph.open(
-            schema=GENERIC, graph_store=store, embedder=embed, extractor=FailExtractor()
+            schema=DEFAULT_SCHEMA,
+            graph_store=store,
+            embedder=embed,
+            extractor=FailExtractor(),
         )
         with pytest.raises(ValueError):
             await graph.add(text="hi", error_policy=ErrorPolicy.RAISE)
@@ -1065,7 +1083,10 @@ class TestGraphAddPipeline:
         """No chunks writes the Document and Section nodes and no embeddings."""
         store, embed, extractor = MockStore(), MockEmbedder(), MockExtractor()
         graph = await Graph.open(
-            schema=GENERIC, graph_store=store, embedder=embed, extractor=extractor
+            schema=DEFAULT_SCHEMA,
+            graph_store=store,
+            embedder=embed,
+            extractor=extractor,
         )
         with mock.patch("agrag.ingestion._ingest.chunk_documents", return_value=[]):
             result = await graph.add(text="hi", on_progress=lambda _: None)
@@ -1112,7 +1133,7 @@ class TestGraphAddPipeline:
                 )
 
         graph = await Graph.open(
-            schema=GENERIC,
+            schema=DEFAULT_SCHEMA,
             graph_store=store,
             embedder=MockEmbedder(),
             extractor=AliceExtractor(),
@@ -1152,7 +1173,10 @@ class TestGraphAddPipeline:
                 )
 
         graph = await Graph.open(
-            schema=GENERIC, graph_store=store, embedder=embed, extractor=DupExtractor()
+            schema=DEFAULT_SCHEMA,
+            graph_store=store,
+            embedder=embed,
+            extractor=DupExtractor(),
         )
         await graph.add(text="Alice Alice")
         # One entity for one chunk yields a single MENTIONED_IN edge.
@@ -1356,7 +1380,7 @@ class TestGraphAddPipeline:
         survivor = Entity(id=survivor_id, label="Person", name="Alice", properties={})
 
         graph = await Graph.open(
-            schema=GENERIC,
+            schema=DEFAULT_SCHEMA,
             graph_store=store,
             embedder=MockEmbedder(),
             extractor=AliceExtractor(),
@@ -1401,7 +1425,7 @@ class TestGraphAddPipeline:
                 raise RuntimeError("embed backend down")
 
         graph = await Graph.open(
-            schema=GENERIC,
+            schema=DEFAULT_SCHEMA,
             graph_store=store,
             embedder=_FailingEmbedder(),
             extractor=MockExtractor(),
@@ -1449,7 +1473,7 @@ class TestGraphAddPipeline:
                 raise RuntimeError("embed backend down")
 
         graph = await Graph.open(
-            schema=GENERIC,
+            schema=DEFAULT_SCHEMA,
             graph_store=store,
             embedder=_FailingEmbedder(),
             extractor=MockExtractor(),

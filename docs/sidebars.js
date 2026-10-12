@@ -36,6 +36,7 @@ const sidebars = {
     ]),
     section('Build the graph', [
       'guides/define-a-graph-schema',
+      'guides/use-a-preset',
       'guides/ingest-documents',
       'concepts/ingestion',
       'concepts/loading',
@@ -78,8 +79,12 @@ const sidebars = {
     section('Reference', [
       'reference/configuration',
       'reference/schema-file-format',
+      'reference/schema-format-json-schema',
       'reference/schema-json-ld',
+      'reference/schema-format-pydantic',
+      'reference/schema-format-shacl',
       'reference/trace-spans',
+      'reference/default-schema',
     ]),
     {
       type: 'category',

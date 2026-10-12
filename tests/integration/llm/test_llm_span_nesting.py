@@ -20,7 +20,7 @@ from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
 )
 
 from agrag.common.data_models.chunk import Chunk
-from agrag.common.data_models.graph_schema import GENERIC
+from agrag.common.data_models.default_schema import DEFAULT_SCHEMA
 from agrag.common.data_models.provenance import TextProvenance
 from agrag.ingestion.extract import BAMLExtractor, ExtractionLLMSettings
 from agrag.llm.client_config import LLMClientConfig, RetryConfig
@@ -113,7 +113,7 @@ class TestGather:
         async def one(index: int) -> None:
             """Run one extraction with text unique to this task."""
             await extractor.extract(
-                _chunk(f"Entity number {index} was founded."), GENERIC
+                _chunk(f"Entity number {index} was founded."), DEFAULT_SCHEMA
             )
 
         with tracer.start_as_current_span("root"):
@@ -143,7 +143,9 @@ class TestThreadWithCopiedContext:
 
         async def run() -> None:
             """Run one extraction."""
-            await extractor.extract(_chunk("Ada Lovelace founded a clinic."), GENERIC)
+            await extractor.extract(
+                _chunk("Ada Lovelace founded a clinic."), DEFAULT_SCHEMA
+            )
 
         with tracer.start_as_current_span("root"):
             await asyncio.to_thread(contextvars.copy_context().run, asyncio.run, run())
@@ -185,7 +187,7 @@ class TestRetries:
         )
 
         await BAMLExtractor(settings=settings, tracer=tracer).extract(
-            _chunk("Ada Lovelace founded a clinic."), GENERIC
+            _chunk("Ada Lovelace founded a clinic."), DEFAULT_SCHEMA
         )
 
         spans = exporter.get_finished_spans()

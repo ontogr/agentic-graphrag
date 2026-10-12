@@ -5,7 +5,6 @@ every dependency explicitly rather than reaching into ``Graph``.
 """
 
 import asyncio
-import contextlib
 from collections.abc import Awaitable, Callable, Sequence
 from datetime import UTC, datetime, timedelta
 from typing import Literal, TypeVar
@@ -15,9 +14,13 @@ from opentelemetry.trace import Tracer
 
 from agrag.cypher.cutover_job_write import (
     acquire_lease_query,
+    begin_rollback_query,
+    claim_pending_job_query,
     clear_pending_tag_query,
     commit_job_query,
     finish_cleaning_query,
+    job_status_query,
+    record_parts_closed_query,
     renew_lease_query,
     rollback_job_query,
     start_cleaning_query,
@@ -45,6 +48,8 @@ async def _acquire_lease(
     verb: Literal["add", "update", "delete_document"],
     affected_entity_ids: list[UUID],
     graph_store: GraphStore,
+    vector_store: VectorStore | None,
+    vector_collections: Sequence[str],
     settings: CutoverJobSettings,
 ) -> tuple[UUID, UUID]:
     """Acquire the lease for one document, stealing only a dead one's.
@@ -76,6 +81,79 @@ async def _acquire_lease(
     existing_token = rows[0].get("lease_token") if rows else None
     if existing_token == str(token):
         return job_id, token
+    if (
+        rows
+        and rows[0].get("status") == "rolling_back"
+        and rows[0].get("lease_expired")
+    ):
+        rollback_token = uuid4()
+        now = datetime.now(UTC)
+        claimed = await graph_store.execute_write(
+            claim_pending_job_query(),
+            {
+                "job_id": str(rows[0]["id"]),
+                "expected_lease_token": existing_token,
+                "lease_token": str(rollback_token),
+                "lease_expires_at": (
+                    now + timedelta(seconds=settings.lease_ttl_seconds)
+                ).isoformat(),
+            },
+        )
+        if claimed:
+            rollback_job_id = UUID(str(rows[0]["id"]))
+            stop_renewal = asyncio.Event()
+            renewal_stopped = asyncio.Event()
+            renewal = asyncio.create_task(
+                _renew_periodically(
+                    graph_store=graph_store,
+                    job_id=rollback_job_id,
+                    token=rollback_token,
+                    ttl_seconds=settings.lease_ttl_seconds,
+                    stop_event=stop_renewal,
+                    stopped_event=renewal_stopped,
+                )
+            )
+            deletion = asyncio.create_task(
+                delete_pending_vectors(
+                    vector_store=vector_store,
+                    collections=vector_collections,
+                    job_id=rollback_job_id,
+                )
+            )
+            try:
+                done, _ = await asyncio.wait(
+                    (deletion, renewal), return_when=asyncio.FIRST_COMPLETED
+                )
+                if renewal in done:
+                    await renewal
+                    raise RuntimeError("Lease renewal stopped unexpectedly.")
+                await deletion
+                stop_renewal.set()
+                await renewal
+                rolled_back = await graph_store.execute_write(
+                    rollback_job_query(),
+                    {
+                        "job_id": str(rollback_job_id),
+                        "lease_token": str(rollback_token),
+                    },
+                )
+            finally:
+                stop_renewal.set()
+                if not deletion.done():
+                    deletion.cancel()
+                if not renewal.done():
+                    renewal.cancel()
+                await asyncio.gather(deletion, renewal, return_exceptions=True)
+            if rolled_back:
+                return await _acquire_lease(
+                    document_key=document_key,
+                    verb=verb,
+                    affected_entity_ids=affected_entity_ids,
+                    graph_store=graph_store,
+                    vector_store=vector_store,
+                    vector_collections=vector_collections,
+                    settings=settings,
+                )
     token = uuid4()
     now = datetime.now(UTC)
     rows = await graph_store.execute_write(
@@ -188,14 +266,85 @@ async def _rollback(
     vector_store: VectorStore | None,
     vector_collections: Sequence[str],
     job_id: UUID,
-) -> None:
-    """Delete everything a job wrote, suppressing rollback's own errors."""
-    with contextlib.suppress(Exception):
+    token: UUID,
+) -> bool:
+    """Delete pending writes only after a token-fenced rollback transition.
+
+    Returns:
+        Whether the job entered rollback and its graph rows were deleted.
+    """
+    job_arg = str(job_id)
+    token_arg = str(token)
+    try:
+        begun = await graph_store.execute_write(
+            begin_rollback_query(), {"job_id": job_arg, "lease_token": token_arg}
+        )
+    except Exception:  # noqa: BLE001
+        return False
+    if not begun:
+        return False
+    try:
         await delete_pending_vectors(
             vector_store=vector_store, collections=vector_collections, job_id=job_id
         )
-    with contextlib.suppress(Exception):
-        await graph_store.execute_write(rollback_job_query(), {"job_id": str(job_id)})
+        rolled_back = await graph_store.execute_write(
+            rollback_job_query(), {"job_id": job_arg, "lease_token": token_arg}
+        )
+    except Exception:  # noqa: BLE001
+        return False
+    return bool(rolled_back)
+
+
+async def _commit_applied(
+    *, graph_store: GraphStore, job_id: UUID, token: UUID
+) -> int | None:
+    """Read the committed result through the write-routed database path.
+
+    Returns:
+        The recorded parts-closed count when this token committed the job
+        or recovery has advanced it to cleaning or done. None when the job
+        is absent, uncommitted, or still committed under another token.
+    """
+    rows = await graph_store.execute_write(job_status_query(), {"job_id": str(job_id)})
+    if not rows:
+        return None
+    row = rows[0]
+    if row.get("status") in {"cleaning", "done"}:
+        return int(row.get("parts_closed") or 0)
+    if row.get("status") == "committed" and row.get("lease_token") == str(token):
+        return int(row.get("parts_closed") or 0)
+    return None
+
+
+async def _settle_failed_commit(
+    *,
+    graph_store: GraphStore,
+    vector_store: VectorStore | None,
+    vector_collections: Sequence[str],
+    job_id: UUID,
+    token: UUID,
+) -> int | None:
+    """Keep committed work or safely roll back a failed pending commit.
+
+    An unreadable status is left for recovery; no vectors or graph rows are
+    deleted because the commit outcome is unknown.
+    """
+    try:
+        applied = await _commit_applied(
+            graph_store=graph_store, job_id=job_id, token=token
+        )
+    except Exception:  # noqa: BLE001
+        return None
+    if applied is not None:
+        return applied
+    await _rollback(
+        graph_store=graph_store,
+        vector_store=vector_store,
+        vector_collections=vector_collections,
+        job_id=job_id,
+        token=token,
+    )
+    return None
 
 
 def _component_seed_ids(components: Sequence[MatchComponent]) -> list[UUID]:
@@ -242,6 +391,10 @@ async def _commit_pending_writes(
                 job_id=job_id,
                 keep_node_ids=keep_node_ids,
             )
+        await txn.execute_write(
+            record_parts_closed_query(),
+            {"job_id": job_arg, "parts_closed": parts_closed},
+        )
         await txn.execute_write(clear_pending_tag_query(), {"job_id": job_arg})
         return parts_closed
 
@@ -274,6 +427,8 @@ async def run_cutover_job(
             verb=verb,
             affected_entity_ids=affected_entity_ids,
             graph_store=graph_store,
+            vector_store=vector_store,
+            vector_collections=vector_collections,
             settings=settings,
         )
         span.set_attribute("agrag.job_id", str(job_id))
@@ -351,6 +506,7 @@ async def _run_leased(
             vector_store=vector_store,
             vector_collections=vector_collections,
             job_id=job_id,
+            token=token,
         )
         raise
     component_seed_ids = _component_seed_ids(components)
@@ -370,21 +526,25 @@ async def _run_leased(
         try:
             await asyncio.shield(commit_task)
         except Exception:  # noqa: BLE001
-            await _rollback(
+            await _settle_failed_commit(
                 graph_store=graph_store,
                 vector_store=vector_store,
                 vector_collections=vector_collections,
                 job_id=job_id,
+                token=token,
             )
         raise
     except Exception:
-        await _rollback(
+        applied = await _settle_failed_commit(
             graph_store=graph_store,
             vector_store=vector_store,
             vector_collections=vector_collections,
             job_id=job_id,
+            token=token,
         )
-        raise
+        if applied is None:
+            raise
+        parts_closed = applied
     job_arg = str(job_id)
     token_arg = str(token)
     started = await graph_store.execute_write(

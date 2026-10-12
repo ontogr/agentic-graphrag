@@ -21,9 +21,9 @@ from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
 
 from agrag.common.data_models.chunk import Chunk
 from agrag.common.data_models.community import Community
+from agrag.common.data_models.default_schema import DEFAULT_SCHEMA
 from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.extraction import ExtractedEntity
-from agrag.common.data_models.graph_schema import GENERIC
 from agrag.common.data_models.provenance import TextProvenance
 from agrag.cypher.safety import MissingPendingGuardError
 from agrag.eval.judge import ChatModelJudge
@@ -190,7 +190,7 @@ class _EmptyStore(Any):
 
     async def get_schema(self, *args: Any, **kwargs: Any) -> Any:
         """Return the generic schema."""
-        return GENERIC
+        return DEFAULT_SCHEMA
 
 
 def _within(
@@ -238,7 +238,7 @@ class TestExtraction:
         extractor = BAMLExtractor(settings=_settings(local), tracer=tracer)
 
         await extractor.extract(
-            _chunk("Meridian Health Group opened a clinic."), GENERIC
+            _chunk("Meridian Health Group opened a clinic."), DEFAULT_SCHEMA
         )
 
         spans = exporter.get_finished_spans()
@@ -368,7 +368,7 @@ class TestText2Cypher:
         tracer, exporter = capture
         env_for(local, monkeypatch, "cypher")
         retriever = Text2CypherRetriever(
-            graph_store=_EmptyStore(), schema=GENERIC, tracer=tracer
+            graph_store=_EmptyStore(), schema=DEFAULT_SCHEMA, tracer=tracer
         )
 
         # Whether a query passes the pending-row guard depends on the model,
@@ -438,7 +438,7 @@ class TestCrossPathValueAgreement:
         tracer, exporter = capture
         extractor = BAMLExtractor(settings=_settings(local), tracer=tracer)
         await extractor.extract(
-            _chunk("Meridian Health Group opened a clinic."), GENERIC
+            _chunk("Meridian Health Group opened a clinic."), DEFAULT_SCHEMA
         )
         baml = dict(
             _one(exporter.get_finished_spans(), "agrag.llm.request").attributes or {}
@@ -489,7 +489,7 @@ class TestCrossPathValueAgreement:
         tracer, exporter = capture
         await BAMLExtractor(
             settings=ExtractionLLMSettings.from_openai_compatible_env(), tracer=tracer
-        ).extract(_chunk("Meridian Health Group opened a clinic."), GENERIC)
+        ).extract(_chunk("Meridian Health Group opened a clinic."), DEFAULT_SCHEMA)
         baml = dict(
             _one(exporter.get_finished_spans(), "agrag.llm.request").attributes or {}
         )  # type: ignore[arg-type]
@@ -549,7 +549,7 @@ class TestNoSecretsInSpans:
         extractor = BAMLExtractor(settings=_settings(local), tracer=tracer)
 
         await extractor.extract(
-            _chunk("Meridian Health Group opened a clinic."), GENERIC
+            _chunk("Meridian Health Group opened a clinic."), DEFAULT_SCHEMA
         )
 
         assert local.received, "the fake endpoint should have served a reply"
@@ -563,7 +563,7 @@ class TestNoSecretsInSpans:
         extractor = BAMLExtractor(settings=_settings(local, "500"), tracer=tracer)
 
         with pytest.raises(Exception):  # noqa: B017, PT011
-            await extractor.extract(_chunk("Meridian Health Group."), GENERIC)
+            await extractor.extract(_chunk("Meridian Health Group."), DEFAULT_SCHEMA)
 
         self._assert_no_key(exporter.get_finished_spans())
 
@@ -575,6 +575,6 @@ class TestNoSecretsInSpans:
         extractor = BAMLExtractor(settings=_settings_at(dead_base_url()), tracer=tracer)
 
         with pytest.raises(Exception):  # noqa: B017, PT011
-            await extractor.extract(_chunk("Meridian Health Group."), GENERIC)
+            await extractor.extract(_chunk("Meridian Health Group."), DEFAULT_SCHEMA)
 
         self._assert_no_key(exporter.get_finished_spans())

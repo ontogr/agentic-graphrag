@@ -259,9 +259,9 @@ Ada Lovelace WORKED_IN London
 
 Six mentions give four entities, because mentions with the same label and text share one node.
 
-## Compare with the generic schema
+## Compare with the default schema
 
-`GENERIC` has five broad types and one broad relation, `RELATED_TO`. On the same two sentences it found the same six mentions and no relations. It labeled the Analytical Engine a `Product`. The schema above found two relations and labeled it a `Machine`. Specific types and specific relation descriptions give the extractor a clear target.
+`DEFAULT_SCHEMA` has nine general types and eight general relations. Your own schema can use names and descriptions from your domain, such as `Machine` and `DESIGNED`. The extractor uses those descriptions as its target. See [Default schema](../reference/default-schema.mdx) for the full list.
 
 ## Fill properties
 
@@ -271,5 +271,7 @@ The local extractor leaves properties empty. The value of `born` stays unset. To
 
 - Concept: [Extraction](../concepts/extraction.mdx)
 - Guide: [Extract and resolve entities](./extract-and-resolve.mdx)
+- Reference: [Default schema](../reference/default-schema.mdx)
+- Guide: [Use a preset](./use-a-preset.mdx)
 - Reference: [JSON-LD schema export](../reference/schema-json-ld.mdx)
 - Reference: [Common API](../api/common/index.md)
