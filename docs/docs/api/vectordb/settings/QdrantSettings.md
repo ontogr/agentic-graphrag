@@ -12,7 +12,7 @@ Qdrant connection configuration.
 **Attributes:**
 
 - [**url**](#agrag-vectordb-settings-QdrantSettings-url) (<code>str</code>) – The Qdrant endpoint URL. Env: `QDRANT_URL`.
-- [**api_key**](#agrag-vectordb-settings-QdrantSettings-api_key) (<code>str</code>) – The Qdrant API key. Env: `QDRANT_API_KEY`.
+- [**api_key**](#agrag-vectordb-settings-QdrantSettings-api_key) (<code>SecretStr</code>) – The Qdrant API key. Env: `QDRANT_API_KEY`.
 - [**require_tls**](#agrag-vectordb-settings-QdrantSettings-require_tls) (<code>bool</code>) – When `True`, reject a plaintext `url` to a non-local
   host even with no `api_key` configured. Off by default since
   many deployments run an unauthenticated Qdrant on a private
@@ -28,7 +28,7 @@ Qdrant connection configuration.
 ## `api_key` \{#agrag-vectordb-settings-QdrantSettings-api_key}
 
 ```python
-api_key: str = ''
+api_key: SecretStr = SecretStr('')
 ```
 
 ## `model_config` \{#agrag-vectordb-settings-QdrantSettings-model_config}

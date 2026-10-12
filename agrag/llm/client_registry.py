@@ -44,7 +44,7 @@ def build_client_registry(
     for client in clients:
         options: dict[str, object] = {"model": client.model, **client.options}
         if client.api_key is not None:
-            options["api_key"] = client.api_key
+            options["api_key"] = client.api_key.get_secret_value()
         if client.base_url is not None:
             options["base_url"] = client.base_url
         registry.add_llm_client(

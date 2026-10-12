@@ -56,7 +56,7 @@ class AgentLLMSettings(BaseSettings):
         """
         import os  # noqa: PLC0415
 
-        load_dotenv()
+        load_dotenv(dotenv_path=".env")
         base_url = (
             os.environ.get("AGENT_LLM_BASE_URL") or os.environ.get("LLM_BASE_URL") or ""
         )

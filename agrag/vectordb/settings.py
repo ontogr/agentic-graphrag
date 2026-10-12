@@ -2,7 +2,7 @@
 
 from typing import Literal
 
-from pydantic import model_validator
+from pydantic import SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from agrag.common.validation import require_encrypted_remote_connection
@@ -31,7 +31,7 @@ class QdrantSettings(BaseSettings):
     )
 
     url: str = "http://localhost:6333"
-    api_key: str = ""
+    api_key: SecretStr = SecretStr("")
     require_tls: bool = False
 
     @model_validator(mode="after")
@@ -39,7 +39,7 @@ class QdrantSettings(BaseSettings):
         """Reject a plaintext URL sending a credential to a non-local host."""
         require_encrypted_remote_connection(
             url=self.url,
-            has_credential=bool(self.api_key),
+            has_credential=bool(self.api_key.get_secret_value()),
             encrypted_schemes=frozenset({"https"}),
             require_encryption=self.require_tls,
         )
@@ -81,7 +81,7 @@ class WeaviateSettings(BaseSettings):
 
     mode: Literal["cloud", "custom"] = "custom"
     url: str = "http://localhost:8080"
-    api_key: str = ""
+    api_key: SecretStr = SecretStr("")
     grpc_port: int = 50051
     require_tls: bool = False
 
@@ -90,7 +90,7 @@ class WeaviateSettings(BaseSettings):
         """Reject a plaintext URL sending a credential to a non-local host."""
         require_encrypted_remote_connection(
             url=self.url,
-            has_credential=bool(self.api_key),
+            has_credential=bool(self.api_key.get_secret_value()),
             encrypted_schemes=frozenset({"https"}),
             require_encryption=self.require_tls,
         )
@@ -121,7 +121,7 @@ class MilvusSettings(BaseSettings):
     )
 
     uri: str = "http://localhost:19530"
-    token: str = ""
+    token: SecretStr = SecretStr("")
     require_tls: bool = False
 
     @model_validator(mode="after")
@@ -129,7 +129,7 @@ class MilvusSettings(BaseSettings):
         """Reject a plaintext URI sending a credential to a non-local host."""
         require_encrypted_remote_connection(
             url=self.uri,
-            has_credential=bool(self.token),
+            has_credential=bool(self.token.get_secret_value()),
             encrypted_schemes=frozenset({"https"}),
             require_encryption=self.require_tls,
         )

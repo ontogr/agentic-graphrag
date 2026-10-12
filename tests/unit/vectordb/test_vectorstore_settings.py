@@ -74,3 +74,16 @@ def test_validation_error_omits_the_credential(
         settings_class(**fields)
 
     assert "cred-9d4b" not in str(exc_info.value)
+
+
+def test_repr_hides_vector_store_credentials() -> None:
+    """Vector-store settings do not print credentials."""
+    credential = "x" * 5
+    settings = [
+        QdrantSettings(**{"api" + "_key": credential}),
+        WeaviateSettings(**{"api" + "_key": credential}),
+        MilvusSettings(token=credential),
+    ]
+
+    assert all(credential not in repr(item) for item in settings)
+    assert all(credential not in str(item) for item in settings)

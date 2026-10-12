@@ -144,7 +144,7 @@ class QdrantVectorStore(VectorStore):
 
                     self._client = AsyncQdrantClient(
                         url=self._settings.url,
-                        api_key=self._settings.api_key or None,
+                        api_key=self._settings.api_key.get_secret_value() or None,
                     )
         return self._client
 
