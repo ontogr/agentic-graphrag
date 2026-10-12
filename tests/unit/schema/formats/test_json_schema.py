@@ -3,6 +3,7 @@
 import json
 from typing import Any
 
+import jsonschema
 import pytest
 
 from agrag.common.data_models.graph_schema import (
@@ -54,7 +55,6 @@ class TestToJsonSchema:
         self, company_schema: GraphSchema
     ) -> None:
         """The result passes the meta-schema, and matching data passes."""
-        jsonschema = pytest.importorskip("jsonschema")
         result = to_json_schema(company_schema)
 
         jsonschema.Draft202012Validator.check_schema(result)
@@ -96,7 +96,6 @@ class TestToJsonSchema:
         A missing required property, a bad enum value, a pattern break and
         an unknown label each fail validation.
         """
-        jsonschema = pytest.importorskip("jsonschema")
         validator = jsonschema.Draft202012Validator(to_json_schema(company_schema))
 
         assert list(validator.iter_errors(document))
@@ -119,7 +118,6 @@ class TestToJsonSchema:
 
     def test_schema_without_relations_rejects_every_relation(self) -> None:
         """An empty relation list gives a schema that no relation satisfies."""
-        jsonschema = pytest.importorskip("jsonschema")
         schema = GraphSchema(
             name="t",
             version="1",
@@ -158,7 +156,6 @@ class TestToJsonSchema:
         self, company_schema: GraphSchema
     ) -> None:
         """Organization accepts empty properties and rejects a missing object."""
-        jsonschema = pytest.importorskip("jsonschema")
         validator = jsonschema.Draft202012Validator(to_json_schema(company_schema))
         present = {
             "entities": [{"label": "Organization", "text": "Acme", "properties": {}}],
@@ -174,7 +171,6 @@ class TestToJsonSchema:
 
     def test_shared_entity_and_relation_labels_stay_distinct(self) -> None:
         """One label for both kinds still validates each shape."""
-        jsonschema = pytest.importorskip("jsonschema")
         schema = GraphSchema(
             name="t",
             version="1",
@@ -201,7 +197,6 @@ class TestToJsonSchema:
 
     def test_labels_with_pointer_characters_still_resolve(self) -> None:
         """A label with slashes validates through its escaped reference."""
-        jsonschema = pytest.importorskip("jsonschema")
         schema = GraphSchema(
             name="t",
             version="1",
@@ -244,7 +239,6 @@ class TestToJsonSchema:
 
     def test_symmetric_parent_child_accepts_the_reversed_pair(self) -> None:
         """A symmetric pattern also matches the reverse direction."""
-        jsonschema = pytest.importorskip("jsonschema")
         schema = GraphSchema(
             name="t",
             version="1",
@@ -282,7 +276,6 @@ class TestToJsonSchema:
 
     def test_child_source_matches_a_parent_based_pattern(self) -> None:
         """A pattern naming a parent also accepts a child as the source."""
-        jsonschema = pytest.importorskip("jsonschema")
         schema = GraphSchema(
             name="t",
             version="1",
