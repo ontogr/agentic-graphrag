@@ -11,6 +11,7 @@ A graph database backend: schema, writes, and native vector search.
 
 **Functions:**
 
+- [**blocked_candidate_keys**](#agrag-graphdb-base-GraphStore-blocked_candidate_keys) – Return candidate keys with a committed non-pending record.
 - [**close**](#agrag-graphdb-base-GraphStore-close) – Release the backend connection.
 - [**connect**](#agrag-graphdb-base-GraphStore-connect) – Open the backend connection and verify connectivity.
 - [**ensure_vector_index**](#agrag-graphdb-base-GraphStore-ensure_vector_index) – Create a native vector index if it does not exist.
@@ -22,9 +23,18 @@ A graph database backend: schema, writes, and native vector search.
 - [**session**](#agrag-graphdb-base-GraphStore-session) – Open a session as an async context manager.
 - [**setup_constraints**](#agrag-graphdb-base-GraphStore-setup_constraints) – Create per-label and per-relation-type uniqueness constraints.
 - [**setup_indexes**](#agrag-graphdb-base-GraphStore-setup_indexes) – Create per-label property indexes.
+- [**upsert_candidates**](#agrag-graphdb-base-GraphStore-upsert_candidates) – Write candidate nodes and their evidence links.
 - [**upsert_nodes**](#agrag-graphdb-base-GraphStore-upsert_nodes) – Write or merge nodes, honoring each record's full label set.
 - [**upsert_relations**](#agrag-graphdb-base-GraphStore-upsert_relations) – Write or merge relationships between existing nodes.
 - [**vector_search**](#agrag-graphdb-base-GraphStore-vector_search) – Search nodes by dense vector.
+
+## `blocked_candidate_keys` \{#agrag-graphdb-base-GraphStore-blocked_candidate_keys}
+
+```python
+blocked_candidate_keys(keys:Sequence[str]) -> set[str]
+```
+
+Return candidate keys with a committed non-pending record.
 
 ## `close` \{#agrag-graphdb-base-GraphStore-close}
 
@@ -202,6 +212,30 @@ Create per-label property indexes.
 Covers every node label written through this instance or already
 present in the database, so a fresh instance can set up an existing
 database without first rewriting every record.
+
+## `upsert_candidates` \{#agrag-graphdb-base-GraphStore-upsert_candidates}
+
+```python
+upsert_candidates(candidates:Sequence[CandidateRecord], *, batch_size:int = 256, pending_job_id:UUID | None = None) -> UpsertResult
+```
+
+Write candidate nodes and their evidence links.
+
+**Parameters:**
+
+- **candidates** (<code>Sequence\[[CandidateRecord](../../common/data_models/candidate/CandidateRecord.md)\]</code>) – Records whose chunks and optional entity endpoints
+  should be linked.
+- **batch_size** (<code>int</code>) – Records per backend write call. Must be positive.
+- **pending_job_id** (<code>UUID | None</code>) – The job tag for nodes and edges created by this
+  write, or None for committed data.
+
+**Returns:**
+
+- <code>[UpsertResult](../../common/data_models/graph_record/UpsertResult.md)</code> – The number written and one failure for each missing chunk.
+
+**Raises:**
+
+- <code>ValueError</code> – `batch_size` is not positive.
 
 ## `upsert_nodes` \{#agrag-graphdb-base-GraphStore-upsert_nodes}
 

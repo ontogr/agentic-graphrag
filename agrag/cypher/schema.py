@@ -6,13 +6,19 @@ identifier-validation contract shared by every Cypher builder.
 
 from typing import Any
 
+from agrag.common.data_models.candidate import CANDIDATE_LABEL
 from agrag.common.data_models.cutover_job import (
     CUTOVER_JOB_LABEL,
     CUTOVER_JOB_STATUS_INDEX,
 )
 from agrag.common.data_models.vector_record import Distance
 from agrag.cypher._pending_filter import pending_filter_clause
-from agrag.cypher.entities import MERGE_ALIAS_LABEL, filter_clause, validate_identifier
+from agrag.cypher.entities import (
+    MERGE_ALIAS_LABEL,
+    NODE_IDENTITY_LABEL,
+    filter_clause,
+    validate_identifier,
+)
 
 
 _VECTOR_SIMILARITY: dict[Distance, str] = {
@@ -189,6 +195,30 @@ def cutover_job_status_index_query() -> str:
     )
 
 
+def candidate_id_constraint_query() -> str:
+    """Build a uniqueness constraint for candidate ids."""
+    return (
+        "CREATE CONSTRAINT candidate_id_unique IF NOT EXISTS "
+        f"FOR (c:{CANDIDATE_LABEL}) REQUIRE c.id IS UNIQUE"
+    )
+
+
+def candidate_key_index_query() -> str:
+    """Build an index for candidate key lookups."""
+    return (
+        "CREATE INDEX candidate_key_index IF NOT EXISTS "
+        f"FOR (c:{CANDIDATE_LABEL}) ON (c.key)"
+    )
+
+
+def candidate_state_index_query() -> str:
+    """Build an index for candidate state lookups."""
+    return (
+        "CREATE INDEX candidate_state_index IF NOT EXISTS "
+        f"FOR (c:{CANDIDATE_LABEL}) ON (c.state)"
+    )
+
+
 def vector_index_name(label: str, vector_property: str) -> str:
     """Derive the deterministic name a vector index is created under.
 
@@ -273,8 +303,8 @@ def vector_search_query(
     """Build a native vector search query and its filter parameters.
 
     A node written by an in-flight Cutover Job (one carrying a non-null
-    ``_pending_job_id``) is always excluded: the native vector index
-    would otherwise surface an uncommitted job's nodes to retrieval.
+    ``_pending_job_id``) is always excluded. Only nodes carrying the identity
+    label can be returned, even if another label has a vector index.
 
     Args:
         index_name: The vector index name from ``vector_index_name``.
@@ -286,7 +316,7 @@ def vector_search_query(
         and ``vector``).
     """
     query = "CALL db.index.vector.queryNodes($index, $k, $vector) YIELD node, score "
-    query += f"WHERE {pending_filter_clause('node')} "
+    query += f"WHERE node:{NODE_IDENTITY_LABEL} AND {pending_filter_clause('node')} "
     params: dict[str, Any] = {}
     if filters:
         where, params = filter_clause(filters)

@@ -14,9 +14,9 @@ Bases: <code>[Retriever](../base/Retriever.md)</code>
 Let the agent ask structured questions via generated Cypher.
 
 Calls a BAML function to generate a read-only Cypher query
-against the graph's declared schema, runs reject_write_cypher as a
-safety pre-filter, then bounds the query with a row limit and a
-server-side transaction timeout before EXPLAIN and execution. A
+against the graph's declared schema, runs write and identity safety
+gates, then bounds it with a row limit and a server-side timeout before
+EXPLAIN and execution. A
 query that fails to plan or to execute is regenerated once, carrying
 a bounded, sanitized diagnostic of the failure. Rows that carry an
 entity id are loaded from the graph before becoming a

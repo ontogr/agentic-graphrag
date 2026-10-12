@@ -17,6 +17,7 @@ from agrag.common.data_models.search_result import SearchResult
 from agrag.cypher.safety import (
     UnsafeCypherError,
     reject_write_cypher,
+    require_identity_guard,
     require_pending_guard,
     strip_cypher_syntax,
 )
@@ -327,9 +328,9 @@ class Text2CypherRetriever(Retriever):
     """Let the agent ask structured questions via generated Cypher.
 
     Calls a BAML function to generate a read-only Cypher query
-    against the graph's declared schema, runs reject_write_cypher as a
-    safety pre-filter, then bounds the query with a row limit and a
-    server-side transaction timeout before EXPLAIN and execution. A
+    against the graph's declared schema, runs write and identity safety
+    gates, then bounds it with a row limit and a server-side timeout before
+    EXPLAIN and execution. A
     query that fails to plan or to execute is regenerated once, carrying
     a bounded, sanitized diagnostic of the failure. Rows that carry an
     entity id are loaded from the graph before becoming a
@@ -488,6 +489,8 @@ class Text2CypherRetriever(Retriever):
             UnsafeCypherError: The query contains a write clause.
             MissingPendingGuardError: The query can return rows an
                 uncommitted job wrote. The repair attempt regenerates it.
+            MissingIdentityGuardError: The query can return a node outside
+                the entity graph. The repair attempt regenerates it.
             Exception: The query failed to plan or to execute.
         """
         with get_tracer(self._tracer).start_as_current_span(
@@ -496,6 +499,7 @@ class Text2CypherRetriever(Retriever):
         ) as span:
             reject_write_cypher(cypher_query)
             require_pending_guard(cypher_query)
+            require_identity_guard(cypher_query)
             bounded_query = _append_row_limit(
                 cypher_query, self._settings.text2cypher_max_rows
             )
