@@ -101,7 +101,7 @@ NOVEL = GraphSchema(
             patterns=_pairs(_ACTORS + ["Object", "Event", "Place"], ["Place"]),
         ),
         RelationType(
-            label="MEMBER_OF",
+            label="BELONGS_TO",
             description="A person or group belongs to a group.",
             patterns=[("Person", "Group"), ("Group", "Group")],
         ),

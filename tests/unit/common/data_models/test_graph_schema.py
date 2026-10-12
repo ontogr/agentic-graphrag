@@ -4,25 +4,16 @@ import pytest
 from pydantic import ValidationError
 
 from agrag.common.data_models import Cardinality
-from agrag.common.data_models.chunk import CHUNK_LABEL
-from agrag.common.data_models.community import COMMUNITY_LABEL
-from agrag.common.data_models.cutover_job import CUTOVER_JOB_LABEL
-from agrag.common.data_models.document import DOCUMENT_LABEL
+from agrag.common.data_models.graph_record import PENDING_JOB_ID_PROPERTY
 from agrag.common.data_models.graph_schema import (
     RESERVED_ENTITY_LABELS,
+    RESERVED_RELATION_TYPES,
     EntityType,
     GraphSchema,
     PropertySpec,
     RelationType,
 )
-from agrag.common.data_models.resolved_entity import RESOLVED_ENTITY_LABEL
-from agrag.common.data_models.structure import (
-    FIGURE_LABEL,
-    SECTION_LABEL,
-    SOURCE_LABEL,
-    TABLE_LABEL,
-)
-from agrag.cypher.entities import MERGE_ALIAS_LABEL, NODE_IDENTITY_LABEL
+from agrag.ingestion.resolve import SYSTEM_RELATION_TYPES
 
 
 # A schema exercising properties, hierarchy, limits, symmetry and patterns.
@@ -63,26 +54,37 @@ _CLINICAL_SCHEMA = GraphSchema(
 )
 
 
+_SYSTEM_PROPERTY_NAMES = [
+    "id",
+    "name",
+    "merge_key",
+    "merge_count",
+    "source_chunk_ids",
+    "created_at",
+    "embedding",
+    PENDING_JOB_ID_PROPERTY,
+]
+
+
 class TestEntityTypeReservedPropertyNames:
-    """EntityType rejects property names the vector payload reserves."""
+    """EntityType rejects property names that the graph or vector store writes."""
 
-    @pytest.mark.parametrize("reserved", ["label", "text"])
+    @pytest.mark.parametrize("reserved", ["label", "text", *_SYSTEM_PROPERTY_NAMES])
     def test_rejects_reserved_name(self, reserved: str) -> None:
-        """A property named label or text raises, naming the fix.
-
-        Both are payload keys every mirrored entity embedding carries, so a
-        property with either name would hide the real value from the
-        VectorStore's label filter and keyword indexing. The message states
-        the migration, since a schema persisted before this check existed
-        must be renamed or stripped before it loads again.
-        """
-        with pytest.raises(ValidationError, match=reserved) as excinfo:
+        """A property with a reserved name raises, naming the fix."""
+        with pytest.raises(ValidationError) as excinfo:
             EntityType(
                 label="Person",
                 description="A named individual.",
                 properties={reserved: PropertySpec(type="string")},
             )
-        assert "Rename or remove" in str(excinfo.value)
+
+        message = str(excinfo.value)
+        expected = (
+            f"Entity type 'Person' declares reserved property name(s) ['{reserved}']"
+        )
+        assert expected in message
+        assert "Rename or remove those property names in the schema." in message
 
     def test_rejects_reserved_name_among_valid_ones(self) -> None:
         """One reserved name alongside valid properties still rejects the type."""
@@ -95,6 +97,14 @@ class TestEntityTypeReservedPropertyNames:
                     "label": PropertySpec(type="string"),
                 },
             )
+
+    def test_description_is_not_reserved(self) -> None:
+        """Description stays an ordinary property for merge and embedding."""
+        EntityType(
+            label="Person",
+            description="x",
+            properties={"description": PropertySpec(type="string")},
+        )
 
 
 class TestEntityTypeReservedLabels:
@@ -110,6 +120,40 @@ class TestEntityTypeReservedLabels:
         """A parent label is a node label too."""
         with pytest.raises(ValidationError, match="reserved label"):
             EntityType(label="Clause", description="x", parents=["Section"])
+
+
+class TestRelationTypeReservedLabels:
+    """RelationType rejects labels that the graph uses for its own edges."""
+
+    @pytest.mark.parametrize("label", sorted(RESERVED_RELATION_TYPES))
+    def test_rejects_a_reserved_relation_label(self, label: str) -> None:
+        """A schema relation cannot reuse a system edge type."""
+        with pytest.raises(ValidationError) as excinfo:
+            RelationType(label=label, description="x", patterns=[])
+
+        assert (
+            f"Relation type '{label}' uses a reserved relationship type; the graph "
+            f"writes its own edges with {sorted(RESERVED_RELATION_TYPES)}. Rename "
+            "the relation type, for example 'BELONGS_TO' for 'MEMBER_OF'."
+        ) in str(excinfo.value)
+
+    def test_system_edge_types_are_reserved(self) -> None:
+        """Every neighbor-context system edge type is in the reserved set."""
+        assert set(SYSTEM_RELATION_TYPES) <= RESERVED_RELATION_TYPES
+
+    @pytest.mark.parametrize("label", ["EVIDENCED_BY", "SOURCE", "TARGET"])
+    def test_candidate_edge_types_are_reserved(self, label: str) -> None:
+        """Candidate rows link to evidence and entities with these types."""
+        assert label in RESERVED_RELATION_TYPES
+
+    def test_structural_edge_is_reserved_under_its_new_name(self) -> None:
+        """The document-to-part edge is HAS_PART, so a schema cannot use it."""
+        assert "HAS_PART" in RESERVED_RELATION_TYPES
+
+    def test_part_of_is_a_domain_relation_and_is_not_reserved(self) -> None:
+        """PART_OF stays free for domain relations after the rename."""
+        assert "PART_OF" not in RESERVED_RELATION_TYPES
+        RelationType(label="PART_OF", description="x", patterns=[])
 
 
 class TestHierarchyBehavior:
@@ -286,23 +330,6 @@ class TestPromptSerialization:
         assert "Biologic (parents: Drug)" in summary
         assert "[symmetric]" in summary
         assert "also cover its descendants" in summary
-
-    def test_reserved_identity_labels_match_graph_write_labels(self) -> None:
-        """The reserved set matches the labels used by graph writes."""
-        assert {
-            DOCUMENT_LABEL,
-            CHUNK_LABEL,
-            SECTION_LABEL,
-            TABLE_LABEL,
-            FIGURE_LABEL,
-            SOURCE_LABEL,
-            COMMUNITY_LABEL,
-            RESOLVED_ENTITY_LABEL,
-            CUTOVER_JOB_LABEL,
-            NODE_IDENTITY_LABEL,
-            MERGE_ALIAS_LABEL,
-            "Candidate",
-        } == RESERVED_ENTITY_LABELS
 
     def test_extra_fields_are_rejected(self) -> None:
         """Misspelled or removed schema fields cannot be silently ignored."""
