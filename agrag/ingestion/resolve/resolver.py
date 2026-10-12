@@ -291,9 +291,9 @@ class LLMVerify(Comparator):
 
         Returns:
             The per-pair results and the count of uncertain verdicts, including
-            missing and malformed answers. A request that errors or has no
-            settings returns UNCERTAIN for its pairs and increments
-            ``failed_requests`` or ``unavailable_pairs`` instead.
+                missing and malformed answers. A request that errors or has no
+                settings returns UNCERTAIN for its pairs and increments
+                ``failed_requests`` or ``unavailable_pairs`` instead.
         """
         if not pairs:
             return {}, 0

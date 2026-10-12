@@ -79,6 +79,8 @@ class _FailingVerifier:
         """Return the configured answer or raise for an unavailable endpoint."""
         if self.answer == "failure":
             raise RuntimeError("LLM endpoint unavailable")
+        if self.answer == "non_iterable":
+            return None
         if self.answer == "missing":
             return []
         return [{"pair_id": pair["pair_id"], "verdict": self.answer} for pair in pairs]
@@ -249,6 +251,7 @@ class TestReevaluateIntegration:
             ("failure", 500, True),
             ("uncertain", 500, True),
             ("missing", 500, True),
+            ("non_iterable", 500, True),
             ("invalid", 500, True),
             ("no_match", 0, True),
             ("no_match", 500, False),

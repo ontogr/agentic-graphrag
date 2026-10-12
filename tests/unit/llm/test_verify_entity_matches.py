@@ -3,7 +3,7 @@
 Uses an injected fake client, so no LLM is called. Covers sending seven
 pairs in one request, splitting populations at max_pairs_per_batch (five
 and ten pairs), mapping verdicts to pairs by pair_id rather than response
-position, failing safe to NO_MATCH with no partial results when the batch
+position, failing safe to UNCERTAIN with no partial results when the batch
 call raises.
 """
 
@@ -131,7 +131,7 @@ class TestCompareBatch:
         assert results[(0, 1)].verdict is ComparisonVerdict.NO_MATCH
 
     async def test_failed_batch_resolves_every_pair_without_partial(self) -> None:
-        """A raising batch call marks every requested pair NO_MATCH."""
+        """A raising batch call marks every requested pair UNCERTAIN."""
         client = _BatchClient([RuntimeError("LLM call failed")])
         verifier, pairs = _verifier(8, client)
 
@@ -139,7 +139,7 @@ class TestCompareBatch:
 
         assert set(results) == {(left, right) for left, right, _, _ in pairs}
         for result in results.values():
-            assert result.verdict is ComparisonVerdict.NO_MATCH
+            assert result.verdict is ComparisonVerdict.UNCERTAIN
 
     async def test_failed_chunk_marks_only_its_own_pairs(self) -> None:
         """A mid-batch failure keeps earlier chunks and fails the rest safe."""
@@ -156,7 +156,7 @@ class TestCompareBatch:
         for index in range(5):
             assert results[(index, index + 1)].verdict is ComparisonVerdict.MATCH
         for index in range(5, 7):
-            assert results[(index, index + 1)].verdict is ComparisonVerdict.NO_MATCH
+            assert results[(index, index + 1)].verdict is ComparisonVerdict.UNCERTAIN
 
 
 class TestCompareBatchDetailed:
@@ -178,7 +178,7 @@ class TestCompareBatchDetailed:
         results, uncertain = await verifier.compare_batch_detailed(pairs[:3])
 
         assert results[(0, 1)].verdict is ComparisonVerdict.MATCH
-        assert results[(1, 2)].verdict is ComparisonVerdict.NO_MATCH
+        assert results[(1, 2)].verdict is ComparisonVerdict.UNCERTAIN
         assert results[(2, 3)].verdict is ComparisonVerdict.NO_MATCH
         assert uncertain == 1
 

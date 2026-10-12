@@ -3,7 +3,7 @@
 Covers ExactMatch (case/whitespace-insensitive match, otherwise UNCERTAIN,
 never NO_MATCH), FuzzyMatch's fast-path accept (MATCH at or above
 threshold, otherwise UNCERTAIN, never NO_MATCH), and LLMVerify's fail-safe
-NO_MATCH on a raising injected client, working without settings when a
+UNCERTAIN on a raising injected client, working without settings when a
 client is injected directly, raising
 ExtractorMissingExtraError when no client is available (simulated by
 patching ``agrag.llm.baml_client`` out of ``sys.modules``), and

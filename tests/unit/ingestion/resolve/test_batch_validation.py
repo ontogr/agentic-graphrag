@@ -13,6 +13,8 @@ class TestValidateBatchVerdicts:
     @pytest.mark.parametrize(
         "results",
         [
+            None,
+            42,
             [],
             [{"pair_id": "unknown", "verdict": "match"}],
             [{"pair_id": "first", "verdict": "invalid"}],
@@ -23,7 +25,7 @@ class TestValidateBatchVerdicts:
         ],
     )
     def test_rejects_missing_unknown_malformed_and_duplicate_results(
-        self, results: list[object]
+        self, results: object
     ) -> None:
         """Unsafe output neither confirms nor rejects an entity match."""
         verdicts = validate_batch_verdicts(["first", "second"], results)

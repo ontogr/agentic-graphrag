@@ -6,7 +6,7 @@ sidebar_label: validate_batch_verdicts
 # `agrag.ingestion.resolve.batch_validation.validate_batch_verdicts` \{#agrag-ingestion-resolve-batch_validation-validate_batch_verdicts}
 
 ```python
-validate_batch_verdicts(pair_ids:Iterable[str], results:Iterable[object]) -> dict[str, ComparisonResult]
+validate_batch_verdicts(pair_ids:Iterable[str], results:object) -> dict[str, ComparisonResult]
 ```
 
 Return verdicts keyed by requested candidate pair identifiers.
