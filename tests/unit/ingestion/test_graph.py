@@ -44,6 +44,7 @@ from agrag.common.data_models.graph_record import (
 )
 from agrag.common.data_models.graph_schema import GraphSchema
 from agrag.common.data_models.normalization import Normalization
+from agrag.common.data_models.presets import OPERATIONS
 from agrag.common.data_models.resolved_entity import (
     RESOLVED_ENTITY_LABEL,
 )
@@ -68,6 +69,8 @@ from agrag.ingestion.settings import ExtractionSettings, effective_mode
 from agrag.llm.client_config import LLMClientConfig
 from agrag.loaders.prose import TextLoader
 from agrag.loaders.types import ErrorPolicy, ReadOptions
+from agrag.schema import SchemaLoadError, load_schema
+from agrag.schema.loader import SchemaSource
 from tests.unit.ingestion._lease_fake import CutoverJobLeaseFake
 
 
@@ -185,6 +188,32 @@ class _MockExtractor(Extractor):
 
     async def extract(self, chunk: Chunk, schema) -> ExtractionResult:  # type: ignore[no-untyped-def]
         return ExtractionResult(entities=[], relations=[], extractor_name="fake")
+
+
+class _SchemaRecordingExtractor(Extractor):
+    """Records the schema of every extraction and extracts nothing."""
+
+    def __init__(self) -> None:
+        """Create the extractor with no recorded schemas."""
+        self.received_schemas: list[GraphSchema] = []
+
+    async def extract(self, chunk: Chunk, schema: GraphSchema) -> ExtractionResult:
+        self.received_schemas.append(schema)
+        return ExtractionResult(entities=[], relations=[], extractor_name="fake")
+
+
+async def _schema_seen_by_extractor(source: SchemaSource) -> GraphSchema:
+    """Open a graph with source, add one note, and return the schema used."""
+    extractor = _SchemaRecordingExtractor()
+    graph = await Graph.open(
+        schema=source,
+        graph_store=_MockGraphStore(),
+        embedder=_MockEmbedder(),
+        extractor=extractor,
+    )
+    await graph.add(text="A short note.")
+    (received,) = extractor.received_schemas
+    return received
 
 
 async def _open_graph(store: _MockGraphStore | None = None) -> Graph:
@@ -849,6 +878,83 @@ class TestGraphOpen:
                 extractor=_MockExtractor(),
             )
         assert store.close_calls == 1
+
+
+class TestGraphSchemaSources:
+    """Graph accepts any source load_schema accepts and converts it once."""
+
+    async def test_graph_schema_is_used_as_given(self) -> None:
+        """A GraphSchema reaches the extractor unchanged."""
+        received = await _schema_seen_by_extractor(DEFAULT_SCHEMA)
+
+        assert received == DEFAULT_SCHEMA
+
+    async def test_shipped_name_gives_its_entity_labels(self) -> None:
+        """A shipped schema name loads that schema's entity types."""
+        received = await _schema_seen_by_extractor("operations")
+
+        assert "Facility" in [entity.label for entity in received.entities]
+
+    @pytest.mark.parametrize(
+        ("source", "expected_labels"),
+        [
+            (["Person", "Machine"], ["Person", "Machine"]),
+            (["Ticket"], ["Ticket"]),
+        ],
+    )
+    async def test_label_list_gives_exactly_those_entity_labels(
+        self, source: list[str], expected_labels: list[str]
+    ) -> None:
+        """A list of strings becomes the entity labels, in order."""
+        received = await _schema_seen_by_extractor(source)
+
+        assert [entity.label for entity in received.entities] == expected_labels
+
+    async def test_yaml_file_path_matches_load_schema(self, tmp_path: Path) -> None:
+        """A YAML file path gives the same schema as load_schema on that path."""
+        schema_file = tmp_path / "schema.yaml"
+        schema_file.write_text("entities:\n  Person: A person.\n", encoding="utf-8")
+
+        received = await _schema_seen_by_extractor(schema_file)
+
+        assert received == load_schema(schema_file)
+
+    async def test_preset_matches_load_schema(self) -> None:
+        """A Preset value gives the schema load_schema builds from it."""
+        received = await _schema_seen_by_extractor(OPERATIONS)
+
+        assert received == load_schema(OPERATIONS)
+
+    async def test_open_rejects_invalid_dict_before_connecting(self) -> None:
+        """An invalid dict raises SchemaLoadError and the store never connects."""
+
+        class _ConnectTrackingStore(_MockGraphStore):
+            def __init__(self) -> None:
+                super().__init__()
+                self.connect_calls = 0
+
+            async def connect(self) -> None:
+                self.connect_calls += 1
+
+        store = _ConnectTrackingStore()
+        with pytest.raises(SchemaLoadError):
+            await Graph.open(
+                schema={"entites": {"Person": "A person."}},
+                graph_store=store,
+                embedder=_MockEmbedder(),
+                extractor=_MockExtractor(),
+            )
+        assert store.connect_calls == 0
+
+    def test_constructor_rejects_invalid_dict(self) -> None:
+        """Graph(...) raises SchemaLoadError for an invalid dict schema."""
+        with pytest.raises(SchemaLoadError):
+            Graph(
+                schema={"entites": {"Person": "A person."}},
+                graph_store=_MockGraphStore(),
+                embedder=_MockEmbedder(),
+                extractor=_MockExtractor(),
+            )
 
 
 class TestGraphVectorStore:

@@ -99,6 +99,26 @@ Leiden clustering groups related entities into communities. `Graph.detect_commun
 
 Use `DEFAULT_SCHEMA` for general text or provide a schema for a specific domain. Add a preset such as `OPERATIONS` for more types. The same schema guides extraction, validation, resolution, storage, and query generation.
 
+Write a schema as a short dict, a list of labels or a YAML file. `extends` builds on the default schema:
+
+```python
+from agrag.schema import load_schema
+
+schema = load_schema(
+    {
+        "extends": "default",
+        "entities": [
+            {
+                "label": "Vendor",
+                "description": "An organization that sells to others.",
+                "parents": ["Organization"],
+            }
+        ],
+        "relations": ["Vendor-SELLS_TO->Organization"],
+    }
+)
+```
+
 ## Architecture
 
 Agentic GraphRAG has two main data flows:

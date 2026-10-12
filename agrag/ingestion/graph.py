@@ -72,6 +72,8 @@ from agrag.loaders.base import Loader
 from agrag.loaders.types import ErrorPolicy, ReadOptions
 from agrag.observability import get_tracer
 from agrag.retrieval.settings import RetrievalSettings
+from agrag.schema import load_schema
+from agrag.schema.loader import SchemaSource
 from agrag.vectordb.base import VectorStore
 
 
@@ -191,7 +193,7 @@ class Graph:
     def __init__(
         self,
         *,
-        schema: GraphSchema,
+        schema: SchemaSource,
         graph_store: GraphStore,
         embedder: Embedder,
         extractor: Extractor | None = None,
@@ -208,8 +210,12 @@ class Graph:
         """Create a graph bound to a schema, store, embedder, and extractor.
 
         Args:
-            schema: The entity/relation types this graph validates every
-                extraction against.
+            schema: The schema the extractor receives. A ``GraphSchema`` is
+                used as given. Any other value goes through ``load_schema``: a
+                ``Preset``, a shipped name (``"default"``, ``"operations"`` or
+                ``"legal"``), a file path, a dict, a list of strings, a Pydantic
+                class, or JSON or YAML text. Raises ``SchemaLoadError`` when the
+                value is not a valid schema.
             graph_store: Where entities, relations, chunks, and MENTIONED_IN
                 edges are written.
             embedder: Populates entity embeddings for native vector search.
@@ -244,7 +250,9 @@ class Graph:
                 to the LLM for each label. A lower value bounds the number of
                 verification calls and leaves more pairs undecided.
         """
-        self._schema = schema
+        self._schema = (
+            schema if isinstance(schema, GraphSchema) else load_schema(schema)
+        )
         self._graph_store = graph_store
         self._embedder = embedder
         settings = (
@@ -283,7 +291,7 @@ class Graph:
     async def open(
         cls,
         *,
-        schema: GraphSchema,
+        schema: SchemaSource,
         graph_store: GraphStore,
         embedder: Embedder,
         extractor: Extractor | None = None,
@@ -311,8 +319,12 @@ class Graph:
         missing) so the dual writes never hit an absent collection.
 
         Args:
-            schema: The entity/relation types this graph validates every
-                extraction against.
+            schema: The schema the extractor receives. A ``GraphSchema`` is
+                used as given. Any other value goes through ``load_schema``: a
+                ``Preset``, a shipped name (``"default"``, ``"operations"`` or
+                ``"legal"``), a file path, a dict, a list of strings, a Pydantic
+                class, or JSON or YAML text. Raises ``SchemaLoadError`` when the
+                value is not a valid schema.
             graph_store: Where entities, relations, chunks, and MENTIONED_IN
                 edges are written.
             embedder: Populates entity embeddings for native vector search.
@@ -349,6 +361,7 @@ class Graph:
                 setup, or vector-index provisioning raises. graph_store is
                 closed first, so a failed open() never leaks a connection.
         """
+        schema = schema if isinstance(schema, GraphSchema) else load_schema(schema)
         resolved_tracer = get_tracer(tracer)
         with resolved_tracer.start_as_current_span("agrag.ingestion.open"):
             try:

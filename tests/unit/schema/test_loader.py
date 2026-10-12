@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from agrag.common.data_models.default_schema import DEFAULT_SCHEMA
 from agrag.common.data_models.graph_schema import (
     Cardinality,
     EntityType,
@@ -12,6 +13,7 @@ from agrag.common.data_models.graph_schema import (
     PropertySpec,
     RelationType,
 )
+from agrag.common.data_models.presets import LEGAL, OPERATIONS
 from agrag.schema import SchemaLoadError, dump_schema, load_schema
 
 
@@ -930,3 +932,81 @@ class TestReviewFixes:
         )
 
         assert "makes property 'email' optional" in str(error)
+
+
+class TestShippedNames:
+    """The shipped names and presets work as sources and as extends."""
+
+    def test_preset_value_loads_as_the_preset_on_the_default(self):
+        """A Preset source is the preset applied to the default schema."""
+        assert load_schema(OPERATIONS) == OPERATIONS.apply(DEFAULT_SCHEMA)
+
+    def test_preset_value_extends_a_child(self):
+        """A Preset as extends adds its types below the child's types."""
+        schema = load_schema({"entities": ["Vendor"]}, extends=LEGAL)
+
+        assert _labels(schema) == [
+            "Person",
+            "Organization",
+            "Location",
+            "Event",
+            "Product",
+            "Software",
+            "Publication",
+            "Dataset",
+            "Project",
+            "Contract",
+            "Regulation",
+            "Vendor",
+        ]
+
+    @pytest.mark.parametrize("name", ["default", "operations", "legal"])
+    def test_empty_extension_keeps_the_shipped_schema(self, name):
+        """A child with no types keeps every type and relation of the base."""
+        shipped = load_schema(name)
+
+        schema = load_schema({"name": "same"}, extends=name)
+
+        assert schema.name == "same"
+        assert schema.entities == shipped.entities
+        assert schema.relations == shipped.relations
+
+    def test_extending_default_adds_a_type_below_organization(self):
+        """A child of default adds a type that inherits from Organization."""
+        schema = load_schema(
+            {
+                "extends": "default",
+                "entities": {
+                    "Vendor": {"description": "A seller.", "parents": ["Organization"]}
+                },
+                "relations": ["Vendor-SELLS_TO->Organization"],
+            }
+        )
+
+        assert schema.ancestors("Vendor") == ["Organization"]
+        assert len(schema.entities) == len(DEFAULT_SCHEMA.entities) + 1
+
+    def test_omitting_extends_replaces_the_default(self):
+        """Without extends, a child is standalone and has only its own types."""
+        assert _labels(load_schema({"entities": ["Vendor"]})) == ["Vendor"]
+
+    def test_redeclaring_a_default_type_is_an_error(self):
+        """A type already in the shipped default needs override to replace it."""
+        error = _error({"extends": "default", "entities": ["Person"]})
+
+        assert "already defined by the base schema 'default'" in error.issues[0].message
+
+    def test_redeclaring_a_preset_type_is_an_error(self):
+        """A preset type conflicts with the base like any other base type."""
+        error = _error({"entities": ["Facility"]}, extends="operations")
+
+        assert (
+            "already defined by the base schema 'default+operations'"
+            in error.issues[0].message
+        )
+
+    def test_unknown_name_lists_the_shipped_names(self):
+        """The unknown-name error lists every shipped name."""
+        error = _error("defalt")
+
+        assert "(default, legal, operations)" in error.issues[0].message
