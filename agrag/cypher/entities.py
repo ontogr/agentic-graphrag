@@ -20,14 +20,14 @@ _IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 # every one of those labels, so adding a label to an existing same-id node
 # would create a duplicate node (and violate any per-label uniqueness
 # constraint) rather than update it.
-NODE_IDENTITY_LABEL = "_AgragNode"
+NODE_IDENTITY_LABEL = "_Node"
 
 # One node per merge_key ever assigned to any entity, permanently mapping
 # that key to the entity's own id. A live entity's node also carries
 # merge_key directly (see merge_key_constraint_query); this table is what
 # lets an accepted alternate name resolve to the same entity. See
 # fetch_by_merge_keys_query and upsert_merge_alias_query.
-MERGE_ALIAS_LABEL = "_AgragMergeAlias"
+MERGE_ALIAS_LABEL = "_MergeAlias"
 
 
 def validate_identifier(value: str) -> str:

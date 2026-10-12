@@ -399,7 +399,7 @@ class TestSearchEngineIntegration:
         org_label = validate_identifier(f"Org_{uuid4().hex[:8]}")
         try:
             # Seed nodes with distinct native labels through the store, so
-            # they carry the _AgragNode identity anchor like every node this
+            # they carry the _Node identity anchor like every node this
             # project writes.
             person_id = uuid4()
             org_id = uuid4()
@@ -427,7 +427,7 @@ class TestSearchEngineIntegration:
             # Filter for Person label only.
             filters = SearchFilters(labels=[person_label])
             where, params = filters.to_cypher_where(node_var="n")
-            query = f"MATCH (n:_AgragNode) {where} RETURN n.id AS id, n.name AS name"
+            query = f"MATCH (n:_Node) {where} RETURN n.id AS id, n.name AS name"
             rows = await self.store.execute_read(query, params)
             ids = {row["id"] for row in rows}
 

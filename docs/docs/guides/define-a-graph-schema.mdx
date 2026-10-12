@@ -152,7 +152,7 @@ async def main() -> None:
         print("mentions:", result.extraction.entities_extracted)
         print("relations:", result.extraction.relations_extracted)
         entities = await graph_store.execute_read(
-            "MATCH (e:_AgragNode) "
+            "MATCH (e:_Node) "
             "WHERE NOT e:Chunk AND NOT e:Document AND NOT e:Community "
             "AND NOT e:ResolvedEntity "
             "RETURN labels(e) AS labels, e.name AS name ORDER BY name"
@@ -160,7 +160,7 @@ async def main() -> None:
         for row in entities:
             print(row["labels"], row["name"])
         relations = await graph_store.execute_read(
-            "MATCH (a:_AgragNode)-[r]->(b:_AgragNode) "
+            "MATCH (a:_Node)-[r]->(b:_Node) "
             "WHERE type(r) IN ['DESIGNED', 'WORKED_IN'] "
             "RETURN a.name AS source, type(r) AS relation, b.name AS target"
         )
@@ -178,10 +178,10 @@ Output:
 ```text
 mentions: 6
 relations: 2
-['_AgragNode', 'Person'] Ada Lovelace
-['_AgragNode', 'Machine'] Analytical Engine
-['_AgragNode', 'Person'] Charles Babbage
-['_AgragNode', 'City'] London
+['_Node', 'Person'] Ada Lovelace
+['_Node', 'Machine'] Analytical Engine
+['_Node', 'Person'] Charles Babbage
+['_Node', 'City'] London
 Charles Babbage DESIGNED Analytical Engine
 Ada Lovelace WORKED_IN London
 ```

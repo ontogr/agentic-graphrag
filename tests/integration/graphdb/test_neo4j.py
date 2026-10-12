@@ -19,7 +19,11 @@ import pytest
 from agrag.common.data_models.graph_record import NodeRecord, RelationRecord
 from agrag.common.data_models.vector_record import Distance
 from agrag.cypher._pending_filter import pending_filter_clause
-from agrag.cypher.entities import NODE_IDENTITY_LABEL, validate_identifier
+from agrag.cypher.entities import (
+    MERGE_ALIAS_LABEL,
+    NODE_IDENTITY_LABEL,
+    validate_identifier,
+)
 from agrag.cypher.schema import (
     node_id_constraint_name,
     node_id_constraint_query,
@@ -28,6 +32,7 @@ from agrag.cypher.schema import (
 )
 from agrag.embedding.errors import EmbeddingDimensionMismatchError
 from agrag.graphdb import build_graph_store
+from agrag.graphdb.errors import GraphStoreConstraintViolationError
 from agrag.graphdb.neo4j import Neo4jGraphStore
 from agrag.graphdb.settings import Neo4jSettings
 from tests.integration._schema_cleanup import drop_schema_for
@@ -251,6 +256,78 @@ class TestNeo4jGraphStoreIntegration:
             await store.setup_constraints()
         finally:
             await store.execute_write(f"MATCH (n:{label}) DETACH DELETE n")
+            await store.close()
+
+    @pytest.mark.xdist_group(name="neo4j_schema")
+    async def test_internal_labels_store_nodes_and_enforce_uniqueness(self) -> None:
+        """Setup creates the current constraints and writes nodes with new labels."""
+        store = build_graph_store("neo4j")
+        await store.connect()
+        entity_id = uuid4()
+        alias_id = uuid4()
+        merge_key = f"test-{uuid4().hex}"
+        try:
+            await store.setup_constraints()
+            await store.upsert_nodes(
+                "Person",
+                [
+                    NodeRecord(
+                        id=entity_id,
+                        labels=["Person"],
+                        properties={"name": "Test Entity"},
+                    )
+                ],
+            )
+
+            constraints = await store.execute_read(
+                "SHOW CONSTRAINTS YIELD name, labelsOrTypes, properties "
+                "WHERE name IN $names RETURN name, labelsOrTypes, properties",
+                {"names": ["node_5__Node_id_unique", "_mergealias_merge_key_unique"]},
+            )
+            assert {row["name"] for row in constraints} == {
+                "node_5__Node_id_unique",
+                "_mergealias_merge_key_unique",
+            }
+            assert any(
+                row["labelsOrTypes"] == ["_Node"] and row["properties"] == ["id"]
+                for row in constraints
+            )
+            assert any(
+                row["labelsOrTypes"] == ["_MergeAlias"]
+                and row["properties"] == ["merge_key"]
+                for row in constraints
+            )
+
+            entity_rows = await store.execute_read(
+                "MATCH (n:_Node:Person {id: $id}) RETURN n.name AS name",
+                {"id": str(entity_id)},
+            )
+            assert entity_rows == [{"name": "Test Entity"}]
+
+            await store.execute_write(
+                f"CREATE (a:{MERGE_ALIAS_LABEL} "
+                "{id: $id, merge_key: $merge_key, entity_id: $entity_id})",
+                {
+                    "id": str(alias_id),
+                    "merge_key": merge_key,
+                    "entity_id": str(entity_id),
+                },
+            )
+            with pytest.raises(GraphStoreConstraintViolationError):
+                await store.execute_write(
+                    f"CREATE (a:{MERGE_ALIAS_LABEL} "
+                    "{id: $id, merge_key: $merge_key, entity_id: $entity_id})",
+                    {
+                        "id": str(uuid4()),
+                        "merge_key": merge_key,
+                        "entity_id": str(entity_id),
+                    },
+                )
+        finally:
+            await store.execute_write(
+                "MATCH (n) WHERE n.id = $entity_id OR n.id = $alias_id DETACH DELETE n",
+                {"entity_id": str(entity_id), "alias_id": str(alias_id)},
+            )
             await store.close()
 
     @pytest.mark.xdist_group(name="neo4j_schema")

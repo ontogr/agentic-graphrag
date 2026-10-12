@@ -187,17 +187,17 @@ async def main() -> None:
     await graph_store.connect()
     try:
         entities = await graph_store.execute_read(
-            "MATCH (e:_AgragNode) "
+            "MATCH (e:_Node) "
             "WHERE NOT e:Chunk AND NOT e:Document AND NOT e:Community "
             "AND NOT e:ResolvedEntity "
-            "RETURN [l IN labels(e) WHERE l <> '_AgragNode'][0] AS label, "
+            "RETURN [l IN labels(e) WHERE l <> '_Node'][0] AS label, "
             "e.name AS name ORDER BY label, name"
         )
         for row in entities:
             print(row["label"], "|", row["name"])
 
         facts = await graph_store.execute_read(
-            "MATCH (a:_AgragNode)-[r]->(b:_AgragNode) "
+            "MATCH (a:_Node)-[r]->(b:_Node) "
             "WHERE type(r) IN ['FOUNDED', 'WORKS_AT', 'HEADQUARTERED_IN'] "
             "RETURN a.name AS source, type(r) AS relation, b.name AS target "
             "ORDER BY relation"
@@ -229,7 +229,7 @@ Microsoft - HEADQUARTERED_IN -> Redmond
 Satya Nadella - WORKS_AT -> Microsoft
 ```
 
-Every node that Agentic GraphRAG writes has the label `_AgragNode`. The first query skips the chunk, document, community, and resolved-entity nodes, so only entities remain.
+Every node that Agentic GraphRAG writes has the label `_Node`. The first query skips the chunk, document, community, and resolved-entity nodes, so only entities remain.
 
 ## What you just built
 

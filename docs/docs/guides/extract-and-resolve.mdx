@@ -235,7 +235,7 @@ async def main() -> None:
     try:
         await graph.add(text="Ada Lovelace worked with Charles Babbage.")
         rows = await graph_store.execute_read(
-            "MATCH (e:_AgragNode:Person) RETURN e.id AS id LIMIT 2"
+            "MATCH (e:_Node:Person) RETURN e.id AS id LIMIT 2"
         )
         entity_ids = [UUID(str(row["id"])) for row in rows]
 

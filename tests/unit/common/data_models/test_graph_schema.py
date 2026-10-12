@@ -14,6 +14,7 @@ from agrag.common.data_models.graph_schema import (
     GraphSchema,
     RelationType,
 )
+from agrag.cypher.entities import MERGE_ALIAS_LABEL, NODE_IDENTITY_LABEL
 
 
 # A schema exercising every serialized field: two entity types, declared
@@ -89,6 +90,10 @@ class TestEntityTypeReservedLabels:
         """A subtype label is a node label too."""
         with pytest.raises(ValidationError, match="reserved label"):
             EntityType(label="Clause", description="x", subtypes=["Section"])
+
+    def test_reserved_identity_labels_match_graph_write_labels(self) -> None:
+        """The reserved set matches the labels used by graph writes."""
+        assert {NODE_IDENTITY_LABEL, MERGE_ALIAS_LABEL} <= RESERVED_ENTITY_LABELS
 
 
 class TestPromptSerialization:

@@ -272,7 +272,7 @@ async def _cleanup(env: _Env) -> None:
     for label in (env.drug_label, env.condition_label):
         await store.execute_write(f"MATCH (n:{label}) DETACH DELETE n")
         await store.execute_write(
-            "MATCH (a:_AgragMergeAlias) WHERE a.merge_key STARTS WITH $prefix "
+            "MATCH (a:_MergeAlias) WHERE a.merge_key STARTS WITH $prefix "
             "DETACH DELETE a",
             {"prefix": f"{label}:"},
         )

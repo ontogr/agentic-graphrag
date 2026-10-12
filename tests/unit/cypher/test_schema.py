@@ -2,16 +2,18 @@
 
 Covers a regression for constraint-name collisions between a node label and a
 relationship type that share a naming boundary (e.g. label "X_rel" versus
-type "X"), collision-free vector index naming
-across label/property pairs that could otherwise clash, and rejecting
-unsupported or unsafe input to vector_index_query (dot product is
+type "X"), fixed names for internal-label constraints, collision-free vector
+index naming across label/property pairs that could otherwise clash, and
+rejecting unsupported or unsafe input to vector_index_query (dot product is
 unsupported, unsafe labels raise).
 """
 
 import pytest
 
 from agrag.common.data_models.vector_record import Distance
+from agrag.cypher.entities import NODE_IDENTITY_LABEL
 from agrag.cypher.schema import (
+    node_id_constraint_name,
     node_id_constraint_query,
     relation_id_constraint_query,
     vector_index_name,
@@ -47,6 +49,14 @@ class TestConstraintNamesDoNotCollide:
         node_name = node_query.split()[2]
         rel_name = rel_query.split()[2]
         assert node_name != rel_name
+
+
+class TestInternalLabelConstraints:
+    """The internal node labels have stable constraint names."""
+
+    def test_identity_constraint_name_matches_the_stored_label(self) -> None:
+        """The identity label uses the expected length-prefixed name."""
+        assert node_id_constraint_name(NODE_IDENTITY_LABEL) == "node_5__Node_id_unique"
 
 
 class TestVectorIndexName:

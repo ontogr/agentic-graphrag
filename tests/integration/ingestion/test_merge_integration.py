@@ -87,7 +87,7 @@ class TestApplyMergeAliasConflictIntegration:
             assert count_rows[0]["c"] == 1
 
             robert_lookup = await store.execute_read(
-                f"MATCH (a:_AgragMergeAlias {{merge_key: $mk}}) "
+                f"MATCH (a:_MergeAlias {{merge_key: $mk}}) "
                 f"MATCH (n:{label} {{id: a.entity_id}}) RETURN n.id AS id",
                 {"mk": f"{label}:robert"},
             )
@@ -95,8 +95,7 @@ class TestApplyMergeAliasConflictIntegration:
         finally:
             await store.execute_write(f"MATCH (n:{label}) DETACH DELETE n")
             await store.execute_write(
-                "MATCH (a:_AgragMergeAlias) "
-                "WHERE a.merge_key STARTS WITH $prefix DELETE a",
+                "MATCH (a:_MergeAlias) WHERE a.merge_key STARTS WITH $prefix DELETE a",
                 {"prefix": f"{label}:"},
             )
             await store.close()

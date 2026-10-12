@@ -90,7 +90,7 @@ async def main() -> None:
             for entity_id in (match.entity_a_id, match.entity_b_id)
         ]
         rows = await graph_store.execute_read(
-            "MATCH (e:_AgragNode) WHERE e.id IN $ids RETURN e.id AS id, e.name AS name",
+            "MATCH (e:_Node) WHERE e.id IN $ids RETURN e.id AS id, e.name AS name",
             {"ids": ids},
         )
         names = {row["id"]: row["name"] for row in rows}

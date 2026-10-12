@@ -332,7 +332,7 @@ async def _cleanup(
             {"keys": document_keys},
         ),
         (
-            "MATCH (a:_AgragMergeAlias) WHERE any(l IN $labels "
+            "MATCH (a:_MergeAlias) WHERE any(l IN $labels "
             "WHERE a.merge_key STARTS WITH l + ':') DETACH DELETE a",
             {"labels": labels},
         ),

@@ -270,7 +270,7 @@ class TestCommunityDetectionIntegration:
             )
         with contextlib.suppress(Exception):
             await self.store.execute_write(
-                "MATCH (a:_AgragMergeAlias) WHERE a.merge_key STARTS WITH $p DELETE a",
+                "MATCH (a:_MergeAlias) WHERE a.merge_key STARTS WITH $p DELETE a",
                 {"p": f"{self.label}:"},
             )
         await self.store.close()

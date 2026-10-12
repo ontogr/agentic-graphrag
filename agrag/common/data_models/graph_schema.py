@@ -33,8 +33,11 @@ RESERVED_ENTITY_LABELS = frozenset(
         COMMUNITY_LABEL,
         RESOLVED_ENTITY_LABEL,
         CUTOVER_JOB_LABEL,
-        "_AgragNode",
-        "_AgragMergeAlias",
+        # These repeat NODE_IDENTITY_LABEL and MERGE_ALIAS_LABEL. They are
+        # not imported because agrag.cypher.entities loads this package, so
+        # the import would be circular. A unit test keeps the copies equal.
+        "_Node",
+        "_MergeAlias",
     }
 )
 
