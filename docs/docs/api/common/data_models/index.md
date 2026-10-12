@@ -9,6 +9,7 @@ Shared data models used by agrag components.
 
 **Modules:**
 
+- [**candidate**](candidate/index.md) – Candidate items rejected by the extraction schema.
 - [**chunk**](chunk/index.md) – The Chunk model: one retrieval-sized piece of a Document.
 - [**community**](community/index.md) – The Community model: a Leiden-detected entity cluster with an LLM report.
 - [**cutover_job**](cutover_job/index.md) – Crash-recoverable state for one add/update/delete_document call.
