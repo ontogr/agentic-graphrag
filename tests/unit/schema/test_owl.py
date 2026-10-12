@@ -9,6 +9,7 @@ import pytest
 from agrag.schema import SchemaLoadError, dump_schema, load_schema
 from agrag.schema.formats import (
     SchemaFormatError,
+    SchemaFormatMissingExtraError,
     load_owl,
     loads_owl,
 )
@@ -408,3 +409,242 @@ class TestOwlImport:
                 @prefix owl: <http://www.w3.org/2002/07/owl#> .
                 {declarations} .
             """)
+
+
+PREFIXES = """
+@prefix ex: <https://example.test/ontology#> .
+@prefix other: <https://other.test/ontology#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+ex:A a owl:Class .
+ex:B a owl:Class .
+ex:C a owl:Class .
+"""
+
+
+def _import(body: str):
+    return loads_owl(PREFIXES + body)
+
+
+def _codes(result) -> list[str]:
+    return [warning.code for warning in result.warnings]
+
+
+class TestOwlWarnings:
+    """Lossy or unsupported Turtle input is reported, never dropped silently."""
+
+    @pytest.mark.parametrize(
+        ("body", "code"),
+        [
+            ('ex:A rdfs:comment "one", "two" .', "comment_alternatives_dropped"),
+            (
+                "ex:p a owl:DatatypeProperty ; rdfs:domain ex:A ; "
+                'rdfs:range [ owl:oneOf ( "a" 1 ) ] .',
+                "enum_types_widened",
+            ),
+            (
+                "ex:p a owl:DatatypeProperty ; rdfs:domain ex:A ; "
+                "rdfs:range xsd:string, xsd:integer .",
+                "multiple_ranges_narrowed",
+            ),
+            (
+                "ex:p a owl:DatatypeProperty ; rdfs:domain ex:A, ex:B ; "
+                "rdfs:range xsd:string .",
+                "multiple_domains_unioned",
+            ),
+            (
+                "ex:bad-name a owl:DatatypeProperty ; rdfs:domain ex:A ; "
+                "rdfs:range xsd:string .",
+                "construct_ignored",
+            ),
+            (
+                "ex:p a owl:DatatypeProperty ; rdfs:domain ex:A ; "
+                "rdfs:range xsd:string . "
+                "other:p a owl:DatatypeProperty ; rdfs:domain ex:A ; "
+                "rdfs:range xsd:string .",
+                "property_name_collision",
+            ),
+            (
+                "ex:p a owl:DatatypeProperty ; rdfs:domain ex:A ; "
+                "rdfs:range xsd:string . "
+                "ex:A rdfs:subClassOf [ a owl:Restriction ; owl:onProperty ex:p ; "
+                "owl:maxCardinality 0 ] .",
+                "zero_max_cardinality_dropped",
+            ),
+            (
+                "ex:p a owl:DatatypeProperty ; rdfs:domain ex:A ; "
+                "rdfs:range xsd:string . "
+                "ex:A rdfs:subClassOf [ a owl:Restriction ; owl:onProperty ex:p ; "
+                "owl:maxCardinality 3 ] .",
+                "max_cardinality_dropped",
+            ),
+            (
+                "ex:r a owl:ObjectProperty ; rdfs:domain ex:A ; "
+                "rdfs:range ex:B, ex:C .",
+                "conjunctive_endpoints_unsupported",
+            ),
+            (
+                "ex:worksFor a owl:ObjectProperty ; rdfs:domain ex:A ; "
+                "rdfs:range ex:B .",
+                "relation_label_normalized",
+            ),
+            (
+                "ex:works-for a owl:ObjectProperty ; rdfs:domain ex:A ; "
+                "rdfs:range ex:B .",
+                "construct_ignored",
+            ),
+            ("ex:A rdfs:subClassOf ex:Missing .", "unknown_parent"),
+            ('ex:A skos:altLabel "Alpha" .', "construct_ignored"),
+            ("ex:A owl:disjointWith ex:B .", "construct_ignored"),
+        ],
+    )
+    def test_construct_produces_its_warning(self, body, code):
+        """Each lossy construct adds a warning with its documented code."""
+        assert code in _codes(_import(body))
+
+    @pytest.mark.parametrize(
+        ("restriction", "code"),
+        [
+            ("owl:cardinality 2", "min_cardinality_dropped"),
+            ("owl:minCardinality 1", "min_cardinality_dropped"),
+            ("owl:qualifiedCardinality 2", "restriction_ignored"),
+            ("owl:maxCardinality 0", "restriction_ignored"),
+        ],
+    )
+    def test_relation_cardinality_restrictions_are_reported(self, restriction, code):
+        """Relation limits the model cannot store add a warning."""
+        result = _import(
+            "ex:r a owl:ObjectProperty ; rdfs:domain ex:A ; rdfs:range ex:B . "
+            "ex:A rdfs:subClassOf [ a owl:Restriction ; owl:onProperty ex:r ; "
+            f"{restriction} ] ."
+        )
+
+        assert code in _codes(result)
+
+    def test_relation_with_several_comments_reports_dropped_alternatives(self):
+        """Extra comments on a relation add a warning."""
+        result = _import(
+            "ex:r a owl:ObjectProperty ; rdfs:domain ex:A ; rdfs:range ex:B ; "
+            'rdfs:comment "one", "two" .'
+        )
+
+        assert "comment_alternatives_dropped" in _codes(result)
+
+    def test_mixed_range_and_enum_types_are_read_as_strings(self):
+        """Mixed ranges and mixed enum types fall back to a string property."""
+        result = _import(
+            "ex:p a owl:DatatypeProperty ; rdfs:domain ex:A ; "
+            "rdfs:range xsd:string, xsd:integer . "
+            "ex:q a owl:DatatypeProperty ; rdfs:domain ex:B ; "
+            'rdfs:range [ owl:oneOf ( "a" 1 ) ] .'
+        )
+        entities = {entity.label: entity for entity in result.schema.entities}
+
+        assert entities["A"].properties["p"].type == "string"
+        assert entities["B"].properties["q"].type == "string"
+        assert entities["B"].properties["q"].enum == ["1", "a"]
+
+    def test_diamond_inheritance_gives_each_property_once(self):
+        """A class reachable through two parents inherits each property once."""
+        result = _import(
+            "ex:B rdfs:subClassOf ex:A . ex:C rdfs:subClassOf ex:A . "
+            "ex:D a owl:Class ; rdfs:subClassOf ex:B, ex:C . "
+            "ex:p a owl:DatatypeProperty ; rdfs:domain ex:A ; "
+            "rdfs:range xsd:string ."
+        )
+        entities = {entity.label: entity for entity in result.schema.entities}
+
+        assert list(entities["D"].properties) == ["p"]
+
+    def test_symmetric_functional_relation_is_imported_in_both_directions(self):
+        """A symmetric relation gets reversed patterns and matching limits."""
+        result = _import(
+            "ex:knows a owl:ObjectProperty, owl:SymmetricProperty, "
+            "owl:FunctionalProperty ; rdfs:domain ex:A ; rdfs:range ex:B ."
+        )
+        relation = result.schema.relations[0]
+
+        assert {tuple(pattern) for pattern in relation.patterns} == {
+            ("A", "B"),
+            ("B", "A"),
+        }
+        assert relation.cardinality.max_per_source == 1
+        assert relation.cardinality.max_per_target == 1
+
+    def test_malformed_rdf_list_fails_with_format_error(self):
+        """A list node without a rest link cannot be read."""
+        with pytest.raises(SchemaFormatError, match="malformed RDF list"):
+            _import(
+                "ex:p a owl:DatatypeProperty ; rdfs:domain ex:A ; "
+                'rdfs:range [ owl:oneOf [ rdf:first "a" ] ] .'
+            )
+
+    def test_text_input_must_be_a_string(self):
+        """Passing bytes instead of text is a type error."""
+        with pytest.raises(TypeError, match="text must be a string"):
+            loads_owl(b"@prefix ex: <https://example.test/> .")
+
+    def test_unreadable_turtle_file_fails_with_format_error(self, tmp_path):
+        """A missing file and a non UTF-8 file both fail as format errors."""
+        broken = tmp_path / "broken.ttl"
+        broken.write_bytes(b"\xff\xfe\x00")
+
+        with pytest.raises(SchemaFormatError, match="cannot read Turtle file"):
+            load_owl(tmp_path / "missing.ttl")
+        with pytest.raises(SchemaFormatError, match="cannot read Turtle file"):
+            load_owl(broken)
+
+    def test_missing_extra_error_names_the_extra(self):
+        """The error for a missing optional package gives the install command."""
+        error = SchemaFormatMissingExtraError("OWL Turtle import", "schema-formats")
+
+        assert (error.component, error.extra) == ("OWL Turtle import", "schema-formats")
+        assert "agentic-graphrag[schema-formats]" in str(error)
+
+
+class TestLoadSchemaTurtle:
+    """``load_schema`` reports Turtle problems as schema load errors."""
+
+    def test_unreadable_turtle_path_raises_schema_load_error(self, tmp_path):
+        """A missing .ttl file names the path in the error."""
+        path = tmp_path / "missing.ttl"
+
+        with pytest.raises(SchemaLoadError, match="missing.ttl"):
+            load_schema(str(path))
+
+    def test_invalid_turtle_file_raises_schema_load_error(self, tmp_path):
+        """Broken Turtle in a file is a schema load error that names the file."""
+        path = tmp_path / "broken.ttl"
+        path.write_text("not Turtle [")
+
+        with pytest.raises(SchemaLoadError, match="invalid Turtle"):
+            load_schema(path)
+
+    def test_reserved_label_in_turtle_file_raises_schema_load_error(self, tmp_path):
+        """Schema rules still apply to classes read from a Turtle file."""
+        path = tmp_path / "reserved.ttl"
+        path.write_text(
+            "@prefix ex: <https://example.test/> . "
+            "@prefix owl: <http://www.w3.org/2002/07/owl#> . "
+            "ex:Chunk a owl:Class ."
+        )
+
+        with pytest.raises(SchemaLoadError, match="Chunk"):
+            load_schema(path)
+
+    def test_turtle_path_in_extends_is_resolved_next_to_the_file(self, tmp_path):
+        """A schema file can extend a Turtle file by relative path."""
+        (tmp_path / "base.ttl").write_text(ONTOLOGY)
+        child = tmp_path / "child.yaml"
+        child.write_text("extends: base.ttl\nentities:\n  Distributor: A reseller.\n")
+
+        schema = load_schema(child)
+
+        assert {entity.label for entity in schema.entities} >= {
+            "Supplier",
+            "Distributor",
+        }
