@@ -1,6 +1,7 @@
 """Import the supported OWL and RDFS Turtle subset."""
 
 import re
+from dataclasses import dataclass
 from importlib import import_module
 from pathlib import Path
 from typing import Any
@@ -189,18 +190,27 @@ def _relation_limits(  # noqa: PLR0917
     )
 
 
-def _read(  # noqa: PLR0912, PLR0915
-    text: str, *, name: str | None, version: str | None
-) -> ImportResult:
-    graph_type, owl, rdf, rdfs, uri_ref, xsd = _rdflib()
-    graph = graph_type()
-    try:
-        graph.parse(data=text, format="turtle", publicID="urn:agrag:input:")
-        graph = import_module("rdflib.compare").to_canonical_graph(graph)
-    except Exception as exc:
-        raise SchemaFormatError(f"invalid Turtle document: {exc}") from exc
+@dataclass
+class _Source:
+    """An open RDF graph with the vocabularies and state one import shares."""
 
-    warnings: list[FormatWarning] = []
+    graph: Any
+    owl: Any
+    rdf: Any
+    rdfs: Any
+    uri_ref: Any
+    xsd: Any
+    warnings: list[FormatWarning]
+    declared: dict[Any, str]
+
+
+def _declared_classes(src: _Source) -> dict[Any, str]:
+    graph = src.graph
+    owl = src.owl
+    rdf = src.rdf
+    rdfs = src.rdfs
+    uri_ref = src.uri_ref
+    declared = src.declared
     class_uris = sorted(
         set(graph.subjects(rdf.type, owl.Class))
         | set(graph.subjects(rdf.type, rdfs.Class)),
@@ -215,6 +225,17 @@ def _read(  # noqa: PLR0912, PLR0915
     declared = {uri: label for uri, label in labels.items() if label is not None}
     if len(set(declared.values())) != len(declared):
         raise SchemaFormatError("colliding class identifiers map to the same label")
+    return declared
+
+
+def _read_entities(
+    src: _Source,
+) -> tuple[list[dict[str, Any]], dict[Any, list[Any]]]:
+    graph = src.graph
+    rdfs = src.rdfs
+    uri_ref = src.uri_ref
+    warnings = src.warnings
+    declared = src.declared
     entities: list[dict[str, Any]] = []
     parent_uris: dict[Any, list[Any]] = {}
     for uri, label in sorted(declared.items(), key=lambda pair: pair[1]):
@@ -285,159 +306,191 @@ def _read(  # noqa: PLR0912, PLR0915
                 "properties": props,
             }
         )
+    return entities, parent_uris
 
-    by_label = {entity["label"]: entity for entity in entities}
-    entity_by_uri = {uri: by_label[label] for uri, label in declared.items()}
-    for prop in sorted(set(graph.subjects(rdf.type, owl.DatatypeProperty)), key=str):
-        domains = _domains(graph, prop, rdfs, owl, rdf)
-        class_domains = [domain for domain in domains if domain in declared]
-        for domain in domains:
-            if domain not in declared:
-                _warn(
-                    warnings,
-                    "unknown_class_ignored",
-                    prop,
-                    f"Undeclared domain {_local(domain)!r} was ignored.",
-                )
-        if len(class_domains) > 1:
-            _warn(
-                warnings,
-                "multiple_domains_unioned",
-                prop,
-                "Multiple domains are mapped as a union.",
-            )
-        if not class_domains:
-            _warn(
-                warnings,
-                "property_without_domain",
-                prop,
-                "The datatype property has no declared class domain and was dropped.",
-            )
-            continue
-        prop_label = _label(prop)
-        if prop_label is None:
-            _warn(
-                warnings,
-                "construct_ignored",
-                prop,
-                "The property name is not a valid schema property name.",
-            )
-            continue
-        ranges = sorted(graph.objects(prop, rdfs.range), key=str)
-        range_nodes = []
-        for range_node in ranges:
-            union = graph.value(range_node, owl.unionOf)
-            range_nodes.extend(
-                _rdf_list(graph, union, rdf) if union is not None else [range_node]
-            )
-        value_type = next(
-            (
-                _SCALAR_TYPES[_local(node)]
-                for node in range_nodes
-                if str(node).startswith(str(xsd)) and _local(node) in _SCALAR_TYPES
-            ),
-            None,
+
+def _datatype_and_enum(src: _Source, prop: Any) -> tuple[str, list[str] | None]:
+    graph = src.graph
+    owl = src.owl
+    rdf = src.rdf
+    rdfs = src.rdfs
+    xsd = src.xsd
+    warnings = src.warnings
+    ranges = sorted(graph.objects(prop, rdfs.range), key=str)
+    range_nodes = []
+    for range_node in ranges:
+        union = graph.value(range_node, owl.unionOf)
+        range_nodes.extend(
+            _rdf_list(graph, union, rdf) if union is not None else [range_node]
         )
-        if value_type is None:
+    value_type = next(
+        (
+            _SCALAR_TYPES[_local(node)]
+            for node in range_nodes
+            if str(node).startswith(str(xsd)) and _local(node) in _SCALAR_TYPES
+        ),
+        None,
+    )
+    if value_type is None:
+        value_type = "string"
+        _warn(
+            warnings,
+            "datatype_widened",
+            prop,
+            "The missing or unsupported datatype range was widened to string.",
+        )
+    enum_node = next(
+        (
+            node
+            for node in graph.objects(prop, rdfs.range)
+            if (node, owl.oneOf, None) in graph
+        ),
+        None,
+    )
+    enum_values = None
+    if enum_node is not None:
+        literals = _rdf_list(graph, graph.value(enum_node, owl.oneOf), rdf)
+        kinds = {
+            _SCALAR_TYPES.get(_local(item.datatype))
+            if str(item.datatype).startswith(str(xsd))
+            else "string"
+            if item.datatype is None
+            else None
+            for item in literals
+        }
+        if len(kinds) == 1 and None not in kinds:
+            value_type = str(next(iter(kinds)))
+        elif len(kinds) > 1 or None in kinds:
+            _warn(
+                warnings,
+                "enum_types_widened",
+                prop,
+                "Mixed or unsupported enum types were widened to string.",
+            )
+        enum_values = sorted(
+            re.sub(r"(?:Z|[+-]\d{2}:\d{2})$", "", str(item))
+            if value_type == "date"
+            else str(item)
+            for item in literals
+        )
+    if len(set(range_nodes)) > 1 and enum_node is None:
+        range_types = {
+            _SCALAR_TYPES.get(_local(node)) if str(node).startswith(str(xsd)) else None
+            for node in range_nodes
+        }
+        if len(range_types) > 1:
+            _warn(
+                warnings,
+                "multiple_ranges_narrowed",
+                prop,
+                "Multiple datatype ranges cannot be represented as alternatives.",
+            )
             value_type = "string"
+    return value_type, enum_values
+
+
+def _required_by_restrictions(src: _Source, domain: Any, prop: Any) -> bool:
+    graph = src.graph
+    owl = src.owl
+    rdfs = src.rdfs
+    warnings = src.warnings
+    required = False
+    for restriction in graph.objects(domain, rdfs.subClassOf):
+        if graph.value(restriction, owl.onProperty) != prop:
+            continue
+        for predicate in (owl.minCardinality, owl.cardinality):
+            value = graph.value(restriction, predicate)
+            if value is not None and int(value) > 0:
+                required = True
+        for predicate in (owl.maxCardinality, owl.cardinality):
+            value = graph.value(restriction, predicate)
+            if value is not None and int(value) == 0:
+                _warn(
+                    warnings,
+                    "zero_max_cardinality_dropped",
+                    prop,
+                    "Zero maximum cardinality cannot be represented.",
+                )
+            if value is not None and int(value) > 1:
+                _warn(
+                    warnings,
+                    "max_cardinality_dropped",
+                    prop,
+                    "A scalar property cannot store a maximum above one.",
+                )
+    return required
+
+
+def _read_datatype_property(
+    src: _Source, entity_by_uri: dict[Any, dict[str, Any]], prop: Any
+) -> None:
+    graph = src.graph
+    owl = src.owl
+    rdf = src.rdf
+    rdfs = src.rdfs
+    warnings = src.warnings
+    declared = src.declared
+    domains = _domains(graph, prop, rdfs, owl, rdf)
+    class_domains = [domain for domain in domains if domain in declared]
+    for domain in domains:
+        if domain not in declared:
             _warn(
                 warnings,
-                "datatype_widened",
+                "unknown_class_ignored",
                 prop,
-                "The missing or unsupported datatype range was widened to string.",
+                f"Undeclared domain {_local(domain)!r} was ignored.",
             )
-        enum_node = next(
-            (
-                node
-                for node in graph.objects(prop, rdfs.range)
-                if (node, owl.oneOf, None) in graph
-            ),
-            None,
+    if len(class_domains) > 1:
+        _warn(
+            warnings,
+            "multiple_domains_unioned",
+            prop,
+            "Multiple domains are mapped as a union.",
         )
-        enum_values = None
-        if enum_node is not None:
-            literals = _rdf_list(graph, graph.value(enum_node, owl.oneOf), rdf)
-            kinds = {
-                _SCALAR_TYPES.get(_local(item.datatype))
-                if str(item.datatype).startswith(str(xsd))
-                else "string"
-                if item.datatype is None
-                else None
-                for item in literals
-            }
-            if len(kinds) == 1 and None not in kinds:
-                value_type = next(iter(kinds))
-            elif len(kinds) > 1 or None in kinds:
-                _warn(
-                    warnings,
-                    "enum_types_widened",
-                    prop,
-                    "Mixed or unsupported enum types were widened to string.",
-                )
-            enum_values = sorted(
-                re.sub(r"(?:Z|[+-]\d{2}:\d{2})$", "", str(item))
-                if value_type == "date"
-                else str(item)
-                for item in literals
+    if not class_domains:
+        _warn(
+            warnings,
+            "property_without_domain",
+            prop,
+            "The datatype property has no declared class domain and was dropped.",
+        )
+        return
+    prop_label = _label(prop)
+    if prop_label is None:
+        _warn(
+            warnings,
+            "construct_ignored",
+            prop,
+            "The property name is not a valid schema property name.",
+        )
+        return
+    value_type, enum_values = _datatype_and_enum(src, prop)
+    description = _property_description(graph, prop, rdfs, warnings)
+    for domain in class_domains:
+        required = _required_by_restrictions(src, domain, prop)
+        properties = entity_by_uri[domain]["properties"]
+        if prop_label in properties:
+            _warn(
+                warnings,
+                "property_name_collision",
+                prop,
+                f"Property {prop_label!r} collides with an earlier property; "
+                "it was ignored.",
             )
-        if len(set(range_nodes)) > 1 and enum_node is None:
-            range_types = {
-                _SCALAR_TYPES.get(_local(node))
-                if str(node).startswith(str(xsd))
-                else None
-                for node in range_nodes
-            }
-            if len(range_types) > 1:
-                _warn(
-                    warnings,
-                    "multiple_ranges_narrowed",
-                    prop,
-                    "Multiple datatype ranges cannot be represented as alternatives.",
-                )
-                value_type = "string"
-        description = _property_description(graph, prop, rdfs, warnings)
-        for domain in class_domains:
-            required = False
-            for restriction in graph.objects(domain, rdfs.subClassOf):
-                if graph.value(restriction, owl.onProperty) != prop:
-                    continue
-                for predicate in (owl.minCardinality, owl.cardinality):
-                    value = graph.value(restriction, predicate)
-                    if value is not None and int(value) > 0:
-                        required = True
-                for predicate in (owl.maxCardinality, owl.cardinality):
-                    value = graph.value(restriction, predicate)
-                    if value is not None and int(value) == 0:
-                        _warn(
-                            warnings,
-                            "zero_max_cardinality_dropped",
-                            prop,
-                            "Zero maximum cardinality cannot be represented.",
-                        )
-                    if value is not None and int(value) > 1:
-                        _warn(
-                            warnings,
-                            "max_cardinality_dropped",
-                            prop,
-                            "A scalar property cannot store a maximum above one.",
-                        )
-            properties = entity_by_uri[domain]["properties"]
-            if prop_label in properties:
-                _warn(
-                    warnings,
-                    "property_name_collision",
-                    prop,
-                    f"Property {prop_label!r} collides with an earlier property; "
-                    "it was ignored.",
-                )
-                continue
-            properties[prop_label] = {
-                "type": value_type,
-                "required": required,
-                "enum": enum_values,
-                "description": description,
-            }
+            continue
+        properties[prop_label] = {
+            "type": value_type,
+            "required": required,
+            "enum": enum_values,
+            "description": description,
+        }
 
+
+def _inherit_properties(
+    declared: dict[Any, str],
+    parent_uris: dict[Any, list[Any]],
+    entity_by_uri: dict[Any, dict[str, Any]],
+) -> None:
     for uri in declared:
         inherited = {}
         ancestors = list(parent_uris[uri])
@@ -455,116 +508,125 @@ def _read(  # noqa: PLR0912, PLR0915
             if prop_label not in properties:
                 properties[prop_label] = specification
 
-    relations: list[dict[str, Any]] = []
-    for prop in sorted(set(graph.subjects(rdf.type, owl.ObjectProperty)), key=str):
-        domain_statements = list(graph.objects(prop, rdfs.domain))
-        range_statements = list(graph.objects(prop, rdfs.range))
-        if len(domain_statements) > 1 or len(range_statements) > 1:
-            _warn(
-                warnings,
-                "conjunctive_endpoints_unsupported",
-                prop,
-                "Multiple domain or range axioms are conjunctive and were dropped.",
-            )
-            continue
-        domains = _domains(graph, prop, rdfs, owl, rdf)
-        range_uris = set()
-        for node in graph.objects(prop, rdfs.range):
-            union = graph.value(node, owl.unionOf)
-            range_uris.update(
-                _rdf_list(graph, union, rdf) if union is not None else [node]
-            )
-        ranges = sorted(range_uris, key=str)
-        sources = [declared[node] for node in domains if node in declared]
-        targets = [declared[node] for node in ranges if node in declared]
-        for node in [*domains, *ranges]:
-            if node not in declared:
-                _warn(
-                    warnings,
-                    "unknown_class_ignored",
-                    prop,
-                    f"Undeclared endpoint {_local(node)!r} was ignored.",
-                )
-        if len(domains) > 1 or len(ranges) > 1:
-            _warn(
-                warnings,
-                "multiple_domains_unioned",
-                prop,
-                "Multiple endpoints are mapped as a union.",
-            )
-        if not sources or not targets:
-            _warn(
-                warnings,
-                "relation_dropped",
-                prop,
-                "The object property needs a declared class domain and range.",
-            )
-            continue
-        raw_label = _local(prop)
-        rel_label = re.sub(r"(?<!^)(?=[A-Z])", "_", raw_label).upper()
-        if rel_label != raw_label.upper():
-            _warn(
-                warnings,
-                "relation_label_normalized",
-                prop,
-                f"Relation label was normalized to {rel_label}.",
-            )
-        if _label(prop) is None:
-            _warn(
-                warnings,
-                "construct_ignored",
-                prop,
-                "The relation name is not a valid label.",
-            )
-            continue
-        description = _property_description(graph, prop, rdfs, warnings)
-        functional = (prop, rdf.type, owl.FunctionalProperty) in graph
-        inverse = (prop, rdf.type, owl.InverseFunctionalProperty) in graph
-        symmetric = (prop, rdf.type, owl.SymmetricProperty) in graph
-        restricted_limit, scoped = _relation_limits(
-            graph,
-            [uri for uri in declared if declared[uri] in sources],
-            prop,
-            owl,
-            rdfs,
+
+def _read_relation(src: _Source, prop: Any) -> dict[str, Any] | None:
+    graph = src.graph
+    owl = src.owl
+    rdf = src.rdf
+    rdfs = src.rdfs
+    warnings = src.warnings
+    declared = src.declared
+    domain_statements = list(graph.objects(prop, rdfs.domain))
+    range_statements = list(graph.objects(prop, rdfs.range))
+    if len(domain_statements) > 1 or len(range_statements) > 1:
+        _warn(
             warnings,
+            "conjunctive_endpoints_unsupported",
+            prop,
+            "Multiple domain or range axioms are conjunctive and were dropped.",
         )
-        max_per_source = 1 if functional else restricted_limit
-        if scoped:
+        return None
+    domains = _domains(graph, prop, rdfs, owl, rdf)
+    range_uris = set()
+    for node in graph.objects(prop, rdfs.range):
+        union = graph.value(node, owl.unionOf)
+        range_uris.update(_rdf_list(graph, union, rdf) if union is not None else [node])
+    ranges = sorted(range_uris, key=str)
+    sources = [declared[node] for node in domains if node in declared]
+    targets = [declared[node] for node in ranges if node in declared]
+    for node in [*domains, *ranges]:
+        if node not in declared:
             _warn(
                 warnings,
-                "cardinality_scope_lost",
+                "unknown_class_ignored",
                 prop,
-                "Class-specific relation cardinality applies to the imported relation.",
+                f"Undeclared endpoint {_local(node)!r} was ignored.",
             )
-        max_per_target = 1 if inverse else None
-        patterns = [[source, target] for source in sources for target in targets]
-        if symmetric:
-            symmetric_limit = max_per_source or max_per_target
-            max_per_source = symmetric_limit
-            max_per_target = symmetric_limit
-            reverse_patterns = sorted(
-                {
-                    (source, target)
-                    for source in sources
-                    for target in targets
-                    for source, target in ((source, target), (target, source))
-                }
-            )
-            patterns = [[source, target] for source, target in reverse_patterns]
-        relations.append(
+    if len(domains) > 1 or len(ranges) > 1:
+        _warn(
+            warnings,
+            "multiple_domains_unioned",
+            prop,
+            "Multiple endpoints are mapped as a union.",
+        )
+    if not sources or not targets:
+        _warn(
+            warnings,
+            "relation_dropped",
+            prop,
+            "The object property needs a declared class domain and range.",
+        )
+        return None
+    raw_label = _local(prop)
+    rel_label = re.sub(r"(?<!^)(?=[A-Z])", "_", raw_label).upper()
+    if rel_label != raw_label.upper():
+        _warn(
+            warnings,
+            "relation_label_normalized",
+            prop,
+            f"Relation label was normalized to {rel_label}.",
+        )
+    if _label(prop) is None:
+        _warn(
+            warnings,
+            "construct_ignored",
+            prop,
+            "The relation name is not a valid label.",
+        )
+        return None
+    description = _property_description(graph, prop, rdfs, warnings)
+    functional = (prop, rdf.type, owl.FunctionalProperty) in graph
+    inverse = (prop, rdf.type, owl.InverseFunctionalProperty) in graph
+    symmetric = (prop, rdf.type, owl.SymmetricProperty) in graph
+    restricted_limit, scoped = _relation_limits(
+        graph,
+        [uri for uri in declared if declared[uri] in sources],
+        prop,
+        owl,
+        rdfs,
+        warnings,
+    )
+    max_per_source = 1 if functional else restricted_limit
+    if scoped:
+        _warn(
+            warnings,
+            "cardinality_scope_lost",
+            prop,
+            "Class-specific relation cardinality applies to the imported relation.",
+        )
+    max_per_target = 1 if inverse else None
+    patterns = [[source, target] for source in sources for target in targets]
+    if symmetric:
+        symmetric_limit = max_per_source or max_per_target
+        max_per_source = symmetric_limit
+        max_per_target = symmetric_limit
+        reverse_patterns = sorted(
             {
-                "label": rel_label,
-                "description": description,
-                "patterns": patterns,
-                "cardinality": {
-                    "max_per_source": max_per_source,
-                    "max_per_target": max_per_target,
-                },
-                "symmetric": False,
+                (source, target)
+                for source in sources
+                for target in targets
+                for source, target in ((source, target), (target, source))
             }
         )
+        patterns = [[source, target] for source, target in reverse_patterns]
+    return {
+        "label": rel_label,
+        "description": description,
+        "patterns": patterns,
+        "cardinality": {
+            "max_per_source": max_per_source,
+            "max_per_target": max_per_target,
+        },
+        "symmetric": False,
+    }
 
+
+def _report_unsupported(src: _Source) -> None:
+    graph = src.graph
+    owl = src.owl
+    rdf = src.rdf
+    rdfs = src.rdfs
+    warnings = src.warnings
     supported = {
         owl.Class,
         rdfs.Class,
@@ -659,6 +721,31 @@ def _read(  # noqa: PLR0912, PLR0915
                 f"Unsupported type {_local(obj)} was ignored.",
             )
 
+
+def _read(text: str, *, name: str | None, version: str | None) -> ImportResult:
+    graph_type, owl, rdf, rdfs, uri_ref, xsd = _rdflib()
+    graph = graph_type()
+    try:
+        graph.parse(data=text, format="turtle", publicID="urn:agrag:input:")
+        graph = import_module("rdflib.compare").to_canonical_graph(graph)
+    except Exception as exc:
+        raise SchemaFormatError(f"invalid Turtle document: {exc}") from exc
+
+    src = _Source(graph, owl, rdf, rdfs, uri_ref, xsd, [], {})
+    src.declared = _declared_classes(src)
+    entities, parent_uris = _read_entities(src)
+    by_label = {entity["label"]: entity for entity in entities}
+    entity_by_uri = {uri: by_label[label] for uri, label in src.declared.items()}
+    for prop in sorted(set(graph.subjects(rdf.type, owl.DatatypeProperty)), key=str):
+        _read_datatype_property(src, entity_by_uri, prop)
+    _inherit_properties(src.declared, parent_uris, entity_by_uri)
+    relations = [
+        relation
+        for prop in sorted(set(graph.subjects(rdf.type, owl.ObjectProperty)), key=str)
+        if (relation := _read_relation(src, prop)) is not None
+    ]
+    _report_unsupported(src)
+
     data = {
         "name": name or "custom",
         "version": version or "1",
@@ -667,7 +754,7 @@ def _read(  # noqa: PLR0912, PLR0915
     }
     from agrag.schema import load_schema  # noqa: PLC0415
 
-    return ImportResult(load_schema(data), warnings)
+    return ImportResult(load_schema(data), src.warnings)
 
 
 def loads_owl(

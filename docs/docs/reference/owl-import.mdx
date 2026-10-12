@@ -24,8 +24,8 @@ pip install "agentic-graphrag[schema-formats]"
 | `owl:ObjectProperty` with declared class domains and ranges | Relation patterns |
 | `owl:FunctionalProperty` | Relation `max_per_source: 1` |
 | `owl:InverseFunctionalProperty` | Relation `max_per_target: 1` |
-| `owl:SymmetricProperty` | Relation `symmetric: true` |
-| `rdfs:comment` | Description |
+| `owl:SymmetricProperty` | Relation patterns in both directions, with the same source and target limit |
+| `rdfs:comment`, `rdfs:label` | Not used. The class or relation name is the description, and a warning says so |
 | XSD `string`, `integer`, `decimal`, `float`, `double`, `boolean`, `date` | Property type |
 | `owl:unionOf` in domains or ranges | Declared endpoint types |
 | `owl:oneOf` with literal values | Property enum |
