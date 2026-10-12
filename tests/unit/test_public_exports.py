@@ -43,8 +43,8 @@ OPTIONAL_MODULES = [
     "neo4j",
     "openinference.instrumentation",
     "pymilvus",
-    "rdflib",
     "qdrant_client",
+    "rdflib",
     "sentence_transformers",
     "weaviate",
 ]

@@ -83,6 +83,7 @@ const sidebars = {
       'reference/schema-json-ld',
       'reference/schema-format-pydantic',
       'reference/schema-format-shacl',
+      'reference/owl-import',
       'reference/trace-spans',
       'reference/default-schema',
     ]),
