@@ -160,7 +160,10 @@ _PROPERTY_SCHEMA = GraphSchema(
             description="A named individual.",
             properties={
                 "role": PropertySpec(
-                    type="string", required=True, enum=["author", "editor"]
+                    type="string",
+                    required=True,
+                    enum=["author", "editor"],
+                    description="Use the role in the publication.",
                 )
             },
         ),
@@ -841,15 +844,19 @@ class TestDescribeEntityType:
             description="A named individual.",
             properties={
                 "role": PropertySpec(
-                    type="string", required=True, enum=["author", "editor"]
+                    type="string",
+                    required=True,
+                    enum=["author", "editor"],
+                    description="Use the role in the publication.",
                 ),
                 "age": PropertySpec(type="integer"),
             },
         )
         description = _describe_entity_type(entity_type)
         assert description == (
-            "A named individual. Properties to extract when stated: role "
-            "(string, required, one of: author, editor), age (integer)."
+            "A named individual.\nProperties to extract when stated:\n- role "
+            "(string, required, one of: author, editor): "
+            "Use the role in the publication.\n- age (integer)"
         )
 
 
@@ -901,8 +908,9 @@ class TestBAMLExtractor:
             extractor._type_builder_for(_PROPERTY_SCHEMA)
 
         assert recorded["Person"] == (
-            "A named individual. Properties to extract when stated: role "
-            "(string, required, one of: author, editor)."
+            "A named individual.\nProperties to extract when stated:\n- role "
+            "(string, required, one of: author, editor): "
+            "Use the role in the publication."
         )
 
     async def test_to_result_maps_source_text_to_indices(self) -> None:

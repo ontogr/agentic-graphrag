@@ -13,11 +13,6 @@ from agrag.common.data_models.graph_schema import (
 )
 
 
-_TEXT = PropertySpec(type="string")
-_NUMBER = PropertySpec(type="float")
-_DATE = PropertySpec(type="date")
-
-
 FINANCIAL = GraphSchema(
     name="financial",
     version="1",
@@ -28,7 +23,10 @@ FINANCIAL = GraphSchema(
                 "The reporting company of a filing, under its legal name or common "
                 "short name (for example Boeing, The Boeing Company)."
             ),
-            properties={"ticker": _TEXT, "sector": _TEXT},
+            properties={
+                "ticker": PropertySpec(type="string"),
+                "sector": PropertySpec(type="string"),
+            },
         ),
         EntityType(
             label="Filing",
@@ -36,7 +34,11 @@ FINANCIAL = GraphSchema(
                 "One filed document: a 10-K, 10-Q, 8-K or earnings release, named by "
                 "its cover page."
             ),
-            properties={"form_type": _TEXT, "fiscal_year": _TEXT, "period_end": _DATE},
+            properties={
+                "form_type": PropertySpec(type="string"),
+                "fiscal_year": PropertySpec(type="string"),
+                "period_end": PropertySpec(type="date"),
+            },
         ),
         EntityType(
             label="FiscalPeriod",
@@ -44,7 +46,10 @@ FINANCIAL = GraphSchema(
                 "A fiscal year or quarter as the company labels it, such as FY2022 or "
                 "the fourth quarter of fiscal 2022."
             ),
-            properties={"period_kind": _TEXT, "period_end": _DATE},
+            properties={
+                "period_kind": PropertySpec(type="string"),
+                "period_end": PropertySpec(type="date"),
+            },
         ),
         EntityType(
             label="FinancialMetric",
@@ -56,11 +61,11 @@ FINANCIAL = GraphSchema(
                 "an effective tax rate. Do not extract other table line items."
             ),
             properties={
-                "metric_name": _TEXT,
-                "value": _NUMBER,
-                "unit": _TEXT,
-                "scale": _TEXT,
-                "currency": _TEXT,
+                "metric_name": PropertySpec(type="string"),
+                "value": PropertySpec(type="float"),
+                "unit": PropertySpec(type="string"),
+                "scale": PropertySpec(type="string"),
+                "currency": PropertySpec(type="string"),
             },
         ),
         EntityType(
@@ -83,26 +88,29 @@ FINANCIAL = GraphSchema(
         EntityType(
             label="Person",
             description="A named executive, director or other individual.",
-            properties={"title": _TEXT},
+            properties={"title": PropertySpec(type="string")},
         ),
         EntityType(
             label="Risk",
             description=(
                 "A stated risk factor or business exposure, such as cyclicality."
             ),
-            properties={"description": _TEXT},
+            properties={"description": PropertySpec(type="string")},
         ),
         EntityType(
             label="LegalProceeding",
             description="A lawsuit, investigation, claim or regulatory action.",
-            properties={"status": _TEXT, "description": _TEXT},
+            properties={
+                "status": PropertySpec(type="string"),
+                "description": PropertySpec(type="string"),
+            },
         ),
         EntityType(
             label="Guidance",
             description=(
                 "A forward-looking statement, outlook or forecast the company gives."
             ),
-            properties={"description": _TEXT},
+            properties={"description": PropertySpec(type="string")},
         ),
         EntityType(
             label="Event",
@@ -110,7 +118,10 @@ FINANCIAL = GraphSchema(
                 "A dated corporate event such "
                 "as an acquisition, divestiture or restructuring."
             ),
-            properties={"event_type": _TEXT, "description": _TEXT},
+            properties={
+                "event_type": PropertySpec(type="string"),
+                "description": PropertySpec(type="string"),
+            },
         ),
         EntityType(
             label="FilingSection",
@@ -118,7 +129,7 @@ FINANCIAL = GraphSchema(
                 "A named part of a filing, such as Item 7, Item 3 or Note 21, that the "
                 "text cites or that holds a fact."
             ),
-            properties={"section_id": _TEXT},
+            properties={"section_id": PropertySpec(type="string")},
         ),
     ],
     relations=[

@@ -138,7 +138,7 @@ class PropertySpec(BaseModel):
 
     def describe(self, name: str) -> str:
         """Render this property as one prompt phrase."""
-        traits = [self.type]
+        traits: list[str] = [self.type]
         if self.required:
             traits.append("required")
         if self.enum is not None:
