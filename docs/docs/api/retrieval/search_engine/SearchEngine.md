@@ -30,7 +30,7 @@ nest under these retrieval spans.
 
 **Attributes:**
 
-- [**graph_schema**](#agrag-retrieval-search_engine-SearchEngine-graph_schema) (<code>[GraphSchema](../../common/data_models/graph_schema/GraphSchema.md)</code>) – The schema retrieval is grounded in, GENERIC when none was given.
+- [**graph_schema**](#agrag-retrieval-search_engine-SearchEngine-graph_schema) (<code>[GraphSchema](../../common/data_models/graph_schema/GraphSchema.md)</code>) – The schema retrieval is grounded in, DEFAULT_SCHEMA when none was given.
 
 **Parameters:**
 
@@ -59,7 +59,7 @@ nest under these retrieval spans.
   a vector_store is configured.
 - **graph_schema** (<code>[GraphSchema](../../common/data_models/graph_schema/GraphSchema.md) | None</code>) – The graph's declared schema, ground truth for
   native entity labels and for generated Cypher. None uses
-  `GENERIC`.
+  `DEFAULT_SCHEMA`.
 - **tracer** (<code>Tracer | None</code>) – Opens the search span and flows to every retriever
   and free function the engine calls. None opens no
   recorded span.
@@ -100,7 +100,7 @@ search() already relies on.
 graph_schema: GraphSchema
 ```
 
-The schema retrieval is grounded in, GENERIC when none was given.
+The schema retrieval is grounded in, DEFAULT_SCHEMA when none was given.
 
 ## `list_relationship_types` \{#agrag-retrieval-search_engine-SearchEngine-list_relationship_types}
 

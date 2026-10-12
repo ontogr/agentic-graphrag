@@ -37,7 +37,7 @@ Pass `chunker` to `Graph.open`. This example makes chunks of up to 400 tokens.
 import asyncio
 
 from agrag.chunking import Chunker
-from agrag.common.data_models.graph_schema import GENERIC
+from agrag.common.data_models import DEFAULT_SCHEMA
 from agrag.embedding import build_embedder
 from agrag.graphdb import build_graph_store
 from agrag.ingestion import Graph
@@ -47,7 +47,7 @@ from agrag.ingestion.extract import GlinerExtractor
 async def main() -> None:
     graph_store = build_graph_store("neo4j")
     graph = await Graph.open(
-        schema=GENERIC,
+        schema=DEFAULT_SCHEMA,
         graph_store=graph_store,
         embedder=build_embedder("ibm-granite/granite-embedding-small-english-r2"),
         extractor=GlinerExtractor(),
@@ -71,7 +71,7 @@ A smaller size gives sharper search results and more entities for each token of 
 ```python
 import asyncio
 
-from agrag.common.data_models.graph_schema import GENERIC
+from agrag.common.data_models import DEFAULT_SCHEMA
 from agrag.embedding import build_embedder
 from agrag.graphdb import build_graph_store
 from agrag.ingestion import Graph
@@ -83,7 +83,7 @@ TEXT = "Ada wrote the first program.\n\nCharles built the engine.\n\n" * 3
 async def main() -> None:
     graph_store = build_graph_store("neo4j")
     graph = await Graph.open(
-        schema=GENERIC,
+        schema=DEFAULT_SCHEMA,
         graph_store=graph_store,
         embedder=build_embedder("ibm-granite/granite-embedding-small-english-r2"),
         extractor=GlinerExtractor(),

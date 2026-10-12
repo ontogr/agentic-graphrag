@@ -59,19 +59,7 @@ The edges connect them:
 
 ## Example
 
-Take a note with two sentences about Ada Lovelace, Charles Babbage and the Analytical Engine. With the `GENERIC` preset, one run gives this graph:
-
-| Kind | Count |
-| --- | --- |
-| Document | 1 |
-| Section | 1 |
-| Chunk | 1 |
-| Entity | 5 |
-| `HAS_CHILD` edges | 2 |
-| `HAS_PART` edges | 2 |
-| `MENTIONED_IN` edges | 5 |
-
-The five entities are two people, one place, one product and one event. The preset has one relation type, and the extractor found no relation in this text, so the graph has no relation edge. A stricter schema for your domain gives the extractor more to look for.
+Take a note with two sentences about Ada Lovelace, Charles Babbage and the Analytical Engine. With `DEFAULT_SCHEMA`, one run writes the document, the section, the chunk, one entity node for each distinct person, place, product or event it finds, and a relation edge when the text states one of the eight relations. A schema for your domain gives the extractor more specific targets.
 
 <details>
 <summary>Design choices</summary>

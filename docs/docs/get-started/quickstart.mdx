@@ -236,7 +236,7 @@ Every node that Agentic GraphRAG writes has the label `_Node`. The first query s
 - One chunk: the three sentences were short enough to stay in one chunk. Agentic GraphRAG stored the text of the chunk, its position in the source, and an embedding.
 - Four entities from six mentions: the extractor found `Microsoft` three times. Resolution merged the three mentions into one node, because the names match exactly.
 - Three relations: each relation links two entity nodes. The extractor reports a relation only when the schema names it.
-- Why the schema names the relations: the built-in `GENERIC` schema has one broad relation, `RELATED_TO`. On these three sentences, `GENERIC` finds the same six mentions and no relations. Specific relation names, each with a short description, give the extractor something to look for.
+- Why the schema names the relations: the extractor reports a relation only when the schema names it. `DEFAULT_SCHEMA` names eight general relations. A schema for your domain can name the exact relations you need, each with a short description.
 
 <details>
 <summary>Why does the script report 6 entities when the graph has 4?</summary>

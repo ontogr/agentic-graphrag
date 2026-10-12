@@ -2,6 +2,7 @@
 
 from agrag.common.data_models.chunk import Chunk
 from agrag.common.data_models.community import Community
+from agrag.common.data_models.default_schema import DEFAULT_SCHEMA
 from agrag.common.data_models.document import (
     Document,
     DocumentFamily,
@@ -13,7 +14,6 @@ from agrag.common.data_models.document import (
 from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.graph_record import NodeRecord, RelationRecord
 from agrag.common.data_models.graph_schema import (
-    GENERIC,
     Cardinality,
     EntityType,
     GraphSchema,
@@ -21,6 +21,7 @@ from agrag.common.data_models.graph_schema import (
     RelationType,
 )
 from agrag.common.data_models.normalization import Normalization
+from agrag.common.data_models.presets import LEGAL, OPERATIONS, Preset
 from agrag.common.data_models.provenance import PageProvenance, TextProvenance
 from agrag.common.data_models.relation import Relation
 from agrag.common.data_models.resolved_entity import ResolvedEntity
@@ -29,7 +30,9 @@ from agrag.common.data_models.vector_record import Distance, VectorRecord
 
 
 __all__ = [
-    "GENERIC",
+    "DEFAULT_SCHEMA",
+    "LEGAL",
+    "OPERATIONS",
     "Cardinality",
     "Chunk",
     "Community",
@@ -43,6 +46,7 @@ __all__ = [
     "NodeRecord",
     "Normalization",
     "PageProvenance",
+    "Preset",
     "PropertySpec",
     "Relation",
     "RelationRecord",

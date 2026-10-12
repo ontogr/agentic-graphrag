@@ -1,1 +1,1 @@
-"""Tests for the schema format importers and exporters."""
+"""Tests for the schema formats."""

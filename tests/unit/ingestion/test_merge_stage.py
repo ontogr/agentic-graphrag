@@ -8,9 +8,9 @@ from uuid import UUID, uuid4
 
 import pytest
 
+from agrag.common.data_models.default_schema import DEFAULT_SCHEMA
 from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.extraction import ExtractedEntity, ExtractedRelation
-from agrag.common.data_models.graph_schema import GENERIC
 from agrag.ingestion import _merge_stage
 from agrag.ingestion._merge_stage import merge_stage
 from agrag.ingestion._stage_context import StageContext
@@ -90,7 +90,7 @@ async def _merge(
         relations,
         batch,
         ctx,
-        graph_schema=GENERIC,
+        graph_schema=DEFAULT_SCHEMA,
         resolved_entity_collection="resolved_entities",
         rebuilt_components=None,
     )
