@@ -115,6 +115,8 @@ def _entity_block(
 def _relation_block(relation: RelationType, base: str) -> str:
     """Render one relation type as an annotated RDF property."""
     lines = [f"{term_iri(relation.label, base)} a rdf:Property"]
+    if relation.description:
+        lines.append(f"    rdfs:comment {_literal(relation.description)}")
     for source, target in _declared_pairs(relation):
         start = term_iri(source, base)
         end = term_iri(target, base)
@@ -136,11 +138,15 @@ def to_shacl(schema: GraphSchema, *, base_iri: str | None = None) -> str:
     parent as ``rdfs:subClassOf``. Each declared property becomes an
     inline ``sh:property`` shape with ``sh:path``, ``sh:datatype``,
     ``sh:minCount`` and, for enums, ``sh:in``. Each relation type
-    becomes an ``rdf:Property`` annotated with its declared patterns and
-    limits, plus one ``sh:property`` shape on each endpoint's node shape
+    becomes an ``rdf:Property`` with its description as
+    ``rdfs:comment``, annotated with its declared patterns and limits,
+    plus one ``sh:property`` shape on each endpoint's node shape
     naming the allowed classes (``sh:inversePath`` on the target side).
-    Cardinality limits and symmetry have no SHACL form, so they appear
-    as ``x-agrag:`` annotations that validators ignore.
+    Endpoint shapes cover every pair ``GraphSchema.allows`` accepts,
+    so descendants and symmetric reversals are included. Cardinality
+    limits appear both as ``sh:maxCount`` shapes, which validators
+    enforce, and as ``x-agrag:`` annotations for pipelines; patterns
+    and symmetry appear only as annotations that validators ignore.
 
     Args:
         schema: The schema to export.
@@ -149,8 +155,24 @@ def to_shacl(schema: GraphSchema, *, base_iri: str | None = None) -> str:
 
     Returns:
         Turtle text describing the schema, written without dependencies.
+
+    Raises:
+        ValueError: If a property name collides with a relation label,
+            or the base IRI would break the Turtle output.
     """
     base = resolve_base(schema, base_iri)
+    # Properties and relations share one namespace, so one name must mean
+    # one predicate. Reject the overlap instead of emitting conflicting
+    # shapes for the same path.
+    clash = sorted(
+        {name for entity in schema.entities for name in entity.properties}
+        & {relation.label for relation in schema.relations}
+    )
+    if clash:
+        raise ValueError(
+            f"Property and relation names collide: {clash}. "
+            "Rename one so the export can use one RDF term per name."
+        )
     header = "\n".join(
         [
             f"@prefix ex: <{base}> .",
@@ -162,20 +184,30 @@ def to_shacl(schema: GraphSchema, *, base_iri: str | None = None) -> str:
         ]
     )
     relations = sorted(schema.relations, key=lambda item: item.label)
+    # Expand through GraphSchema.allows so descendants and symmetric
+    # reversals get the same constraints as the declared pairs.
+    labels = sorted(entity.label for entity in schema.entities)
     outgoing: dict[str, list[str]] = {}
     incoming: dict[str, list[str]] = {}
     for relation in relations:
-        by_source: dict[str, set[str]] = {}
-        by_target: dict[str, set[str]] = {}
-        for source, target in relation.patterns:
-            by_source.setdefault(source, set()).add(target)
-            by_target.setdefault(target, set()).add(source)
-        for source in sorted(by_source):
-            shape = _forward_shape(relation, sorted(by_source[source]), base)
-            outgoing.setdefault(source, []).append(shape)
-        for target in sorted(by_target):
-            shape = _inverse_shape(relation, sorted(by_target[target]), base)
-            incoming.setdefault(target, []).append(shape)
+        for source in labels:
+            targets = [
+                target
+                for target in labels
+                if schema.allows(relation.label, source, target)
+            ]
+            if targets:
+                shape = _forward_shape(relation, targets, base)
+                outgoing.setdefault(source, []).append(shape)
+        for target in labels:
+            sources = [
+                source
+                for source in labels
+                if schema.allows(relation.label, source, target)
+            ]
+            if sources:
+                shape = _inverse_shape(relation, sources, base)
+                incoming.setdefault(target, []).append(shape)
     chunks = [header]
     for entity in schema.entities:
         chunks.append(

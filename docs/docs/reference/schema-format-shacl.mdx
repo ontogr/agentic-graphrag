@@ -30,17 +30,19 @@ The result is a string, not a dict. Each entity type becomes a `sh:NodeShape` wi
 | Property description | `rdfs:comment` on the property shape |
 | Entity parents | `rdfs:subClassOf` pointing at each parent class |
 | Relation type | An `rdf:Property` plus a `sh:property` shape on each endpoint's node shape naming the allowed target class |
+| Relation description | `rdfs:comment` on the relation property |
+| Relation patterns | `x-agrag:pattern` annotations with the declared pairs; endpoint shapes cover every pair `GraphSchema.allows` accepts |
 
-Relation cardinality and direction flags cannot be expressed as plain SHACL constraints, so they appear as `x-agrag-*` annotations alongside the relation property. A SHACL validator ignores them.
+Relation limits appear twice: as `sh:maxCount` on the endpoint shapes, which validators enforce, and as `x-agrag:` annotations for pipelines. Patterns and symmetry appear only as annotations that validators ignore.
 
 | Schema element | Annotation |
 | --- | --- |
-| Relation `max_per_source` | `x-agrag-max-per-source` |
-| Relation `max_per_target` | `x-agrag-max-per-target` |
-| Relation `symmetric` | `x-agrag-symmetric` |
+| Relation `max_per_source` | `x-agrag:maxPerSource` |
+| Relation `max_per_target` | `x-agrag:maxPerTarget` |
+| Relation `symmetric` | `x-agrag:symmetric` |
 
 ## What the export does not carry
 
-SHACL checks one graph. It cannot count edges per source or target across documents, so the cardinality limits above stay annotations only. A symmetric relation is written once; the reverse direction is an annotation, not a second property.
+SHACL checks one graph. Cardinality limits are enforced per node through `sh:maxCount` on the endpoint shapes, with the same values repeated as annotations for pipelines. A symmetric relation is written once; the reverse direction is an annotation plus expanded endpoint shapes, not a second property. Endpoint shapes already include descendants and symmetric reversals, so validators should target exact types rather than re-applying parent shapes through subclass reasoning.
 
 This page covers export only. You cannot load a schema from SHACL.

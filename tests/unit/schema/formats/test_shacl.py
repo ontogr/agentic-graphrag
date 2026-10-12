@@ -6,6 +6,7 @@ from agrag.common.data_models.graph_schema import (
     EntityType,
     GraphSchema,
     PropertySpec,
+    RelationType,
 )
 from agrag.schema.formats import to_shacl
 from tests.unit.schema.formats.conftest import FIXTURES
@@ -144,3 +145,51 @@ class TestToShacl:
         result = to_shacl(schema)
 
         assert "<urn:agrag:schema:acme%20corp:" in result
+
+    def test_invalid_base_iri_is_rejected(self, company_schema: GraphSchema) -> None:
+        """A base IRI that could break the Turtle output is rejected."""
+        with pytest.raises(ValueError, match="Invalid base_iri"):
+            to_shacl(company_schema, base_iri="https://example.org/a>b .")
+
+    def test_property_and_relation_name_collision_is_rejected(self) -> None:
+        """One name cannot serve as both a property path and a relation."""
+        schema = GraphSchema(
+            name="t",
+            version="1",
+            entities=[
+                EntityType(
+                    label="Person",
+                    description="A named individual.",
+                    properties={"contact": PropertySpec(type="string")},
+                ),
+                EntityType(label="Company", description="A company."),
+            ],
+            relations=[
+                RelationType(
+                    label="contact",
+                    description="A contact edge.",
+                    patterns=[("Person", "Company")],
+                )
+            ],
+        )
+
+        with pytest.raises(ValueError, match="collide"):
+            to_shacl(schema)
+
+    def test_descendant_targets_appear_in_endpoint_shapes(
+        self, company_schema: GraphSchema
+    ) -> None:
+        """A pattern on a parent also constrains its child targets."""
+        result = to_shacl(company_schema)
+
+        assert "ex:Company" in result
+        assert "sh:or" in result
+
+    def test_relation_descriptions_appear_as_comments(
+        self, company_schema: GraphSchema
+    ) -> None:
+        """Each relation description is kept as an rdfs:comment."""
+        result = to_shacl(company_schema)
+
+        assert "Two people work together." in result
+        assert "A person is employed by an organization." in result
