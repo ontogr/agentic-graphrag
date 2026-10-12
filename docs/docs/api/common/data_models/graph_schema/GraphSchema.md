@@ -15,6 +15,9 @@ schema-free extraction path. Round-trip with
 an entity property name that the vector payload reserves fails that
 validation. See `EntityType.properties`.
 
+Construct a new schema to change its types. Ancestor access revalidates the
+hierarchy so direct parent edits cannot cause an invalid traversal.
+
 **Attributes:**
 
 - [**name**](#agrag-common-data_models-graph_schema-GraphSchema-name) (<code>str</code>) – A short, unique name for this schema.
@@ -41,6 +44,7 @@ Return whether a pair of entity types is allowed for a relation.
 
 Patterns cover descendants, and symmetric relations accept reversal.
 Unknown entity or relation labels return False.
+Invalid parent edits raise ValueError rather than traversing bad data.
 
 **Parameters:**
 
@@ -64,7 +68,7 @@ Parents retain their listed order. Shared ancestors appear only once.
 
 **Raises:**
 
-- <code>ValueError</code> – If the label is not declared in this schema.
+- <code>ValueError</code> – If the label is not declared or the hierarchy is invalid.
 
 ## `entities` \{#agrag-common-data_models-graph_schema-GraphSchema-entities}
 
@@ -98,7 +102,7 @@ Return a node's leaf label followed by its ancestors.
 
 **Raises:**
 
-- <code>ValueError</code> – If the label is not declared in this schema.
+- <code>ValueError</code> – If the label is not declared or the hierarchy is invalid.
 
 ## `relations` \{#agrag-common-data_models-graph_schema-GraphSchema-relations}
 

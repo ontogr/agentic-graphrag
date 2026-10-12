@@ -60,6 +60,19 @@ def _plural(count: int, word: str) -> str:
     return word if count == 1 else f"{word}s"
 
 
+def _format_limits(limits: "Cardinality") -> str:
+    """Render declared limits without implying that stored edges satisfy them."""
+    parts = [
+        f"at most {limit} {_plural(limit, endpoint)} per {side}"
+        for limit, endpoint, side in (
+            (limits.max_per_source, "target", "source"),
+            (limits.max_per_target, "source", "target"),
+        )
+        if limit is not None
+    ]
+    return "; ".join(parts)
+
+
 def _find_cycle(parents: dict[str, list[str]]) -> list[str] | None:
     """Return the first cycle in a label-to-parents map, or None."""
     finished: set[str] = set()
@@ -295,6 +308,34 @@ class RelationType(BaseModel):
         return self
 
 
+def _validate_hierarchy(entities: list[EntityType]) -> None:
+    """Raise ValueError when entity labels repeat or parents are invalid."""
+    labels = [entity.label for entity in entities]
+    repeated = sorted({label for label in labels if labels.count(label) > 1})
+    if repeated:
+        raise ValueError(
+            f"Entity type label(s) {repeated} are declared more than once. "
+            "Merge the declarations or rename one."
+        )
+    declared = set(labels)
+    for entity in entities:
+        for parent in entity.parents:
+            if parent not in declared:
+                close = get_close_matches(parent, sorted(declared), n=1)
+                hint = f" Did you mean '{close[0]}'?" if close else ""
+                raise ValueError(
+                    f"Entity type '{entity.label}' names unknown parent "
+                    f"'{parent}'. Declare '{parent}' as an entity type or "
+                    f"fix the spelling.{hint}"
+                )
+    cycle = _find_cycle({entity.label: entity.parents for entity in entities})
+    if cycle is not None:
+        raise ValueError(
+            f"Entity type parents form a cycle: {' -> '.join(cycle)}. "
+            "Remove one parent link in the cycle."
+        )
+
+
 class GraphSchema(BaseModel):
     """A versioned contract of entity and relation types.
 
@@ -303,6 +344,9 @@ class GraphSchema(BaseModel):
     ``model_dump(mode="json")`` and ``model_validate()``. A schema declaring
     an entity property name that the vector payload reserves fails that
     validation. See ``EntityType.properties``.
+
+    Construct a new schema to change its types. Ancestor access revalidates the
+    hierarchy so direct parent edits cannot cause an invalid traversal.
 
     Attributes:
         name: A short, unique name for this schema.
@@ -320,30 +364,7 @@ class GraphSchema(BaseModel):
 
     @model_validator(mode="after")
     def _validate_entity_types(self) -> "GraphSchema":
-        labels = [entity.label for entity in self.entities]
-        repeated = sorted({label for label in labels if labels.count(label) > 1})
-        if repeated:
-            raise ValueError(
-                f"Entity type label(s) {repeated} are declared more than once. "
-                "Merge the declarations or rename one."
-            )
-        declared = set(labels)
-        for entity in self.entities:
-            for parent in entity.parents:
-                if parent not in declared:
-                    close = get_close_matches(parent, sorted(declared), n=1)
-                    hint = f" Did you mean '{close[0]}'?" if close else ""
-                    raise ValueError(
-                        f"Entity type '{entity.label}' names unknown parent "
-                        f"'{parent}'. Declare '{parent}' as an entity type or "
-                        f"fix the spelling.{hint}"
-                    )
-        cycle = _find_cycle({entity.label: entity.parents for entity in self.entities})
-        if cycle is not None:
-            raise ValueError(
-                f"Entity type parents form a cycle: {' -> '.join(cycle)}. "
-                "Remove one parent link in the cycle."
-            )
+        _validate_hierarchy(self.entities)
         return self
 
     @model_validator(mode="after")
@@ -389,8 +410,9 @@ class GraphSchema(BaseModel):
             label: A declared entity label.
 
         Raises:
-            ValueError: If the label is not declared in this schema.
+            ValueError: If the label is not declared or the hierarchy is invalid.
         """
+        _validate_hierarchy(self.entities)
         by_label = {entity.label: entity for entity in self.entities}
         if label not in by_label:
             raise ValueError(
@@ -416,7 +438,7 @@ class GraphSchema(BaseModel):
             label: A declared entity label.
 
         Raises:
-            ValueError: If the label is not declared in this schema.
+            ValueError: If the label is not declared or the hierarchy is invalid.
         """
         return [label, *self.ancestors(label)]
 
@@ -425,6 +447,7 @@ class GraphSchema(BaseModel):
 
         Patterns cover descendants, and symmetric relations accept reversal.
         Unknown entity or relation labels return False.
+        Invalid parent edits raise ValueError rather than traversing bad data.
 
         Args:
             relation: The relation label.
@@ -505,23 +528,16 @@ class GraphSchema(BaseModel):
             lines.append(f"  valid patterns: {patterns}")
             if relation.symmetric:
                 lines.append("  symmetric: yes")
-            limits = relation.cardinality
-            parts: list[str] = []
-            if limits.max_per_source is not None:
-                parts.append(
-                    f"at most {limits.max_per_source} "
-                    f"{_plural(limits.max_per_source, 'target')} per source"
-                )
-            if limits.max_per_target is not None:
-                parts.append(
-                    f"at most {limits.max_per_target} "
-                    f"{_plural(limits.max_per_target, 'source')} per target"
-                )
-            if parts:
-                lines.append(f"  limits: {'; '.join(parts)}")
-        if self.relations and any(entity.parents for entity in self.entities):
+            limits = _format_limits(relation.cardinality)
+            if limits:
+                lines.append(f"  declared limits (not enforced): {limits}")
+        if any(entity.parents for entity in self.entities):
             lines.append(
                 "Note: a pattern that names a type allows every child of that type."
+            )
+            lines.append(
+                "Stored nodes carry only their leaf label. Queries for a parent "
+                "type must also match all descendant labels."
             )
         return "\n".join(lines)
 
@@ -550,6 +566,11 @@ class GraphSchema(BaseModel):
             patterns = _format_patterns(relation.patterns) or "(none)"
             mark = " [symmetric]" if relation.symmetric else ""
             lines.append(f"- {relation.label}: {patterns}{mark}")
+        if any(entity.parents for entity in self.entities):
+            lines.append(
+                "Patterns naming a type also cover its descendants. Stored nodes "
+                "carry only their leaf label; parent queries must include descendants."
+            )
         return "\n".join(lines)
 
 

@@ -204,9 +204,10 @@ class TestHierarchyBehavior:
         assert GraphSchema.model_validate(dumped) == _CLINICAL_SCHEMA
         prompt = _CLINICAL_SCHEMA.to_prompt_description()
         assert "parents: Medicine" in prompt
-        assert "limits: at most 2 targets per source" in prompt
+        assert "declared limits (not enforced): at most 2 targets" in prompt
         assert "symmetric: yes" in prompt
         assert "pattern that names a type allows every child" in prompt
+        assert "Stored nodes carry only their leaf label" in prompt
         assert "subtypes" not in prompt
 
     def test_resolve_expands_patterns_and_counts_labels(self) -> None:
@@ -268,11 +269,13 @@ class TestPromptSerialization:
             "Relation types:\n"
             "- TREATS: A drug treats a condition.\n"
             "  valid patterns: (Drug, Condition)\n"
-            "  limits: at most 2 targets per source\n"
+            "  declared limits (not enforced): at most 2 targets per source\n"
             "- COOCCURS_WITH: Two conditions co-occur.\n"
             "  valid patterns: (Condition, Condition)\n"
             "  symmetric: yes\n"
-            "Note: a pattern that names a type allows every child of that type."
+            "Note: a pattern that names a type allows every child of that type.\n"
+            "Stored nodes carry only their leaf label. Queries for a parent "
+            "type must also match all descendant labels."
         )
 
     def test_compact_summary_shows_hierarchy_and_symmetry(self) -> None:
@@ -282,6 +285,7 @@ class TestPromptSerialization:
         assert "Drug (parents: Medicine)" in summary
         assert "Biologic (parents: Drug)" in summary
         assert "[symmetric]" in summary
+        assert "also cover its descendants" in summary
 
     def test_reserved_identity_labels_match_graph_write_labels(self) -> None:
         """The reserved set matches the labels used by graph writes."""
