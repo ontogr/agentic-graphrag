@@ -1,6 +1,5 @@
 """Tests for non-destructive entity-resolution rebuild."""
 
-from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import Any
@@ -79,12 +78,11 @@ def _store(
         upsert_relations=AsyncMock(return_value=relation_result),
     )
 
-    @asynccontextmanager
-    async def open_transaction():
-        yield transaction
+    async def run_in_transaction(work):
+        return await work(transaction)
 
     return SimpleNamespace(
-        transaction=open_transaction, current_transaction=transaction
+        run_in_transaction=run_in_transaction, current_transaction=transaction
     )
 
 

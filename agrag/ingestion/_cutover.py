@@ -23,7 +23,7 @@ from agrag.cypher.cutover_job_write import (
     start_cleaning_query,
     steal_expired_lease_query,
 )
-from agrag.graphdb.base import GraphStore
+from agrag.graphdb.base import GraphStore, GraphStoreTransaction
 from agrag.ingestion._document_lifecycle import close_open_has_part_edges
 from agrag.ingestion.resolved_entities import MatchComponent
 from agrag.ingestion.settings import CutoverJobSettings
@@ -219,7 +219,8 @@ async def _commit_pending_writes(
     """Atomically expose pending graph writes and close superseded edges."""
     job_arg = str(job_id)
     token_arg = str(token)
-    async with graph_store.transaction() as txn:
+
+    async def commit(txn: GraphStoreTransaction) -> int:
         committed = await txn.execute_write(
             commit_job_query(),
             {
@@ -242,7 +243,9 @@ async def _commit_pending_writes(
                 keep_node_ids=keep_node_ids,
             )
         await txn.execute_write(clear_pending_tag_query(), {"job_id": job_arg})
-    return parts_closed
+        return parts_closed
+
+    return await graph_store.run_in_transaction(commit)
 
 
 async def run_cutover_job(

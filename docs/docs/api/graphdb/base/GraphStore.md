@@ -18,10 +18,10 @@ A graph database backend: schema, writes, and native vector search.
 - [**execute_write**](#agrag-graphdb-base-GraphStore-execute_write) – Run a write transaction.
 - [**register_labels**](#agrag-graphdb-base-GraphStore-register_labels) – Mark labels as known, without writing anything.
 - [**register_relation_types**](#agrag-graphdb-base-GraphStore-register_relation_types) – Mark relationship types as known, without writing anything.
+- [**run_in_transaction**](#agrag-graphdb-base-GraphStore-run_in_transaction) – Run work with a transaction handle and return its result.
 - [**session**](#agrag-graphdb-base-GraphStore-session) – Open a session as an async context manager.
 - [**setup_constraints**](#agrag-graphdb-base-GraphStore-setup_constraints) – Create per-label and per-relation-type uniqueness constraints.
 - [**setup_indexes**](#agrag-graphdb-base-GraphStore-setup_indexes) – Create per-label property indexes.
-- [**transaction**](#agrag-graphdb-base-GraphStore-transaction) – Start an explicit transaction spanning multiple writes.
 - [**upsert_nodes**](#agrag-graphdb-base-GraphStore-upsert_nodes) – Write or merge nodes, honoring each record's full label set.
 - [**upsert_relations**](#agrag-graphdb-base-GraphStore-upsert_relations) – Write or merge relationships between existing nodes.
 - [**vector_search**](#agrag-graphdb-base-GraphStore-vector_search) – Search nodes by dense vector.
@@ -144,6 +144,28 @@ docstring for why this exists.
 
 - <code>ValueError</code> – Any type is not a safe identifier.
 
+## `run_in_transaction` \{#agrag-graphdb-base-GraphStore-run_in_transaction}
+
+```python
+run_in_transaction(work:Callable[[GraphStoreTransaction], Awaitable[_T]]) -> _T
+```
+
+Run work with a transaction handle and return its result.
+
+The default implementation passes this store to `work` and provides
+no atomicity across calls. Backends may provide a real transaction.
+A transactional backend commits when `work` returns and rolls back
+when it raises. A backend may retry transient failures, so `work`
+must return results rather than change state outside the callback.
+
+**Parameters:**
+
+- **work** (<code>Callable\[\[[GraphStoreTransaction](GraphStoreTransaction.md)\], Awaitable\[\_T\]\]</code>) – The reads and writes to run together. Must be safe to retry.
+
+**Returns:**
+
+- <code>\_T</code> – Whatever `work` returns.
+
 ## `session` \{#agrag-graphdb-base-GraphStore-session}
 
 ```python
@@ -180,29 +202,6 @@ Create per-label property indexes.
 Covers every node label written through this instance or already
 present in the database, so a fresh instance can set up an existing
 database without first rewriting every record.
-
-## `transaction` \{#agrag-graphdb-base-GraphStore-transaction}
-
-```python
-transaction() -> AsyncIterator[GraphStoreTransaction]
-```
-
-Start an explicit transaction spanning multiple writes.
-
-Every call through the yielded handle should join one backend
-transaction, committing as a whole on clean exit from the
-`async with` block and rolling back as a whole if the block raises.
-The default here simply yields `self` and gives no atomicity beyond
-what each individual call already provides; a backend that can offer
-real atomicity, such as `Neo4jGraphStore`, overrides this with a
-driver transaction.
-
-Use this when a caller must guarantee several writes either all apply
-or none do, such as `apply_merge`'s survivor upsert and alias claim.
-
-**Returns:**
-
-- <code>AsyncIterator\[[GraphStoreTransaction](GraphStoreTransaction.md)\]</code> – An async context manager yielding the transactional handle.
 
 ## `upsert_nodes` \{#agrag-graphdb-base-GraphStore-upsert_nodes}
 

@@ -32,6 +32,7 @@ from agrag.cypher.schema import (
 )
 from agrag.embedding.errors import EmbeddingDimensionMismatchError
 from agrag.graphdb import build_graph_store
+from agrag.graphdb.base import GraphStoreTransaction
 from agrag.graphdb.errors import GraphStoreConstraintViolationError
 from agrag.graphdb.neo4j import Neo4jGraphStore
 from agrag.graphdb.settings import Neo4jSettings
@@ -47,6 +48,114 @@ DIM = 4
 @pytest.mark.skipif(neo4j_missing, reason="neo4j extra not installed")
 class TestNeo4jGraphStoreIntegration:
     """End-to-end behavior against a real Neo4j instance."""
+
+    async def test_opposite_order_updates_retry_and_preserve_both_increments(
+        self,
+    ) -> None:
+        """Managed retries preserve both writes after opposite-order locking."""
+        store = build_graph_store("neo4j")
+        await store.connect()
+        tag, first_id, second_id = uuid4().hex, str(uuid4()), str(uuid4())
+        ready = 0
+        both_first_writes_done = asyncio.Event()
+        try:
+            await store.execute_write(
+                f"CREATE (:{NODE_IDENTITY_LABEL} {{id: $first, probe: $tag, n: 0}}), "
+                f"(:{NODE_IDENTITY_LABEL} {{id: $second, probe: $tag, n: 0}})",
+                {"first": first_id, "second": second_id, "tag": tag},
+            )
+
+            def make_work(first: str, second: str) -> Any:
+                attempts = 0
+
+                async def work(txn: GraphStoreTransaction) -> str:
+                    nonlocal attempts, ready
+                    attempts += 1
+                    for index, node_id in enumerate((first, second)):
+                        await txn.execute_write(
+                            f"MATCH (n:{NODE_IDENTITY_LABEL} {{id: $id}}) "
+                            "SET n.n = n.n + 1",
+                            {"id": node_id},
+                        )
+                        if attempts == 1 and index == 0:
+                            ready += 1
+                            if ready == 2:
+                                both_first_writes_done.set()
+                            await both_first_writes_done.wait()
+                    return first
+
+                return work
+
+            results = await asyncio.wait_for(
+                asyncio.gather(
+                    store.run_in_transaction(make_work(first_id, second_id)),
+                    store.run_in_transaction(make_work(second_id, first_id)),
+                ),
+                timeout=20,
+            )
+            assert sorted(results) == sorted([first_id, second_id])
+            rows = await store.execute_read(
+                f"MATCH (n:{NODE_IDENTITY_LABEL} {{probe: $tag}}) RETURN n.n AS n",
+                {"tag": tag},
+            )
+            assert sorted(row["n"] for row in rows) == [2, 2]
+        finally:
+            with contextlib.suppress(Exception):
+                await asyncio.wait_for(
+                    store.execute_write(
+                        f"MATCH (n:{NODE_IDENTITY_LABEL} {{probe: $tag}}) "
+                        "DETACH DELETE n",
+                        {"tag": tag},
+                    ),
+                    timeout=5,
+                )
+            await store.close()
+
+    async def test_run_in_transaction_returns_result_and_rolls_back_on_error(
+        self,
+    ) -> None:
+        """Managed work returns its value and rolls back when it raises."""
+        store = build_graph_store("neo4j")
+        await store.connect()
+        tag, node_id = uuid4().hex, str(uuid4())
+        try:
+            await store.execute_write(
+                f"CREATE (:{NODE_IDENTITY_LABEL} {{id: $id, probe: $tag, n: 0}})",
+                {"id": node_id, "tag": tag},
+            )
+
+            async def read_value(txn: GraphStoreTransaction) -> int:
+                rows = await txn.execute_read(
+                    f"MATCH (n:{NODE_IDENTITY_LABEL} {{id: $id}}) RETURN n.n AS n",
+                    {"id": node_id},
+                )
+                return rows[0]["n"]
+
+            assert await store.run_in_transaction(read_value) == 0
+
+            async def fail_after_write(txn: GraphStoreTransaction) -> None:
+                await txn.execute_write(
+                    f"MATCH (n:{NODE_IDENTITY_LABEL} {{id: $id}}) SET n.n = 1",
+                    {"id": node_id},
+                )
+                raise RuntimeError("abort transaction")
+
+            with pytest.raises(RuntimeError, match="abort transaction"):
+                await store.run_in_transaction(fail_after_write)
+
+            rows = await store.execute_read(
+                f"MATCH (n:{NODE_IDENTITY_LABEL} {{id: $id}}) RETURN n.n AS n",
+                {"id": node_id},
+            )
+            assert rows == [{"n": 0}]
+        finally:
+            try:
+                await store.execute_write(
+                    f"MATCH (n:{NODE_IDENTITY_LABEL} {{probe: $tag}}) DETACH DELETE n",
+                    {"tag": tag},
+                )
+            finally:
+                await store.close()
 
     @pytest.mark.xdist_group(name="neo4j_schema")
     async def test_node_upsert_and_vector_search_round_trip(self) -> None:

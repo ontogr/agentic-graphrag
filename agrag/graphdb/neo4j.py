@@ -2,13 +2,12 @@
 
 import array
 import asyncio
-import contextlib
 import json
 import numbers
 from collections import defaultdict
-from collections.abc import AsyncIterator, Mapping, Sequence
-from contextlib import AbstractAsyncContextManager, asynccontextmanager
-from typing import TYPE_CHECKING, Any
+from collections.abc import Awaitable, Callable, Mapping, Sequence
+from contextlib import AbstractAsyncContextManager
+from typing import TYPE_CHECKING, Any, TypeVar
 from uuid import UUID
 
 from opentelemetry.trace import Span, SpanKind, Tracer
@@ -76,6 +75,7 @@ _VECTOR_SEARCH_MAX_K = 1000
 _EQUIVALENT_SCHEMA_RULE_ERROR = (
     "Neo.ClientError.Schema.EquivalentSchemaRuleAlreadyExists"
 )
+_T = TypeVar("_T")
 
 
 def _is_number(value: Any) -> bool:
@@ -175,23 +175,23 @@ def _query_parameter_attributes(
 
 
 class _Neo4jTransaction(GraphStoreTransaction):
-    """A ``GraphStoreTransaction`` bound to one open Neo4j explicit transaction.
+    """A ``GraphStoreTransaction`` bound to one managed Neo4j transaction.
 
     Every ``execute_read``/``execute_write``/``upsert_nodes`` call here runs
     against the same underlying transaction, so they all commit or roll back
-    together when the owning ``Neo4jGraphStore.transaction()`` block exits.
+    together when the managed transaction finishes.
     """
 
     def __init__(self, tx: Any, *, store: "Neo4jGraphStore", tracer: Tracer) -> None:
-        """Bind this handle to an open transaction and its owning store.
+        """Bind this handle to a managed transaction and its owning store.
 
         Args:
-            tx: The open Neo4j ``AsyncTransaction``.
+            tx: The Neo4j ``AsyncTransaction`` supplied by the driver.
             store: The store this transaction belongs to, used for label and
                 relation-type bookkeeping and for ensuring each relationship
                 type's identity constraint exists before its first write.
             tracer: Opens this handle's own spans. Passed explicitly by
-                ``transaction()`` rather than read off ``store`` -- this
+                ``run_in_transaction()`` rather than read off ``store`` -- this
                 class does not otherwise touch ``store``'s private state.
         """
         self._tx = tx
@@ -245,8 +245,8 @@ class _Neo4jTransaction(GraphStoreTransaction):
         """Write or merge nodes against this transaction.
 
         Mirrors ``Neo4jGraphStore.upsert_nodes``, minus the identity
-        constraint check: ``transaction()`` ensures that once before opening
-        the transaction, so no write inside it needs to repeat the check.
+        constraint check: ``run_in_transaction()`` ensures it before invoking
+        the callback, so no write inside it needs to repeat the check.
 
         Raises:
             ValueError: ``batch_size`` is not positive.
@@ -278,7 +278,7 @@ class _Neo4jTransaction(GraphStoreTransaction):
 
         Mirrors ``Neo4jGraphStore.upsert_relations``, including its per-type
         constraint check, but via ``self.execute_write`` so every write joins
-        the surrounding explicit transaction.
+        the surrounding managed transaction.
 
         Raises:
             ValueError: ``batch_size`` is not positive.
@@ -483,22 +483,24 @@ class Neo4jGraphStore(GraphStore):
         result = await tx.run(query, parameters)
         return await result.data()
 
-    @asynccontextmanager
-    async def transaction(self) -> AsyncIterator[GraphStoreTransaction]:
-        """Open one Neo4j explicit transaction spanning multiple writes.
+    async def run_in_transaction(
+        self, work: Callable[[GraphStoreTransaction], Awaitable[_T]]
+    ) -> _T:
+        """Run work in a Neo4j managed transaction and return its result.
 
-        Commits when the ``async with`` block exits cleanly; rolls back and
-        re-raises when it raises. The identity constraint is ensured before
-        opening the transaction, the same way ``upsert_nodes`` ensures it
-        before writing, since ``_Neo4jTransaction.upsert_nodes`` skips that
-        check to avoid a nested write racing the transaction it belongs to.
+        Neo4j may retry ``work`` after a transient failure. The callback must
+        therefore be safe to run again and must return results rather than
+        mutate state outside the callback.
+
+        Args:
+            work: The reads and writes to run together. Must be safe to retry.
+
+        Returns:
+            Whatever ``work`` returns.
 
         Raises:
-            GraphStoreConstraintViolationError: A write inside the block, or the
-                commit itself, violated a uniqueness constraint -- Neo4j
-                validates some constraints only at commit time for an
-                explicit transaction, so this can surface here even when
-                every individual write appeared to succeed.
+            GraphStoreConstraintViolationError: The transaction violated a
+                uniqueness constraint.
         """
         from neo4j.exceptions import ConstraintError  # noqa: PLC0415
 
@@ -510,17 +512,16 @@ class Neo4jGraphStore(GraphStore):
             await self._ensure_cutover_job_constraint()
             await self._ensure_cutover_job_status_index()
             async with self.session() as session:
-                tx = await session.begin_transaction()
                 try:
-                    yield _Neo4jTransaction(tx, store=self, tracer=self._tracer)
-                    await tx.commit()
+
+                    async def run_work(tx: Any) -> _T:
+                        return await work(
+                            _Neo4jTransaction(tx, store=self, tracer=self._tracer)
+                        )
+
+                    return await session.execute_write(run_work)
                 except ConstraintError as exc:
-                    with contextlib.suppress(Exception):
-                        await tx.rollback()
                     raise GraphStoreConstraintViolationError(str(exc)) from exc
-                except Exception:
-                    await tx.rollback()
-                    raise
 
     async def setup_constraints(self) -> None:
         """Create ``id`` and ``merge_key`` uniqueness constraints per label.

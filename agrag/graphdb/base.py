@@ -1,9 +1,9 @@
 """The GraphStore abstraction and its build shortcut helpers."""
 
 from abc import ABC, abstractmethod
-from collections.abc import AsyncIterator, Mapping, Sequence
-from contextlib import AbstractAsyncContextManager, asynccontextmanager
-from typing import Any, Protocol
+from collections.abc import Awaitable, Callable, Mapping, Sequence
+from contextlib import AbstractAsyncContextManager
+from typing import Any, Protocol, TypeVar
 from uuid import UUID
 
 from agrag.common.data_models.graph_record import (
@@ -14,11 +14,14 @@ from agrag.common.data_models.graph_record import (
 from agrag.common.data_models.vector_record import Distance, VectorHit
 
 
+_T = TypeVar("_T")
+
+
 class GraphStoreTransaction(Protocol):
-    """The read/write/upsert surface available inside a ``transaction()`` block.
+    """The read/write/upsert surface available inside transactional work.
 
     A structural type, not a base class: ``GraphStore`` itself satisfies it
-    (the default ``transaction()`` yields ``self``), and a backend's own
+    (the default ``run_in_transaction()`` passes ``self``), and a backend's own
     transaction handle, such as Neo4j's, satisfies it without inheriting from
     anything here.
     """
@@ -265,25 +268,24 @@ class GraphStore(ABC):
             The matched hits, highest score first.
         """
 
-    @asynccontextmanager
-    async def transaction(self) -> AsyncIterator[GraphStoreTransaction]:
-        """Start an explicit transaction spanning multiple writes.
+    async def run_in_transaction(
+        self, work: Callable[[GraphStoreTransaction], Awaitable[_T]]
+    ) -> _T:
+        """Run work with a transaction handle and return its result.
 
-        Every call through the yielded handle should join one backend
-        transaction, committing as a whole on clean exit from the
-        ``async with`` block and rolling back as a whole if the block raises.
-        The default here simply yields ``self`` and gives no atomicity beyond
-        what each individual call already provides; a backend that can offer
-        real atomicity, such as ``Neo4jGraphStore``, overrides this with a
-        driver transaction.
+        The default implementation passes this store to ``work`` and provides
+        no atomicity across calls. Backends may provide a real transaction.
+        A transactional backend commits when ``work`` returns and rolls back
+        when it raises. A backend may retry transient failures, so ``work``
+        must return results rather than change state outside the callback.
 
-        Use this when a caller must guarantee several writes either all apply
-        or none do, such as ``apply_merge``'s survivor upsert and alias claim.
+        Args:
+            work: The reads and writes to run together. Must be safe to retry.
 
         Returns:
-            An async context manager yielding the transactional handle.
+            Whatever ``work`` returns.
         """
-        yield self
+        return await work(self)
 
     async def __aenter__(self) -> "GraphStore":
         """Open the store and verify connectivity.

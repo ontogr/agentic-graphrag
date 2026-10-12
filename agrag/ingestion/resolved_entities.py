@@ -232,7 +232,9 @@ async def write_matches_and_rebuild(
         raise ValueError(
             "Every match decision must reference a supplied component member"
         )
-    async with graph_store.transaction() as transaction:
+
+    async def write(transaction: GraphStoreTransaction) -> RebuildResult:
+        component_members = members
         for decision in decisions:
             first_id, second_id = sorted(
                 (decision.entity_a_id, decision.entity_b_id), key=str
@@ -255,7 +257,7 @@ async def write_matches_and_rebuild(
         component_rows = await transaction.execute_read(
             fetch_active_component_members_query(),
             {
-                "seed_ids": [str(member.id) for member in members],
+                "seed_ids": [str(member.id) for member in component_members],
                 "job_id": pending_job_id,
             },
         )
@@ -266,17 +268,19 @@ async def write_matches_and_rebuild(
                 if (entity := parse_entity_node(row.get("member"))) is not None
             }
             if persisted_members:
-                members = sorted(
+                component_members = sorted(
                     persisted_members.values(), key=lambda member: str(member.id)
                 )
         return await _replace_resolved_entity(
             transaction,
-            members,
+            component_members,
             schema=schema,
             pending_job_id=pending_job_id,
             decided_at=max(decision.decided_at for decision in decisions),
             tracer=tracer,
         )
+
+    return await graph_store.run_in_transaction(write)
 
 
 async def rebuild_resolved_entities(
@@ -312,7 +316,11 @@ async def rebuild_resolved_entities(
     for seed_id in dict.fromkeys(seed_ids):
         if seed_id in rebuilt_member_ids:
             continue
-        async with graph_store.transaction() as transaction:
+
+        async def rebuild(
+            transaction: GraphStoreTransaction,
+            seed_id: UUID = seed_id,
+        ) -> tuple[RebuildResult | None, list[Entity]]:
             component_rows = await transaction.execute_read(
                 fetch_active_component_members_query(),
                 {"seed_ids": [str(seed_id)], "job_id": None},
@@ -326,7 +334,7 @@ async def rebuild_resolved_entities(
                 key=lambda member: str(member.id),
             )
             if len(members) < 2:
-                continue
+                return None, members
             decided_at_rows = await transaction.execute_read(
                 fetch_committed_component_decided_at_query(),
                 {"member_ids": [str(member.id) for member in members]},
@@ -336,17 +344,20 @@ async def rebuild_resolved_entities(
                 for row in decided_at_rows
                 if row.get("decided_at") is not None
             ]
-            results.append(
-                await _replace_resolved_entity(
-                    transaction,
-                    members,
-                    schema=schema,
-                    pending_job_id=None,
-                    decided_at=max(decided_at_values, default=None),
-                    tracer=tracer,
-                )
+            result = await _replace_resolved_entity(
+                transaction,
+                members,
+                schema=schema,
+                pending_job_id=None,
+                decided_at=max(decided_at_values, default=None),
+                tracer=tracer,
             )
-        rebuilt_member_ids.update(member.id for member in members)
+            return result, members
+
+        result, members = await graph_store.run_in_transaction(rebuild)
+        if result is not None:
+            results.append(result)
+            rebuilt_member_ids.update(member.id for member in members)
     return results
 
 
@@ -428,7 +439,8 @@ async def deactivate_match_and_rebuild(
     tracer: Tracer | None = None,
 ) -> DeactivationResult:
     """Deactivate a match and return its replacements and deleted derived IDs."""
-    async with graph_store.transaction() as transaction:
+
+    async def deactivate(transaction: GraphStoreTransaction) -> DeactivationResult:
         endpoint_rows = await transaction.execute_read(
             fetch_match_endpoints_query(), {"match_id": str(match_id)}
         )
@@ -510,15 +522,17 @@ async def deactivate_match_and_rebuild(
                 )
             )
             rebuilt.append(resolved)
-    rebuilt_ids = {entity.id for entity in rebuilt}
-    return DeactivationResult(
-        resolved_entities=rebuilt,
-        removed_entity_ids=[
-            entity_id
-            for entity_id in dict.fromkeys(removed_entity_ids)
-            if entity_id not in rebuilt_ids
-        ],
-    )
+        rebuilt_ids = {entity.id for entity in rebuilt}
+        return DeactivationResult(
+            resolved_entities=rebuilt,
+            removed_entity_ids=[
+                entity_id
+                for entity_id in dict.fromkeys(removed_entity_ids)
+                if entity_id not in rebuilt_ids
+            ],
+        )
+
+    return await graph_store.run_in_transaction(deactivate)
 
 
 def _uuid_list(rows: object, key: str) -> list[UUID]:
@@ -614,7 +628,11 @@ async def prune_orphaned_entities(
             ).values()
         )
         if len(members) >= 2:
-            async with graph_store.transaction() as transaction:
+
+            async def rebuild_cluster(
+                transaction: GraphStoreTransaction,
+                members: list[Entity] = members,
+            ) -> tuple[list[UUID], ResolvedEntity]:
                 replacement_rows = await transaction.execute_write(
                     replace_component_resolved_entities_query(),
                     {
@@ -622,8 +640,8 @@ async def prune_orphaned_entities(
                         "pending_job_id": None,
                     },
                 )
-                removed_resolved_entity_ids.extend(
-                    _uuid_list(replacement_rows, "removed_resolved_entity_ids")
+                removed_ids = _uuid_list(
+                    replacement_rows, "removed_resolved_entity_ids"
                 )
                 resolved = await compute_resolved_entity(members, schema, tracer=tracer)
                 _raise_for_write_failure(
@@ -644,13 +662,25 @@ async def prune_orphaned_entities(
                                 end_id=resolved.id,
                                 properties={},
                             )
-                            for member in sorted(members, key=lambda m: str(m.id))
+                            for member in sorted(
+                                members, key=lambda candidate: str(candidate.id)
+                            )
                         ]
                     )
                 )
+                return removed_ids, resolved
+
+            removed_ids, resolved = await graph_store.run_in_transaction(
+                rebuild_cluster
+            )
+            removed_resolved_entity_ids.extend(removed_ids)
             rebuilt_resolved.append(resolved)
         elif len(members) == 1:
-            async with graph_store.transaction() as transaction:
+
+            async def remove_singleton(
+                transaction: GraphStoreTransaction,
+                members: list[Entity] = members,
+            ) -> list[UUID]:
                 replacement_rows = await transaction.execute_write(
                     replace_component_resolved_entities_query(),
                     {
@@ -658,9 +688,11 @@ async def prune_orphaned_entities(
                         "pending_job_id": None,
                     },
                 )
-                removed_resolved_entity_ids.extend(
-                    _uuid_list(replacement_rows, "removed_resolved_entity_ids")
-                )
+                return _uuid_list(replacement_rows, "removed_resolved_entity_ids")
+
+            removed_resolved_entity_ids.extend(
+                await graph_store.run_in_transaction(remove_singleton)
+            )
         else:
             pruned_rows = await graph_store.execute_write(
                 delete_resolved_entities_query(), {"ids": [resolved_id]}

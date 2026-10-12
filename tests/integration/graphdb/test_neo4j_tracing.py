@@ -1,7 +1,7 @@
 """Integration proof that Neo4j graph-store spans carry queries, not vectors.
 
-Runs ``upsert_nodes``, ``upsert_relations``, a read, and a ``transaction()``
-block with a write inside it against the Docker Compose Neo4j instance from
+Runs ``upsert_nodes``, ``upsert_relations``, a read, and ``run_in_transaction``
+with a write inside it against the Docker Compose Neo4j instance from
 ``docker/docker-compose.ci.yml`` (``make dev-services-up``), through a real
 SDK ``TracerProvider`` with an in-memory exporter. The captured span tree
 goes to a JSON artifact for hand inspection.
@@ -223,11 +223,14 @@ class TestNeo4jTracing:
             )
             assert [row["text"] for row in probe] == ["sepsis protocol"]
             transacted_id = uuid4()
-            async with store.transaction() as tx:
+
+            async def write_transaction(tx: Any) -> None:
                 await tx.execute_write(
                     f"CREATE (n:{label} {{id: $id, text: $text}})",
                     {"id": str(transacted_id), "text": "transactional node"},
                 )
+
+            await store.run_in_transaction(write_transaction)
             transacted = await store.execute_read(
                 f"MATCH (n:{label} {{id: $id}}) RETURN n.text AS text",
                 {"id": str(transacted_id)},

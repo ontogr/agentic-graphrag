@@ -18,6 +18,6 @@ batch_size rows deleted.
 
 - **graph_store** (<code>[GraphStore](../../graphdb/base/GraphStore.md) | [GraphStoreTransaction](../../graphdb/base/GraphStoreTransaction.md)</code>) – Where the delete runs. Accepts either a
   `GraphStore` or a `GraphStoreTransaction` handle so a
-  caller inside `store.transaction()` can delete and rewrite
+  `store.run_in_transaction` callback can delete and rewrite
   communities atomically.
 - **batch_size** (<code>int</code>) – Community nodes deleted per statement.
