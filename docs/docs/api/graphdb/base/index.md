@@ -10,4 +10,4 @@ The GraphStore abstraction and its build shortcut helpers.
 **Classes:**
 
 - [**GraphStore**](GraphStore.md) – A graph database backend: schema, writes, and native vector search.
-- [**GraphStoreTransaction**](GraphStoreTransaction.md) – The read/write/upsert surface available inside a `transaction()` block.
+- [**GraphStoreTransaction**](GraphStoreTransaction.md) – The read/write/upsert surface available inside transactional work.

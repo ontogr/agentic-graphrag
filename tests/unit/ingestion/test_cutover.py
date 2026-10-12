@@ -169,18 +169,11 @@ class _FakeCutoverStore:
         self.jobs = {key: job for key, job in self.jobs.items() if job["id"] != job_id}
         return [{"deleted_nodes": 0, "deleted_relationships": 0}]
 
-    def transaction(self) -> Any:
-        """Yield a handle that records writes and joins this store's table."""
+    async def run_in_transaction(self, work: Any) -> Any:
+        """Run work with a handle that records writes and joins this store."""
         runner = self
 
         class _Txn:
-            async def __aenter__(self) -> "_Txn":
-                runner.transactions.append([])
-                return self
-
-            async def __aexit__(self, exc_type: Any, exc: Any, tb: Any) -> None:
-                return None
-
             async def execute_write(
                 self, query: str, parameters: dict[str, Any] | None = None
             ) -> list[dict[str, Any]]:
@@ -189,7 +182,8 @@ class _FakeCutoverStore:
                     return [{"closed": 0}]
                 return await runner.execute_write(query, parameters)
 
-        return _Txn()
+        runner.transactions.append([])
+        return await work(_Txn())
 
 
 class _CommitBlockingStore(_FakeCutoverStore):
@@ -201,20 +195,11 @@ class _CommitBlockingStore(_FakeCutoverStore):
         self.commit_started = asyncio.Event()
         self.release_commit = asyncio.Event()
 
-    def transaction(self) -> Any:
-        """Yield a transaction that blocks after successful writes commit."""
+    async def run_in_transaction(self, work: Any) -> Any:
+        """Run work and block after successful writes reach the commit edge."""
         runner = self
 
         class _Txn:
-            async def __aenter__(self) -> "_Txn":
-                runner.transactions.append([])
-                return self
-
-            async def __aexit__(self, exc_type: Any, exc: Any, tb: Any) -> None:
-                if exc_type is None:
-                    runner.commit_started.set()
-                    await runner.release_commit.wait()
-
             async def execute_write(
                 self, query: str, parameters: dict[str, Any] | None = None
             ) -> list[dict[str, Any]]:
@@ -223,7 +208,11 @@ class _CommitBlockingStore(_FakeCutoverStore):
                     return [{"closed": 0}]
                 return await runner.execute_write(query, parameters)
 
-        return _Txn()
+        runner.transactions.append([])
+        result = await work(_Txn())
+        runner.commit_started.set()
+        await runner.release_commit.wait()
+        return result
 
 
 class _FakeVectorStore(VectorStore):

@@ -8,7 +8,6 @@ cross-batch index threading.
 
 import asyncio
 from collections.abc import Mapping, Sequence
-from contextlib import asynccontextmanager
 from typing import Any
 from unittest import mock
 from unittest.mock import AsyncMock
@@ -145,11 +144,10 @@ def _store() -> tuple[AsyncMock, dict[str, list[Any]]]:
     # answer the lease protocol's queries.
     store.execute_write.side_effect = _execute_write
 
-    @asynccontextmanager
-    async def _transaction():
-        yield store
+    async def run_in_transaction(work: Any) -> Any:
+        return await work(store)
 
-    store.transaction = _transaction
+    store.run_in_transaction.side_effect = run_in_transaction
     return store, calls
 
 

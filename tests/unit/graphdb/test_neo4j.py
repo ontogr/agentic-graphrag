@@ -10,6 +10,7 @@ from uuid import uuid4
 
 import pytest
 from neo4j import NotificationDisabledClassification
+from neo4j.exceptions import ConstraintError
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
@@ -32,15 +33,20 @@ from agrag.graphdb.settings import Neo4jSettings
 
 
 class MockTransaction:
-    """A stand-in for a Neo4j async explicit transaction."""
+    """A stand-in for the transaction object supplied by the Neo4j driver."""
 
     def __init__(self) -> None:
-        """Create the transaction with async mocks for run/commit/rollback."""
+        """Create the transaction with an async run mock."""
         result = mock.MagicMock()
-        result.data = mock.AsyncMock(return_value=[])
-        self.run = mock.AsyncMock(return_value=result)
-        self.commit = mock.AsyncMock()
-        self.rollback = mock.AsyncMock()
+        self.rows: list[dict[str, Any]] = []
+        result.data = mock.AsyncMock(side_effect=lambda: self.rows)
+        self.statements: list[tuple[str, dict[str, Any]]] = []
+
+        async def run(query: str, parameters: dict[str, Any]) -> Any:
+            self.statements.append((query, parameters))
+            return result
+
+        self.run = mock.AsyncMock(side_effect=run)
 
 
 class MockSession:
@@ -49,8 +55,12 @@ class MockSession:
     def __init__(self) -> None:
         """Create the session with async mocks for reads, writes, and transactions."""
         self.execute_read = mock.AsyncMock()
-        self.execute_write = mock.AsyncMock()
-        self.begin_transaction = mock.AsyncMock(return_value=MockTransaction())
+        self.transaction = MockTransaction()
+        self.execute_write = mock.AsyncMock(side_effect=self._execute_write)
+
+    async def _execute_write(self, callback: Any, *args: Any) -> Any:
+        """Run a managed callback against the fake driver transaction."""
+        return await callback(self.transaction, *args)
 
     async def __aenter__(self) -> "MockSession":
         """Enter the session context."""
@@ -79,14 +89,19 @@ def _store() -> Neo4jGraphStore:
     """Build a Neo4jGraphStore wired to a MockDriver."""
     store = Neo4jGraphStore(settings=Neo4jSettings(), driver=MockDriver())
 
-    async def return_relation_ids(
-        _run: object, query: str, parameters: dict[str, Any]
-    ) -> list[dict[str, str]]:
-        if "RETURN record.id AS id" not in query:
-            return []
-        return [{"id": record["id"]} for record in parameters["records"]]
+    async def return_relation_ids(query: str, parameters: dict[str, Any]) -> Any:
+        store._driver.last_session.transaction.statements.append((query, parameters))
+        if "RETURN record.id AS id" in query:
+            store._driver.last_session.transaction.rows = [
+                {"id": record["id"]} for record in parameters["records"]
+            ]
+        result = mock.MagicMock()
+        result.data = mock.AsyncMock(
+            return_value=store._driver.last_session.transaction.rows
+        )
+        return result
 
-    store._driver.last_session.execute_write.side_effect = return_relation_ids
+    store._driver.last_session.transaction.run.side_effect = return_relation_ids
     return store
 
 
@@ -180,11 +195,9 @@ class TestUpsertNodes:
         """
         store = _store()
 
-        async def slow_write(
-            _run: object, _query: str, _params: object
-        ) -> list[dict[str, object]]:
+        async def slow_write(run: Any, query: str, parameters: dict[str, Any]) -> Any:
             await asyncio.sleep(0)
-            return []
+            return await run(store._driver.last_session.transaction, query, parameters)
 
         store._driver.last_session.execute_write.side_effect = slow_write
         first = NodeRecord(id=uuid4(), labels=["Chunk"], properties={})
@@ -193,9 +206,11 @@ class TestUpsertNodes:
             store.upsert_nodes("Chunk", [first]),
             store.upsert_nodes("Chunk", [second]),
         )
-        writes = store._driver.last_session.execute_write.call_args_list
+        statements = store._driver.last_session.transaction.statements
         constraint_calls = [
-            c for c in writes if _node_constraint_name(NODE_IDENTITY_LABEL) in c.args[1]
+            query
+            for query, _parameters in statements
+            if _node_constraint_name(NODE_IDENTITY_LABEL) in query
         ]
         assert len(constraint_calls) == 1
 
@@ -213,15 +228,15 @@ class TestPendingJobTag:
             id=uuid4(), type="MENTIONS", start_id=uuid4(), end_id=uuid4(), properties={}
         )
 
-        async with store.transaction() as txn:
+        async def work(txn: Any) -> None:
             await txn.upsert_nodes("Chunk", [node], pending_job_id=job_id)
             await txn.upsert_relations([relation], pending_job_id=job_id)
 
-        tx = store._driver.last_session.begin_transaction.return_value
+        await store.run_in_transaction(work)
         sent = [
-            call.args[1]["records"][0]
-            for call in tx.run.await_args_list
-            if "records" in call.args[1]
+            parameters["records"][0]
+            for _query, parameters in store._driver.last_session.transaction.statements
+            if "records" in parameters
         ]
         assert [r["pending_job_id"] for r in sent] == [str(job_id)] * 2
 
@@ -335,11 +350,9 @@ class TestUpsertRelations:
         """
         store = _store()
 
-        async def slow_write(
-            _run: object, _query: str, _params: object
-        ) -> list[dict[str, object]]:
+        async def slow_write(run: Any, query: str, parameters: dict[str, Any]) -> Any:
             await asyncio.sleep(0)
-            return []
+            return await run(store._driver.last_session.transaction, query, parameters)
 
         store._driver.last_session.execute_write.side_effect = slow_write
         first = RelationRecord(
@@ -360,9 +373,11 @@ class TestUpsertRelations:
             store.upsert_relations([first]),
             store.upsert_relations([second]),
         )
-        writes = store._driver.last_session.execute_write.call_args_list
+        statements = store._driver.last_session.transaction.statements
         constraint_calls = [
-            c for c in writes if _relation_constraint_name("MENTIONS") in c.args[1]
+            query
+            for query, _parameters in statements
+            if _relation_constraint_name("MENTIONS") in query
         ]
         assert len(constraint_calls) == 1
 
@@ -489,28 +504,36 @@ class TestMissingExtra:
         assert exc_info.value.extra == "neo4j"
 
 
-class TestTransaction:
-    """transaction() opens one explicit transaction and commits or rolls it back."""
+class TestRunInTransaction:
+    """Managed transactions return work results and translate constraint errors."""
 
-    async def test_commits_on_clean_exit(self) -> None:
-        """A clean exit from the block commits, and never rolls back."""
+    async def test_returns_what_the_work_returns(self) -> None:
+        """The work result reaches the caller."""
         store = _store()
-        async with store.transaction() as txn:
-            await txn.execute_write("MATCH (n) RETURN n")
-        tx = store._driver.last_session.begin_transaction.return_value
-        assert tx.commit.await_count == 1
-        assert tx.rollback.await_count == 0
 
-    async def test_rolls_back_and_reraises_on_exception(self) -> None:
-        """An exception in the block rolls back and propagates, no commit."""
+        async def work(_txn: Any) -> int:
+            return 7
+
+        assert await store.run_in_transaction(work) == 7
+
+    async def test_constraint_error_becomes_store_error(self) -> None:
+        """A uniqueness violation surfaces as the store exception."""
         store = _store()
-        with pytest.raises(ValueError, match="boom"):
-            async with store.transaction() as txn:
-                await txn.execute_write("MATCH (n) RETURN n")
-                raise ValueError("boom")
-        tx = store._driver.last_session.begin_transaction.return_value
-        assert tx.rollback.await_count == 1
-        assert tx.commit.await_count == 0
+        store._identity_constraint_ready = True
+        store._merge_alias_constraint_ready = True
+        store._cutover_job_constraint_ready = True
+        store._cutover_job_status_index_ready = True
+
+        async def fail(*_args: Any) -> None:
+            raise ConstraintError("duplicate")
+
+        store._driver.last_session.execute_write.side_effect = fail
+
+        async def work(_txn: Any) -> None:
+            return None
+
+        with pytest.raises(GraphStoreConstraintViolationError):
+            await store.run_in_transaction(work)
 
 
 class TestExecuteSpans:
@@ -632,17 +655,20 @@ class TestUpsertTracing:
         ]
         assert (outer.attributes or {})["db.operation.batch.size"] == 0
 
-    async def test_transaction_wraps_transactional_execute_write(self) -> None:
-        """transaction() INTERNAL parents a transactional CLIENT write."""
+    async def test_run_in_transaction_wraps_callback(self) -> None:
+        """run_in_transaction opens an INTERNAL span around callback work."""
         provider, exporter = _provider()
         tracer = provider.get_tracer("test")
         store = _store()
         store._tracer = tracer
         transacted_id = uuid4()
-        async with store.transaction() as tx:
+
+        async def work(tx: Any) -> None:
             await tx.execute_write(
                 "MERGE (n:Doc {id: $id})", {"id": str(transacted_id)}
             )
+
+        await store.run_in_transaction(work)
         spans = exporter.get_finished_spans()
         (txn,) = [s for s in spans if s.name == "agrag.graphdb.transaction"]
         assert txn.kind is SpanKind.INTERNAL

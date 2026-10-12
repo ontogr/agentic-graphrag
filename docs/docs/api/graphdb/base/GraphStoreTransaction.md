@@ -7,10 +7,10 @@ sidebar_label: GraphStoreTransaction
 
 Bases: <code>Protocol</code>
 
-The read/write/upsert surface available inside a `transaction()` block.
+The read/write/upsert surface available inside transactional work.
 
 A structural type, not a base class: `GraphStore` itself satisfies it
-(the default `transaction()` yields `self`), and a backend's own
+(the default `run_in_transaction()` passes `self`), and a backend's own
 transaction handle, such as Neo4j's, satisfies it without inheriting from
 anything here.
 
