@@ -105,9 +105,8 @@ async def _match_active_flag(store: GraphStore, match: UUID) -> object:
 class TestPendingMatchDeactivation:
     """Deactivating a match only touches committed match edges."""
 
-    async def test_deactivate_match_ignores_a_pending_edge(
-        self, store: GraphStore
-    ) -> None:
+    @staticmethod
+    async def test_deactivate_match_ignores_a_pending_edge(store: GraphStore) -> None:
         """A match an in-flight job wrote cannot be deactivated as committed."""
         tag, job = uuid4().hex, str(uuid4())
         label = f"PendingProbeDeact{tag[:12]}"
@@ -124,8 +123,9 @@ class TestPendingMatchDeactivation:
         finally:
             await _drop(store, tag)
 
+    @staticmethod
     async def test_deactivate_match_still_works_on_a_committed_edge(
-        self, store: GraphStore
+        store: GraphStore,
     ) -> None:
         """A committed match is deactivated and the edge is kept."""
         tag = uuid4().hex
