@@ -85,6 +85,7 @@ _NEGATION_BEFORE = re.compile(r"\bNOT\s*\(*\s*$", flags=re.IGNORECASE)
 _PROJECTION_CLAUSE = re.compile(
     r"\b(MATCH|WHERE|WITH|RETURN|ORDER|UNWIND|CALL|YIELD)\b", flags=re.IGNORECASE
 )
+_CASE_EXPRESSION = re.compile(r"\b(CASE|END)\b", flags=re.IGNORECASE)
 
 
 def _enclosing_span(text: str, position: int) -> tuple[int, int]:
@@ -152,20 +153,40 @@ def _or_beside_guard(text: str, position: int) -> bool:
         position = start
 
 
+def _negated_at_any_level(text: str, position: int) -> bool:
+    """Report whether a NOT applies to position through any enclosing group.
+
+    The NOT may sit directly before the guard or before any parenthesis
+    group around it, so ``NOT (a AND guard)`` inverts the guard too.
+    """
+    current = position
+    while current >= 0:
+        if _NEGATION_BEFORE.search(text[:current]):
+            return True
+        current, _ = _enclosing_span(text, current)
+    return False
+
+
 def _guard_filters_rows(text: str, position: int) -> bool:
     """Report whether the guard at position can remove rows.
 
-    A negated guard (``NOT n._pending_job_id IS NULL``) selects only pending
-    rows. A guard in a ``RETURN`` or ``ORDER BY`` projection computes a value
-    or sorts and removes nothing. Neither counts.
+    Only a guard in a ``WHERE`` clause filters rows. A guard that follows a
+    ``WITH``, ``RETURN``, ``ORDER BY``, ``UNWIND``, ``CALL``, ``YIELD`` or
+    ``MATCH`` only computes a value, and a negated guard
+    (``NOT n._pending_job_id IS NULL``) selects only pending rows. A guard
+    inside a ``CASE`` expression also yields a value rather than a filter.
+    None of these count.
     """
-    before = text[:position]
-    if _NEGATION_BEFORE.search(before):
+    if _negated_at_any_level(text, position):
         return False
+    before = text[:position]
     clauses = list(_PROJECTION_CLAUSE.finditer(before))
-    if not clauses:
-        return True
-    return clauses[-1].group(1).upper() not in {"RETURN", "ORDER"}
+    if not clauses or clauses[-1].group(1).upper() != "WHERE":
+        return False
+    depth = 0
+    for token in _CASE_EXPRESSION.finditer(before, clauses[-1].end()):
+        depth += 1 if token.group(1).upper() == "CASE" else -1
+    return depth <= 0
 
 
 def strip_cypher_syntax(query: str) -> str:
@@ -316,8 +337,9 @@ def require_pending_guard(query: str) -> None:
     clause a guard sits in, so a guard in one WHERE clause satisfies a
     variable bound in another. It rejects a guard that shares a WHERE
     clause with an OR, because the OR can let pending rows through. It
-    ignores a guard that is negated or sits in a RETURN projection,
-    because neither removes pending rows. It rejects ``UNION``, because
+    ignores a guard that is negated, sits in a CASE expression, or sits
+    outside a WHERE clause (such as a WITH or RETURN projection), because
+    none of these removes pending rows. It rejects ``UNION``, because
     it cannot check each branch. It rejects unnamed variables, because
     they have no name to guard. A query that fails the check can be
     regenerated.
@@ -403,11 +425,8 @@ def _is_positive_where_filter(text: str, position: int) -> bool:
     clauses = list(_CLAUSE_TOKEN.finditer(text[:position]))
     if not clauses or clauses[-1].group(1).upper() != "WHERE":
         return False
-    current = position
-    while current >= 0:
-        if re.search(r"\bNOT\s*\(*\s*$", text[:current], flags=re.IGNORECASE):
-            return False
-        current, _ = _enclosing_span(text, current)
+    if _negated_at_any_level(text, position):
+        return False
     return not _or_beside_guard(text, position)
 
 

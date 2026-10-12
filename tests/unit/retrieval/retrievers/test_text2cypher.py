@@ -235,6 +235,19 @@ class TestText2CypherBounds:
         executed = gs.execute_read.await_args_list[-1].args[0]
         assert executed.endswith(expected_suffix)
 
+    async def test_limit_is_not_appended_inside_a_trailing_comment(self) -> None:
+        """A LIMIT after a trailing line comment starts on its own line."""
+        gs = AsyncMock()
+        gs.execute_read.return_value = []
+        retriever = Text2CypherRetriever(graph_store=gs, schema=DEFAULT_SCHEMA)
+        generated = "MATCH (n:Person) WHERE n._pending_job_id IS NULL RETURN n // note"
+
+        with patch.object(retriever, "_generate_cypher", return_value=generated):
+            await retriever.retrieve("who is Alice?")
+
+        executed = gs.execute_read.await_args_list[-1].args[0]
+        assert executed.splitlines()[-1] == "LIMIT 1000"
+
 
 class TestText2CypherRowShapes:
     """Structured rows are surfaced as Entity/Relation/Chunk results."""

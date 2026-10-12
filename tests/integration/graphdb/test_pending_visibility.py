@@ -229,10 +229,15 @@ class TestPendingVisibility:
         finally:
             await _drop(store, tag)
 
+    @pytest.mark.parametrize(
+        ("chunk_pending", "mention_pending"),
+        [(True, True), (True, False), (False, True)],
+        ids=["both_pending", "only_chunk_pending", "only_mention_pending"],
+    )
     async def test_bfs_document_scope_ignores_pending_evidence(
-        self, store: GraphStore
+        self, store: GraphStore, chunk_pending: bool, mention_pending: bool
     ) -> None:
-        """An entity is not in a document on the strength of a pending chunk."""
+        """An entity is not in a document on the strength of pending evidence."""
         tag, job = uuid4().hex, str(uuid4())
         seed, target, chunk = (str(uuid4()) for _ in range(3))
         try:
@@ -243,13 +248,14 @@ class TestPendingVisibility:
                 f"CREATE (t:{NODE_IDENTITY_LABEL} {{id: $target, probe: $tag}}) "
                 f"CREATE (c:{NODE_IDENTITY_LABEL}:Chunk "
                 "{id: $chunk, probe: $tag, document_id: 'doc-pending', "
-                "_pending_job_id: $job}) "
+                "_pending_job_id: $chunk_job}) "
                 "CREATE (s)-[:KNOWS]->(t) "
-                "CREATE (c)-[:MENTIONED_IN {_pending_job_id: $job}]->(t)",
+                "CREATE (c)-[:MENTIONED_IN {_pending_job_id: $mention_job}]->(t)",
                 seed=seed,
                 target=target,
                 chunk=chunk,
-                job=job,
+                chunk_job=job if chunk_pending else None,
+                mention_job=job if mention_pending else None,
             )
             query, params = bfs_expand_query(document_ids=["doc-pending"])
 

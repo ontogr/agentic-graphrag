@@ -171,6 +171,11 @@ class TestRequirePendingGuard:
             f"MATCH (n:Person) WHERE ({_NODE}) OR n.a = 1 RETURN n",
             f"MATCH (n:Person) WHERE ({_NODE} AND n.a = 1) OR n.b = 2 RETURN n",
             f"MATCH (n:Person) WHERE {_NODE} RETURN n UNION MATCH (m:Person) RETURN m",
+            "MATCH (n:Person) WHERE NOT (n.a = 1 AND n._pending_job_id IS NULL) "
+            "RETURN n",
+            "MATCH (n:Person) WITH n, n._pending_job_id IS NULL AS ok RETURN n",
+            "MATCH (n:Person) WHERE CASE WHEN n._pending_job_id IS NULL "
+            "THEN true ELSE true END RETURN n",
         ],
     )
     def test_rejects_queries_that_can_return_pending_rows(self, query: str) -> None:

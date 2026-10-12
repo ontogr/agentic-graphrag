@@ -219,7 +219,11 @@ def _append_row_limit(query: str, max_rows: int) -> str:
     stripped = strip_cypher_syntax(query).rstrip()
     match = _TRAILING_LIMIT.search(stripped)
     if match is None:
-        return f"{query.rstrip().rstrip(';').rstrip()} LIMIT {max_rows}"
+        body = query.rstrip().rstrip(";").rstrip()
+        # A trailing line comment would swallow a LIMIT appended on the same
+        # line, so the bound goes on its own line instead.
+        separator = "\n" if len(stripped) < len(query.rstrip()) else " "
+        return f"{body}{separator}LIMIT {max_rows}"
     if int(match.group(1)) <= max_rows:
         return query
     return f"{query[: match.start(1)]}{max_rows}{query[match.end(1) :]}"
