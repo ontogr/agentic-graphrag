@@ -1,0 +1,102 @@
+"""Cypher builders for the isolated candidate graph store."""
+
+from agrag.common.data_models.candidate import (
+    CANDIDATE_LABEL,
+    EVIDENCED_BY,
+    SOURCE,
+    TARGET,
+)
+from agrag.common.data_models.chunk import CHUNK_LABEL
+from agrag.common.data_models.document import DOCUMENT_LABEL
+from agrag.common.data_models.graph_record import PENDING_JOB_ID_PROPERTY
+from agrag.common.data_models.structure import HAS_PART
+from agrag.cypher._pending_filter import pending_filter_clause
+from agrag.cypher.entities import NODE_IDENTITY_LABEL
+
+
+def _created_tag(alias: str) -> str:
+    return (
+        f"{alias}.{PENDING_JOB_ID_PROPERTY} = record.pending_job_id, "
+        f"{alias}._pending_created = CASE WHEN record.pending_job_id IS NULL "
+        "THEN false ELSE true END"
+    )
+
+
+def _link(entity: str, edge_type: str, edge_id: str) -> str:
+    return (
+        f"FOREACH (_ IN CASE WHEN {entity} IS NULL THEN [] ELSE [1] END | "
+        f"MERGE (c)-[{entity}_link:{edge_type} {{id: record.{edge_id}}}]->({entity}) "
+        f"ON CREATE SET {_created_tag(f'{entity}_link')}) "
+    )
+
+
+def upsert_candidates_query() -> str:
+    """Build the batched, create-only candidate writer."""
+    return (
+        "UNWIND $records AS record "
+        f"MATCH (chunk:{NODE_IDENTITY_LABEL}:{CHUNK_LABEL} "
+        "{id: record.chunk_id}) "
+        f"MERGE (c:{CANDIDATE_LABEL} {{id: record.candidate_id}}) "
+        f"ON CREATE SET c += record.properties, {_created_tag('c')} "
+        f"MERGE (c)-[evidence:{EVIDENCED_BY} {{id: record.id}}]->(chunk) "
+        f"ON CREATE SET {_created_tag('evidence')} "
+        "WITH c, record "
+        f"OPTIONAL MATCH (source:{NODE_IDENTITY_LABEL} "
+        "{id: record.source_entity_id}) "
+        f"OPTIONAL MATCH (target:{NODE_IDENTITY_LABEL} "
+        "{id: record.target_entity_id}) "
+        f"{_link('source', SOURCE, 'source_edge_id')}"
+        f"{_link('target', TARGET, 'target_edge_id')}"
+        "RETURN record.id AS id"
+    )
+
+
+def blocked_candidate_keys_query() -> str:
+    """Build a lookup for keys with a committed reviewed candidate."""
+    return (
+        "UNWIND $keys AS key "
+        f"MATCH (c:{CANDIDATE_LABEL} {{key: key}}) "
+        f"WHERE c.state <> 'pending' AND {pending_filter_clause('c')} "
+        "RETURN DISTINCT c.key AS key"
+    )
+
+
+def list_candidates_query() -> str:
+    """Build a key-aggregating candidate list with optional filters."""
+    return (
+        f"MATCH (c:{CANDIDATE_LABEL}) "
+        f"WHERE {pending_filter_clause('c', 'job_id')} "
+        "AND ($kind IS NULL OR c.kind = $kind) "
+        "AND ($label IS NULL OR c.label = $label) "
+        "AND ($state IS NULL OR c.state = $state) "
+        "WITH c.key AS key, c.state AS state, collect(c) AS nodes, "
+        "sum(c.count) AS total, max(c.confidence) AS best "
+        "WHERE total >= $min_count "
+        "CALL (nodes) { UNWIND nodes AS n "
+        f"OPTIONAL MATCH (n)-[e:{EVIDENCED_BY}]->(chunk:{NODE_IDENTITY_LABEL}) "
+        f"WHERE {pending_filter_clause('e', 'job_id')} "
+        "RETURN collect(DISTINCT chunk.id) AS chunk_ids } "
+        "WITH key, state, total, best, chunk_ids, nodes, head(nodes) AS first "
+        "RETURN key, state, first.kind AS kind, first.label AS label, "
+        "first.text AS text, first.source_text AS source_text, "
+        "first.source_label AS source_label, first.target_label AS target_label, "
+        "first.target_text AS target_text, first.reason AS reason, "
+        "first.schema_fingerprint AS schema_fingerprint, total AS count, "
+        "best AS confidence, [n IN nodes | n.id] AS ids, chunk_ids "
+        "ORDER BY total DESC, key SKIP $skip LIMIT $limit"
+    )
+
+
+def delete_stale_candidates_query() -> str:
+    """Build deletion of committed pending candidates for a document."""
+    return (
+        f"MATCH (document:{NODE_IDENTITY_LABEL}:{DOCUMENT_LABEL} "
+        "{id: $document_node_id})"
+        f"-[:{HAS_PART}]->(chunk:{NODE_IDENTITY_LABEL}:{CHUNK_LABEL}) "
+        f"MATCH (candidate:{CANDIDATE_LABEL})-[:{EVIDENCED_BY}]->(chunk) "
+        "WHERE candidate.state = 'pending' "
+        f"AND candidate.{PENDING_JOB_ID_PROPERTY} IS NULL "
+        "WITH collect(DISTINCT candidate) AS stale "
+        "FOREACH (candidate IN stale | DETACH DELETE candidate) "
+        "RETURN size(stale) AS removed"
+    )

@@ -17,6 +17,12 @@ function GenerateCypherQuery(
     nodes(p) and relationships(p) to have _pending_job_id IS NULL. Never
     return a node or relationship whose _pending_job_id is set.
 
+    Name a label from schema_description on every node in a pattern, for
+    example (n:Person), or test it in the WHERE clause, for example
+    n:Person. Never match a node with no label. For a variable-length path,
+    name the relationship types, for example [:KNOWS*1..3]. Never use the
+    label Candidate.
+
     {{ _.role("user") }}
     Schema: {{ schema_description }}
     Question: {{ question }}

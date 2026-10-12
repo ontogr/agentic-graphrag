@@ -2,6 +2,7 @@
 
 import re
 
+from agrag.common.data_models.candidate import CANDIDATE_EDGE_TYPES, CANDIDATE_LABEL
 from agrag.common.data_models.graph_record import PENDING_JOB_ID_PROPERTY
 
 
@@ -21,10 +22,15 @@ class MissingPendingGuardError(ValueError):
     """Raised when generated Cypher can return rows an in-flight job wrote."""
 
 
+class MissingIdentityGuardError(ValueError):
+    """Raised when generated Cypher can return a node outside the entity graph."""
+
+
 # A node pattern such as ``(n:Person {name: ""})``. The lookbehind skips a
-# function call like ``count(n)``.
+# function call like ``count(n)``. Group 1 is the variable; group 2 is labels.
 _NODE_PATTERN = re.compile(
-    r"(?<![\w)\]])\(\s*([A-Za-z_]\w*)?\s*(?::[^(){}\[\]]*)?(?:\{[^{}]*\})?\s*\)"
+    r"(?<![\w)\]])\(\s*([A-Za-z_]\w*)?\s*((?::[^(){}\[\]]*)?)"
+    r"(?:\{[^{}]*\})?\s*\)"
 )
 _RELATION_PATTERN = re.compile(r"-\s*\[([^\]]*)\]\s*-")
 _ANONYMOUS_ARROW = re.compile(r"--")
@@ -44,6 +50,19 @@ _CLAUSE_TOKEN = re.compile(
     r"\b(OR|MATCH|WHERE|WITH|RETURN|UNWIND|ORDER|SKIP|LIMIT|CALL|YIELD)\b",
     flags=re.IGNORECASE,
 )
+_LABEL_NAME = r"[A-Za-z_]\w*"
+_PLAIN_LABELS = re.compile(rf"(?:\s*:\s*{_LABEL_NAME})+\s*")
+_LABEL_NAMES = re.compile(rf":\s*({_LABEL_NAME})")
+_CANDIDATE_LABEL_WORD = re.compile(rf"\b{CANDIDATE_LABEL}\b")
+_PATH_LABEL_GUARD = re.compile(
+    rf"\bALL\s*\(\s*(\w+)\s+IN\s+nodes\s*\([^)]*\)\s+WHERE\s+\1\s*:\s*"
+    rf"({_LABEL_NAME})\b",
+    flags=re.IGNORECASE,
+)
+_TYPED_PATH = re.compile(
+    rf"\s*(?:\w+)?\s*:\s*({_LABEL_NAME}(?:\s*\|\s*:?\s*{_LABEL_NAME})*)\s*\*"
+)
+_SUBQUERY_SCOPE = re.compile(r"\bCALL\s*\([^()]*\)\s*\{", flags=re.IGNORECASE)
 
 
 def _enclosing_span(text: str, position: int) -> tuple[int, int]:
@@ -308,3 +327,135 @@ def require_pending_guard(query: str) -> None:
             "Generated Cypher has a variable-length path without a pending guard "
             "on its nodes and relationships"
         )
+
+
+def _names_other_label(labels: str) -> bool:
+    """Report whether a node pattern requires a non-candidate label."""
+    if not _PLAIN_LABELS.fullmatch(labels):
+        return False
+    return any(name != CANDIDATE_LABEL for name in _LABEL_NAMES.findall(labels))
+
+
+def _has_label_test(text: str, alias: str) -> bool:
+    """Report whether text positively requires ``alias`` to carry a label."""
+    for match in re.finditer(
+        rf"(NOT\s+)?\b{alias}\s*:\s*({_LABEL_NAME})\b", text, flags=re.IGNORECASE
+    ):
+        if match.group(1) or match.group(2) == CANDIDATE_LABEL:
+            continue
+        if _is_positive_where_filter(text, match.start()):
+            return True
+    return False
+
+
+def _is_positive_where_filter(text: str, position: int) -> bool:
+    """Exclude projections, negated predicates and optional OR branches."""
+    clauses = list(_CLAUSE_TOKEN.finditer(text[:position]))
+    if not clauses or clauses[-1].group(1).upper() != "WHERE":
+        return False
+    current = position
+    while current >= 0:
+        if re.search(r"\bNOT\s*\(*\s*$", text[:current], flags=re.IGNORECASE):
+            return False
+        current, _ = _enclosing_span(text, current)
+    return not _or_beside_guard(text, position)
+
+
+def _path_is_typed_away_from_candidates(relation_body: str) -> bool:
+    """Report whether a variable-length relationship excludes candidate edges."""
+    match = _TYPED_PATH.match(relation_body)
+    if match is None:
+        return False
+    return not set(re.findall(_LABEL_NAME, match.group(1))) & CANDIDATE_EDGE_TYPES
+
+
+def find_candidate_exposure(query: str) -> str | None:
+    """Explain how a query could return a candidate, or return None.
+
+    A query is safe when each bound node has a non-candidate label, a
+    positive label test, or a variable-length path is restricted away from
+    candidate edge types or has a positive label test on every path node.
+
+    Args:
+        query: The Cypher text to inspect.
+
+    Returns:
+        A short explanation when the query can expose a candidate.
+    """
+    stripped = strip_cypher_syntax(query)
+    if _CANDIDATE_LABEL_WORD.search(stripped):
+        return f"the query names the {CANDIDATE_LABEL} label"
+    text = _SUBQUERY_SCOPE.sub("CALL {", stripped)
+    node_matches = []
+    for match in _NODE_PATTERN.finditer(text):
+        clauses = list(_CLAUSE_TOKEN.finditer(text[: match.start()]))
+        if clauses and clauses[-1].group(1).upper() == "MATCH":
+            node_matches.append(match)
+    patterns = [(match.group(1), match.group(2) or "") for match in node_matches]
+    outside = text
+    for match in reversed(node_matches):
+        outside = (
+            outside[: match.start()] + " " * len(match.group()) + outside[match.end() :]
+        )
+    labelled = {
+        alias for alias, labels in patterns if alias and _names_other_label(labels)
+    }
+    reason = _node_exposure_reason(patterns, outside, labelled)
+    if reason is not None:
+        return reason
+    return _exposed_yield_reason(text, outside, labelled) or _exposed_path_reason(text)
+
+
+def _exposed_yield_reason(text: str, outside: str, labelled: set[str]) -> str | None:
+    """Return the reason a YIELD variable can bind a candidate, if one can."""
+    for match in _YIELD_PATTERN.finditer(text):
+        for alias in match.groups():
+            if not alias or alias == "score" or alias in labelled:
+                continue
+            if not _has_label_test(outside, alias):
+                return f"{alias} has no label, so it can match a {CANDIDATE_LABEL}"
+    return None
+
+
+def _exposed_path_reason(text: str) -> str | None:
+    """Return the reason a variable-length path can cross a candidate."""
+    for match in _RELATION_PATTERN.finditer(text):
+        body = match.group(1)
+        if "*" not in body or _path_is_typed_away_from_candidates(body):
+            continue
+        if not any(
+            guard.group(2) != CANDIDATE_LABEL
+            and _is_positive_where_filter(text, guard.start())
+            for guard in _PATH_LABEL_GUARD.finditer(text)
+        ):
+            return "a variable-length path can pass through a node with no label"
+    return None
+
+
+def _node_exposure_reason(
+    patterns: list[tuple[str | None, str]], outside: str, labelled: set[str]
+) -> str | None:
+    """Return the reason a bound node has no non-candidate label, if one does."""
+    for alias, labels in patterns:
+        if _names_other_label(labels) or alias in labelled:
+            continue
+        if alias is None:
+            return "a node has neither a variable nor a label"
+        if not _has_label_test(outside, alias):
+            return f"{alias} has no label, so it can match a {CANDIDATE_LABEL}"
+    return None
+
+
+def require_identity_guard(query: str) -> None:
+    """Raise unless no node in the query can be a candidate.
+
+    Args:
+        query: The Cypher text to inspect.
+
+    Raises:
+        MissingIdentityGuardError: A node or variable-length path can expose
+            a candidate.
+    """
+    reason = find_candidate_exposure(query)
+    if reason is not None:
+        raise MissingIdentityGuardError(f"Generated Cypher is not safe: {reason}")

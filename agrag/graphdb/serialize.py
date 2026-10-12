@@ -2,10 +2,11 @@
 
 import contextlib
 from collections.abc import Mapping
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
+from agrag.common.data_models.candidate import CandidateRecord
 from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.graph_record import (
     PENDING_JOB_ID_PROPERTY,
@@ -85,6 +86,50 @@ def relation_params(
         "start_id": str(record.start_id),
         "end_id": str(record.end_id),
         "properties": _convert(record.properties),
+        "pending_job_id": _convert(pending_job_id),
+    }
+
+
+def candidate_params(
+    record: CandidateRecord, *, pending_job_id: UUID | None = None
+) -> dict[str, Any]:
+    """Build the driver parameters for one candidate and its links."""
+    properties: dict[str, Any] = {
+        "kind": record.kind,
+        "label": record.label,
+        "reason": record.reason,
+        "key": record.key,
+        "state": record.state,
+        "count": record.count,
+        "confidence": record.confidence,
+        "schema_fingerprint": record.schema_fingerprint,
+        "chunk_id": str(record.chunk_id),
+        "created_at": datetime.now(UTC).isoformat(),
+    }
+    for name, value in (
+        ("text", record.text),
+        ("source_text", record.source_text),
+        ("target_text", record.target_text),
+        ("source_label", record.source_label),
+        ("target_label", record.target_label),
+    ):
+        if value:
+            properties[name] = value
+    for name, value in (
+        ("source_entity_id", record.source_entity_id),
+        ("target_entity_id", record.target_entity_id),
+    ):
+        if value is not None:
+            properties[name] = str(value)
+    return {
+        "id": str(record.evidence_edge_id),
+        "candidate_id": str(record.id),
+        "chunk_id": str(record.chunk_id),
+        "properties": properties,
+        "source_entity_id": _convert(record.source_entity_id),
+        "source_edge_id": _convert(record.source_edge_id),
+        "target_entity_id": _convert(record.target_entity_id),
+        "target_edge_id": _convert(record.target_edge_id),
         "pending_job_id": _convert(pending_job_id),
     }
 

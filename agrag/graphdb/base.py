@@ -6,6 +6,7 @@ from contextlib import AbstractAsyncContextManager
 from typing import Any, Protocol, TypeVar
 from uuid import UUID
 
+from agrag.common.data_models.candidate import CandidateRecord
 from agrag.common.data_models.graph_record import (
     NodeRecord,
     RelationRecord,
@@ -226,6 +227,34 @@ class GraphStore(ABC):
         Raises:
             ValueError: ``batch_size`` is not positive.
         """
+
+    @abstractmethod
+    async def upsert_candidates(
+        self,
+        candidates: Sequence[CandidateRecord],
+        *,
+        batch_size: int = 256,
+        pending_job_id: UUID | None = None,
+    ) -> UpsertResult:
+        """Write candidate nodes and their evidence links.
+
+        Args:
+            candidates: Records whose chunks and optional entity endpoints
+                should be linked.
+            batch_size: Records per backend write call. Must be positive.
+            pending_job_id: The job tag for nodes and edges created by this
+                write, or None for committed data.
+
+        Returns:
+            The number written and one failure for each missing chunk.
+
+        Raises:
+            ValueError: ``batch_size`` is not positive.
+        """
+
+    @abstractmethod
+    async def blocked_candidate_keys(self, keys: Sequence[str]) -> set[str]:
+        """Return candidate keys with a committed non-pending record."""
 
     @abstractmethod
     async def ensure_vector_index(

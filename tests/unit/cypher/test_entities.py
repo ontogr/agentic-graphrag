@@ -28,6 +28,11 @@ class TestValidateIdentifier:
         with pytest.raises(ValueError):
             validate_identifier(bad)
 
+    def test_rejects_candidate_label(self) -> None:
+        """The candidate label is not available to generic graph builders."""
+        with pytest.raises(ValueError, match="reserved"):
+            validate_identifier("Candidate")
+
 
 class TestUpsertNodeQuery:
     """upsert_node_query validates its labels."""

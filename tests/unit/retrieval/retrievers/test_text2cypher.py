@@ -35,7 +35,11 @@ from agrag.common.data_models.chunk import Chunk
 from agrag.common.data_models.default_schema import DEFAULT_SCHEMA
 from agrag.common.data_models.relation import Relation
 from agrag.cypher.entities import load_entities_by_id_query
-from agrag.cypher.safety import MissingPendingGuardError, UnsafeCypherError
+from agrag.cypher.safety import (
+    MissingIdentityGuardError,
+    MissingPendingGuardError,
+    UnsafeCypherError,
+)
 from agrag.retrieval.retrievers.text2cypher import (
     Text2CypherRetriever,
     _format_retry_diagnostic,
@@ -283,7 +287,7 @@ class TestText2CypherRowShapes:
             retriever,
             "_generate_cypher",
             return_value=(
-                "MATCH (a)-[r:KNOWS]->(b) "
+                "MATCH (a:Person)-[r:KNOWS]->(b:Person) "
                 "WHERE a._pending_job_id IS NULL AND b._pending_job_id IS NULL "
                 "AND r._pending_job_id IS NULL "
                 "RETURN r"
@@ -353,7 +357,7 @@ class TestText2CypherRowShapes:
             retriever,
             "_generate_cypher",
             return_value=(
-                "MATCH (a)-[r]->(b) "
+                "MATCH (a:Person)-[r]->(b:Person) "
                 "WHERE a._pending_job_id IS NULL AND b._pending_job_id IS NULL "
                 "AND r._pending_job_id IS NULL "
                 "RETURN r"
@@ -395,7 +399,7 @@ class TestText2CypherRowAliases:
             retriever,
             "_generate_cypher",
             return_value=(
-                "MATCH (a)-[edge]->(b) "
+                "MATCH (a:Person)-[edge]->(b:Person) "
                 "WHERE a._pending_job_id IS NULL AND b._pending_job_id IS NULL "
                 "AND edge._pending_job_id IS NULL "
                 "RETURN edge"
@@ -433,7 +437,8 @@ class TestText2CypherRowAliases:
             retriever,
             "_generate_cypher",
             return_value=(
-                "MATCH (passage) WHERE passage._pending_job_id IS NULL RETURN passage"
+                "MATCH (passage:Person) WHERE passage._pending_job_id IS NULL "
+                "RETURN passage"
             ),
         ):
             results = await retriever.retrieve("hello")
@@ -463,7 +468,7 @@ class TestText2CypherChunkDetection:
         with patch.object(
             retriever,
             "_generate_cypher",
-            return_value="MATCH (n) WHERE n._pending_job_id IS NULL RETURN n",
+            return_value="MATCH (n:Person) WHERE n._pending_job_id IS NULL RETURN n",
         ):
             return await retriever.retrieve("query")
 
@@ -610,6 +615,51 @@ class TestText2CypherRetry:
         assert diagnostic.startswith("MissingPendingGuardError")
         executed = [call.args[0] for call in gs.execute_read.await_args_list]
         assert all("_pending_job_id IS NULL" in query for query in executed)
+
+    async def test_query_that_can_return_a_candidate_is_regenerated(self) -> None:
+        """An unlabelled node is rejected once, then the repair runs."""
+        gs = AsyncMock()
+        gs.execute_read.return_value = []
+        retriever = Text2CypherRetriever(graph_store=gs, schema=DEFAULT_SCHEMA)
+        generate = AsyncMock(
+            side_effect=[
+                "MATCH (n) WHERE n._pending_job_id IS NULL RETURN n",
+                "MATCH (n:Person) WHERE n._pending_job_id IS NULL RETURN n",
+            ]
+        )
+
+        with patch(
+            "agrag.llm.baml_client.b",
+            types.SimpleNamespace(GenerateCypherQuery=generate),
+        ):
+            await retriever.retrieve("who is Alice?")
+
+        assert generate.await_count == 2
+        diagnostic = generate.await_args_list[1].kwargs["failure_context"]
+        assert diagnostic.startswith("MissingIdentityGuardError")
+        executed = [call.args[0] for call in gs.execute_read.await_args_list]
+        assert all("(n:Person)" in query for query in executed)
+
+    async def test_query_naming_candidate_never_runs(self) -> None:
+        """A query naming Candidate fails before graph execution."""
+        gs = AsyncMock()
+        retriever = Text2CypherRetriever(graph_store=gs, schema=DEFAULT_SCHEMA)
+        generate = AsyncMock(
+            return_value=(
+                "MATCH (n:Candidate) WHERE n._pending_job_id IS NULL RETURN n"
+            )
+        )
+
+        with (
+            patch(
+                "agrag.llm.baml_client.b",
+                types.SimpleNamespace(GenerateCypherQuery=generate),
+            ),
+            pytest.raises(MissingIdentityGuardError),
+        ):
+            await retriever.retrieve("what is pending?")
+
+        gs.execute_read.assert_not_awaited()
 
     async def test_query_that_never_gets_a_guard_raises(self) -> None:
         """Two unguarded queries raise and run nothing."""
