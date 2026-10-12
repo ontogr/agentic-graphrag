@@ -45,7 +45,7 @@ def _node(label: str) -> NodeRecord:
 
 def _relation() -> RelationRecord:
     return RelationRecord(
-        id=uuid4(), type="PART_OF", start_id=uuid4(), end_id=uuid4(), properties={}
+        id=uuid4(), type="HAS_PART", start_id=uuid4(), end_id=uuid4(), properties={}
     )
 
 

@@ -1,4 +1,4 @@
-"""Pure record construction for the Document/PART_OF lexical backbone.
+"""Pure record construction for the Document/HAS_PART lexical backbone.
 
 This module is internal. ``Graph.add`` and ``Graph.update`` call these
 functions to turn already-built ``Document``/``Chunk`` objects into
@@ -11,7 +11,8 @@ from uuid import UUID
 from agrag.common.data_models.chunk import Chunk
 from agrag.common.data_models.document import Document
 from agrag.common.data_models.graph_record import NodeRecord, RelationRecord
-from agrag.ingestion.merge import next_chunk_id, part_of_id
+from agrag.common.data_models.structure import HAS_PART
+from agrag.ingestion.merge import has_part_id, next_chunk_id
 
 
 def distinct_documents(documents: list[Document]) -> list[Document]:
@@ -39,14 +40,14 @@ def build_document_record(document: Document) -> NodeRecord:
     return document.to_node_record()
 
 
-def build_part_of_records(
+def build_has_part_records(
     document_node_id: UUID, node_ids: list[UUID], *, version_id: str
 ) -> list[RelationRecord]:
     now = datetime.now(UTC).isoformat()
     return [
         RelationRecord(
-            id=part_of_id(document_node_id, node_id, version_id),
-            type="PART_OF",
+            id=has_part_id(document_node_id, node_id, version_id),
+            type=HAS_PART,
             start_id=document_node_id,
             end_id=node_id,
             properties={

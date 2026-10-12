@@ -9,7 +9,7 @@ from uuid import UUID
 from pydantic import BaseModel
 
 from agrag.cypher.documents import current_chunker_hash_query, find_document_query
-from agrag.cypher.relations import close_part_of_query
+from agrag.cypher.relations import close_has_part_query
 from agrag.graphdb.base import GraphStore
 
 
@@ -68,7 +68,7 @@ async def find_document(
     )
 
 
-async def close_open_part_of_edges(
+async def close_open_has_part_edges(
     graph_store: GraphStore | GraphStoreTransaction,
     *,
     document_node_id: UUID,
@@ -76,7 +76,7 @@ async def close_open_part_of_edges(
     keep_node_ids: Sequence[UUID] = (),
 ) -> int:
     rows = await graph_store.execute_write(
-        close_part_of_query(),
+        close_has_part_query(),
         {
             "document_node_id": str(document_node_id),
             "job_id": str(job_id) if job_id is not None else None,
