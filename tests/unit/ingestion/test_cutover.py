@@ -21,9 +21,12 @@ from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.vector_record import VectorRecord
 from agrag.cypher.cutover_job_write import (
     acquire_lease_query,
+    begin_rollback_query,
     clear_pending_tag_query,
     commit_job_query,
     finish_cleaning_query,
+    job_status_query,
+    record_parts_closed_query,
     renew_lease_query,
     rollback_job_query,
     start_cleaning_query,
@@ -48,6 +51,8 @@ class _FakeCutoverStore:
         self.nodes: list[dict[str, Any]] = []
         self.transactions: list[list[tuple[str, dict[str, Any]]]] = []
         self.fail_on: set[str] = set()
+        self.executed: list[str] = []
+        self.raise_after_applying: str | None = None
         self.finish_delay_seconds = 0.0
 
     async def execute_read(
@@ -61,6 +66,7 @@ class _FakeCutoverStore:
     ) -> list[dict[str, Any]]:
         """Dispatch one job query against the in-memory job table."""
         params = parameters or {}
+        self.executed.append(query)
         if query in self.fail_on:
             raise RuntimeError(f"injected failure for {query[:40]!r}")
         handler = self._handlers().get(query)
@@ -83,6 +89,9 @@ class _FakeCutoverStore:
             finish_cleaning_query(): lambda p: self._transition(p, "cleaning", "done"),
             renew_lease_query(): self._renew,
             clear_pending_tag_query(): self._clear_tag,
+            begin_rollback_query(): self._begin_rollback,
+            job_status_query(): self._job_status,
+            record_parts_closed_query(): self._record_parts_closed,
             rollback_job_query(): self._rollback,
         }
 
@@ -159,8 +168,15 @@ class _FakeCutoverStore:
         return [{"cleared_nodes": len(self.nodes), "cleared_relationships": 0}]
 
     def _rollback(self, params: dict[str, Any]) -> list[dict[str, Any]]:
-        """Delete every tagged node and the completed job record."""
+        """Delete every tagged node only for this rolling-back lease owner."""
         job_id = str(params["job_id"])
+        job = next((job for job in self.jobs.values() if job["id"] == job_id), None)
+        if (
+            job is None
+            or job["status"] != "rolling_back"
+            or job["lease_token"] != str(params["lease_token"])
+        ):
+            return []
         self.nodes = [
             node
             for node in self.nodes
@@ -168,6 +184,42 @@ class _FakeCutoverStore:
         ]
         self.jobs = {key: job for key, job in self.jobs.items() if job["id"] != job_id}
         return [{"deleted_nodes": 0, "deleted_relationships": 0}]
+
+    def _begin_rollback(self, params: dict[str, Any]) -> list[dict[str, Any]]:
+        job = next(
+            (job for job in self.jobs.values() if job["id"] == str(params["job_id"])),
+            None,
+        )
+        if (
+            job is None
+            or job["status"] != "pending"
+            or job["lease_token"] != str(params["lease_token"])
+        ):
+            return []
+        job["status"] = "rolling_back"
+        return [{"id": job["id"]}]
+
+    def _job_status(self, params: dict[str, Any]) -> list[dict[str, Any]]:
+        job = next(
+            (job for job in self.jobs.values() if job["id"] == params["job_id"]), None
+        )
+        if job is None:
+            return []
+        return [
+            {
+                "status": job["status"],
+                "lease_token": job["lease_token"],
+                "parts_closed": job.get("parts_closed"),
+            }
+        ]
+
+    def _record_parts_closed(self, params: dict[str, Any]) -> list[dict[str, Any]]:
+        job = next(
+            (job for job in self.jobs.values() if job["id"] == params["job_id"]), None
+        )
+        if job is not None:
+            job["parts_closed"] = params["parts_closed"]
+        return []
 
     async def run_in_transaction(self, work: Any) -> Any:
         """Run work with a handle that records writes and joins this store."""
@@ -183,7 +235,10 @@ class _FakeCutoverStore:
                 return await runner.execute_write(query, parameters)
 
         runner.transactions.append([])
-        return await work(_Txn())
+        result = await work(_Txn())
+        if runner.raise_after_applying == commit_job_query():
+            raise RuntimeError("injected error after applying query")
+        return result
 
 
 class _CommitBlockingStore(_FakeCutoverStore):
@@ -222,6 +277,18 @@ class _FakeVectorStore(VectorStore):
         """Create the fake with empty collections."""
         self.records: dict[str, dict[str, VectorRecord]] = {}
         self.upsert_calls = 0
+        self.fail_delete_pending = False
+
+    async def delete_pending(self, collection: str, *, job_id: UUID) -> None:
+        """Delete one job's staged records, unless failure is injected."""
+        if self.fail_delete_pending:
+            raise RuntimeError("injected pending-vector deletion failure")
+        bucket = self.records.get(collection, {})
+        self.records[collection] = {
+            record_id: record
+            for record_id, record in bucket.items()
+            if record.payload.get("_pending_job_id") != str(job_id)
+        }
 
     async def initialize(self) -> None:
         """No-op init."""
@@ -381,10 +448,11 @@ class TestRunCutoverJobLeaseFailure:
         with pytest.raises(CutoverJobLeaseError):
             await run_cutover_job(**_write_job(pending, graph_store=store))
 
-        # Rollback removes tagged nodes and the job record.
-        assert store.nodes == []
+        # The stale worker cannot delete rows after another worker takes over.
+        assert store.nodes
         assert store.jobs["doc-1"]["id"] == stolen_job_id
         assert store.jobs["doc-1"]["lease_token"] == holder
+        assert rollback_job_query() not in store.executed
 
     async def test_expired_lease_before_commit_rolls_back(self) -> None:
         """An unclaimed expired lease cannot commit pending work."""
@@ -547,6 +615,24 @@ class TestRunCutoverJobRollback:
         # Cleanup never ran: the job never committed.
         assert store.transactions == []
 
+    async def test_failed_vector_delete_leaves_job_rolling_back(self) -> None:
+        """A failed vector cleanup leaves graph rows for recovery."""
+        store = _FakeCutoverStore()
+        vector_store = _FakeVectorStore()
+        vector_store.fail_delete_pending = True
+
+        async def pending(job_id: UUID) -> None:
+            store.nodes.append(_tag_node(job_id))
+            raise RuntimeError("pending failed")
+
+        with pytest.raises(RuntimeError, match="pending failed"):
+            await run_cutover_job(
+                **_write_job(pending, graph_store=store, vector_store=vector_store)
+            )
+
+        assert store.jobs["doc-1"]["status"] == "rolling_back"
+        assert store.nodes
+
     async def test_commit_transaction_failure_rolls_back(self) -> None:
         """A failure inside the commit transaction rolls the pending writes back too."""
         store = _FakeCutoverStore()
@@ -605,12 +691,21 @@ class TestRunCutoverJobRollForward:
     async def test_cancellation_after_commit_preserves_recovery_record(self) -> None:
         """Cancellation after a commit keeps its data and job for recovery."""
         store = _CommitBlockingStore()
+        vector_store = _FakeVectorStore()
+        vector_id = uuid4()
 
         async def pending(job_id: UUID) -> None:
             store.nodes.append(_tag_node(job_id))
+            await vector_store.upsert(
+                "col-a",
+                [VectorRecord(id=vector_id, vector=[0.0], payload={})],
+                pending_job_id=job_id,
+            )
 
         task = asyncio.create_task(
-            run_cutover_job(**_write_job(pending, graph_store=store))
+            run_cutover_job(
+                **_write_job(pending, graph_store=store, vector_store=vector_store)
+            )
         )
         await asyncio.wait_for(store.commit_started.wait(), timeout=1)
         task.cancel()
@@ -622,6 +717,10 @@ class TestRunCutoverJobRollForward:
         assert store.nodes
         assert all("_pending_job_id" not in node["properties"] for node in store.nodes)
         assert store.jobs["doc-1"]["status"] == "committed"
+        assert any(
+            record.payload.get("_target_id") == str(vector_id)
+            for record in vector_store.records["col-a"].values()
+        )
 
     async def test_finish_cleaning_fence_failure_after_cleanup(self) -> None:
         """Losing the lease before the done flip parks the job in cleaning."""
@@ -652,6 +751,56 @@ class TestRunCutoverJobRollForward:
         assert cleaned
         assert store.nodes
         assert store.jobs["doc-1"]["status"] == "cleaning"
+
+
+class TestAmbiguousCommit:
+    """An applied commit that raises on the client remains committed."""
+
+    async def test_unreadable_status_leaves_job_and_vectors_for_recovery(self) -> None:
+        """An unreadable write-routed status never triggers deletion."""
+        store = _FakeCutoverStore()
+        store.raise_after_applying = commit_job_query()
+        store.fail_on.add(job_status_query())
+        vector_store = _FakeVectorStore()
+        vector_id = uuid4()
+
+        async def pending(job_id: UUID) -> None:
+            store.nodes.append(_tag_node(job_id))
+            await vector_store.upsert(
+                "col-a",
+                [VectorRecord(id=vector_id, vector=[0.0], payload={})],
+                pending_job_id=job_id,
+            )
+
+        with pytest.raises(RuntimeError, match="after applying"):
+            await run_cutover_job(
+                **_write_job(pending, graph_store=store, vector_store=vector_store)
+            )
+
+        assert rollback_job_query() not in store.executed
+        assert store.jobs["doc-1"]["status"] == "committed"
+        assert any(
+            record.payload.get("_target_id") == str(vector_id)
+            for record in vector_store.records["col-a"].values()
+        )
+        assert store.nodes
+
+    async def test_applied_commit_continues_cleanup_and_returns_recorded_count(
+        self,
+    ) -> None:
+        """A readable applied commit proceeds through cleanup with its count."""
+        store = _FakeCutoverStore()
+        store.raise_after_applying = commit_job_query()
+
+        async def pending(job_id: UUID) -> None:
+            store.nodes.append(_tag_node(job_id))
+
+        result = await run_cutover_job(**_write_job(pending, graph_store=store))
+
+        assert result[2] == 0
+        assert store.jobs["doc-1"]["parts_closed"] == 0
+        assert store.jobs["doc-1"]["status"] == "done"
+        assert rollback_job_query() not in store.executed
 
 
 class TestRunCutoverJobComponentSeeds:

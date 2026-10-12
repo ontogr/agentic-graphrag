@@ -46,7 +46,8 @@ flowchart TD
 stateDiagram-v2
     [*] --> Pending
     Pending --> Committed: commit
-    Pending --> RolledBack: crash before commit
+    Pending --> RollingBack: rollback under lease token
+    RollingBack --> RolledBack: delete pending writes
     Committed --> Cleaning
     Cleaning --> Done
     Done --> [*]
@@ -56,6 +57,8 @@ stateDiagram-v2
 *A job that stops before its commit rolls back. A job that stops after it rolls forward.*
 
 If a process stops during a call, the next `Graph.open` finds the unfinished job. It removes the tagged writes of a job that had not committed. It finishes the cleanup of a job that had. A running job renews a lease of 60 seconds by default. Another process takes over only after the lease runs out.
+
+Rollback starts only while the job is still pending under the worker's lease token. The job enters `rolling_back` before its staged vectors and graph rows are deleted. If the worker stops during rollback, `Graph.open` finishes it after the lease expires. If a commit fails with an unclear result, the worker reads the job. A committed job is never rolled back; the worker finishes its cleanup instead.
 
 ## Example
 

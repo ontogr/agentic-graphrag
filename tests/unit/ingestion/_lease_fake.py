@@ -14,10 +14,13 @@ from typing import Any
 
 from agrag.cypher.cutover_job_write import (
     acquire_lease_query,
+    begin_rollback_query,
     claim_job_query,
     clear_pending_tag_query,
     commit_job_query,
     finish_cleaning_query,
+    job_status_query,
+    record_parts_closed_query,
     rollback_job_query,
     start_cleaning_query,
     steal_expired_lease_query,
@@ -81,6 +84,9 @@ class CutoverJobLeaseFake:
             ),
             finish_cleaning_query(): lambda p: self._transition(p, "cleaning", "done"),
             claim_job_query(): self._claim,
+            begin_rollback_query(): self._begin_rollback,
+            job_status_query(): self._job_status,
+            record_parts_closed_query(): self._record_parts_closed,
             clear_pending_tag_query(): self._clear_tags,
             rollback_job_query(): self._rollback,
             close_has_part_query(): self._close_has_part,
@@ -121,11 +127,47 @@ class CutoverJobLeaseFake:
         return [{"cleared_nodes": 0, "cleared_relationships": 0}]
 
     def _rollback(self, params: dict[str, Any]) -> list[dict[str, Any]]:
-        """Mark the named job rolled back."""
+        """Delete a job only while rollback holds its token fence."""
+        for job in self._cutover_jobs.values():
+            if (
+                job["id"] == str(params["job_id"])
+                and job["status"] == "rolling_back"
+                and job["lease_token"] == str(params["lease_token"])
+            ):
+                job["status"] = "rolled_back"
+                return [{"deleted_nodes": 0, "deleted_relationships": 0}]
+        return []
+
+    def _begin_rollback(self, params: dict[str, Any]) -> list[dict[str, Any]]:
+        """Move a pending job into rollback when its token still matches."""
+        for job in self._cutover_jobs.values():
+            if (
+                job["id"] == str(params["job_id"])
+                and job["status"] == "pending"
+                and job["lease_token"] == str(params["lease_token"])
+            ):
+                job["status"] = "rolling_back"
+                return [{"id": job["id"]}]
+        return []
+
+    def _job_status(self, params: dict[str, Any]) -> list[dict[str, Any]]:
+        """Return the durable commit result for the requested job."""
+        return [
+            {
+                "status": job["status"],
+                "lease_token": job["lease_token"],
+                "parts_closed": job.get("parts_closed"),
+            }
+            for job in self._cutover_jobs.values()
+            if job["id"] == str(params["job_id"])
+        ]
+
+    def _record_parts_closed(self, params: dict[str, Any]) -> list[dict[str, Any]]:
+        """Persist the commit's closed-edge count on its job."""
         for job in self._cutover_jobs.values():
             if job["id"] == str(params["job_id"]):
-                job["status"] = "rolled_back"
-        return [{"deleted_nodes": 0, "deleted_relationships": 0}]
+                job["parts_closed"] = params["parts_closed"]
+        return []
 
     def _close_has_part(self, params: dict[str, Any]) -> list[dict[str, Any]]:
         """Report the configured superseded-edge count."""

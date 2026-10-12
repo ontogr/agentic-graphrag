@@ -19,6 +19,7 @@ class CutoverJobStatus(StrEnum):
     """Lifecycle phase of a Cutover Job."""
 
     PENDING = "pending"
+    ROLLING_BACK = "rolling_back"
     COMMITTED = "committed"
     CLEANING = "cleaning"
     DONE = "done"

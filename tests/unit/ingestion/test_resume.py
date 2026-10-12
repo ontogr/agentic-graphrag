@@ -1,7 +1,7 @@
 """Tests for the Graph.open() resume hook against a scripted store fake.
 
 The fake implements find_incomplete_jobs_query, both recovery claims,
-rollback_claimed_job_query, and finish_cleaning_query, mirroring the fake in
+rollback_job_query, and finish_cleaning_query, mirroring the fake in
 test_cutover.py. These tests prove resume_incomplete_jobs's orchestration
 (which jobs it skips or rolls forward) rather than any one
 query's text.
@@ -17,7 +17,7 @@ from agrag.cypher.cutover_job_write import (
     claim_pending_job_query,
     finish_cleaning_query,
     renew_lease_query,
-    rollback_claimed_job_query,
+    rollback_job_query,
 )
 from agrag.ingestion._resume import resume_incomplete_jobs
 
@@ -42,6 +42,7 @@ class _FakeResumeStore:
         self.renew_before_pending_claim = False
         self.renewal_count = 0
         self.rollback_count = 0
+        self.rollback_tokens: list[str] = []
 
     async def execute_read(
         self, query: str, parameters: dict[str, Any] | None = None
@@ -50,7 +51,7 @@ class _FakeResumeStore:
         return [
             dict(job)
             for job in self.jobs.values()
-            if job["status"] in ("pending", "committed", "cleaning")
+            if job["status"] in {"pending", "rolling_back", "committed", "cleaning"}
         ]
 
     async def execute_write(
@@ -59,7 +60,7 @@ class _FakeResumeStore:
         """Dispatch one resume-phase query against the in-memory job table."""
         params = parameters or {}
         job_id = str(params.get("job_id"))
-        if query == rollback_claimed_job_query():
+        if query == rollback_job_query():
             return self._rollback_claimed(job_id, params)
         if query == claim_job_query():
             return self._claim(job_id, params)
@@ -96,11 +97,12 @@ class _FakeResumeStore:
         if self.renew_before_pending_claim:
             job["lease_expired"] = False
         if (
-            job["status"] != "pending"
+            job["status"] not in ("pending", "rolling_back")
             or not job["lease_expired"]
             or job["lease_token"] != str(params["expected_lease_token"])
         ):
             return []
+        job["status"] = "rolling_back"
         job["lease_token"] = str(params["lease_token"])
         job["lease_expires_at"] = datetime.fromisoformat(
             str(params["lease_expires_at"])
@@ -115,11 +117,12 @@ class _FakeResumeStore:
         job = self.jobs.get(job_id)
         if (
             job is None
-            or job["status"] != "pending"
+            or job["status"] != "rolling_back"
             or job["lease_token"] != str(params["lease_token"])
         ):
             return []
         self.rollback_count += 1
+        self.rollback_tokens.append(str(params["lease_token"]))
         self.jobs.pop(job_id)
         return [{"deleted_nodes": 0, "deleted_relationships": 0}]
 
@@ -204,6 +207,28 @@ class TestResumeIncompleteJobs:
         assert handled == []
         assert store.jobs[job_id]["status"] == "pending"
         assert store.rollback_count == 0
+
+    async def test_finishes_a_rolling_back_job(self) -> None:
+        """Recovery reclaims an interrupted rollback and finishes its deletion."""
+        job_id = str(uuid4())
+        store = _FakeResumeStore(
+            [
+                {
+                    "id": job_id,
+                    "status": "rolling_back",
+                    "affected_entity_ids": [],
+                    "lease_expired": True,
+                }
+            ]
+        )
+        original_token = store.jobs[job_id]["lease_token"]
+
+        handled = await resume_incomplete_jobs(store)
+
+        assert handled == [job_id]
+        assert store.rollback_count == 1
+        assert store.rollback_tokens[0] != original_token
+        assert job_id not in store.jobs
 
     async def test_roll_forward_receives_both_recorded_lists(self) -> None:
         """Cleanup gets the snapshot and component seeds the job recorded."""
