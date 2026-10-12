@@ -79,6 +79,7 @@ const sidebars = {
     section('Reference', [
       'reference/configuration',
       'reference/schema-file-format',
+      'reference/schema-format-json-schema',
       'reference/trace-spans',
       'reference/default-schema',
     ]),

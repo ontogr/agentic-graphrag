@@ -15,6 +15,7 @@ the extra installed the tests expect a reachable Neo4j at the default
 import asyncio
 import hashlib
 import importlib.util
+import time
 import unicodedata
 from collections.abc import AsyncIterator, Sequence
 from typing import Any
@@ -355,18 +356,29 @@ async def _grow_component(
                 await grow()
             monkeypatch.undo()
             outcome["before_resume"] = await _resolved_member_counts(store, names)
-            await _age_lease(store, keys[2])
-            recovered = build_graph_store("neo4j")
-            await recovered.connect()
-            try:
-                await Graph.open(
-                    schema=DEFAULT_SCHEMA,
-                    graph_store=recovered,
-                    embedder=_FixedEmbedder(),
-                    extractor=_KeywordExtractor(names[2]),
-                )
-            finally:
-                await recovered.close()
+            # One open is one recovery attempt, and an attempt that gives
+            # up leaves the job in cleaning for the next open by design.
+            # A transient store error during any single attempt must not
+            # fail the test, so reopen until the job converges. Each claim
+            # renews the lease, so age it again before every attempt.
+            deadline = time.monotonic() + 120
+            while True:
+                await _age_lease(store, keys[2])
+                recovered = build_graph_store("neo4j")
+                await recovered.connect()
+                try:
+                    await Graph.open(
+                        schema=DEFAULT_SCHEMA,
+                        graph_store=recovered,
+                        embedder=_FixedEmbedder(),
+                        extractor=_KeywordExtractor(names[2]),
+                    )
+                finally:
+                    await recovered.close()
+                if await _job_status(store, keys[2]) == "done":
+                    break
+                if time.monotonic() > deadline:
+                    break
             outcome["status_after"] = await _job_status(store, keys[2])
         outcome["final"] = await _resolved_member_counts(store, names)
         return outcome

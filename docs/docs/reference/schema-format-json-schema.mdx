@@ -1,0 +1,57 @@
+---
+title: JSON Schema export
+description: How a schema maps to JSON Schema, and what the export does not carry.
+---
+
+# JSON Schema export
+
+`to_json_schema(schema)` writes a JSON Schema (draft 2020-12) that checks a plain extraction document for one schema. Use it as the response schema for an LLM call that returns structured output, or to check such a document with a JSON Schema validator.
+
+The checked document is a plain interchange shape, not a dump of `ExtractionResult` or the BAML extraction response. Those native shapes carry chunk ids, character offsets, and index- or text-based relation endpoints, while the plain document names both endpoint labels on each relation so the schema can check the pair. There is no converter between the shapes; pick the one your caller produces.
+
+```python notest
+import json
+
+from agrag.schema import load_schema
+from agrag.schema.formats import to_json_schema
+
+schema = load_schema(["Person", "Company", "Person-WORKS_FOR->Company"])
+print(json.dumps(to_json_schema(schema), indent=2))
+```
+
+## What the schema checks
+
+The checked document has two arrays.
+
+- `entities`: each item has `label`, `text` and `properties`. `label` must be a type of the schema. `properties` is always present and holds the declared properties of that type only; it is an empty object when the type declares none.
+- `relations`: each item has `type`, `source`, `target`, `source_label` and `target_label`. The two labels must match a pattern of the relation. A pattern that names a parent type also accepts its child types. A symmetric relation also accepts the reverse direction.
+
+## Mapping
+
+| Schema element | JSON Schema |
+| --- | --- |
+| Schema name | `title` |
+| Schema name and version | `$id`, as `urn:agrag:schema:<name>:<version>` |
+| Entity type | A definition in `$defs` under `entity-<label>` with the type `object` |
+| Entity description | `description` |
+| Entity `properties` | Always present; only the declared names, empty when none are declared |
+| Property type `string`, `integer`, `float`, `boolean` | `type` is `string`, `integer`, `number`, `boolean` |
+| Property type `date` | `type: string` with `format: date` and a `pattern` for the `YYYY-MM-DD` shape |
+| Property `required` | `required` list of the properties object |
+| Property `enum` | `enum`, with values of the property type; text forms of one value give one entry |
+| Property description | `description` |
+| Relation type | A definition in `$defs` under `relation-<label>` with the type `object` |
+| Relation patterns | `anyOf`, one entry for each source label |
+
+## What the schema does not check
+
+JSON Schema checks one document. It cannot count edges across a document, so these three items appear as `x-agrag-*` annotations. A validator ignores them.
+
+| Schema element | Annotation |
+| --- | --- |
+| Entity parents | `x-agrag-parents` |
+| Relation `max_per_source` | `x-agrag-max-per-source` |
+| Relation `max_per_target` | `x-agrag-max-per-target` |
+| Relation `symmetric` | `x-agrag-symmetric` |
+
+This page covers export only. You cannot load a schema from JSON Schema.
