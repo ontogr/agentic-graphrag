@@ -377,7 +377,6 @@ def _add_relations(
     drafts: list[Draft],
     merged: _Merged,
     base_name: str | None,
-    removed: set[str],
     issues: Issues,
     *,
     excluded_relations: set[str] | None = None,
@@ -396,7 +395,7 @@ def _add_relations(
             )
             continue
         seen[label] = draft.path
-        if label in removed or label in gone:
+        if label in gone:
             issues.add(
                 draft.path,
                 f"relation type {label!r} is excluded from the base schema and "
@@ -574,7 +573,6 @@ def _merge(base: GraphSchema | None, child: _Child, issues: Issues) -> _Merged:
         child.relations,
         merged,
         base_name,
-        removed,
         issues,
         excluded_relations=excluded_relations,
     )

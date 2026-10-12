@@ -811,6 +811,14 @@ class TestReviewFixes:
 
         assert "is excluded from the base schema and declared here" in str(error)
 
+    def test_relation_may_reuse_an_excluded_entity_label(self):
+        """A relation can use a label freed by excluding an entity type."""
+        base = load_schema(["A", "R"])
+
+        schema = load_schema({"exclude": ["R"], "relations": ["A-R->A"]}, extends=base)
+
+        assert [r.label for r in schema.relations] == ["R"]
+
     def test_malformed_enum_override_reports_schema_error(self):
         """An unhashable enum in an override does not escape SchemaLoadError."""
         error = _error(
