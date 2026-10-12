@@ -69,13 +69,13 @@ def _relation_node(base: str, relation: RelationType) -> dict[str, Any]:
     if relation.description:
         node["rdfs:comment"] = {"@value": relation.description}
     if relation.patterns:
-        domains = {source for source, _ in relation.patterns}
-        ranges = {target for _, target in relation.patterns}
+        source_labels = {source for source, _ in relation.patterns}
+        target_labels = {target for _, target in relation.patterns}
         if relation.symmetric:
-            domains.update(ranges)
-            ranges.update(source for source, _ in relation.patterns)
-        domains = sorted({_iri(base, label) for label in domains})
-        ranges = sorted({_iri(base, label) for label in ranges})
+            source_labels.update(target_labels)
+            target_labels.update(source for source, _ in relation.patterns)
+        domains = sorted({_iri(base, label) for label in source_labels})
+        ranges = sorted({_iri(base, label) for label in target_labels})
         node["rdfs:domain"] = _union(domains)
         node["rdfs:range"] = _union(ranges)
     for limit, annotation, owl_type in (
