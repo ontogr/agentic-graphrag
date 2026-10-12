@@ -15,7 +15,10 @@ def fetch_match_endpoints_query() -> str:
     return (
         f"MATCH (a:{NODE_IDENTITY_LABEL})-"
         f"[match:{MATCHES_RELATION} {{id: $match_id}}]->"
-        f"(b:{NODE_IDENTITY_LABEL}) RETURN a, b"
+        f"(b:{NODE_IDENTITY_LABEL}) "
+        f"WHERE {pending_filter_clause('match')} "
+        f"AND {pending_filter_clause('a')} AND {pending_filter_clause('b')} "
+        "RETURN a, b"
     )
 
 

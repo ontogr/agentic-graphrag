@@ -717,7 +717,12 @@ class Graph:
         )
 
     async def deactivate_match(self, match_id: UUID) -> list[ResolvedEntity]:
-        """Deactivate a semantic match and synchronize replacement retrieval vectors."""
+        """Deactivate a semantic match and synchronize replacement retrieval vectors.
+
+        Raises:
+            ValueError: The match does not exist or an in-flight job has not
+                committed it.
+        """
         return await deactivate_match(
             match_id,
             schema=self._schema,
