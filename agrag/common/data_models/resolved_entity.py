@@ -10,6 +10,7 @@ from agrag.common.data_models.graph_record import NodeRecord
 
 
 RESOLVED_ENTITY_LABEL = "ResolvedEntity"
+RESOLVED_ENTITY_VECTOR_DELETION_LABEL = "ResolvedEntityVectorDeletion"
 MATCHES_RELATION = "MATCHES"
 RESOLVED_AS_RELATION = "RESOLVED_AS"
 
