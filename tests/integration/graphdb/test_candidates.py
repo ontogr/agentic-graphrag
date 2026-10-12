@@ -14,10 +14,10 @@ from agrag.cypher.candidates import (
     delete_stale_candidates_query,
     list_candidates_query,
 )
-from agrag.cypher.cutover_job_write import clear_pending_tag_query, rollback_job_query
 from agrag.cypher.entities import NODE_IDENTITY_LABEL
 from agrag.graphdb import build_graph_store
-from agrag.graphdb.base import GraphStore
+from agrag.graphdb.base import GraphStore, GraphStoreTransaction
+from agrag.ingestion._pending_rows import clear_job_tags, rollback_job_rows
 
 
 neo4j_missing = importlib.util.find_spec("neo4j") is None
@@ -178,9 +178,11 @@ class TestCandidateStore:
                 {"ids": [str(record.id) for record in records]},
             )
             assert tagged == [{"count": 2}]
-            await store.execute_write(
-                clear_pending_tag_query(), {"job_id": str(commit_job)}
-            )
+
+            async def clear(txn: GraphStoreTransaction) -> None:
+                await clear_job_tags(txn, job_id=commit_job)
+
+            await store.run_in_transaction(clear)
             visible = await store.execute_read(
                 list_candidates_query(),
                 {
@@ -204,9 +206,8 @@ class TestCandidateStore:
                 "lease_expires_at: datetime() + duration({seconds: 300})})",
                 {"job_id": str(rollback_job), "lease_token": lease_token},
             )
-            await store.execute_write(
-                rollback_job_query(),
-                {"job_id": str(rollback_job), "lease_token": lease_token},
+            assert await rollback_job_rows(
+                store, job_id=rollback_job, token=UUID(lease_token)
             )
             remaining = await store.execute_read(
                 f"MATCH (c:{CANDIDATE_LABEL}) WHERE c.id IN $ids RETURN c.id AS id",

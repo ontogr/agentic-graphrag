@@ -28,7 +28,6 @@ from agrag.cypher.cutover_job_write import (
     claim_job_query,
     claim_pending_job_query,
     finish_cleaning_query,
-    rollback_job_query,
 )
 from agrag.graphdb.base import GraphStore
 from agrag.ingestion._cutover import (
@@ -36,6 +35,7 @@ from agrag.ingestion._cutover import (
     clear_pending_vectors,
     delete_pending_vectors,
 )
+from agrag.ingestion._pending_rows import rollback_job_rows
 from agrag.ingestion.settings import CutoverJobSettings
 from agrag.observability import get_tracer, record_swallowed_exception
 
@@ -199,14 +199,13 @@ async def _roll_back(
             collections=vector_collections,
             job_id=job_uuid,
         )
-        rolled_back = await graph_store.execute_write(
-            rollback_job_query(),
-            {"job_id": job_id, "lease_token": token},
+        rolled_back = await rollback_job_rows(
+            graph_store, job_id=job_uuid, token=UUID(token)
         )
     except Exception as exc:  # noqa: BLE001
         record_swallowed_exception(exc)
         return False
-    return bool(rolled_back)
+    return rolled_back
 
 
 async def _roll_forward(

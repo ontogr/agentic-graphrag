@@ -11,6 +11,7 @@ from agrag.common.data_models.cutover_job import (
     CUTOVER_JOB_LABEL,
     CUTOVER_JOB_STATUS_INDEX,
 )
+from agrag.common.data_models.graph_record import PENDING_JOB_ID_PROPERTY
 from agrag.common.data_models.vector_record import Distance
 from agrag.cypher._pending_filter import pending_filter_clause
 from agrag.cypher.entities import (
@@ -18,6 +19,7 @@ from agrag.cypher.entities import (
     NODE_IDENTITY_LABEL,
     filter_clause,
     validate_identifier,
+    validate_identifier_syntax,
 )
 
 
@@ -193,6 +195,64 @@ def cutover_job_status_index_query() -> str:
         f"CREATE INDEX {CUTOVER_JOB_STATUS_INDEX} IF NOT EXISTS "
         f"FOR (job:{CUTOVER_JOB_LABEL}) ON (job.status)"
     )
+
+
+def pending_node_index_query(label: str) -> str:
+    """Build an index on the pending job tag of nodes with ``label``.
+
+    Commit and rollback look up a job's tagged nodes one label at a time, so
+    each label in ``PENDING_TAGGED_NODE_LABELS`` needs its own index. The
+    index name drops the leading and trailing underscores of the label, so
+    ``_Node`` becomes ``pending_job_node_Node``.
+
+    Args:
+        label: The node label. Must be a well-formed identifier; the
+            candidate label is accepted.
+
+    Returns:
+        A Cypher query creating the range index if absent.
+
+    Raises:
+        ValueError: ``label`` is not a well-formed identifier.
+    """
+    safe_label = validate_identifier_syntax(label)
+    name = f"pending_job_node_{safe_label.strip('_')}"
+    return (
+        f"CREATE INDEX {name} IF NOT EXISTS "
+        f"FOR (n:{safe_label}) ON (n.{PENDING_JOB_ID_PROPERTY})"
+    )
+
+
+def pending_relation_index_query(rel_type: str) -> str:
+    """Build an index on the pending job tag of relationships of ``rel_type``.
+
+    Relationship commit and rollback look up a job's tagged relationships one
+    type at a time, so each relationship type that can carry a tag needs its
+    own index. See ``list_relation_types_query`` for enumerating the types.
+
+    Args:
+        rel_type: The relationship type. Must already be validated.
+
+    Returns:
+        A Cypher query creating the range index if absent.
+
+    Raises:
+        ValueError: ``rel_type`` is not a safe identifier.
+    """
+    safe_type = validate_identifier(rel_type)
+    return (
+        f"CREATE INDEX pending_job_rel_{safe_type} IF NOT EXISTS "
+        f"FOR ()-[r:{safe_type}]-() ON (r.{PENDING_JOB_ID_PROPERTY})"
+    )
+
+
+def list_relation_types_query() -> str:
+    """Build a query listing every relationship type in the database.
+
+    Returns:
+        A Cypher query returning one ``relationshipType`` row per type.
+    """
+    return "CALL db.relationshipTypes() YIELD relationshipType RETURN relationshipType"
 
 
 def candidate_id_constraint_query() -> str:

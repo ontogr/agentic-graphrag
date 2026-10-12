@@ -16,18 +16,17 @@ from agrag.cypher.cutover_job_write import (
     acquire_lease_query,
     begin_rollback_query,
     claim_pending_job_query,
-    clear_pending_tag_query,
     commit_job_query,
     finish_cleaning_query,
     job_status_query,
     record_parts_closed_query,
     renew_lease_query,
-    rollback_job_query,
     start_cleaning_query,
     steal_expired_lease_query,
 )
 from agrag.graphdb.base import GraphStore, GraphStoreTransaction
 from agrag.ingestion._document_lifecycle import close_open_has_part_edges
+from agrag.ingestion._pending_rows import clear_job_tags, rollback_job_rows
 from agrag.ingestion.resolved_entities import MatchComponent
 from agrag.ingestion.settings import CutoverJobSettings
 from agrag.observability import get_tracer
@@ -130,12 +129,8 @@ async def _acquire_lease(
                 await deletion
                 stop_renewal.set()
                 await renewal
-                rolled_back = await graph_store.execute_write(
-                    rollback_job_query(),
-                    {
-                        "job_id": str(rollback_job_id),
-                        "lease_token": str(rollback_token),
-                    },
+                rolled_back = await rollback_job_rows(
+                    graph_store, job_id=rollback_job_id, token=rollback_token
                 )
             finally:
                 stop_renewal.set()
@@ -287,12 +282,9 @@ async def _rollback(
         await delete_pending_vectors(
             vector_store=vector_store, collections=vector_collections, job_id=job_id
         )
-        rolled_back = await graph_store.execute_write(
-            rollback_job_query(), {"job_id": job_arg, "lease_token": token_arg}
-        )
+        return await rollback_job_rows(graph_store, job_id=job_id, token=token)
     except Exception:  # noqa: BLE001
         return False
-    return bool(rolled_back)
 
 
 async def _commit_applied(
@@ -395,7 +387,7 @@ async def _commit_pending_writes(
             record_parts_closed_query(),
             {"job_id": job_arg, "parts_closed": parts_closed},
         )
-        await txn.execute_write(clear_pending_tag_query(), {"job_id": job_arg})
+        await clear_job_tags(txn, job_id=job_id)
         return parts_closed
 
     return await graph_store.run_in_transaction(commit)

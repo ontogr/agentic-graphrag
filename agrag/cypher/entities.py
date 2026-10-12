@@ -31,6 +31,31 @@ NODE_IDENTITY_LABEL = "_Node"
 # fetch_by_merge_keys_query and upsert_merge_alias_query.
 MERGE_ALIAS_LABEL = "_MergeAlias"
 
+# Commit and rollback find a job's nodes through one indexed lookup per label
+# listed here, so any label a job can tag must be listed.
+PENDING_TAGGED_NODE_LABELS: tuple[str, ...] = (
+    NODE_IDENTITY_LABEL,
+    MERGE_ALIAS_LABEL,
+    CANDIDATE_LABEL,
+)
+
+
+def validate_identifier_syntax(value: str) -> str:
+    """Check that a label or relationship type is a well-formed Cypher identifier.
+
+    Args:
+        value: The label or relationship type to check.
+
+    Returns:
+        ``value`` unchanged, once validated.
+
+    Raises:
+        ValueError: ``value`` is not a well-formed identifier.
+    """
+    if not _IDENTIFIER.match(value):
+        raise ValueError(f"{value!r} is not a valid Cypher identifier")
+    return value
+
 
 def validate_identifier(value: str) -> str:
     """Check that a label or relationship type is a safe Cypher identifier.
@@ -44,8 +69,7 @@ def validate_identifier(value: str) -> str:
     Raises:
         ValueError: ``value`` is not a safe identifier or is reserved.
     """
-    if not _IDENTIFIER.match(value):
-        raise ValueError(f"{value!r} is not a valid Cypher identifier")
+    validate_identifier_syntax(value)
     if value == CANDIDATE_LABEL:
         raise ValueError(f"{value!r} is reserved for the candidate store")
     return value

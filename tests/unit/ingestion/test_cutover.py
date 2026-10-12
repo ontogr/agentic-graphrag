@@ -23,16 +23,19 @@ from agrag.cypher.cutover_job_write import (
     acquire_lease_query,
     begin_rollback_query,
     claim_pending_job_query,
-    clear_pending_tag_query,
+    clear_pending_node_tags_query,
     commit_job_query,
+    delete_pending_nodes_query,
     finish_cleaning_query,
     job_status_query,
+    lock_rolling_back_job_query,
     record_parts_closed_query,
     renew_lease_query,
     rollback_job_query,
     start_cleaning_query,
     steal_expired_lease_query,
 )
+from agrag.cypher.entities import PENDING_TAGGED_NODE_LABELS
 from agrag.cypher.relations import close_has_part_query
 from agrag.ingestion._cutover import (
     CutoverJobLeaseError,
@@ -80,7 +83,7 @@ class _FakeCutoverStore:
 
     def _handlers(self) -> dict[str, Any]:
         """Map each job query to its in-memory implementation."""
-        return {
+        handlers: dict[str, Any] = {
             acquire_lease_query(): self._acquire,
             steal_expired_lease_query(): self._steal,
             commit_job_query(): lambda p: self._transition(p, "pending", "committed"),
@@ -89,13 +92,17 @@ class _FakeCutoverStore:
             ),
             finish_cleaning_query(): lambda p: self._transition(p, "cleaning", "done"),
             renew_lease_query(): self._renew,
-            clear_pending_tag_query(): self._clear_tag,
             begin_rollback_query(): self._begin_rollback,
             claim_pending_job_query(): self._claim_pending_rollback,
             job_status_query(): self._job_status,
             record_parts_closed_query(): self._record_parts_closed,
+            lock_rolling_back_job_query(): self._lock_rolling_back,
             rollback_job_query(): self._rollback,
         }
+        for label in PENDING_TAGGED_NODE_LABELS:
+            handlers[clear_pending_node_tags_query(label)] = self._clear_tag
+            handlers[delete_pending_nodes_query(label)] = self._delete_tagged_nodes
+        return handlers
 
     def _acquire(self, params: dict[str, Any]) -> list[dict[str, Any]]:
         """MERGE on document_key: first claimant creates, others join it."""
@@ -193,28 +200,50 @@ class _FakeCutoverStore:
     def _clear_tag(self, params: dict[str, Any]) -> list[dict[str, Any]]:
         """Strip this job's pending tag from every tagged node."""
         job_id = str(params["job_id"])
+        cleared = 0
         for node in self.nodes:
-            if node["properties"].get("_pending_job_id") == job_id:
-                node["properties"].pop("_pending_job_id", None)
-        return [{"cleared_nodes": len(self.nodes), "cleared_relationships": 0}]
+            if node["properties"].pop("_pending_job_id", None) == job_id:
+                cleared += 1
+        return [{"cleared": cleared}]
 
-    def _rollback(self, params: dict[str, Any]) -> list[dict[str, Any]]:
-        """Delete every tagged node only for this rolling-back lease owner."""
+    def _delete_tagged_nodes(self, params: dict[str, Any]) -> list[dict[str, Any]]:
+        """Delete every node still tagged with this job."""
         job_id = str(params["job_id"])
-        job = next((job for job in self.jobs.values() if job["id"] == job_id), None)
-        if (
-            job is None
-            or job["status"] != "rolling_back"
-            or job["lease_token"] != str(params["lease_token"])
-        ):
-            return []
-        self.nodes = [
+        kept = [
             node
             for node in self.nodes
             if node["properties"].get("_pending_job_id") != job_id
         ]
+        deleted = len(self.nodes) - len(kept)
+        self.nodes = kept
+        return [{"deleted": deleted}]
+
+    def _rolling_back_job(self, params: dict[str, Any]) -> dict[str, Any] | None:
+        """Return the job when it is rolling back under the caller's token."""
+        return next(
+            (
+                job
+                for job in self.jobs.values()
+                if job["id"] == str(params["job_id"])
+                and job["status"] == "rolling_back"
+                and job["lease_token"] == str(params["lease_token"])
+            ),
+            None,
+        )
+
+    def _lock_rolling_back(self, params: dict[str, Any]) -> list[dict[str, Any]]:
+        """Confirm the rollback fence without changing the job."""
+        job = self._rolling_back_job(params)
+        return [] if job is None else [{"id": job["id"]}]
+
+    def _rollback(self, params: dict[str, Any]) -> list[dict[str, Any]]:
+        """Delete the job node only while its rollback holds the fence."""
+        job = self._rolling_back_job(params)
+        if job is None:
+            return []
+        job_id = job["id"]
         self.jobs = {key: job for key, job in self.jobs.items() if job["id"] != job_id}
-        return [{"deleted_nodes": 0, "deleted_relationships": 0}]
+        return [{"id": job_id}]
 
     def _begin_rollback(self, params: dict[str, Any]) -> list[dict[str, Any]]:
         job = next(
@@ -257,6 +286,11 @@ class _FakeCutoverStore:
         runner = self
 
         class _Txn:
+            async def execute_read(
+                self, query: str, parameters: dict[str, Any] | None = None
+            ) -> list[dict[str, Any]]:
+                return await runner.execute_read(query, parameters)
+
             async def execute_write(
                 self, query: str, parameters: dict[str, Any] | None = None
             ) -> list[dict[str, Any]]:
@@ -286,6 +320,11 @@ class _CommitBlockingStore(_FakeCutoverStore):
         runner = self
 
         class _Txn:
+            async def execute_read(
+                self, query: str, parameters: dict[str, Any] | None = None
+            ) -> list[dict[str, Any]]:
+                return await runner.execute_read(query, parameters)
+
             async def execute_write(
                 self, query: str, parameters: dict[str, Any] | None = None
             ) -> list[dict[str, Any]]:
@@ -800,7 +839,7 @@ class TestRunCutoverJobRollback:
         assert store.nodes == []
         assert "doc-1" not in store.jobs
         # Cleanup never ran: the job never committed.
-        assert store.transactions == []
+        assert commit_job_query() not in store.executed
 
     async def test_failed_vector_delete_leaves_job_rolling_back(self) -> None:
         """A failed vector cleanup leaves graph rows for recovery."""
