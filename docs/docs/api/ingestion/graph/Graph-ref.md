@@ -6,7 +6,7 @@ sidebar_label: Graph
 # `agrag.ingestion.graph.Graph` \{#agrag-ingestion-graph-Graph}
 
 ```python
-Graph(*, schema:GraphSchema, graph_store:GraphStore, embedder:Embedder, extractor:Extractor | None = None, tracer:Tracer | None = None, vector_store:VectorStore | None = None, retrieval_settings:RetrievalSettings | None = None, cutover_settings:CutoverJobSettings | None = None, extraction_settings:ExtractionSettings | None = None, llm_extractor:LLMExtractor | None = None, chunker:Chunker | None = None, embed_heading_path:bool = True, max_llm_pairs:int = MAX_LLM_PAIRS) -> None
+Graph(*, schema:SchemaSource, graph_store:GraphStore, embedder:Embedder, extractor:Extractor | None = None, tracer:Tracer | None = None, vector_store:VectorStore | None = None, retrieval_settings:RetrievalSettings | None = None, cutover_settings:CutoverJobSettings | None = None, extraction_settings:ExtractionSettings | None = None, llm_extractor:LLMExtractor | None = None, chunker:Chunker | None = None, embed_heading_path:bool = True, max_llm_pairs:int = MAX_LLM_PAIRS) -> None
 ```
 
 A knowledge graph that a caller can open and add content to.
@@ -38,8 +38,12 @@ by `open()` when missing.
 
 **Parameters:**
 
-- **schema** (<code>[GraphSchema](../../common/data_models/graph_schema/GraphSchema.md)</code>) – The entity/relation types this graph validates every
-  extraction against.
+- **schema** (<code>SchemaSource</code>) – The schema the extractor receives. A `GraphSchema` is
+  used as given. Any other value goes through `load_schema`: a
+  `Preset`, a shipped name (`"default"`, `"operations"` or
+  `"legal"`), a file path, a dict, a list of strings, a Pydantic
+  class, or JSON text. Raises `SchemaLoadError` when the
+  value is not a valid schema.
 - **graph_store** (<code>[GraphStore](../../graphdb/base/GraphStore.md)</code>) – Where entities, relations, chunks, and MENTIONED_IN
   edges are written.
 - **embedder** (<code>[Embedder](../../embedding/base/Embedder.md)</code>) – Populates entity embeddings for native vector search.
@@ -291,7 +295,7 @@ The model name of the LLM slot, or None when it is unset.
 ## `open` \{#agrag-ingestion-graph-Graph-open}
 
 ```python
-open(*, schema:GraphSchema, graph_store:GraphStore, embedder:Embedder, extractor:Extractor | None = None, tracer:Tracer | None = None, vector_store:VectorStore | None = None, retrieval_settings:RetrievalSettings | None = None, cutover_settings:CutoverJobSettings | None = None, extraction_settings:ExtractionSettings | None = None, llm_extractor:LLMExtractor | None = None, chunker:Chunker | None = None, embed_heading_path:bool = True, max_llm_pairs:int = MAX_LLM_PAIRS) -> Graph
+open(*, schema:SchemaSource, graph_store:GraphStore, embedder:Embedder, extractor:Extractor | None = None, tracer:Tracer | None = None, vector_store:VectorStore | None = None, retrieval_settings:RetrievalSettings | None = None, cutover_settings:CutoverJobSettings | None = None, extraction_settings:ExtractionSettings | None = None, llm_extractor:LLMExtractor | None = None, chunker:Chunker | None = None, embed_heading_path:bool = True, max_llm_pairs:int = MAX_LLM_PAIRS) -> Graph
 ```
 
 Open a graph, connecting and fully provisioning graph_store.
@@ -309,8 +313,12 @@ missing) so the dual writes never hit an absent collection.
 
 **Parameters:**
 
-- **schema** (<code>[GraphSchema](../../common/data_models/graph_schema/GraphSchema.md)</code>) – The entity/relation types this graph validates every
-  extraction against.
+- **schema** (<code>SchemaSource</code>) – The schema the extractor receives. A `GraphSchema` is
+  used as given. Any other value goes through `load_schema`: a
+  `Preset`, a shipped name (`"default"`, `"operations"` or
+  `"legal"`), a file path, a dict, a list of strings, a Pydantic
+  class, or JSON text. Raises `SchemaLoadError` when the
+  value is not a valid schema.
 - **graph_store** (<code>[GraphStore](../../graphdb/base/GraphStore.md)</code>) – Where entities, relations, chunks, and MENTIONED_IN
   edges are written.
 - **embedder** (<code>[Embedder](../../embedding/base/Embedder.md)</code>) – Populates entity embeddings for native vector search.
