@@ -137,7 +137,7 @@ A symmetric relation needs equal limits on both sides. Each pattern must use the
 
 ## 2. Make sure that the schema is valid
 
-The schema enforces its own rules when you create it. It rejects a relation pattern that names an undeclared entity. It rejects the property names `label` and `text`, and it rejects an `enum` value that does not match the property type. It rejects an unknown parent, a cycle in the parents, and a label that is declared twice. It rejects labels that the graph uses for its own nodes, such as `Document`, `Chunk` and `Candidate`.
+The schema enforces its own rules when you create it. It rejects a relation pattern that names an undeclared entity. It rejects property names that the graph writes itself, such as `name` and `id`. It rejects a relation type that has the name of a system edge, such as `MEMBER_OF`, and it rejects an `enum` value that does not match the property type. It rejects an unknown parent, a cycle in the parents, and a label that is declared twice. It rejects labels that the graph uses for its own nodes, such as `Document`, `Chunk` and `Candidate`.
 
 ```python
 from agrag.common.data_models import EntityType, GraphSchema, PropertySpec, RelationType

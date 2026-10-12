@@ -12,6 +12,7 @@ One kind of relation a schema recognizes.
 **Attributes:**
 
 - [**label**](#agrag-common-data_models-graph_schema-RelationType-label) (<code>str</code>) – The relation label used in the extraction prompt and the graph.
+  It must not be a relationship type the graph writes itself.
 - [**description**](#agrag-common-data_models-graph_schema-RelationType-description) (<code>str</code>) – Guidance fed to the extractor prompt or schema builder.
 - [**patterns**](#agrag-common-data_models-graph_schema-RelationType-patterns) (<code>list\[tuple\[str, str\]\]</code>) – Valid (source_label, target_label) pairs. A pattern also covers
   children of its endpoint types.

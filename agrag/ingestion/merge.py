@@ -399,8 +399,8 @@ async def compute_merge(  # noqa: PLR0912
         survivor_base = None
 
     field_sources = [
-        {"name": entity.name, **entity.properties} for entity in existing_entities
-    ] + [{"name": mention.text, **mention.properties} for mention in mentions]
+        {**entity.properties, "name": entity.name} for entity in existing_entities
+    ] + [{**mention.properties, "name": mention.text} for mention in mentions]
 
     if "name" not in rules.rules and rules.default is PropertyStrategy.MERGE_ALL:
         canonical_name = survivor_base.name if survivor_base is not None else None

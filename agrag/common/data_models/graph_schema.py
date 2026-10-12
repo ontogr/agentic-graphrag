@@ -13,7 +13,11 @@ from agrag.common.data_models.chunk import CHUNK_LABEL
 from agrag.common.data_models.community import COMMUNITY_LABEL
 from agrag.common.data_models.cutover_job import CUTOVER_JOB_LABEL
 from agrag.common.data_models.document import DOCUMENT_LABEL
-from agrag.common.data_models.resolved_entity import RESOLVED_ENTITY_LABEL
+from agrag.common.data_models.graph_record import PENDING_JOB_ID_PROPERTY
+from agrag.common.data_models.resolved_entity import (
+    RESOLVED_ENTITY_LABEL,
+    RESOLVED_ENTITY_VECTOR_DELETION_LABEL,
+)
 from agrag.common.data_models.structure import (
     FIGURE_LABEL,
     SECTION_LABEL,
@@ -22,12 +26,29 @@ from agrag.common.data_models.structure import (
 )
 
 
-# Payload keys every mirrored entity embedding carries: the graph label a
-# SearchFilters label filter matches on, and the embedding text the backends
-# keyword-index. An entity property with one of these names would overwrite
-# that key in the VectorStore payload while the GraphStore-native path keeps
-# it as an ordinary node property, so the two retrieval paths would disagree.
-_RESERVED_ENTITY_PROPERTY_NAMES = frozenset({"label", "text"})
+# Property names an entity type may not declare. "label" and "text" are payload
+# keys every mirrored entity embedding carries: the graph label a SearchFilters
+# label filter matches on, and the embedding text the backends keyword-index.
+# A property with one of these names would overwrite that key in the
+# VectorStore payload while the GraphStore-native path keeps it as an ordinary
+# node property, so the two retrieval paths would disagree. The rest are keys
+# that Entity.to_node_record and the merge write set themselves, so a schema
+# property with the same name would be replaced or dropped when the node is
+# stored.
+_RESERVED_ENTITY_PROPERTY_NAMES = frozenset(
+    {
+        "label",
+        "text",
+        "id",
+        "name",
+        "merge_key",
+        "merge_count",
+        "source_chunk_ids",
+        "created_at",
+        "embedding",
+        PENDING_JOB_ID_PROPERTY,
+    }
+)
 
 RESERVED_ENTITY_LABELS = frozenset(
     {
@@ -40,12 +61,32 @@ RESERVED_ENTITY_LABELS = frozenset(
         COMMUNITY_LABEL,
         RESOLVED_ENTITY_LABEL,
         CUTOVER_JOB_LABEL,
+        RESOLVED_ENTITY_VECTOR_DELETION_LABEL,
         "Candidate",
         # These repeat NODE_IDENTITY_LABEL and MERGE_ALIAS_LABEL. They are
         # not imported because agrag.cypher.entities loads this package, so
         # the import would be circular. A unit test keeps the copies equal.
         "_Node",
         "_MergeAlias",
+    }
+)
+
+# Relationship types the graph writes itself. A schema relation with one of
+# these names would be written and then ignored or mistaken for a system edge
+# by traversal, community detection and resolution context.
+RESERVED_RELATION_TYPES = frozenset(
+    {
+        "HAS_PART",
+        "HAS_CHILD",
+        "HAS_DOCUMENT",
+        "NEXT_CHUNK",
+        "MENTIONED_IN",
+        "MEMBER_OF",
+        "MATCHES",
+        "RESOLVED_AS",
+        "EVIDENCED_BY",
+        "SOURCE",
+        "TARGET",
     }
 )
 
@@ -200,7 +241,10 @@ class EntityType(BaseModel):
         description: Guidance fed to the extractor prompt or schema builder.
         parents: Declared parent labels, nearest parent first.
         properties: Property names mapped to their ``PropertySpec``. Properties
-            are not inherited from parents.
+            are not inherited from parents. ``label``, ``text`` and the keys
+            the graph writes itself (``id``, ``name``, ``merge_key``,
+            ``merge_count``, ``source_chunk_ids``, ``created_at``,
+            ``embedding``) are rejected as names.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -253,8 +297,8 @@ class EntityType(BaseModel):
             raise ValueError(
                 f"Entity type '{self.label}' declares reserved property "
                 f"name(s) {reserved}; "
-                f"{sorted(_RESERVED_ENTITY_PROPERTY_NAMES)} are vector payload "
-                f"keys used for retrieval filtering and keyword search. "
+                f"{sorted(_RESERVED_ENTITY_PROPERTY_NAMES)} are keys that the "
+                f"graph or the vector store writes itself. "
                 f"Rename or remove those property names in the schema."
             )
         return self
@@ -281,6 +325,7 @@ class RelationType(BaseModel):
 
     Attributes:
         label: The relation label used in the extraction prompt and the graph.
+            It must not be a relationship type the graph writes itself.
         description: Guidance fed to the extractor prompt or schema builder.
         patterns: Valid (source_label, target_label) pairs. A pattern also covers
             children of its endpoint types.
@@ -295,6 +340,17 @@ class RelationType(BaseModel):
     patterns: list[tuple[str, str]]
     cardinality: Cardinality = Field(default_factory=Cardinality)
     symmetric: bool = False
+
+    @model_validator(mode="after")
+    def _reject_reserved_labels(self) -> "RelationType":
+        if self.label in RESERVED_RELATION_TYPES:
+            raise ValueError(
+                f"Relation type '{self.label}' uses a reserved relationship "
+                f"type; the graph writes its own edges with "
+                f"{sorted(RESERVED_RELATION_TYPES)}. Rename the relation type, "
+                "for example 'BELONGS_TO' for 'MEMBER_OF'."
+            )
+        return self
 
     @model_validator(mode="after")
     def _check_symmetric_limits(self) -> "RelationType":
