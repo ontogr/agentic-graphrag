@@ -28,8 +28,13 @@ env:
   LLM_MODEL_ID: ${{ secrets.LLM_MODEL_ID }}
 
 jobs:
+  changes:
+    uses: $/.github/workflows/changes.yml
+
   integration:
     name: Integration (${{ matrix.suite.name }})
+    needs: [changes]
+    if: needs.changes.outputs.backend_tests == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: ${{ matrix.suite.timeout }}
     strategy:
@@ -165,6 +170,8 @@ jobs:
 
   e2e:
     name: E2E (${{ matrix.shard.name }})
+    needs: [changes]
+    if: needs.changes.outputs.backend_tests == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: ${{ matrix.shard.timeout }}
     strategy:
@@ -332,7 +339,8 @@ jobs:
   # backends run in different shards, so their artifacts meet here.
   e2e-parity:
     name: E2E vector backend parity
-    needs: e2e
+    needs: [changes, e2e]
+    if: needs.changes.outputs.backend_tests == 'true' && needs.e2e.result == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
@@ -366,22 +374,37 @@ jobs:
           -v
           -o "addopts=--strict-markers --strict-config --disable-socket --allow-unix-socket -ra"
 
-  # One required check for branch protection: it fails when any integration or
-  # E2E job failed, was cancelled, or was skipped.
+  # One required check for branch protection; skipped workloads are valid only
+  # when the shared selector explicitly excluded backend tests.
   integration-gate:
     name: Integration gate
     if: always()
-    needs: [integration, e2e, e2e-parity]
+    needs: [changes, integration, e2e, e2e-parity]
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:
-      - name: Require every job to pass
+      - name: Require selected backend checks to pass
         env:
-          RESULTS: ${{ join(needs.*.result, ' ') }}
+          SELECTOR_RESULT: ${{ needs.changes.result }}
+          SELECTED: ${{ needs.changes.outputs.backend_tests }}
+          RESULTS: ${{ needs.integration.result }} ${{ needs.e2e.result }} ${{ needs.e2e-parity.result }}
         run: |
-          for result in $RESULTS; do
-            if [ "$result" != "success" ]; then
-              echo "::error::A required job finished with result: $result"
-              exit 1
-            fi
-          done
+          test "$SELECTOR_RESULT" = success
+          if [ "$SELECTED" = true ]; then
+            for result in $RESULTS; do
+              if [ "$result" != success ]; then
+                echo "::error::A selected backend check finished with result: $result"
+                exit 1
+              fi
+            done
+          elif [ "$SELECTED" = false ]; then
+            for result in $RESULTS; do
+              if [ "$result" != skipped ]; then
+                echo "::error::An excluded backend check unexpectedly finished with result: $result"
+                exit 1
+              fi
+            done
+          else
+            echo "::error::Backend selection output is missing or invalid"
+            exit 1
+          fi

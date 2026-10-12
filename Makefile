@@ -295,7 +295,8 @@ docs-version: docs-api
 docs-build: docs-api docs-lint-links docs-check-version
 	cd docs && { npm run build > build.log 2>&1; status=$$?; cat build.log; exit $$status; }
 	@# Docusaurus reports many problems as warnings and still exits with success.
-	@grep -q '^\[SUCCESS\]' docs/build.log && ! grep -qE '^\[(WARNING|ERROR)\]' docs/build.log \
+	@sed -E 's/\x1B\[[0-9;]*m//g' docs/build.log | grep -q '^\[SUCCESS\]' \
+	  && ! sed -E 's/\x1B\[[0-9;]*m//g' docs/build.log | grep -qE '^\[(WARNING|ERROR)\]' \
 	  || { echo "The docs build did not finish cleanly. Read docs/build.log."; exit 1; }
 
 # The docs tests need a Neo4j reachable through NEO4J_* (see docker/docker-compose.ci.yml).

@@ -21,35 +21,102 @@ env:
   FORCE_COLOR: "1"
 
 jobs:
+  changes:
+    name: Select checks
+    uses: $/.github/workflows/changes.yml
+
   lint:
     name: Lint & Format Check
+    needs: [changes]
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
       UV_PYTHON: "3.12"
     steps:
+      - name: Require successful change selection
+        env:
+          SELECTOR_RESULT: ${{ needs.changes.result }}
+        run: test "$SELECTOR_RESULT" = success
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 1
           persist-credentials: false
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        if: needs.changes.outputs.python_lint == 'true' || needs.changes.outputs.workflow_audit == 'true' || needs.changes.outputs.typos == 'true'
         with:
           enable-cache: true
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        if: needs.changes.outputs.python_lint == 'true' || needs.changes.outputs.workflow_audit == 'true' || needs.changes.outputs.typos == 'true'
         with:
           python-version: "3.12"
       - run: make sync
+        if: needs.changes.outputs.python_lint == 'true' || needs.changes.outputs.workflow_audit == 'true'
       - name: Run lint checks
+        if: needs.changes.outputs.python_lint == 'true'
         run: make lint-check
       - name: Typos check
-        run: make lint-typos
+        if: needs.changes.outputs.typos == 'true'
+        run: |
+          typos_version=$(uv run --no-project python -c 'import tomllib; print(next(package["version"] for package in tomllib.load(open("uv.lock", "rb"))["package"] if package["name"] == "typos"))')
+          uvx --from "typos==${typos_version}" typos
       - name: Audit workflows
+        if: needs.changes.outputs.workflow_audit == 'true'
         run: make lint-actions
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+  script-tests:
+    name: CI selector tests
+    needs: [changes]
+    if: needs.changes.outputs.unit == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          enable-cache: false
+      - run: uv run --no-project python .github/scripts/ci_changes.py --self-test
+
+  secret-scan:
+    name: Secret Scanning
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Install Gitleaks for untrusted changes
+        if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork }}
+        env:
+          GITLEAKS_VERSION: "8.30.0"
+          GITLEAKS_SHA256: "79a3ab579b53f71efd634f3aaf7e04a0fa0cf206b7ed434638d1547a2470a66e"
+        run: |
+          archive="$RUNNER_TEMP/gitleaks.tar.gz"
+          curl -fsSL --retry 3 -o "$archive" \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          echo "${GITLEAKS_SHA256}  ${archive}" | sha256sum --check --strict
+          tar -xzf "$archive" -C "$RUNNER_TEMP" gitleaks
+          "$RUNNER_TEMP/gitleaks" dir . --redact --verbose
+      - name: Run Gitleaks
+        if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
+        uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3.0.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
+
   type-check:
     name: Type Checking
+    needs: [changes]
+    if: needs.changes.outputs.typing == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
@@ -71,6 +138,8 @@ jobs:
 
   test:
     name: Tests - Python ${{ matrix.python-version }}
+    needs: [changes]
+    if: needs.changes.outputs.unit == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     strategy:
@@ -114,6 +183,8 @@ jobs:
 
   docs:
     name: docs-api up to date
+    needs: [changes]
+    if: needs.changes.outputs.api_docs == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -134,10 +205,11 @@ jobs:
         with:
           python-version: "3.12"
       - run: make sync
-      - run: uv run python .github/scripts/update_precommit_docs_pins.py --check
       - run: make docs-api
+        if: needs.changes.outputs.api_docs == 'true'
       - name: Check for docs staleness
         id: docs-check
+        if: needs.changes.outputs.api_docs == 'true'
         run: |
           git add -N docs/docs/api
           if git diff --quiet HEAD -- docs/docs/api; then
@@ -148,14 +220,62 @@ jobs:
           git diff HEAD -- docs/docs/api | head -c 6500 > /tmp/docs.diff || true
           cat /tmp/docs.diff || true
       - name: Fail on stale docs
-        if: steps.docs-check.outputs.stale == 'true'
+        if: needs.changes.outputs.api_docs == 'true' && steps.docs-check.outputs.stale == 'true'
         run: |
           echo "::error::The pages in docs/docs/api are stale. Run 'make docs-api' locally and commit."
           exit 1
+  docs-pins:
+    name: Documentation dependency pins
+    needs: [changes]
+    if: needs.changes.outputs.docs_pins == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          enable-cache: true
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - run: make sync
+      - run: uv run python .github/scripts/update_precommit_docs_pins.py --check
+
+  docs-site:
+    name: Build documentation site
+    needs: [changes]
+    if: needs.changes.outputs.docs_build == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      UV_PYTHON: "3.12"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          enable-cache: true
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - run: make sync
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: docs/package-lock.json
+      - run: make docs-install
+      - run: make docs-build
+
   docs-comment:
     name: docs-api comment
-    if: always() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
-    needs: docs
+    if: always() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && needs.changes.outputs.api_docs == 'true'
+    needs: [changes, docs]
     runs-on: ubuntu-latest
     timeout-minutes: 2
     permissions:
@@ -172,6 +292,8 @@ jobs:
 
   wheel:
     name: Test Packaging - wheel build & install
+    needs: [changes]
+    if: needs.changes.outputs.wheel == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
@@ -201,7 +323,9 @@ jobs:
         run: uvx twine@7.0.0 check dist/*
 
   security:
-    name: Security Scanning
+    name: Python Security Scanning
+    needs: [changes]
+    if: needs.changes.outputs.bandit == 'true' || needs.changes.outputs.dependency_audit == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
@@ -209,53 +333,33 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          fetch-depth: 0
+          fetch-depth: 1
           persist-credentials: false
-      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
-        with:
-          enable-cache: false
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        if: needs.changes.outputs.bandit == 'true' || needs.changes.outputs.dependency_audit == 'true'
         with:
           python-version: "3.12"
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        if: needs.changes.outputs.bandit == 'true' || needs.changes.outputs.dependency_audit == 'true'
+        with:
+          enable-cache: false
       - run: make sync
+        if: needs.changes.outputs.bandit == 'true' || needs.changes.outputs.dependency_audit == 'true'
       - name: Run Bandit security scan
+        if: needs.changes.outputs.bandit == 'true'
         run: make security-bandit
         continue-on-error: true
       - name: Generate Bandit JSON report
-        if: always()
+        if: always() && needs.changes.outputs.bandit == 'true'
         run: uv run bandit -c pyproject.toml -r agrag/ -f json -o bandit-report.json || true
       # uv audit reads uv.lock and matches advisories by package name and
       # version, so it also covers the +cpu builds of torch and torchvision.
       - name: Run uv audit
+        if: needs.changes.outputs.dependency_audit == 'true'
         run: make security-audit
         continue-on-error: true
-      # gitleaks-action needs GITLEAKS_LICENSE, which a fork pull request cannot
-      # read, so it is skipped there; the license-free CLI scan below covers it.
-      - name: Run Gitleaks
-        if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
-        uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3.0.0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
-      # A fork pull request is the untrusted path, so it still gets a secret
-      # scan: the CLI needs no license, and the release archive is verified
-      # against a pinned checksum rather than run from a piped download.
-      # Keep GITLEAKS_VERSION in step with the gitleaks rev in
-      # .pre-commit-config.yaml.
-      - name: Run Gitleaks CLI (fork pull requests)
-        if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork }}
-        env:
-          GITLEAKS_VERSION: "8.30.0"
-          GITLEAKS_SHA256: "79a3ab579b53f71efd634f3aaf7e04a0fa0cf206b7ed434638d1547a2470a66e"
-        run: |
-          archive="$RUNNER_TEMP/gitleaks.tar.gz"
-          curl -fsSL --retry 3 -o "$archive" \
-            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
-          echo "${GITLEAKS_SHA256}  ${archive}" | sha256sum --check --strict
-          tar -xzf "$archive" -C "$RUNNER_TEMP" gitleaks
-          "$RUNNER_TEMP/gitleaks" dir . --redact --verbose
       - name: Upload Bandit results
-        if: always()
+        if: always() && needs.changes.outputs.bandit == 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: bandit-security-report
