@@ -13,9 +13,11 @@ Every score is between 0 and 1. `ExtractionLLMSettings` variables start
 with `EXTRACTION_LLM_` and are not read here, so no field may start with
 `llm_`.
 
-Relation thresholds and floors, the entity band, escalation controls, and
-candidate capture are validated configuration only; they do not yet affect
-extraction. `EscalatingExtractor` uses its own escalation parameters.
+The entity and relation thresholds, the relation floor, the entity band and
+the candidate switch shape what `GlinerExtractor` keeps and reports.
+Escalation controls are validated configuration only; they do not yet
+affect extraction. `EscalatingExtractor` uses its own escalation
+parameters.
 
 **Attributes:**
 

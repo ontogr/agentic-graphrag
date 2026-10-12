@@ -18,12 +18,14 @@ which ExtractedEntity mentions refer to the same real-world thing.
 - [**label**](#agrag-common-data_models-extraction-ExtractedEntity-label) (<code>str</code>) – The EntityType label this mention was extracted as.
 - [**text**](#agrag-common-data_models-extraction-ExtractedEntity-text) (<code>str</code>) – The mention's surface text.
 - [**char_start**](#agrag-common-data_models-extraction-ExtractedEntity-char_start) (<code>int</code>) – The start character offset within the chunk's text.
-- [**char_end**](#agrag-common-data_models-extraction-ExtractedEntity-char_end) (<code>int</code>) – The end character offset within the chunk's text.
-- [**confidence**](#agrag-common-data_models-extraction-ExtractedEntity-confidence) (<code>float | None</code>) – The extractor's confidence in this mention, when available.
-- [**properties**](#agrag-common-data_models-extraction-ExtractedEntity-properties) (<code>dict\[str, object\]</code>) – Schema-declared property values this mention carries,
-  keyed by property name. Empty for an extractor that only reports
-  spans. normalize_extraction_result drops any key that the schema
-  does not declare for this mention's label.
+- [**char_end**](#agrag-common-data_models-extraction-ExtractedEntity-char_end) (<code>int</code>) – The end character offset within the chunk's text. The
+  offsets of a mention never include the whitespace around its text.
+- [**confidence**](#agrag-common-data_models-extraction-ExtractedEntity-confidence) (<code>float | None</code>) – The extractor's confidence in this mention, when the
+  extractor reports one. The local extractor always sets it.
+- [**properties**](#agrag-common-data_models-extraction-ExtractedEntity-properties) (<code>dict\[str, object\]</code>) – Property values this mention carries, keyed by property
+  name. Empty for an extractor that only reports spans. The LLM
+  extractor keeps only the keys that the schema declares for this
+  mention's label.
 
 ## `char_end` \{#agrag-common-data_models-extraction-ExtractedEntity-char_end}
 
