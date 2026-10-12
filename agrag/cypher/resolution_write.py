@@ -8,6 +8,7 @@ from agrag.common.data_models.resolved_entity import (
     RESOLVED_ENTITY_VECTOR_DELETION_LABEL,
 )
 from agrag.common.data_models.structure import HAS_PART
+from agrag.cypher._pending_filter import pending_filter_clause
 from agrag.cypher.entities import MERGE_ALIAS_LABEL, NODE_IDENTITY_LABEL
 
 
@@ -55,6 +56,7 @@ def deactivate_match_query() -> str:
     """Build Cypher that retains but deactivates a match edge."""
     return (
         f"MATCH ()-[r:{MATCHES_RELATION} {{id: $match_id}}]->() "
+        f"WHERE {pending_filter_clause('r')} "
         "SET r.active = false RETURN r"
     )
 
