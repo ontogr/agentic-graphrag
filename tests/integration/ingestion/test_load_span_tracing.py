@@ -118,7 +118,7 @@ class TestLoadSpanTracing:
         finally:
             await store.execute_write(
                 "MATCH (d:Document) WHERE d.uri = $uri "
-                "OPTIONAL MATCH (d)-[:PART_OF]->(c:Chunk) "
+                "OPTIONAL MATCH (d)-[:HAS_PART]->(c:Chunk) "
                 "DETACH DELETE d, c",
                 {"uri": source_uri},
             )

@@ -15,7 +15,7 @@ TABLE_LABEL = "Table"
 FIGURE_LABEL = "Figure"
 SOURCE_LABEL = "Source"
 HAS_CHILD = "HAS_CHILD"
-PART_OF = "PART_OF"
+HAS_PART = "HAS_PART"
 HAS_DOCUMENT = "HAS_DOCUMENT"
 
 
@@ -24,7 +24,7 @@ def _uuid(*parts: str | int | UUID) -> UUID:
 
 
 def version_id(document: Document) -> str:
-    """Return the id of one version of a document, as ``PART_OF`` edges use it.
+    """Return the id of one version of a document, as ``HAS_PART`` edges use it.
 
     Args:
         document: The document.

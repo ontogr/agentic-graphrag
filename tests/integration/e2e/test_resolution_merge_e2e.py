@@ -38,7 +38,7 @@ from agrag.common.data_models.chunk import Chunk
 from agrag.common.data_models.document import Document, DocumentFamily, SourceFormat
 from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.extraction import ExtractedEntity, ExtractionResult
-from agrag.common.data_models.graph_schema import EntityType, GraphSchema
+from agrag.common.data_models.graph_schema import EntityType, GraphSchema, PropertySpec
 from agrag.common.data_models.resolved_entity import ResolvedEntity
 from agrag.common.data_models.vector_record import VectorRecord
 from agrag.cypher.entities import validate_identifier
@@ -320,7 +320,7 @@ async def _cleanup(
         ),
         (
             "MATCH (d:Document) WHERE d.document_key IN $keys "
-            "OPTIONAL MATCH (d)-[:PART_OF]->(c:Chunk) DETACH DELETE d, c",
+            "OPTIONAL MATCH (d)-[:HAS_PART]->(c:Chunk) DETACH DELETE d, c",
             {"keys": document_keys},
         ),
         (
@@ -376,16 +376,16 @@ async def world() -> AsyncGenerator[_World, None]:
                 label=org_label,
                 description="An organization.",
                 properties={
-                    "description": "str",
-                    "hq": "str",
-                    "revenue": "int",
-                    "employees": "int",
+                    "description": PropertySpec(type="string"),
+                    "hq": PropertySpec(type="string"),
+                    "revenue": PropertySpec(type="integer"),
+                    "employees": PropertySpec(type="integer"),
                 },
             ),
             EntityType(
                 label=person_label,
                 description="A person.",
-                properties={"title": "str"},
+                properties={"title": PropertySpec(type="string")},
             ),
         ],
         relations=[],

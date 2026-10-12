@@ -207,7 +207,7 @@ async def _drop_created(
     for key in keys:
         await graph_store.execute_write(
             "MATCH (d:Document {document_key: $key}) "
-            "OPTIONAL MATCH (d)-[:PART_OF]->(c:Chunk) DETACH DELETE c, d",
+            "OPTIONAL MATCH (d)-[:HAS_PART]->(c:Chunk) DETACH DELETE c, d",
             {"key": key},
         )
     await graph_store.execute_write(f"MATCH (n:{label}) DETACH DELETE n")
@@ -455,7 +455,7 @@ class TestVectorBackendsE2E:
         outcome = await run.graph.delete_document(run.keys["cardiology"])
 
         assert outcome.no_op is False
-        assert outcome.chunks_closed == 1
+        assert outcome.parts_closed == 1
         entity_names = _names(await run.engine.search("warfarin", ENTITY))
         assert "Warfarin" not in entity_names
         assert "Heparin" not in entity_names

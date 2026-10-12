@@ -17,7 +17,10 @@ The model runs in this process, so extraction needs no LLM key. It loads on
 first use and one load serves concurrent calls. Inference calls run one at a
 time on one worker thread. A call cancelled while it waits for its turn never
 starts, and one cancelled mid-inference leaves the next call waiting until the
-inference ends. The first load downloads the weights from Hugging Face unless
+inference ends. Each instance loads its own model and runs its own inference
+thread, so share one extractor across graphs that use the same event loop.
+Concurrent calls from separate event loops are not supported. The first load
+downloads the weights from Hugging Face unless
 `model` is passed. GLiNER reports entity spans and types, so extracted
 entities carry no property values. Needs the `extract` extra.
 It asks for confidence and spans, and applies the configured entity and

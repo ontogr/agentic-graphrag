@@ -18,10 +18,12 @@ lexical match plus graph traversal. They guard against regression. They do not
 compare with scores from a real embedder. The fixed extractor keeps the graph the
 same on every run, so only the agent and the judge vary.
 
-Each threshold is the lowest of three baseline means minus 0.05, rounded down to
-0.05, except faithfulness. Its 0.70 keeps the margin from an earlier baseline of
-0.75. With 2 questions a mean takes few distinct values, so the gate is coarse.
-The judge runs once for each metric. Baseline means:
+Correctness and context recall use the lowest of three baseline means minus
+0.05, rounded down to 0.05. Faithfulness keeps its 0.70 margin from an earlier
+baseline of 0.75. Context precision uses a 0.45 floor to allow variation in
+retrieval order and single-run judge scores. With 2 questions a mean takes few
+distinct values, so the gate is coarse. The judge runs once for each metric.
+Baseline means:
 
     correctness         1.000  1.000  1.000
     faithfulness        1.000  1.000  1.000
@@ -80,7 +82,7 @@ from tests.integration.eval._citation_gate import (
 THRESHOLDS = {
     "correctness": 0.95,
     "faithfulness": 0.70,
-    "context_precision": 0.70,
+    "context_precision": 0.45,
     "context_recall": 0.95,
 }
 

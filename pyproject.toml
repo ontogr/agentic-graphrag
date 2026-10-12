@@ -52,10 +52,14 @@ observability = [
   "openinference-instrumentation-langchain>=0.1.76,<0.2",
 ]
 llm = [
+    # The generated client uses this runtime version. Update both together
+    # with make baml-gen when changing agrag/llm/baml_src/generators.baml.
     "baml-py>=0.226.1,<0.227",
 ]
 extract = [
     "gliner2[local]",
+    # transformers 4.57 cannot read the GLiNER2.5 tokenizer config because
+    # extra_special_tokens is a list. Checked on the small checkpoint.
     "transformers<4.56",
     "protobuf",
 ]

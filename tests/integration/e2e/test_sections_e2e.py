@@ -88,7 +88,7 @@ async def _remove_created(env: _Env) -> None:
     params = {"prefix": str(env.root)}
     await env.store.execute_write(
         "MATCH (d:Document) WHERE d.uri STARTS WITH $prefix "
-        "OPTIONAL MATCH (d)-[:PART_OF]->(n) DETACH DELETE n, d",
+        "OPTIONAL MATCH (d)-[:HAS_PART]->(n) DETACH DELETE n, d",
         params,
     )
     await env.store.execute_write(
@@ -141,7 +141,7 @@ async def _outline(env: _Env, name: str) -> list[tuple[str, str]]:
     """Return (heading, parent heading) for the current sections of one file."""
     rows = await _rows(
         env,
-        "MATCH (d:Document)-[p:PART_OF]->(s:Section) "
+        "MATCH (d:Document)-[p:HAS_PART]->(s:Section) "
         "WHERE d.uri = $prefix + '/" + name + "' AND p.invalid_at IS NULL "
         "OPTIONAL MATCH (parent)-[:HAS_CHILD]->(s) "
         "RETURN s.heading AS heading, coalesce(parent.heading, '(document)') "
@@ -176,7 +176,7 @@ async def test_outline(env: _Env) -> None:
         "n.document_id IS NOT NULL "
         "OPTIONAL MATCH (p)-[r:HAS_CHILD]->(n) "
         "WITH n, count(r) AS parents "
-        "MATCH (d:Document)-[:PART_OF]->(n) WHERE d.uri STARTS WITH $prefix "
+        "MATCH (d:Document)-[:HAS_PART]->(n) WHERE d.uri STARTS WITH $prefix "
         "RETURN labels(n)[0] AS label, parents",
     )
     assert parents
@@ -186,7 +186,7 @@ async def test_outline(env: _Env) -> None:
         fetch_all_relations_query(), {"skip": 0, "limit": 1000}
     )
     assert {row["rel_type"] for row in relations}.isdisjoint(
-        {"HAS_CHILD", "HAS_DOCUMENT", "PART_OF"}
+        {"HAS_CHILD", "HAS_DOCUMENT", "HAS_PART"}
     )
 
 
@@ -197,7 +197,7 @@ async def test_table_chunks(env: _Env) -> None:
     assert result.chunking.tables == 1
     table_chunks = await _rows(
         env,
-        "MATCH (d:Document)-[:PART_OF]->(t:Table)-[:HAS_CHILD]->(c:Chunk) "
+        "MATCH (d:Document)-[:HAS_PART]->(t:Table)-[:HAS_CHILD]->(c:Chunk) "
         "WHERE d.uri STARTS WITH $prefix "
         "RETURN t.n_rows AS rows, c.content_kind AS kind",
     )
@@ -225,7 +225,7 @@ async def test_edit_versions_sections(env: _Env) -> None:
     guide = await _outline(env, "guide.md")
     keys_before = await _rows(
         env,
-        "MATCH (d:Document)-[:PART_OF]->(s:Section) "
+        "MATCH (d:Document)-[:HAS_PART]->(s:Section) "
         "WHERE d.uri STARTS WITH $prefix AND s.heading = 'Tides' "
         "RETURN s.section_key AS key, s.id AS id",
     )
@@ -236,7 +236,7 @@ async def test_edit_versions_sections(env: _Env) -> None:
     )
 
     assert update.no_op is False
-    assert update.chunks_closed > 0
+    assert update.parts_closed > 0
     edited = await _outline(env, "guide.md")
     assert edited == [
         ("Harbor Guide", "(document)"),
@@ -245,7 +245,7 @@ async def test_edit_versions_sections(env: _Env) -> None:
     ]
     keys_after = await _rows(
         env,
-        "MATCH (d:Document)-[p:PART_OF]->(s:Section) "
+        "MATCH (d:Document)-[p:HAS_PART]->(s:Section) "
         "WHERE d.uri STARTS WITH $prefix AND s.heading = 'Tides' "
         "AND p.invalid_at IS NULL RETURN s.section_key AS key, s.id AS id",
     )
@@ -253,7 +253,7 @@ async def test_edit_versions_sections(env: _Env) -> None:
     assert keys_after[0]["id"] != keys_before[0]["id"]
     closed = await _rows(
         env,
-        "MATCH (d:Document)-[p:PART_OF]->(s:Section) "
+        "MATCH (d:Document)-[p:HAS_PART]->(s:Section) "
         "WHERE d.uri STARTS WITH $prefix AND p.invalid_at IS NOT NULL "
         "RETURN count(s) AS closed",
     )

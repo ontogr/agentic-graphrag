@@ -21,6 +21,20 @@ from agrag.llm.client_config import LLMClientConfig
 class TestBuildChatModel:
     """build_chat_model translates LLMClientConfig to LangChain model."""
 
+    @pytest.mark.parametrize("provider", ["openai", "openai-generic"])
+    def test_preserves_configured_credential(self, provider: str) -> None:
+        """The real LangChain model retains the configured credential."""
+        config = LLMClientConfig(
+            name="secured",
+            provider=provider,
+            model="test-model",
+            api_key="local-test-credential",
+        )
+
+        model = build_chat_model(config)
+
+        assert model.openai_api_key.get_secret_value() == "local-test-credential"
+
     @pytest.mark.parametrize(
         "provider",
         ["aws-bedrock", "vertex-ai", "openai-responses", "azure-openai"],

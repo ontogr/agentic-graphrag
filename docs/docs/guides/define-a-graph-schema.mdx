@@ -19,10 +19,10 @@ uv pip install "agentic-graphrag[neo4j,extract]"
 
 ## 1. Declare the types
 
-An entity type has a label, a description, and optional properties. A relation type has a label, a description, and the pairs of entity labels that it can join. The descriptions go into the extractor prompt, so write them for the extractor.
+An entity type has a label, a description, and optional properties. Each property uses a `PropertySpec` with a type: `string`, `integer`, `float`, `boolean`, or `date`. A property can be marked `required` and can list allowed values in `enum`. These fields describe what the extractor should return. They do not enforce property presence or allowed values on extracted data. A relation type has a label, a description, and the pairs of entity labels that it can join. The descriptions go into the extractor prompt, so write them for the extractor.
 
 ```python
-from agrag.common.data_models import EntityType, GraphSchema, RelationType
+from agrag.common.data_models import EntityType, GraphSchema, PropertySpec, RelationType
 
 schema = GraphSchema(
     name="computing-history",
@@ -31,7 +31,7 @@ schema = GraphSchema(
         EntityType(
             label="Person",
             description="A named person.",
-            properties={"born": "int"},
+            properties={"born": PropertySpec(type="integer")},
         ),
         EntityType(label="Machine", description="A named computing machine."),
         EntityType(label="City", description="A named city."),
@@ -50,26 +50,36 @@ schema = GraphSchema(
     ],
 )
 
-print(schema.to_compact_summary())
+print(schema.to_prompt_description())
 ```
 
-The output lists the labels and the valid pairs:
+The full prompt description lists entity types, property declarations, and valid relation patterns:
 
 ```text
-Entity labels: Person, Machine, City
+Schema computing-history (version 1)
+Entity types:
+- Person: A named person.
+  properties:
+    - born (integer)
+- Machine: A named computing machine.
+- City: A named city.
 Relation types:
-- DESIGNED: (Person, Machine)
-- WORKED_IN: (Person, City)
+- DESIGNED: A person designed a machine.
+  valid patterns: (Person, Machine)
+- WORKED_IN: A person worked in a city.
+  valid patterns: (Person, City)
 ```
+
+Use `enum` to list allowed values. Each value must match the property's type. For example, `PropertySpec(type="date", enum=["2024-01-31"])` is valid, but `PropertySpec(type="integer", enum=["many"])` is not. Set `required=True` to tell the extractor that the property should be present. Neither `required` nor `enum` validates extracted property values.
 
 When you change the types or the patterns, raise `version`.
 
 ## 2. Make sure that the schema is valid
 
-The schema enforces its own rules when you create it. It rejects a relation pattern that names an undeclared entity. It rejects the property names `label` and `text`.
+The schema enforces its own rules when you create it. It rejects a relation pattern that names an undeclared entity. It rejects the property names `label` and `text`, and it rejects an `enum` value that does not match the property type.
 
 ```python
-from agrag.common.data_models import EntityType, GraphSchema, RelationType
+from agrag.common.data_models import EntityType, GraphSchema, PropertySpec, RelationType
 
 try:
     GraphSchema(
@@ -88,7 +98,7 @@ except ValueError as error:
     print(error)
 
 try:
-    EntityType(label="Person", description="A named person.", properties={"text": "str"})
+    EntityType(label="Person", description="A named person.", properties={"text": PropertySpec(type="string")})
 except ValueError as error:
     print(error)
 ```
@@ -102,7 +112,7 @@ This script contains the whole flow. It opens a graph, adds two sentences, and p
 ```python fixture:clean_neo4j
 import asyncio
 
-from agrag.common.data_models import EntityType, GraphSchema, RelationType
+from agrag.common.data_models import EntityType, GraphSchema, PropertySpec, RelationType
 from agrag.embedding import build_embedder
 from agrag.graphdb import build_graph_store
 from agrag.ingestion import GlinerExtractor, Graph
@@ -114,7 +124,7 @@ schema = GraphSchema(
         EntityType(
             label="Person",
             description="A named person.",
-            properties={"born": "int"},
+            properties={"born": PropertySpec(type="integer")},
         ),
         EntityType(label="Machine", description="A named computing machine."),
         EntityType(label="City", description="A named city."),

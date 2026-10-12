@@ -12,13 +12,19 @@ as "name: description" only when that property exists.
 
 from itertools import product
 
-from agrag.common.data_models.graph_schema import EntityType, GraphSchema, RelationType
+from agrag.common.data_models.graph_schema import (
+    EntityType,
+    GraphSchema,
+    PropertySpec,
+    PropertyType,
+    RelationType,
+)
 
 
-def _entity(label: str, text: str, **extra: str) -> EntityType:
-    return EntityType(
-        label=label, description=text, properties={"description": "str", **extra}
-    )
+def _entity(label: str, text: str, **extra: PropertyType) -> EntityType:
+    properties = {"description": PropertySpec(type="string")}
+    properties.update({name: PropertySpec(type=kind) for name, kind in extra.items()})
+    return EntityType(label=label, description=text, properties=properties)
 
 
 _WORLD = ["Person", "Place", "Organization", "Tool", "Topic", "Event"]
@@ -45,7 +51,7 @@ MEMORY = GraphSchema(
             "Event",
             "A meeting, deadline, milestone or other dated occurrence. Keep the date "
             "as written in the chat.",
-            date_text="str",
+            date_text="string",
         ),
         _entity(
             "Measure",
@@ -53,33 +59,33 @@ MEMORY = GraphSchema(
             "percentage, duration or version, and what it measures. Put the value in "
             "the name (for example 'licence budget 6,200 USD') so that an updated "
             "number is a separate node and does not overwrite the old one.",
-            value="str",
-            unit="str",
-            measures="str",
+            value="string",
+            unit="string",
+            measures="string",
         ),
         _entity(
             "Fact",
             "One thing a speaker states about the user's life, plans or progress. "
             "Name it with a full sentence that includes the values, so two different "
             "statements never share a name. Do not merge opposing statements.",
-            speaker="str",
+            speaker="string",
         ),
         _entity(
             "Instruction",
             "A standing rule the user gives about how to answer, such as 'always "
             "format dates as MM/DD/YYYY'.",
-            speaker="str",
+            speaker="string",
         ),
         _entity(
             "Preference",
             "A stated preference of the user about tools, methods or style.",
-            speaker="str",
+            speaker="string",
         ),
         _entity(
             "Session",
             "One conversation session, named by its number and its date anchor.",
-            session_number="str",
-            session_date="str",
+            session_number="string",
+            session_date="string",
         ),
     ],
     relations=[

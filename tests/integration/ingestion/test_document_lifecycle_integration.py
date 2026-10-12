@@ -1,7 +1,7 @@
-"""Integration tests for the Document/PART_OF version lifecycle.
+"""Integration tests for the Document/HAS_PART version lifecycle.
 
 add() -> update() against a real Neo4j instance: unchanged content is a
-no-op, changed content closes the old PART_OF edges and opens new ones,
+no-op, changed content closes the old HAS_PART edges and opens new ones,
 and the superseded Chunk nodes stay present and unmodified.
 """
 
@@ -109,7 +109,7 @@ async def _open_graph(store: GraphStore) -> Graph:
 
 @pytest.mark.skipif(neo4j_missing, reason="neo4j extra not installed")
 class TestDocumentLifecycle:
-    """add() -> update() closes old PART_OF edges and opens new ones."""
+    """add() -> update() closes old HAS_PART edges and opens new ones."""
 
     async def test_update_supersedes_chunks(self) -> None:
         """Changed content closes old edges; chunks stay present and unmodified."""
@@ -119,7 +119,14 @@ class TestDocumentLifecycle:
         key = f"lifecycle://{uuid4().hex}"
         first_text = "lifecycle alpha version one. " * 60
         second_text = "lifecycle beta version two, materially different. " * 60
+        entity_ids = [str(uuid4()), str(uuid4())]
         try:
+            await store.execute_write(
+                "CREATE (a:_Node:Person {id: $left_id, name: 'Lifecycle left'})"
+                "-[:PART_OF]->"
+                "(b:_Node:Person {id: $right_id, name: 'Lifecycle right'})",
+                {"left_id": entity_ids[0], "right_id": entity_ids[1]},
+            )
             first = await graph.add(
                 documents=[_document(key, first_text)], return_chunks=True
             )
@@ -128,7 +135,7 @@ class TestDocumentLifecycle:
             assert len(old_ids) >= 1
 
             rows = await store.execute_read(
-                "MATCH (d:Document {document_key: $key})-[r:PART_OF]->(c:Chunk) "
+                "MATCH (d:Document {document_key: $key})-[r:HAS_PART]->(c:Chunk) "
                 "RETURN count(r) AS open_edges",
                 {"key": key},
             )
@@ -139,11 +146,18 @@ class TestDocumentLifecycle:
             assert updated.no_op is False
             assert updated.previous_content_hash == _content_hash(first_text)
             assert updated.new_content_hash == _content_hash(second_text)
-            assert updated.chunks_closed == len(old_ids)
+            assert updated.parts_closed == len(old_ids)
             assert updated.add_result is not None
 
             rows = await store.execute_read(
-                "MATCH (:Document {document_key: $key})-[r:PART_OF]->(c:Chunk) "
+                "MATCH (a:_Node {id: $left_id})-[r:PART_OF]->"
+                "(b:_Node {id: $right_id}) RETURN count(r) AS relations",
+                {"left_id": entity_ids[0], "right_id": entity_ids[1]},
+            )
+            assert rows[0]["relations"] == 1
+
+            rows = await store.execute_read(
+                "MATCH (:Document {document_key: $key})-[r:HAS_PART]->(c:Chunk) "
                 "WHERE r.invalid_at IS NULL "
                 "RETURN collect(c.id) AS open_ids",
                 {"key": key},
@@ -153,7 +167,7 @@ class TestDocumentLifecycle:
             assert set(new_ids).isdisjoint(set(old_ids))
 
             rows = await store.execute_read(
-                "MATCH (:Document {document_key: $key})-[r:PART_OF]->(c:Chunk) "
+                "MATCH (:Document {document_key: $key})-[r:HAS_PART]->(c:Chunk) "
                 "WHERE c.id IN $old_ids "
                 "RETURN count(r) AS total, "
                 "count(CASE WHEN r.invalid_at IS NOT NULL THEN 1 END) AS closed",
@@ -163,7 +177,7 @@ class TestDocumentLifecycle:
             assert rows[0]["closed"] == len(old_ids)
 
             rows = await store.execute_read(
-                "MATCH (:Document {document_key: $key})-[r:PART_OF]->(c:Chunk) "
+                "MATCH (:Document {document_key: $key})-[r:HAS_PART]->(c:Chunk) "
                 "WHERE r.invalid_at IS NULL "
                 "RETURN collect(c.id) AS open_ids",
                 {"key": key},
@@ -179,9 +193,13 @@ class TestDocumentLifecycle:
         finally:
             await store.execute_write(
                 "MATCH (d:Document {document_key: $key}) "
-                "OPTIONAL MATCH (d)-[:PART_OF]->(c:Chunk) "
+                "OPTIONAL MATCH (d)-[:HAS_PART]->(c:Chunk) "
                 "DETACH DELETE d, c",
                 {"key": key},
+            )
+            await store.execute_write(
+                "MATCH (n:_Node) WHERE n.id IN $ids DETACH DELETE n",
+                {"ids": entity_ids},
             )
             await store.close()
 
@@ -201,11 +219,11 @@ class TestDocumentLifecycle:
             updated = await graph.update(key, text=text)
 
             assert updated.no_op is True
-            assert updated.chunks_closed == 0
+            assert updated.parts_closed == 0
             assert updated.add_result is None
 
             rows = await store.execute_read(
-                "MATCH (d:Document {document_key: $key})-[r:PART_OF]->(c:Chunk) "
+                "MATCH (d:Document {document_key: $key})-[r:HAS_PART]->(c:Chunk) "
                 "RETURN count(r) AS total, "
                 "count(CASE WHEN r.invalid_at IS NULL THEN 1 END) AS open_edges",
                 {"key": key},
@@ -215,7 +233,7 @@ class TestDocumentLifecycle:
         finally:
             await store.execute_write(
                 "MATCH (d:Document {document_key: $key}) "
-                "OPTIONAL MATCH (d)-[:PART_OF]->(c:Chunk) "
+                "OPTIONAL MATCH (d)-[:HAS_PART]->(c:Chunk) "
                 "DETACH DELETE d, c",
                 {"key": key},
             )
@@ -224,7 +242,7 @@ class TestDocumentLifecycle:
     async def test_delete_document_prunes_entities_without_surviving_evidence(
         self,
     ) -> None:
-        """Delete closes PART_OF edges, keeps chunks, and prunes orphaned entities."""
+        """Delete closes HAS_PART edges, keeps chunks, and prunes orphaned entities."""
         store = build_graph_store("neo4j")
         await store.connect()
         probe_name = f"Zzxqy Deleteprobe {uuid4().hex[:8]}"
@@ -254,11 +272,11 @@ class TestDocumentLifecycle:
             assert deleted.no_op is False
             assert deleted.new_content_hash is None
             assert deleted.add_result is None
-            assert deleted.chunks_closed == len(old_ids)
+            assert deleted.parts_closed == len(old_ids)
             assert deleted.previous_content_hash == _content_hash(text)
 
             rows = await store.execute_read(
-                "MATCH (:Document {document_key: $key})-[r:PART_OF]->(c:Chunk) "
+                "MATCH (:Document {document_key: $key})-[r:HAS_PART]->(c:Chunk) "
                 "WHERE c.id IN $old_ids "
                 "RETURN count(r) AS total, "
                 "count(CASE WHEN r.invalid_at IS NOT NULL THEN 1 END) AS closed",
@@ -287,12 +305,12 @@ class TestDocumentLifecycle:
             assert rows[0]["n"] == 0
 
             again = await graph.delete_document(key)
-            assert again.chunks_closed == 0
+            assert again.parts_closed == 0
         finally:
             merge_keys = [f"Person:{probe_name.strip().casefold()}"]
             await store.execute_write(
                 "MATCH (d:Document {document_key: $key}) "
-                "OPTIONAL MATCH (d)-[:PART_OF]->(c:Chunk) "
+                "OPTIONAL MATCH (d)-[:HAS_PART]->(c:Chunk) "
                 "OPTIONAL MATCH (c)-[:MENTIONED_IN]->(e:Person) "
                 "DETACH DELETE d, c, e",
                 {"key": key},
@@ -305,7 +323,7 @@ class TestDocumentLifecycle:
                 )
             await store.close()
 
-    async def test_repeat_add_converges_part_of_edges(self) -> None:
+    async def test_repeat_add_converges_has_part_edges(self) -> None:
         """Adding identical content twice leaves one open edge per chunk."""
         store = build_graph_store("neo4j")
         await store.connect()
@@ -323,7 +341,7 @@ class TestDocumentLifecycle:
             assert len(second.chunks) == len(first.chunks)
 
             rows = await store.execute_read(
-                "MATCH (:Document {document_key: $key})-[r:PART_OF]->(c:Chunk) "
+                "MATCH (:Document {document_key: $key})-[r:HAS_PART]->(c:Chunk) "
                 "RETURN count(r) AS total, "
                 "count(CASE WHEN r.invalid_at IS NULL THEN 1 END) AS open_edges",
                 {"key": key},
@@ -333,7 +351,7 @@ class TestDocumentLifecycle:
         finally:
             await store.execute_write(
                 "MATCH (d:Document {document_key: $key}) "
-                "OPTIONAL MATCH (d)-[:PART_OF]->(c:Chunk) "
+                "OPTIONAL MATCH (d)-[:HAS_PART]->(c:Chunk) "
                 "DETACH DELETE d, c",
                 {"key": key},
             )

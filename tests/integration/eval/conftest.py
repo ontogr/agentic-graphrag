@@ -355,7 +355,7 @@ async def answer_quality_graph(
             try:
                 await store.execute_write(
                     f"MATCH (d:{DOCUMENT_LABEL}) WHERE d.uri STARTS WITH $prefix "
-                    f"OPTIONAL MATCH (c:{CHUNK_LABEL})-[:PART_OF]-(d) "
+                    f"OPTIONAL MATCH (c:{CHUNK_LABEL})-[:HAS_PART]-(d) "
                     "DETACH DELETE c, d",
                     {"prefix": str(documents)},
                 )

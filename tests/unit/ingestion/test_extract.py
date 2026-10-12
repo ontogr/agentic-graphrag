@@ -38,6 +38,7 @@ from agrag.common.data_models.graph_schema import (
     GENERIC,
     EntityType,
     GraphSchema,
+    PropertySpec,
     RelationType,
 )
 from agrag.common.data_models.provenance import TextProvenance
@@ -160,7 +161,14 @@ _PROPERTY_SCHEMA = GraphSchema(
         EntityType(
             label="Person",
             description="A named individual.",
-            properties={"role": "str"},
+            properties={
+                "role": PropertySpec(
+                    type="string",
+                    required=True,
+                    enum=["author", "editor"],
+                    description="Use the role in the publication.",
+                )
+            },
         ),
     ],
     relations=[],
@@ -982,17 +990,27 @@ class TestDescribeEntityType:
         entity_type = EntityType(label="Person", description="A named individual.")
         assert _describe_entity_type(entity_type) == "A named individual."
 
-    def test_appends_declared_property_names_and_types(self) -> None:
-        """A type's declared properties are named, with their type hint."""
+    def test_appends_typed_property_guidance(self) -> None:
+        """Property requirements and allowed values reach extraction guidance."""
         entity_type = EntityType(
             label="Person",
             description="A named individual.",
-            properties={"role": "str", "age": "int"},
+            properties={
+                "role": PropertySpec(
+                    type="string",
+                    required=True,
+                    enum=["author", "editor"],
+                    description="Use the role in the publication.",
+                ),
+                "age": PropertySpec(type="integer"),
+            },
         )
         description = _describe_entity_type(entity_type)
-        assert description.startswith("A named individual.")
-        assert "role (str)" in description
-        assert "age (int)" in description
+        assert description == (
+            "A named individual.\nProperties to extract when stated:\n- role "
+            "(string, required, one of: author, editor): "
+            "Use the role in the publication.\n- age (integer)"
+        )
 
 
 class TestBAMLExtractor:
@@ -1042,7 +1060,11 @@ class TestBAMLExtractor:
         with patch("agrag.llm.baml_client.type_builder.TypeBuilder", FakeTypeBuilder):
             extractor._type_builder_for(_PROPERTY_SCHEMA)
 
-        assert "role (str)" in recorded["Person"]
+        assert recorded["Person"] == (
+            "A named individual.\nProperties to extract when stated:\n- role "
+            "(string, required, one of: author, editor): "
+            "Use the role in the publication."
+        )
 
     async def test_to_result_maps_source_text_to_indices(self) -> None:
         """BAML output relations are mapped to entity indices by text."""

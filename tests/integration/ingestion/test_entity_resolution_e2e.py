@@ -215,7 +215,7 @@ class TestEntityResolutionEndToEnd:
             )
             await store.execute_write(
                 "MATCH (d:Document) WHERE d.document_key IN $keys "
-                "OPTIONAL MATCH (d)-[:PART_OF]->(c:Chunk) "
+                "OPTIONAL MATCH (d)-[:HAS_PART]->(c:Chunk) "
                 "DETACH DELETE d, c",
                 {"keys": [first_key, second_key]},
             )

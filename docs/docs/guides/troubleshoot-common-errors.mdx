@@ -113,7 +113,11 @@ Value error, Relation 'TREATS' pattern target 'Condition' is not a declared enti
 Value error, Entity type 'Drug' declares reserved property name(s) ['text']; ['label', 'text'] are vector payload keys used for retrieval filtering and keyword search. Rename or remove those property names in the schema.
 ```
 
-Every relation pattern must name entity types that the schema declares. An entity property cannot be named `label` or `text`.
+```text
+Value error, enum value(s) ['many'] are not valid for type 'integer'. An integer value looks like 12 or -3.
+```
+
+Every relation pattern must name entity types that the schema declares. An entity property cannot be named `label` or `text`. Each `enum` value of a property must match the property type.
 
 Declare each entity type, then write the pattern. This schema passes:
 

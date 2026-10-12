@@ -56,7 +56,7 @@ Agentic GraphRAG stores source material, extracted knowledge, and graph summarie
 (:Document)-[:HAS_CHILD]->(:Section)
 (:Section)-[:HAS_CHILD]->(:Section|:Chunk|:Table|:Figure)
 (:Table)-[:HAS_CHILD]->(:Chunk)
-(:Document)-[:PART_OF]->(:Section|:Chunk|:Table|:Figure)
+(:Document)-[:HAS_PART]->(:Section|:Chunk|:Table|:Figure)
 (:Source)-[:HAS_DOCUMENT]->(:Document)
 (:Chunk)-[:NEXT_CHUNK]->(:Chunk)
 (:Chunk)-[:MENTIONED_IN]->(entity)

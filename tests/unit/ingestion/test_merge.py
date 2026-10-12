@@ -20,17 +20,21 @@ from opentelemetry.trace import StatusCode
 
 from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.extraction import ExtractedEntity
-from agrag.common.data_models.graph_schema import EntityType, GraphSchema
+from agrag.common.data_models.graph_schema import (
+    EntityType,
+    GraphSchema,
+    PropertySpec,
+)
 from agrag.common.data_models.stage_failure import StageFailure
 from agrag.ingestion.merge import (
     PropertyRules,
     PropertyStrategy,
     _resolve_property,
     compute_merge,
+    has_part_id,
     mentioned_in_id,
     merge_properties,
     next_chunk_id,
-    part_of_id,
     relation_id,
     resolve_description,
     select_canonical,
@@ -79,7 +83,7 @@ def _mention(
 
 def _schema(
     label: str = "Person",
-    properties: dict[str, str] | None = None,
+    properties: dict[str, PropertySpec] | None = None,
 ) -> GraphSchema:
     """Build a schema with one entity type."""
     return GraphSchema(
@@ -104,7 +108,11 @@ class TestSelectCanonical:
         schema_type = EntityType(
             label="Person",
             description="x",
-            properties={"a": "str", "b": "str", "c": "str"},
+            properties={
+                "a": PropertySpec(type="string"),
+                "b": PropertySpec(type="string"),
+                "c": PropertySpec(type="string"),
+            },
         )
         # e1 missing 2, e2 missing 1, e3 missing 0
         e1 = _entity(name="e1", properties={"a": "1"})
@@ -580,7 +588,7 @@ class TestComputeMerge:
         plan, _ = await compute_merge(
             existing_entities=[],
             mentions=[mention],
-            schema=_schema(properties={"role": "str"}),
+            schema=_schema(properties={"role": PropertySpec(type="string")}),
         )
         assert plan.survivor.properties["role"] == "engineer"
 
@@ -686,7 +694,13 @@ class TestComputeMerge:
 
     async def test_schema_completeness_affects_survivor(self) -> None:
         """Schema completeness influences survivor choice."""
-        schema = _schema(properties={"a": "str", "b": "str", "c": "str"})
+        schema = _schema(
+            properties={
+                "a": PropertySpec(type="string"),
+                "b": PropertySpec(type="string"),
+                "c": PropertySpec(type="string"),
+            }
+        )
         e_full = _entity(name="Ada", properties={"a": "1", "b": "2", "c": "3"})
         e_partial = _entity(name="Ada", properties={"a": "1"})
         # e_full is more complete, should be survivor even if later
@@ -813,15 +827,15 @@ class TestNextChunkId:
         assert next_chunk_id(a, b) == next_chunk_id(a, b)
 
 
-class TestPartOfId:
-    """part_of_id versioned deterministic ids."""
+class TestHasPartId:
+    """has_part_id versioned deterministic ids."""
 
     def test_deterministic_for_same_version(self) -> None:
         """Same triple always returns the same id."""
         d, c = uuid4(), uuid4()
-        assert part_of_id(d, c, "v1") == part_of_id(d, c, "v1")
+        assert has_part_id(d, c, "v1") == has_part_id(d, c, "v1")
 
     def test_distinct_versions_differ(self) -> None:
         """Each document version gets a separate relationship id."""
         d, c = uuid4(), uuid4()
-        assert part_of_id(d, c, "v1") != part_of_id(d, c, "v2")
+        assert has_part_id(d, c, "v1") != has_part_id(d, c, "v2")

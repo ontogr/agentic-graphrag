@@ -11,7 +11,7 @@ from agrag.common.data_models.structure import (
     FIGURE_LABEL,
     HAS_CHILD,
     HAS_DOCUMENT,
-    PART_OF,
+    HAS_PART,
     SECTION_LABEL,
     SOURCE_LABEL,
     TABLE_LABEL,
@@ -26,7 +26,7 @@ from agrag.cypher.entities import NODE_IDENTITY_LABEL, validate_identifier
 TraversalDirection = Literal["outgoing", "incoming", "both"]
 
 
-_STRUCTURE_RELATIONS = (PART_OF, HAS_CHILD, HAS_DOCUMENT)
+_STRUCTURE_RELATIONS = (HAS_PART, HAS_CHILD, HAS_DOCUMENT)
 _STRUCTURE_LABELS = (SECTION_LABEL, TABLE_LABEL, FIGURE_LABEL, SOURCE_LABEL)
 
 
@@ -51,7 +51,7 @@ _DIRECTION_ARROW: dict[TraversalDirection, tuple[str, str]] = {
 }
 
 
-def close_part_of_query() -> str:
+def close_has_part_query() -> str:
     """Build Cypher that closes currently valid document-to-node edges.
 
     Only committed edges are closed. Pending edges belong to an in-flight
@@ -67,7 +67,7 @@ def close_part_of_query() -> str:
     """
     return (
         f"MATCH (d:{NODE_IDENTITY_LABEL}:Document {{id: $document_node_id}})"
-        "-[r:PART_OF]->(c) "
+        f"-[r:{HAS_PART}]->(c) "
         f"WHERE r.invalid_at IS NULL AND {pending_filter_clause('r')} "
         "AND NOT c.id IN $keep_node_ids "
         "SET r.invalid_at = datetime() RETURN count(r) AS closed"
@@ -97,7 +97,7 @@ def bfs_expand_query(
     cross. Neo4j does not accept a parameter for relationship types
     either, so each type is validated and formatted into the pattern.
     None or empty crosses every type except the structure types
-    (``PART_OF``, ``HAS_CHILD``, ``HAS_DOCUMENT``); pass those explicitly
+    (``HAS_PART``, ``HAS_CHILD``, ``HAS_DOCUMENT``); pass those explicitly
     to opt in to crossing them.
 
     ``direction`` picks which way each hop walks: relationships leaving
@@ -213,7 +213,7 @@ def entities_in_documents_query() -> str:
         f"(entity:{NODE_IDENTITY_LABEL}) "
         "WHERE EXISTS { "
         f"MATCH (document:{NODE_IDENTITY_LABEL}:Document)"
-        "-[part:PART_OF]->(chunk) "
+        f"-[part:{HAS_PART}]->(chunk) "
         "WHERE document.id IN $document_ids AND part.invalid_at IS NULL "
         f"AND {pending_filter_clause('document', 'job_id')} "
         f"AND {pending_filter_clause('part', 'job_id')} }} "

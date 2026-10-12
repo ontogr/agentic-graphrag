@@ -5,7 +5,12 @@ schema. Clause kinds are a general legal list, not the labels of CUAD, MAUD or
 ContractNLI.
 """
 
-from agrag.common.data_models.graph_schema import EntityType, GraphSchema, RelationType
+from agrag.common.data_models.graph_schema import (
+    EntityType,
+    GraphSchema,
+    PropertySpec,
+    RelationType,
+)
 
 
 _CLAUSE_KINDS = [
@@ -30,7 +35,10 @@ LEGAL = GraphSchema(
         EntityType(
             label="Agreement",
             description="A contract, policy or other legal document as a whole.",
-            properties={"agreement_type": "str", "effective_date": "str"},
+            properties={
+                "agreement_type": PropertySpec(type="string"),
+                "effective_date": PropertySpec(type="string"),
+            },
         ),
         EntityType(
             label="Party",
@@ -38,33 +46,44 @@ LEGAL = GraphSchema(
                 "A person or organization named in the document, under its legal name "
                 "or a role word such as Company, Parent, Licensor or Receiving Party."
             ),
-            properties={"role": "str"},
+            properties={"role": PropertySpec(type="string")},
         ),
         EntityType(
             label="DefinedTerm",
             description="A capitalized term the document defines, with its meaning.",
-            properties={"description": "str"},
+            properties={"description": PropertySpec(type="string")},
         ),
         EntityType(
             label="Clause",
             description="A numbered section or provision with one legal purpose.",
-            properties={"section_ref": "str", "description": "str"},
+            properties={
+                "section_ref": PropertySpec(type="string"),
+                "description": PropertySpec(type="string"),
+                "kind": PropertySpec(type="string", enum=_CLAUSE_KINDS),
+            },
             subtypes=_CLAUSE_KINDS,
         ),
         EntityType(
             label="Obligation",
             description="What a party must, must not or may do, and on what condition.",
-            properties={"kind": "str", "description": "str"},
+            properties={
+                "kind": PropertySpec(type="string"),
+                "description": PropertySpec(type="string"),
+            },
         ),
         EntityType(
             label="MonetaryAmount",
             description="A stated sum of money, fee, cap or threshold.",
-            properties={"amount_text": "str", "value": "float", "currency": "str"},
+            properties={
+                "amount_text": PropertySpec(type="string"),
+                "value": PropertySpec(type="float"),
+                "currency": PropertySpec(type="string"),
+            },
         ),
         EntityType(
             label="TimePeriod",
             description="A stated duration, term, deadline or notice period.",
-            properties={"anchor_event": "str"},
+            properties={"anchor_event": PropertySpec(type="string")},
         ),
         EntityType(
             label="LegalReference",
@@ -72,7 +91,7 @@ LEGAL = GraphSchema(
                 "A statute, regulation, exhibit, schedule or other agreement that the "
                 "document cites but does not contain."
             ),
-            properties={"reference_kind": "str"},
+            properties={"reference_kind": PropertySpec(type="string")},
         ),
         EntityType(
             label="Jurisdiction", description="A state, country or court venue."
@@ -80,7 +99,7 @@ LEGAL = GraphSchema(
         EntityType(
             label="DataCategory",
             description="A kind of personal data a privacy policy names.",
-            properties={"sensitive": "bool"},
+            properties={"sensitive": PropertySpec(type="boolean")},
         ),
         EntityType(
             label="Purpose",

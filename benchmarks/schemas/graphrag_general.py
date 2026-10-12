@@ -10,16 +10,19 @@ as "name: description" only when that property exists.
 
 from itertools import product
 
-from agrag.common.data_models.graph_schema import EntityType, GraphSchema, RelationType
+from agrag.common.data_models.graph_schema import (
+    EntityType,
+    GraphSchema,
+    PropertySpec,
+    PropertyType,
+    RelationType,
+)
 
 
-_DESCRIPTION = {"description": "str"}
-
-
-def _entity(label: str, text: str, **extra: str) -> EntityType:
-    return EntityType(
-        label=label, description=text, properties={**_DESCRIPTION, **extra}
-    )
+def _entity(label: str, text: str, **extra: PropertyType) -> EntityType:
+    properties = {"description": PropertySpec(type="string")}
+    properties.update({name: PropertySpec(type=kind) for name, kind in extra.items()})
+    return EntityType(label=label, description=text, properties=properties)
 
 
 _NOVEL_LABELS = [
@@ -73,8 +76,8 @@ NOVEL = GraphSchema(
         _entity(
             "Quantity",
             "A stated number, amount of money, measure or price.",
-            value="str",
-            unit="str",
+            value="string",
+            unit="string",
         ),
         _entity("Date", "A stated date, year, season or time period."),
     ],
@@ -186,19 +189,21 @@ MEDICAL = GraphSchema(
         _entity(
             "Treatment",
             "A drug, chemotherapy, radiation, immunotherapy or other therapy.",
-            treatment_kind="str",
+            treatment_kind="string",
         ),
         _entity(
             "RiskFactor", "An exposure, trait, habit or condition that raises risk."
         ),
         _entity("Symptom", "A sign, symptom or side effect."),
-        _entity("Stage", "A stage, grade or TNM category of a cancer.", system="str"),
+        _entity(
+            "Stage", "A stage, grade or TNM category of a cancer.", system="string"
+        ),
         _entity("Biomarker", "A gene, protein or molecular marker tested for."),
         _entity(
             "Recommendation",
             "A guideline statement such as 'NCCN recommends' or 'is recommended', "
             "with what it advises.",
-            strength="str",
+            strength="string",
         ),
         _entity("FollowUp", "A follow-up visit, schedule or surveillance plan."),
         _entity(

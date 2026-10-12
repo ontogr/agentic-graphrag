@@ -224,9 +224,9 @@ class MilvusVectorStore(VectorStore):
                     from pymilvus import AsyncMilvusClient  # noqa: PLC0415
                 except ImportError as exc:
                     raise VectorStoreMissingExtraError("milvus") from exc
-                if self._settings.token:
+                if token := self._settings.token.get_secret_value():
                     self._client = AsyncMilvusClient(
-                        uri=self._settings.uri, token=self._settings.token
+                        uri=self._settings.uri, token=token
                     )
                 else:
                     self._client = AsyncMilvusClient(uri=self._settings.uri)

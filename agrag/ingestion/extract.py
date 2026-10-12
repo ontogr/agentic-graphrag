@@ -128,15 +128,18 @@ def _describe_entity_type(entity_type: EntityType) -> str:
         entity_type: The entity type to describe.
 
     Returns:
-        The type's own description, followed by its declared property names
-        and type hints when it declares any.
+        The type's description, property names, types, required flags and
+        allowed values, with property-specific guidance when it declares any.
     """
     if not entity_type.properties:
         return entity_type.description
-    declared = ", ".join(
-        f"{name} ({type_name})" for name, type_name in entity_type.properties.items()
-    )
-    return f"{entity_type.description} Properties to extract when stated: {declared}."
+    lines = [entity_type.description, "Properties to extract when stated:"]
+    for name, spec in entity_type.properties.items():
+        line = f"- {spec.describe(name)}"
+        if spec.description:
+            line += f": {spec.description}"
+        lines.append(line)
+    return "\n".join(lines)
 
 
 def _resolve_relation_pair(
@@ -355,7 +358,7 @@ class ExtractionLLMSettings(BaseSettings):
         Returns:
             Settings pointing at one ``openai-generic`` client.
         """
-        load_dotenv()
+        load_dotenv(dotenv_path=".env")
         base_url = os.environ.get("LLM_BASE_URL")
         api_key = os.environ.get("LLM_API_KEY")
         model = os.environ.get("LLM_MODEL_ID")
@@ -380,7 +383,10 @@ class GlinerExtractor(Extractor):
     first use and one load serves concurrent calls. Inference calls run one at a
     time on one worker thread. A call cancelled while it waits for its turn never
     starts, and one cancelled mid-inference leaves the next call waiting until the
-    inference ends. The first load downloads the weights from Hugging Face unless
+    inference ends. Each instance loads its own model and runs its own inference
+    thread, so share one extractor across graphs that use the same event loop.
+    Concurrent calls from separate event loops are not supported. The first load
+    downloads the weights from Hugging Face unless
     ``model`` is passed. GLiNER reports entity spans and types, so extracted
     entities carry no property values. Needs the ``extract`` extra.
     It asks for confidence and spans, and applies the configured entity and

@@ -8,7 +8,7 @@ query's text.
 """
 
 import asyncio
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import uuid4
 
@@ -155,6 +155,34 @@ class _FakeResumeStore:
 
 class TestResumeIncompleteJobs:
     """resume_incomplete_jobs rolls back or forward, per job status."""
+
+    @staticmethod
+    async def test_uses_current_cutover_settings_when_called(monkeypatch) -> None:
+        """An omitted lease duration comes from settings at invocation time."""
+        job_id = str(uuid4())
+        store = _FakeResumeStore(
+            [
+                {
+                    "id": job_id,
+                    "status": "committed",
+                    "affected_entity_ids": [],
+                    "lease_expired": True,
+                }
+            ]
+        )
+        monkeypatch.setenv("CUTOVER_JOB_LEASE_TTL_SECONDS", "23")
+        started = datetime.now(UTC)
+
+        handled = await resume_incomplete_jobs(store)
+        finished = datetime.now(UTC)
+
+        assert handled == [job_id]
+        assert store.jobs[job_id]["status"] == "done"
+        assert (
+            started + timedelta(seconds=23)
+            <= store.jobs[job_id]["lease_expires_at"]
+            <= finished + timedelta(seconds=23)
+        )
 
     async def test_pending_job_renewed_after_scan_is_not_rolled_back(self) -> None:
         """Recovery does not delete a job that renewed after its scan result."""

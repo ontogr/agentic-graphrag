@@ -23,7 +23,7 @@ flowchart LR
     S -->|HAS_CHILD| C[Chunk]
     S -->|HAS_CHILD| T[Table]
     T -->|HAS_CHILD| C
-    D -->|PART_OF| C
+    D -->|HAS_PART| C
     C -->|NEXT_CHUNK| C
     C -->|MENTIONED_IN| E[Entity]
     E -->|schema relation| E
@@ -32,7 +32,7 @@ flowchart LR
     E -->|MEMBER_OF| M[Community]
 ```
 
-*The node kinds and their edges. Entity nodes use your schema's type names as labels. `PART_OF` also joins a document to each section, table and figure.*
+*The node kinds and their edges. Entity nodes use your schema's type names as labels. `HAS_PART` also joins a document to each section, table and figure.*
 
 The graph has these kinds of node:
 
@@ -49,7 +49,7 @@ The edges connect them:
 
 - `HAS_CHILD` builds the tree. It joins a document or section to its sections, tables, figures and chunks, and a table to its chunks. It carries an `order`, the reading order of the child.
 - `HAS_DOCUMENT` joins the source file of a record file, such as a CSV file, to each of its row documents.
-- `PART_OF` joins a document to each of its sections, tables, figures and chunks. It has a start time and an end time. The edge is open while the node belongs to the current version of the document.
+- `HAS_PART` joins a document to each of its sections, tables, figures and chunks. It has a start time and an end time. The edge is open while the node belongs to the current version of the document. `HAS_CHILD` gives the reading order. `HAS_PART` says which document version owns a node.
 - `NEXT_CHUNK` joins two neighbouring chunks of one document.
 - `MENTIONED_IN` joins a chunk to each entity it mentions.
 - A schema relation joins two entities, for example `WORKED_WITH`. Only the patterns that your schema allows can exist.
@@ -68,7 +68,7 @@ Take a note with two sentences about Ada Lovelace, Charles Babbage and the Analy
 | Chunk | 1 |
 | Entity | 5 |
 | `HAS_CHILD` edges | 2 |
-| `PART_OF` edges | 2 |
+| `HAS_PART` edges | 2 |
 | `MENTIONED_IN` edges | 5 |
 
 The five entities are two people, one place, one product and one event. The preset has one relation type, and the extractor found no relation in this text, so the graph has no relation edge. A stricter schema for your domain gives the extractor more to look for.
@@ -78,7 +78,7 @@ The five entities are two people, one place, one product and one event. The pres
 
 Why are chunks nodes? A chunk node lets an answer cite its source. It also lets a search step from one chunk to its neighbours.
 
-Why does `PART_OF` have an end time instead of being deleted? A changed document closes its old edges and opens new ones. The old chunks stay as history. Search reads only open edges, so a removed document leaves retrieval at once.
+Why does `HAS_PART` have an end time instead of being deleted? A changed document closes its old edges and opens new ones. The old chunks stay as history. Search reads only open edges, so a removed document leaves retrieval at once.
 
 Why does the resolver add a ResolvedEntity instead of merging entities? A match is a judgement. The original entity nodes stay, so a wrong match loses no information.
 

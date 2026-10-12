@@ -2,7 +2,7 @@
 
 reevaluate() gains a MATCHES edge between two similar persisted
 entities on a real Neo4j instance. The deletion test depends on
-Graph.delete_document's lexical-backbone lifecycle closing PART_OF
+Graph.delete_document's lexical-backbone lifecycle closing HAS_PART
 edges: removing a document orphans its entities, which prunes their
 nodes and shrunken clusters while an entity with surviving evidence
 from another document stays.
@@ -267,7 +267,7 @@ class TestDeletionPruningIntegration:
             deleted = await graph.delete_document(doc_key)
 
             assert deleted.no_op is False
-            assert deleted.chunks_closed >= 1
+            assert deleted.parts_closed >= 1
             rows = await store.execute_read(
                 "MATCH (e:Person) WHERE e.id IN $ids RETURN count(e) AS n",
                 {"ids": [str(member.id) for member in members]},
@@ -286,7 +286,7 @@ class TestDeletionPruningIntegration:
             )
             assert rows == [{"n": 1}]
             rows = await store.execute_read(
-                "MATCH (:Document {document_key: $key})-[r:PART_OF]->(:Chunk) "
+                "MATCH (:Document {document_key: $key})-[r:HAS_PART]->(:Chunk) "
                 "WHERE r.invalid_at IS NULL RETURN count(r) AS open_edges",
                 {"key": keep_key},
             )
@@ -294,7 +294,7 @@ class TestDeletionPruningIntegration:
         finally:
             await store.execute_write(
                 "MATCH (d:Document) WHERE d.document_key IN $keys "
-                "OPTIONAL MATCH (d)-[:PART_OF]->(c:Chunk) "
+                "OPTIONAL MATCH (d)-[:HAS_PART]->(c:Chunk) "
                 "DETACH DELETE d, c",
                 {"keys": [doc_key, keep_key]},
             )

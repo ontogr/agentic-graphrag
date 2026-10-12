@@ -709,7 +709,7 @@ async def update_document(  # noqa: PLR0913
             keep_node_ids.extend(batch.structure_node_ids)
             return batch.add_result
 
-        add_result, cleanup_failures, chunks_closed = await run_cutover_job(
+        add_result, cleanup_failures, parts_closed = await run_cutover_job(
             verb="update",
             document_key=document_key,
             affected_entity_ids=candidates,
@@ -731,7 +731,7 @@ async def update_document(  # noqa: PLR0913
             no_op=False,
             previous_content_hash=(found.current_content_hash if found else None),
             new_content_hash=document.content_hash,
-            chunks_closed=chunks_closed,
+            parts_closed=parts_closed,
             add_result=_with_cleanup_failures(add_result, cleanup_failures).model_copy(
                 update={"chunking": ChunkingStats.from_documents([document], chunks)}
             ),
@@ -757,7 +757,7 @@ async def delete_document(  # noqa: PLR0913
             graph_store, found.document_node_id
         )
 
-        _, _, chunks_closed = await run_cutover_job(
+        _, _, parts_closed = await run_cutover_job(
             verb="delete_document",
             document_key=document_key,
             affected_entity_ids=candidates,
@@ -774,5 +774,5 @@ async def delete_document(  # noqa: PLR0913
             document_key=document_key,
             no_op=False,
             previous_content_hash=found.current_content_hash,
-            chunks_closed=chunks_closed,
+            parts_closed=parts_closed,
         )
