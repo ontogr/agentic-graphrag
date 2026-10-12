@@ -327,6 +327,36 @@ class TestGlinerExtractor:
             ("entity_band", "Bob Smith")
         ]
 
+    async def test_failing_band_call_keeps_the_main_entities(self) -> None:
+        """A band call that raises leaves the main call's entities in place."""
+        chunk = _chunk("Ada Lovelace met Bob Smith.")
+        main = {
+            "entities": {
+                "Person": [
+                    {"text": "Ada Lovelace", "confidence": 0.9, "start": 0, "end": 12}
+                ]
+            },
+            "relation_extraction": {},
+        }
+
+        class BandFailsModel(FakeModel):
+            def extract(self, text: str, schema: FakeSchema, **kwargs: object) -> dict:
+                if kwargs["threshold"] == 0.3:
+                    raise RuntimeError("band call failed")
+                return super().extract(text, schema, **kwargs)
+
+        model = BandFailsModel(main)
+        settings = ExtractionSettings(
+            entity_threshold=0.5, band_floor=0.3, candidates_enabled=True
+        )
+
+        result = await GlinerExtractor(model=model, settings=settings).extract(
+            chunk, _ONE_PAIR_SCHEMA
+        )
+
+        assert [e.text for e in result.entities] == ["Ada Lovelace"]
+        assert result.candidates == []
+
     async def test_no_band_call_when_candidates_are_off(self) -> None:
         """Turning candidates off removes the second model call."""
         model = FakeModel()
@@ -1499,6 +1529,7 @@ class TestEscalatingExtractor:
         *,
         primary_entities: list | None = None,
         primary_confidences: list[float | None] | None = None,
+        primary_needs_properties: bool = False,
         escalate_entities: list | None = None,
     ) -> tuple[EscalatingExtractor, list[str]]:
         """Build an EscalatingExtractor with a fake primary and escalate_to.
@@ -1523,6 +1554,7 @@ class TestEscalatingExtractor:
             else [],
             relations=[],
             extractor_name="primary",
+            needs_properties=primary_needs_properties,
         )
 
         escalate_result = ExtractionResult(
@@ -1577,6 +1609,18 @@ class TestEscalatingExtractor:
         extractor, ran = self._make_extractor(
             primary_entities=[1, 2],
             primary_confidences=[0.3, 0.4],
+        )
+        result = await extractor.extract(chunk, DEFAULT_SCHEMA)
+        assert ran == ["primary", "escalate"]
+        assert result.extractor_name == "escalate"
+
+    async def test_escalates_when_primary_leaves_properties_unfilled(self) -> None:
+        """A confident primary result that needs properties still escalates."""
+        chunk = _chunk("This is a chunk with enough words to pass the floor.")
+        extractor, ran = self._make_extractor(
+            primary_entities=[1, 2],
+            primary_confidences=[0.9, 0.95],
+            primary_needs_properties=True,
         )
         result = await extractor.extract(chunk, DEFAULT_SCHEMA)
         assert ran == ["primary", "escalate"]

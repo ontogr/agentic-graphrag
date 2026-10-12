@@ -224,6 +224,8 @@ class TestDecodeGliner:
         (candidate,) = result.candidates
         assert candidate.reason == "unresolved_endpoint"
         assert candidate.target_text == "Bolt Ltd"
+        assert candidate.source_label == "Person"
+        assert candidate.target_label is None
 
     def test_relation_off_pattern_becomes_a_candidate(self) -> None:
         """A relation whose endpoint labels fit no pattern is a candidate."""

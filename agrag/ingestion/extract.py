@@ -227,6 +227,8 @@ def _normalize_extraction_result(
         entities=valid_entities,
         relations=valid_relations,
         extractor_name=result.extractor_name,
+        candidates=result.candidates,
+        needs_properties=result.needs_properties,
     )
 
 
@@ -255,7 +257,8 @@ def _infer(
         settings: Supplies both thresholds.
 
     Returns:
-        The raw result of the main call, and of the band call or None.
+        The raw result of the main call, and of the band call. The band result
+        is None when no band call ran or when the band call raised.
     """
     raw = model.extract(  # ty: ignore[unresolved-attribute]
         text,
@@ -266,13 +269,20 @@ def _infer(
     )
     if band_schema is None:
         return raw, None
-    band_raw = model.extract(  # ty: ignore[unresolved-attribute]
-        text,
-        band_schema,
-        threshold=settings.band_floor,
-        include_confidence=True,
-        include_spans=True,
-    )
+    try:
+        band_raw = model.extract(  # ty: ignore[unresolved-attribute]
+            text,
+            band_schema,
+            threshold=settings.band_floor,
+            include_confidence=True,
+            include_spans=True,
+        )
+    except Exception:
+        logger.warning(
+            "Band inference failed; keeping the main result without band candidates.",
+            exc_info=True,
+        )
+        return raw, None
     return raw, band_raw
 
 
@@ -860,8 +870,9 @@ class EscalatingExtractor(Extractor):
     """Run a cheap extractor on every chunk and a stronger one on weak results.
 
     The primary extractor runs first. A chunk escalates when the primary finds
-    no entities in a chunk of at least ``min_chunk_words`` words, or when the
-    mean entity confidence is below ``min_confidence``. An escalated chunk gets
+    no entities in a chunk of at least ``min_chunk_words`` words, when the
+    mean entity confidence is below ``min_confidence``, or when the primary
+    sets ``needs_properties``. An escalated chunk gets
     the ``escalate_to`` result alone. The two results are never combined. A
     common pairing is ``GlinerExtractor`` as primary and ``BAMLExtractor`` as
     fallback.
@@ -931,6 +942,8 @@ class EscalatingExtractor(Extractor):
             result: The primary extractor's result for chunk.
             chunk: The chunk result came from, used for its word count.
         """
+        if result.needs_properties:
+            return True
         if not result.entities and len(chunk.text.split()) >= self.min_chunk_words:
             return True
         confidences = [

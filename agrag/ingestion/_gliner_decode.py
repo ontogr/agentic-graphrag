@@ -125,6 +125,11 @@ def _endpoint_index(
     return matches[0] if len(matches) == 1 else None
 
 
+def _endpoint_label(index: int | None, entities: list[ExtractedEntity]) -> str | None:
+    """Return the label of a resolved endpoint, or None when unresolved."""
+    return None if index is None else entities[index].label
+
+
 def _relations(
     raw_relations: dict[str, list[dict[str, Any]]],
     *,
@@ -192,6 +197,8 @@ def _relations(
                         text="",
                         source_text=str(head["text"]).strip(),
                         target_text=str(tail["text"]).strip(),
+                        source_label=_endpoint_label(source, entities),
+                        target_label=_endpoint_label(target, entities),
                         confidence=score,
                         reason=reason,
                         chunk_id=chunk_id,
