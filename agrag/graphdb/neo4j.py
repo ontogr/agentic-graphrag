@@ -12,6 +12,11 @@ from uuid import UUID
 
 from opentelemetry.trace import Span, SpanKind, Tracer
 
+from agrag.common.data_models.candidate import (
+    CANDIDATE_EDGE_TYPES,
+    CANDIDATE_LABEL,
+    CandidateRecord,
+)
 from agrag.common.data_models.graph_record import (
     NodeRecord,
     RelationRecord,
@@ -20,7 +25,12 @@ from agrag.common.data_models.graph_record import (
 )
 from agrag.common.data_models.vector_record import Distance, VectorHit
 from agrag.common.validation import require_positive_batch_size
+from agrag.cypher.candidates import (
+    blocked_candidate_keys_query,
+    upsert_candidates_query,
+)
 from agrag.cypher.entities import (
+    MERGE_ALIAS_LABEL,
     NODE_IDENTITY_LABEL,
     is_safe_identifier,
     upsert_node_query,
@@ -28,6 +38,9 @@ from agrag.cypher.entities import (
 )
 from agrag.cypher.relations import upsert_relation_query
 from agrag.cypher.schema import (
+    candidate_id_constraint_query,
+    candidate_key_index_query,
+    candidate_state_index_query,
     cutover_job_document_key_constraint_query,
     cutover_job_status_index_query,
     merge_alias_constraint_query,
@@ -48,7 +61,7 @@ from agrag.graphdb.errors import (
     GraphStoreConstraintViolationError,
     GraphStoreMissingExtraError,
 )
-from agrag.graphdb.serialize import node_params, relation_params
+from agrag.graphdb.serialize import candidate_params, node_params, relation_params
 from agrag.graphdb.settings import Neo4jSettings
 from agrag.observability import (
     DB_COLLECTION_NAME,
@@ -337,6 +350,8 @@ class Neo4jGraphStore(GraphStore):
         self._cutover_job_constraint_lock = asyncio.Lock()
         self._cutover_job_status_index_ready = False
         self._cutover_job_status_index_lock = asyncio.Lock()
+        self._candidate_schema_ready = False
+        self._candidate_schema_lock = asyncio.Lock()
         self._relation_type_constraints_ready: set[str] = set()
         self._relation_constraint_lock = asyncio.Lock()
 
@@ -511,6 +526,7 @@ class Neo4jGraphStore(GraphStore):
             await self._ensure_merge_alias_constraint()
             await self._ensure_cutover_job_constraint()
             await self._ensure_cutover_job_status_index()
+            await self._ensure_candidate_schema()
             async with self.session() as session:
                 try:
 
@@ -542,6 +558,7 @@ class Neo4jGraphStore(GraphStore):
         await self._ensure_merge_alias_constraint()
         await self._ensure_cutover_job_constraint()
         await self._ensure_cutover_job_status_index()
+        await self._ensure_candidate_schema()
         # Read the existing names once so the cost does not grow with the
         # number of constraints already in the database. Creates keep
         # IF NOT EXISTS because another writer can create one in between.
@@ -620,6 +637,18 @@ class Neo4jGraphStore(GraphStore):
                 return
             await self.execute_write(cutover_job_status_index_query())
             self._cutover_job_status_index_ready = True
+
+    async def _ensure_candidate_schema(self) -> None:
+        """Create candidate constraints and indexes once."""
+        if self._candidate_schema_ready:
+            return
+        async with self._candidate_schema_lock:
+            if self._candidate_schema_ready:
+                return
+            await self.execute_write(candidate_id_constraint_query())
+            await self.execute_write(candidate_key_index_query())
+            await self.execute_write(candidate_state_index_query())
+            self._candidate_schema_ready = True
 
     async def _ensure_relation_constraint(self, rel_type: str) -> None:
         """Create a relationship type's ``id`` uniqueness constraint once.
@@ -709,13 +738,15 @@ class Neo4jGraphStore(GraphStore):
         left over from other tooling cannot block every other constraint.
 
         Returns:
-            The label names, excluding the internal identity anchor.
+            Labels excluding internal labels with dedicated constraints.
         """
         rows = await self.execute_read("CALL db.labels() YIELD label RETURN label")
         live = {
             row["label"]
             for row in rows
-            if row["label"] != NODE_IDENTITY_LABEL and is_safe_identifier(row["label"])
+            if row["label"]
+            not in {NODE_IDENTITY_LABEL, MERGE_ALIAS_LABEL, CANDIDATE_LABEL}
+            and is_safe_identifier(row["label"])
         }
         return self._known_labels | live
 
@@ -850,6 +881,10 @@ class Neo4jGraphStore(GraphStore):
             for rel in relations:
                 try:
                     validate_identifier(rel.type)
+                    if rel.type in CANDIDATE_EDGE_TYPES:
+                        raise ValueError(
+                            f"{rel.type!r} is reserved for the candidate store"
+                        )
                 except ValueError as exc:
                     outcome.failures.append(
                         UpsertFailure(
@@ -881,6 +916,61 @@ class Neo4jGraphStore(GraphStore):
             span.set_attribute("agrag.written", outcome.written)
             span.set_attribute("agrag.failures_count", len(outcome.failures))
             return outcome
+
+    async def upsert_candidates(
+        self,
+        candidates: Sequence[CandidateRecord],
+        *,
+        batch_size: int = 256,
+        pending_job_id: UUID | None = None,
+    ) -> UpsertResult:
+        """Write candidates without changing nodes that already exist."""
+        with self._tracer.start_as_current_span(
+            "agrag.graphdb.upsert_candidates",
+            kind=SpanKind.INTERNAL,
+            attributes={"agrag.record_count": len(candidates)},
+        ) as span:
+            require_positive_batch_size(batch_size)
+            await self._ensure_candidate_schema()
+            for edge_type in sorted(CANDIDATE_EDGE_TYPES):
+                await self._ensure_relation_constraint(edge_type)
+            self._known_relation_types.update(CANDIDATE_EDGE_TYPES)
+            blocked = await self.blocked_candidate_keys(
+                [record.key for record in candidates]
+            )
+            outcome = UpsertResult()
+            records = []
+            for record in candidates:
+                if record.key in blocked:
+                    outcome.failures.append(
+                        UpsertFailure(
+                            id=str(record.id),
+                            error_type="ReviewedKeyBlocked",
+                            error_message="a reviewed candidate with this key exists",
+                        )
+                    )
+                    continue
+                records.append(candidate_params(record, pending_job_id=pending_job_id))
+            batch_outcome = await self._batch_write(
+                upsert_candidates_query(),
+                records,
+                batch_size,
+                require_returned_ids=True,
+            )
+            outcome.written += batch_outcome.written
+            outcome.failures.extend(batch_outcome.failures)
+            span.set_attribute("agrag.written", outcome.written)
+            span.set_attribute("agrag.failures_count", len(outcome.failures))
+            return outcome
+
+    async def blocked_candidate_keys(self, keys: Sequence[str]) -> set[str]:
+        """Return keys with a committed candidate that is not pending."""
+        if not keys:
+            return set()
+        rows = await self.execute_read(
+            blocked_candidate_keys_query(), {"keys": list(keys)}
+        )
+        return {str(row["key"]) for row in rows}
 
     async def ensure_vector_index(
         self, *, label: str, vector_property: str, dimensions: int, distance: Distance

@@ -15,6 +15,7 @@ from uuid import UUID, uuid4
 
 import pytest
 
+from agrag.common.data_models.candidate import CandidateRecord
 from agrag.common.data_models.default_schema import DEFAULT_SCHEMA
 from agrag.common.data_models.graph_record import (
     NodeRecord,
@@ -139,6 +140,20 @@ class _ScriptedStore(GraphStore):
         """Record a relation upsert."""
         self.upserted_relations.append(list(relations))
         return UpsertResult(written=len(relations))
+
+    async def upsert_candidates(
+        self,
+        candidates: Sequence[CandidateRecord],
+        *,
+        batch_size: int = 256,
+        pending_job_id: UUID | None = None,
+    ) -> UpsertResult:
+        """Report every candidate written."""
+        return UpsertResult(written=len(candidates))
+
+    async def blocked_candidate_keys(self, keys: Sequence[str]) -> set[str]:
+        """Return no reviewed candidate keys."""
+        return set()
 
     async def ensure_vector_index(
         self, *, label: str, vector_property: str, dimensions: int, distance: Distance

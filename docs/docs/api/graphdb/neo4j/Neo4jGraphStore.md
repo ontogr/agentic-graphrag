@@ -19,6 +19,7 @@ driver's managed transactions with no added retry loop.
 
 **Functions:**
 
+- [**blocked_candidate_keys**](#agrag-graphdb-neo4j-Neo4jGraphStore-blocked_candidate_keys) – Return keys with a committed candidate that is not pending.
 - [**close**](#agrag-graphdb-neo4j-Neo4jGraphStore-close) – Close the driver, releasing its connection pool.
 - [**connect**](#agrag-graphdb-neo4j-Neo4jGraphStore-connect) – Open the driver and verify connectivity.
 - [**ensure_relation_constraint**](#agrag-graphdb-neo4j-Neo4jGraphStore-ensure_relation_constraint) – Create a relationship type's `id` uniqueness constraint once.
@@ -31,6 +32,7 @@ driver's managed transactions with no added retry loop.
 - [**session**](#agrag-graphdb-neo4j-Neo4jGraphStore-session) – Open a session to the configured database.
 - [**setup_constraints**](#agrag-graphdb-neo4j-Neo4jGraphStore-setup_constraints) – Create `id` and `merge_key` uniqueness constraints per label.
 - [**setup_indexes**](#agrag-graphdb-neo4j-Neo4jGraphStore-setup_indexes) – Set up indexes now provided by the store's uniqueness constraints.
+- [**upsert_candidates**](#agrag-graphdb-neo4j-Neo4jGraphStore-upsert_candidates) – Write candidates without changing nodes that already exist.
 - [**upsert_nodes**](#agrag-graphdb-neo4j-Neo4jGraphStore-upsert_nodes) – Write or merge nodes, honoring each record's full label set.
 - [**upsert_relations**](#agrag-graphdb-neo4j-Neo4jGraphStore-upsert_relations) – Write or merge relationships between existing nodes.
 - [**vector_search**](#agrag-graphdb-neo4j-Neo4jGraphStore-vector_search) – Search nodes by dense vector using the native vector index.
@@ -42,6 +44,14 @@ driver's managed transactions with no added retry loop.
   `__init__` imports nothing and the store calls this object
   directly instead of building one.
 - **tracer** (<code>Tracer | None</code>) – Opens every span this store's methods produce.
+
+## `blocked_candidate_keys` \{#agrag-graphdb-neo4j-Neo4jGraphStore-blocked_candidate_keys}
+
+```python
+blocked_candidate_keys(keys:Sequence[str]) -> set[str]
+```
+
+Return keys with a committed candidate that is not pending.
 
 ## `close` \{#agrag-graphdb-neo4j-Neo4jGraphStore-close}
 
@@ -228,6 +238,14 @@ Kept as a no-op for callers that provision constraints and indexes in
 separate steps. Neo4j creates backing indexes for the `id` and
 `merge_key` uniqueness constraints, so creating range indexes for
 the same properties would conflict with those constraints.
+
+## `upsert_candidates` \{#agrag-graphdb-neo4j-Neo4jGraphStore-upsert_candidates}
+
+```python
+upsert_candidates(candidates:Sequence[CandidateRecord], *, batch_size:int = 256, pending_job_id:UUID | None = None) -> UpsertResult
+```
+
+Write candidates without changing nodes that already exist.
 
 ## `upsert_nodes` \{#agrag-graphdb-neo4j-Neo4jGraphStore-upsert_nodes}
 
