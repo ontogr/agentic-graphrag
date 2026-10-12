@@ -5,6 +5,7 @@ from agrag.schema.formats.errors import (
     SchemaFormatMissingExtraError,
 )
 from agrag.schema.formats.json_schema import to_json_schema
+from agrag.schema.formats.jsonld import to_jsonld
 from agrag.schema.formats.owl import load_owl, loads_owl
 from agrag.schema.formats.pydantic_models import from_pydantic
 from agrag.schema.formats.result import FormatWarning, ImportResult
@@ -20,5 +21,6 @@ __all__ = [
     "load_owl",
     "loads_owl",
     "to_json_schema",
+    "to_jsonld",
     "to_shacl",
 ]

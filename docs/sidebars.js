@@ -80,6 +80,7 @@ const sidebars = {
       'reference/configuration',
       'reference/schema-file-format',
       'reference/schema-format-json-schema',
+      'reference/schema-json-ld',
       'reference/schema-format-pydantic',
       'reference/schema-format-shacl',
       'reference/owl-import',
