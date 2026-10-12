@@ -29,7 +29,7 @@ from agrag.common.data_models.structure import (
     unit_keys,
     version_id,
 )
-from agrag.ingestion._lexical_backbone import build_part_of_records
+from agrag.ingestion._lexical_backbone import build_has_part_records
 from agrag.ingestion.merge import has_child_id, relation_id
 
 
@@ -305,7 +305,7 @@ def build_document_structure(
         out.structure_node_ids.extend(records.structure_node_ids)
         out.relations.extend(records.relations)
         out.relations.extend(
-            build_part_of_records(
+            build_has_part_records(
                 document_node_id,
                 [
                     *chunk_ids,

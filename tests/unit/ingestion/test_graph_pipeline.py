@@ -980,7 +980,7 @@ class TestGraphAddPipeline:
         assert all(failure.item_id != "chunks" for failure in result.storage.failures)
 
     async def test_add_includes_next_chunk_records(self) -> None:
-        """add() includes NEXT_CHUNK edges alongside PART_OF records."""
+        """add() includes NEXT_CHUNK edges alongside HAS_PART records."""
         store, embed, extractor = MockStore(), MockEmbedder(), MockExtractor()
         graph = await Graph.open(
             schema=GENERIC, graph_store=store, embedder=embed, extractor=extractor

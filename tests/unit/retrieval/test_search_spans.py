@@ -112,7 +112,7 @@ def _routed_store() -> AsyncMock:
                 }
                 for value in ids
             ]
-        if "PART_OF" in query:
+        if "HAS_PART" in query:
             return _chunk_rows(UUID(params["ids"][0]))
         if "UNWIND $ids" in query:
             return _entity_rows(UUID(params["ids"][0]))

@@ -9,7 +9,7 @@ sidebar_label: version_id
 version_id(document:Document) -> str
 ```
 
-Return the id of one version of a document, as `PART_OF` edges use it.
+Return the id of one version of a document, as `HAS_PART` edges use it.
 
 **Parameters:**
 

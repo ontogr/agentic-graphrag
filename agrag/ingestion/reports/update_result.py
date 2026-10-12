@@ -13,7 +13,7 @@ class UpdateResult(BaseModel):
         no_op: Whether no graph changes were needed.
         previous_content_hash: Hash stored before the operation, if present.
         new_content_hash: Hash written by an update, or ``None`` on deletion.
-        chunks_closed: Number of open PART_OF edges closed.
+        parts_closed: Number of open HAS_PART edges closed.
         add_result: Ingestion details for changed content, if any.
     """
 
@@ -21,5 +21,5 @@ class UpdateResult(BaseModel):
     no_op: bool
     previous_content_hash: str | None = None
     new_content_hash: str | None = None
-    chunks_closed: int = 0
+    parts_closed: int = 0
     add_result: AddResult | None = None

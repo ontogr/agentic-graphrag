@@ -15,19 +15,13 @@ Summary of an update or soft deletion.
 - [**no_op**](#agrag-ingestion-reports-update_result-UpdateResult-no_op) (<code>bool</code>) – Whether no graph changes were needed.
 - [**previous_content_hash**](#agrag-ingestion-reports-update_result-UpdateResult-previous_content_hash) (<code>str | None</code>) – Hash stored before the operation, if present.
 - [**new_content_hash**](#agrag-ingestion-reports-update_result-UpdateResult-new_content_hash) (<code>str | None</code>) – Hash written by an update, or `None` on deletion.
-- [**chunks_closed**](#agrag-ingestion-reports-update_result-UpdateResult-chunks_closed) (<code>int</code>) – Number of open PART_OF edges closed.
+- [**parts_closed**](#agrag-ingestion-reports-update_result-UpdateResult-parts_closed) (<code>int</code>) – Number of open HAS_PART edges closed.
 - [**add_result**](#agrag-ingestion-reports-update_result-UpdateResult-add_result) (<code>[AddResult](../add_result/AddResult.md) | None</code>) – Ingestion details for changed content, if any.
 
 ## `add_result` \{#agrag-ingestion-reports-update_result-UpdateResult-add_result}
 
 ```python
 add_result: AddResult | None = None
-```
-
-## `chunks_closed` \{#agrag-ingestion-reports-update_result-UpdateResult-chunks_closed}
-
-```python
-chunks_closed: int = 0
 ```
 
 ## `document_key` \{#agrag-ingestion-reports-update_result-UpdateResult-document_key}
@@ -46,6 +40,12 @@ new_content_hash: str | None = None
 
 ```python
 no_op: bool
+```
+
+## `parts_closed` \{#agrag-ingestion-reports-update_result-UpdateResult-parts_closed}
+
+```python
+parts_closed: int = 0
 ```
 
 ## `previous_content_hash` \{#agrag-ingestion-reports-update_result-UpdateResult-previous_content_hash}

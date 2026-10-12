@@ -73,10 +73,10 @@ async def main() -> None:
             "apollo-notes",
             text="NASA ran the Apollo program. Buzz Aldrin walked on the Moon.",
         )
-        print("new text ->", changed.no_op, changed.chunks_closed)
+        print("new text ->", changed.no_op, changed.parts_closed)
 
         deleted = await graph.delete_document("apollo-notes")
-        print("delete ->", deleted.no_op, deleted.chunks_closed)
+        print("delete ->", deleted.no_op, deleted.parts_closed)
     finally:
         await graph_store.close()
 
@@ -103,7 +103,7 @@ result = await graph.update("apollo-notes", text="New text")
 Read the result:
 
 - `no_op` is `True` when the content and the chunker configuration did not change. Agentic GraphRAG then skips chunking, extraction and every write.
-- `chunks_closed` counts the `PART_OF` links of the old version that Agentic GraphRAG closed. The links go to chunks, sections, tables and figures.
+- `parts_closed` counts the `HAS_PART` links of the old version that Agentic GraphRAG closed. The links go to chunks, sections, tables and figures.
 - `add_result` holds the summary of the new ingestion, as `Graph.add` returns it.
 
 If the key does not exist yet, `Graph.update` adds the content as a new document.
@@ -135,7 +135,7 @@ async def main() -> None:
     await graph_store.connect()
     try:
         edges = await graph_store.execute_read(
-            "MATCH (d:Document {document_key: 'apollo-notes'})-[p:PART_OF]->(c:Chunk) "
+            "MATCH (d:Document {document_key: 'apollo-notes'})-[p:HAS_PART]->(c:Chunk) "
             "RETURN d.document_key AS key, p.invalid_at IS NULL AS open, "
             "count(c) AS chunks ORDER BY open"
         )

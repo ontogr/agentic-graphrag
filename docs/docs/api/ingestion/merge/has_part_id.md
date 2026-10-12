@@ -1,15 +1,15 @@
 ---
-title: agrag.ingestion.merge.part_of_id
-sidebar_label: part_of_id
+title: agrag.ingestion.merge.has_part_id
+sidebar_label: has_part_id
 ---
 
-# `agrag.ingestion.merge.part_of_id` \{#agrag-ingestion-merge-part_of_id}
+# `agrag.ingestion.merge.has_part_id` \{#agrag-ingestion-merge-has_part_id}
 
 ```python
-part_of_id(document_node_id:UUID, node_id:UUID, version_id:UUID | str) -> UUID
+has_part_id(document_node_id:UUID, node_id:UUID, version_id:UUID | str) -> UUID
 ```
 
-Return the id for one versioned Document -[:PART_OF]-> node edge.
+Return the id for one versioned edge from a Document node to a part.
 
 **Parameters:**
 

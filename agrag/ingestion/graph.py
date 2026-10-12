@@ -408,7 +408,7 @@ class Graph:
         error_policy: ErrorPolicy = ErrorPolicy.RAISE,
         read_options: ReadOptions | None = None,
     ) -> UpdateResult:
-        """Replace one document version, closing its former PART_OF edges.
+        """Replace one document version, closing its former HAS_PART edges.
 
         Looks up the persisted ``Document`` node by ``document_key``. An
         unchanged content hash is a no-op returning before any chunking,
@@ -418,7 +418,7 @@ class Graph:
         does. Chunks written before chunkers were recorded count as unchanged.
         Otherwise the fresh content ingests under a Cutover Job holding this
         document's lease, and the commit flips the job, closes the document's
-        open ``PART_OF`` edges, and clears every pending tag in one
+        open ``HAS_PART`` edges, and clears every pending tag in one
         transaction — so a crash either leaves
         the old version untouched or completes the replacement including
         cleanup. Entities that lose their last evidence are pruned after
@@ -438,10 +438,10 @@ class Graph:
 
         Returns:
             The update summary. A no-op reports ``no_op=True`` with no
-                ``add_result``. A change reports ``chunks_closed`` plus the
+                ``add_result``. A change reports ``parts_closed`` plus the
                 fresh ingestion's ``add_result``. An unknown ``document_key``
                 ingests fresh with ``previous_content_hash=None`` and
-                ``chunks_closed=0``.
+                ``parts_closed=0``.
 
         Raises:
             ValueError: Both or neither of ``text`` and ``source`` are given, a loader
@@ -476,9 +476,9 @@ class Graph:
         )
 
     async def delete_document(self, document_key: str) -> UpdateResult:
-        """Soft-delete a document by closing its current PART_OF edges.
+        """Soft-delete a document by closing its current HAS_PART edges.
 
-        Currency is read transitively through ``PART_OF``: closing the
+        Currency is read transitively through ``HAS_PART``: closing the
         open edges removes the document from retrieval while its chunks,
         the ``Document`` node, and contributed entities stay in the graph
         for provenance. An unknown ``document_key`` is a no-op. Entities
@@ -492,7 +492,7 @@ class Graph:
 
         Returns:
             The deletion summary: ``no_op=True`` when nothing was stored
-                under the key, otherwise ``chunks_closed`` with
+                under the key, otherwise ``parts_closed`` with
                 ``new_content_hash=None`` and no ``add_result``.
 
         Note:

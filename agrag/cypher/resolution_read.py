@@ -5,6 +5,7 @@ from agrag.common.data_models.resolved_entity import (
     RESOLVED_AS_RELATION,
     RESOLVED_ENTITY_LABEL,
 )
+from agrag.common.data_models.structure import HAS_PART
 from agrag.cypher._pending_filter import pending_filter_clause
 from agrag.cypher.entities import NODE_IDENTITY_LABEL
 
@@ -131,7 +132,7 @@ def fetch_entities_with_open_evidence_query() -> str:
         "UNWIND $ids AS entity_id "
         f"MATCH (chunk:{NODE_IDENTITY_LABEL}:Chunk)-[mention:MENTIONED_IN]->"
         f"(entity:{NODE_IDENTITY_LABEL} {{id: entity_id}}) "
-        f"MATCH (document:{NODE_IDENTITY_LABEL}:Document)-[part:PART_OF]->(chunk) "
+        f"MATCH (document:{NODE_IDENTITY_LABEL}:Document)-[part:{HAS_PART}]->(chunk) "
         "WHERE part.invalid_at IS NULL "
         f"AND {pending_filter_clause('entity', 'job_id')} "
         f"AND {pending_filter_clause('chunk', 'job_id')} "

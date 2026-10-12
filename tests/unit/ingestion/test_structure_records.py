@@ -234,7 +234,7 @@ class TestBuildDocumentStructure:
     def test_collects_the_nodes_and_edges_of_each_document_and_each_source(
         self,
     ) -> None:
-        """Prose sections get PART_OF edges, and a record file gets a Source."""
+        """Prose sections get HAS_PART edges, and a record file gets a Source."""
         prose = _document()
         row = record_document("name: ada")
         prose_chunks, prose_placements = _placed(prose, size=50, min_size=2)
@@ -249,5 +249,5 @@ class TestBuildDocumentStructure:
         assert len(structure.sources) == 1
         assert structure.node_count == 6
         relation_types = Counter(r.type for r in structure.relations)
-        assert relation_types["PART_OF"] > 0
+        assert relation_types["HAS_PART"] > 0
         assert relation_types["HAS_DOCUMENT"] == 1
