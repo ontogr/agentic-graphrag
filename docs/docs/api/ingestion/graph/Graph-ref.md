@@ -185,6 +185,11 @@ deactivate_match(match_id:UUID) -> list[ResolvedEntity]
 
 Deactivate a semantic match and synchronize replacement retrieval vectors.
 
+**Raises:**
+
+- <code>ValueError</code> – The match does not exist or an in-flight job has not
+  committed it.
+
 ## `delete_document` \{#agrag-ingestion-graph-Graph-delete_document}
 
 ```python
