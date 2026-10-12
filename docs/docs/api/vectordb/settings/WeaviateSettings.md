@@ -18,7 +18,7 @@ Weaviate connection configuration.
   reference implementations. Env: `WEAVIATE_MODE`.
 - [**url**](#agrag-vectordb-settings-WeaviateSettings-url) (<code>str</code>) – The Weaviate endpoint URL. For `"cloud"`, the cluster URL. For
   `"custom"`, the full host URL. Env: `WEAVIATE_URL`.
-- [**api_key**](#agrag-vectordb-settings-WeaviateSettings-api_key) (<code>str</code>) – The Weaviate API key. Env: `WEAVIATE_API_KEY`.
+- [**api_key**](#agrag-vectordb-settings-WeaviateSettings-api_key) (<code>SecretStr</code>) – The Weaviate API key. Env: `WEAVIATE_API_KEY`.
 - [**grpc_port**](#agrag-vectordb-settings-WeaviateSettings-grpc_port) (<code>int</code>) – The gRPC port, used by `"custom"` mode only (`"cloud"`
   mode infers it). Env: `WEAVIATE_GRPC_PORT`.
 - [**require_tls**](#agrag-vectordb-settings-WeaviateSettings-require_tls) (<code>bool</code>) – When `True`, reject a plaintext `url` to a non-local
@@ -36,7 +36,7 @@ Weaviate connection configuration.
 ## `api_key` \{#agrag-vectordb-settings-WeaviateSettings-api_key}
 
 ```python
-api_key: str = ''
+api_key: SecretStr = SecretStr('')
 ```
 
 ## `grpc_port` \{#agrag-vectordb-settings-WeaviateSettings-grpc_port}

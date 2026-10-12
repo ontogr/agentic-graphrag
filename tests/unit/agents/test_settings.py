@@ -43,12 +43,37 @@ class TestAgentLLMSettings:
         try:
             settings = AgentLLMSettings.from_openai_compatible_env()
             assert settings.clients[0].base_url == "http://localhost:9000/v1"
-            assert settings.clients[0].api_key == "shared-key"
+            assert settings.clients[0].api_key is not None
+            assert settings.clients[0].api_key.get_secret_value() == "shared-key"
             assert settings.clients[0].model == "shared-model"
         finally:
             del os.environ["LLM_BASE_URL"]
             del os.environ["LLM_API_KEY"]
             del os.environ["LLM_MODEL_ID"]
+
+    def test_reads_dotenv_from_the_working_directory(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """Agent-specific values in the working directory configure its model."""
+        for name in (
+            "AGENT_LLM_BASE_URL",
+            "AGENT_LLM_API_KEY",
+            "AGENT_LLM_MODEL_ID",
+            "LLM_BASE_URL",
+            "LLM_API_KEY",
+            "LLM_MODEL_ID",
+        ):
+            monkeypatch.setenv(name, "placeholder")
+            monkeypatch.delenv(name)
+        (tmp_path / ".env").write_text(
+            "AGENT_LLM_BASE_URL=http://localhost:4000/v1\n"
+            "AGENT_LLM_MODEL_ID=from-dotenv\n"
+        )
+        monkeypatch.chdir(tmp_path)
+
+        settings = AgentLLMSettings.from_openai_compatible_env()
+
+        assert settings.clients[0].model == "from-dotenv"
 
     def test_missing_clients_error_omits_env_file_secrets(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

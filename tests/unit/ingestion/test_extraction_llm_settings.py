@@ -26,7 +26,8 @@ class TestFromOpenAICompatibleEnv:
         assert client.provider == "openai-generic"
         assert client.model == "local-model"
         assert client.base_url == "http://localhost:4000/v1"
-        assert client.api_key == "key"
+        assert client.api_key is not None
+        assert client.api_key.get_secret_value() == "key"
 
     def test_raises_when_vars_absent(self, monkeypatch) -> None:
         """Missing LLM_BASE_URL/LLM_MODEL_ID is a clear error, not a silent None."""
@@ -36,3 +37,19 @@ class TestFromOpenAICompatibleEnv:
         monkeypatch.setattr("agrag.ingestion.extract.load_dotenv", lambda **kw: None)
         with pytest.raises(RuntimeError):
             ExtractionLLMSettings.from_openai_compatible_env()
+
+    def test_reads_dotenv_from_the_working_directory(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path
+    ) -> None:
+        """The working directory .env supplies the shared LLM model."""
+        for name in ("LLM_BASE_URL", "LLM_API_KEY", "LLM_MODEL_ID"):
+            monkeypatch.setenv(name, "placeholder")
+            monkeypatch.delenv(name)
+        (tmp_path / ".env").write_text(
+            "LLM_BASE_URL=http://localhost:4000/v1\nLLM_MODEL_ID=from-dotenv\n"
+        )
+        monkeypatch.chdir(tmp_path)
+
+        settings = ExtractionLLMSettings.from_openai_compatible_env()
+
+        assert settings.clients[0].model == "from-dotenv"

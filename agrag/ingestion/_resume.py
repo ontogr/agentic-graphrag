@@ -45,7 +45,7 @@ async def resume_incomplete_jobs(
     vector_store: Any = None,
     vector_collections: Sequence[str] = (),
     roll_forward: Callable[[list[UUID], list[UUID]], Awaitable[object]] | None = None,
-    lease_ttl_seconds: int = CutoverJobSettings().lease_ttl_seconds,
+    lease_ttl_seconds: int | None = None,
     tracer: Tracer | None = None,
 ) -> list[str]:
     """Recover every incomplete Cutover Job found in the graph.
@@ -62,7 +62,8 @@ async def resume_incomplete_jobs(
             exception leaves the job in ``cleaning`` for a later open. None
             rolls forward only jobs that recorded neither list, because a
             job with work left cannot finish without it.
-        lease_ttl_seconds: Lease duration for a resume claimant.
+        lease_ttl_seconds: Lease duration for a resume claimant. None reads
+            ``CutoverJobSettings`` when the function runs.
         tracer: Opens this pass's span.
 
     Returns:
@@ -72,6 +73,9 @@ async def resume_incomplete_jobs(
         live lease still holds it, or claimed by a concurrent open, is not
         reported.
     """
+    if lease_ttl_seconds is None:
+        lease_ttl_seconds = CutoverJobSettings().lease_ttl_seconds
+
     resolved_tracer = get_tracer(tracer)
     with resolved_tracer.start_as_current_span(
         "agrag.ingestion.resume_incomplete_jobs"

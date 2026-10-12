@@ -2,8 +2,7 @@
 
 from typing import Annotated
 
-from dotenv import load_dotenv
-from pydantic import Field, field_validator
+from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 from agrag.llm.client_config import LLMClientConfig
@@ -27,10 +26,10 @@ class _JudgeEnvVariables(BaseSettings):
         default=None, validation_alias="EVAL_JUDGE_BASE_URL"
     )
     llm_base_url: str | None = Field(default=None, validation_alias="LLM_BASE_URL")
-    eval_judge_api_key: str | None = Field(
+    eval_judge_api_key: SecretStr | None = Field(
         default=None, validation_alias="EVAL_JUDGE_API_KEY"
     )
-    llm_api_key: str | None = Field(default=None, validation_alias="LLM_API_KEY")
+    llm_api_key: SecretStr | None = Field(default=None, validation_alias="LLM_API_KEY")
     eval_judge_model_id: str | None = Field(
         default=None, validation_alias="EVAL_JUDGE_MODEL_ID"
     )
@@ -42,7 +41,7 @@ class _JudgeEnvVariables(BaseSettings):
         return self.eval_judge_base_url or self.llm_base_url
 
     @property
-    def api_key(self) -> str | None:
+    def api_key(self) -> SecretStr | None:
         """Return the judge API key, falling back to the shared LLM one."""
         return self.eval_judge_api_key or self.llm_api_key
 
@@ -87,8 +86,8 @@ class EvalJudgeSettings(BaseSettings):
     def from_openai_compatible_env(cls) -> "EvalJudgeSettings":
         """Build settings from OpenAI-compatible env vars.
 
-        Loads ``.env`` first, then resolves ``EVAL_JUDGE_BASE_URL``,
-        ``EVAL_JUDGE_API_KEY`` and ``EVAL_JUDGE_MODEL_ID`` through
+        Resolves ``EVAL_JUDGE_BASE_URL``, ``EVAL_JUDGE_API_KEY`` and
+        ``EVAL_JUDGE_MODEL_ID`` through
         pydantic-settings. Each falls back to the shared ``LLM_*`` variable
         when unset or empty, so the judge is the agent's own model unless
         ``EVAL_JUDGE_*`` is set. That model grades its own answers, which
@@ -100,7 +99,6 @@ class EvalJudgeSettings(BaseSettings):
         Raises:
             ValueError: No model id resolves from either set of variables.
         """
-        load_dotenv()
         variables = _JudgeEnvVariables()
         if not variables.model_id:
             raise ValueError(

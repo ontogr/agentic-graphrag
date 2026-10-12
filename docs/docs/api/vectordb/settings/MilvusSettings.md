@@ -12,7 +12,7 @@ Milvus connection configuration.
 **Attributes:**
 
 - [**uri**](#agrag-vectordb-settings-MilvusSettings-uri) (<code>str</code>) – The Milvus endpoint URI. Env: `MILVUS_URI`.
-- [**token**](#agrag-vectordb-settings-MilvusSettings-token) (<code>str</code>) – The Milvus auth token. Empty string for an unauthenticated
+- [**token**](#agrag-vectordb-settings-MilvusSettings-token) (<code>SecretStr</code>) – The Milvus auth token. Empty string for an unauthenticated
   instance. Env: `MILVUS_TOKEN`.
 - [**require_tls**](#agrag-vectordb-settings-MilvusSettings-require_tls) (<code>bool</code>) – When `True`, reject a plaintext `uri` to a
   non-local host even with no `token` configured. Off by default
@@ -41,7 +41,7 @@ require_tls: bool = False
 ## `token` \{#agrag-vectordb-settings-MilvusSettings-token}
 
 ```python
-token: str = ''
+token: SecretStr = SecretStr('')
 ```
 
 ## `uri` \{#agrag-vectordb-settings-MilvusSettings-uri}

@@ -38,6 +38,8 @@ def build_chat_model(config: LLMClientConfig) -> Any:
             f"google-ai."
         )
 
+    api_key = config.api_key.get_secret_value() if config.api_key else None
+
     if config.provider == "anthropic":
         from langchain_anthropic import (  # noqa: PLC0415
             ChatAnthropic,
@@ -45,15 +47,15 @@ def build_chat_model(config: LLMClientConfig) -> Any:
 
         return ChatAnthropic(
             model=config.model,
-            api_key=config.api_key,
+            api_key=api_key,
         )
 
     if config.provider == "openai":
         from langchain_openai import ChatOpenAI  # noqa: PLC0415
 
         kwargs: dict[str, Any] = {"model": config.model}
-        if config.api_key:
-            kwargs["api_key"] = config.api_key
+        if api_key:
+            kwargs["api_key"] = api_key
         return ChatOpenAI(**kwargs)
 
     if config.provider == "openai-generic":
@@ -62,8 +64,8 @@ def build_chat_model(config: LLMClientConfig) -> Any:
         generic_kwargs: dict[str, Any] = {"model": config.model}
         if config.base_url:
             generic_kwargs["base_url"] = config.base_url
-        if config.api_key:
-            generic_kwargs["api_key"] = config.api_key
+        if api_key:
+            generic_kwargs["api_key"] = api_key
         return ChatOpenAI(**generic_kwargs)
 
     if config.provider == "google-ai":
@@ -73,7 +75,7 @@ def build_chat_model(config: LLMClientConfig) -> Any:
 
         return ChatGoogleGenerativeAI(
             model=config.model,
-            google_api_key=config.api_key,
+            google_api_key=api_key,
         )
 
     raise UnsupportedAgentProviderError(

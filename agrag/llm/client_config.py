@@ -2,7 +2,7 @@
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, SecretStr
 
 
 LLMProvider = Literal[
@@ -38,7 +38,7 @@ class LLMClientConfig(BaseModel):
     name: str
     provider: LLMProvider
     model: str
-    api_key: str | None = None
+    api_key: SecretStr | None = None
     base_url: str | None = None
     options: dict[str, Any] = Field(default_factory=dict)
 
