@@ -64,8 +64,12 @@ class TestOwlImport:
         )
         assert provides.patterns == [("Supplier", "Product")]
         assert [warning.code for warning in result.warnings] == [
+            "description_ignored",
+            "description_ignored",
+            "description_ignored",
             "missing_description",
             "missing_description",
+            "comment_ignored",
             "construct_ignored",
             "individuals_ignored",
         ]
@@ -75,19 +79,19 @@ class TestOwlImport:
             "entities": [
                 {
                     "label": "Organization",
-                    "description": "An organized group.",
+                    "description": "Organization",
                     "parents": [],
                     "properties": {},
                 },
                 {
                     "label": "Product",
-                    "description": "An item made or sold.",
+                    "description": "Product",
                     "parents": [],
                     "properties": {},
                 },
                 {
                     "label": "Supplier",
-                    "description": "A group that supplies goods.",
+                    "description": "Supplier",
                     "parents": ["Organization"],
                     "properties": {
                         "active": {
@@ -108,7 +112,7 @@ class TestOwlImport:
             "relations": [
                 {
                     "label": "PROVIDES",
-                    "description": "A supplier provides a product.",
+                    "description": "provides",
                     "patterns": [["Supplier", "Product"]],
                     "cardinality": {
                         "max_per_source": None,
@@ -303,8 +307,56 @@ class TestOwlImport:
 
         assert result.schema.entities[0].properties["value"].type == "string"
 
-    def test_untagged_comment_is_preferred_to_language_tagged_comment(self):
-        """An untagged comment is preferred when comments have language tags."""
+    def test_urn_classes_and_inherited_datatype_properties_import(self):
+        """URN local names import, and superclass properties reach subclasses."""
+        result = loads_owl("""
+            @prefix owl: <http://www.w3.org/2002/07/owl#> .
+            @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+            <urn:example:Parent> a owl:Class .
+            <urn:example:Child> a owl:Class ;
+                rdfs:subClassOf <urn:example:Parent> .
+            <urn:example:hasCode> a owl:DatatypeProperty ;
+                rdfs:domain <urn:example:Parent> .
+        """)
+
+        child = next(
+            entity for entity in result.schema.entities if entity.label == "Child"
+        )
+        assert "hasCode" in child.properties
+
+    def test_timezone_date_enum_is_normalized_to_schema_date(self):
+        """Timezone suffixes are removed from date enum lexical values."""
+        result = loads_owl("""
+            @prefix ex: <https://example.test/dates#> .
+            @prefix owl: <http://www.w3.org/2002/07/owl#> .
+            @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+            @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+            ex:A a owl:Class .
+            ex:date a owl:DatatypeProperty ; rdfs:domain ex:A ;
+                rdfs:range [ owl:oneOf ("2025-01-02Z"^^xsd:date) ] .
+        """)
+
+        date = result.schema.entities[0].properties["date"]
+        assert date.enum == ["2025-01-02"]
+
+    def test_cyclic_union_list_fails_with_format_error(self):
+        """A cyclic RDF list fails rather than keeping the import stuck."""
+        with pytest.raises(SchemaFormatError, match="cyclic RDF list"):
+            loads_owl("""
+                @prefix ex: <https://example.test/cycle#> .
+                @prefix owl: <http://www.w3.org/2002/07/owl#> .
+                @prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+                @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+                ex:A a owl:Class .
+                ex:p a owl:ObjectProperty ; rdfs:domain [ owl:unionOf _:list ] .
+                _:list rdf:first ex:A ; rdf:rest _:list .
+            """)
+
+    def test_ontology_comments_are_not_used_as_schema_descriptions(self):
+        """Untrusted comments cannot become instruction-bearing descriptions."""
         result = loads_owl("""
             @prefix ex: <https://example.test/comments#> .
             @prefix owl: <http://www.w3.org/2002/07/owl#> .
@@ -314,7 +366,7 @@ class TestOwlImport:
                 rdfs:comment "Preferred" .
         """)
 
-        assert result.schema.entities[0].description == "Preferred"
+        assert result.schema.entities[0].description == "A"
 
     def test_partial_domain_restriction_does_not_impose_a_global_relation_limit(self):
         """A limit on only one of multiple sources is not globalized."""

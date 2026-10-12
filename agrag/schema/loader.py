@@ -90,7 +90,14 @@ def _read_file(path: Path) -> object:
     if suffix == ".ttl":
         from agrag.schema.formats.dispatch import read_owl_file  # noqa: PLC0415
 
-        return read_owl_file(path)
+        try:
+            return read_owl_file(path)
+        except Exception as exc:
+            from agrag.schema.formats.errors import SchemaFormatError  # noqa: PLC0415
+
+            if isinstance(exc, SchemaFormatError):
+                raise _fail(str(exc), str(path)) from exc
+            raise
     if suffix not in _FILE_SUFFIXES:
         shown = repr(path.suffix) if path.suffix else "files without a suffix"
         raise _fail(
@@ -700,8 +707,9 @@ def load_schema(
     """Load a schema from any accepted source.
 
     ``source`` may be a ``GraphSchema``, a dict, a list of entity labels and
-    relations, JSON text, a path to a ``.json``, ``.yaml`` or ``.yml`` file, or
-    the name of a shipped schema. Shorthand is accepted at every level. The
+    relations, JSON text, a path to a ``.json``, ``.yaml``, ``.yml`` or
+    ``.ttl`` file, or the name of a shipped schema. Turtle import needs the
+    optional ``schema-formats`` extra. Shorthand is accepted at every level. The
     result is always the canonical ``GraphSchema``.
 
     A schema with no ``extends`` stands alone and replaces the default schema.

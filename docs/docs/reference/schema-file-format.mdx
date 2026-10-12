@@ -17,6 +17,7 @@ This page lists every key and every short form that `load_schema` accepts. For a
 | A list of labels and relations | `load_schema(["Person", "Vendor", "Person-WORKS_FOR->Vendor"])` |
 | JSON text | `load_schema('{"entities": ["Person"]}')` |
 | A `.json`, `.yaml` or `.yml` file | `load_schema("schema.yaml")` |
+| A Turtle `.ttl` file (install the `schema-formats` extra) | `load_schema("ontology.ttl")` |
 
 ## Top-level keys
 

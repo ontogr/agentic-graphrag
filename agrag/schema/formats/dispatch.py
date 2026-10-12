@@ -14,5 +14,10 @@ def read_owl_file(path: Path) -> dict[str, Any]:
     """Read Turtle and return its validated canonical schema data."""
     result = load_owl(path)
     for warning in result.warnings:
-        logger.warning("%s: %s: %s", warning.code, warning.element, warning.message)
+        fields = (warning.code, warning.element, warning.message)
+        safe_fields = tuple(
+            "".join(char if char.isprintable() else " " for char in field)
+            for field in fields
+        )
+        logger.warning("%s: %s: %s", *safe_fields)
     return result.schema.model_dump(mode="json")

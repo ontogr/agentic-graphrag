@@ -49,7 +49,9 @@ def _rdflib() -> tuple[Any, ...]:
 
 
 def _local(uri: Any) -> str:
-    return str(uri).rstrip("/#").rsplit("/", 1)[-1].rsplit("#", 1)[-1]
+    return (
+        str(uri).rstrip("/#:").rsplit("/", 1)[-1].rsplit("#", 1)[-1].rsplit(":", 1)[-1]
+    )
 
 
 def _label(uri: Any) -> str | None:
@@ -57,15 +59,31 @@ def _label(uri: Any) -> str | None:
     return value if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", value) else None
 
 
-def _domains(graph: Any, prop: Any, rdfs: Any, owl: Any, collection: Any) -> list[Any]:
+def _domains(graph: Any, prop: Any, rdfs: Any, owl: Any, rdf: Any) -> list[Any]:
     result: set[Any] = set()
     for node in graph.objects(prop, rdfs.domain):
         members = graph.value(node, owl.unionOf)
         if members is None:
             result.add(node)
         else:
-            result.update(collection(graph, members))
+            result.update(_rdf_list(graph, members, rdf))
     return sorted(result, key=str)
+
+
+def _rdf_list(graph: Any, head: Any, rdf: Any) -> list[Any]:
+    """Read an RDF list and reject cycles instead of hanging the import."""
+    values = []
+    seen = set()
+    node = head
+    while node != rdf.nil:
+        if node in seen:
+            raise SchemaFormatError("cyclic RDF list cannot be imported")
+        seen.add(node)
+        values.append(graph.value(node, rdf.first))
+        node = graph.value(node, rdf.rest)
+        if node is None:
+            raise SchemaFormatError("malformed RDF list cannot be imported")
+    return values
 
 
 def _warn(warnings: list[FormatWarning], code: str, element: Any, message: str) -> None:
@@ -89,7 +107,13 @@ def _property_description(
             "Extra comments were dropped.",
         )
     if comments:
-        return comments[0]
+        _warn(
+            warnings,
+            "comment_ignored",
+            prop,
+            "Ontology comments are not used as schema descriptions.",
+        )
+        return _local(prop)
     _warn(
         warnings,
         "missing_description",
@@ -211,8 +235,15 @@ def _read(  # noqa: PLR0912, PLR0915
                 "Extra comments were dropped.",
             )
         fallback = sorted(map(str, graph.objects(uri, rdfs.label)))
-        description = comments[0] if comments else fallback[0] if fallback else label
-        if not comments:
+        description = label
+        if comments or fallback:
+            _warn(
+                warnings,
+                "description_ignored",
+                uri,
+                "Ontology text is not used as a schema description.",
+            )
+        if not comments and not fallback:
             _warn(
                 warnings,
                 "missing_description",
@@ -227,6 +258,16 @@ def _read(  # noqa: PLR0912, PLR0915
             ),
             key=str,
         )
+        if any(
+            not isinstance(parent, uri_ref)
+            for parent in graph.objects(uri, rdfs.subClassOf)
+        ):
+            _warn(
+                warnings,
+                "construct_ignored",
+                uri,
+                "Anonymous subclass expressions are not mapped.",
+            )
         parents = []
         for parent in parent_uris[uri]:
             if parent in declared:
@@ -251,7 +292,7 @@ def _read(  # noqa: PLR0912, PLR0915
     by_label = {entity["label"]: entity for entity in entities}
     entity_by_uri = {uri: by_label[label] for uri, label in declared.items()}
     for prop in sorted(set(graph.subjects(rdf.type, owl.DatatypeProperty)), key=str):
-        domains = _domains(graph, prop, rdfs, owl, collection)
+        domains = _domains(graph, prop, rdfs, owl, rdf)
         class_domains = [domain for domain in domains if domain in declared]
         for domain in domains:
             if domain not in declared:
@@ -290,7 +331,7 @@ def _read(  # noqa: PLR0912, PLR0915
         for range_node in ranges:
             union = graph.value(range_node, owl.unionOf)
             range_nodes.extend(
-                collection(graph, union) if union is not None else [range_node]
+                _rdf_list(graph, union, rdf) if union is not None else [range_node]
             )
         value_type = next(
             (
@@ -318,7 +359,7 @@ def _read(  # noqa: PLR0912, PLR0915
         )
         enum_values = None
         if enum_node is not None:
-            literals = list(collection(graph, graph.value(enum_node, owl.oneOf)))
+            literals = _rdf_list(graph, graph.value(enum_node, owl.oneOf), rdf)
             kinds = {
                 _SCALAR_TYPES.get(_local(item.datatype))
                 if str(item.datatype).startswith(str(xsd))
@@ -329,7 +370,34 @@ def _read(  # noqa: PLR0912, PLR0915
             }
             if len(kinds) == 1 and None not in kinds:
                 value_type = next(iter(kinds))
-            enum_values = sorted(str(item) for item in literals)
+            elif len(kinds) > 1 or None in kinds:
+                _warn(
+                    warnings,
+                    "enum_types_widened",
+                    prop,
+                    "Mixed or unsupported enum types were widened to string.",
+                )
+            enum_values = sorted(
+                re.sub(r"(?:Z|[+-]\d{2}:\d{2})$", "", str(item))
+                if value_type == "date"
+                else str(item)
+                for item in literals
+            )
+        if len(set(range_nodes)) > 1 and enum_node is None:
+            range_types = {
+                _SCALAR_TYPES.get(_local(node))
+                if str(node).startswith(str(xsd))
+                else None
+                for node in range_nodes
+            }
+            if len(range_types) > 1:
+                _warn(
+                    warnings,
+                    "multiple_ranges_narrowed",
+                    prop,
+                    "Multiple datatype ranges cannot be represented as alternatives.",
+                )
+                value_type = "string"
         description = _property_description(graph, prop, rdfs, warnings)
         for domain in class_domains:
             required = False
@@ -342,6 +410,13 @@ def _read(  # noqa: PLR0912, PLR0915
                         required = True
                 for predicate in (owl.maxCardinality, owl.cardinality):
                     value = graph.value(restriction, predicate)
+                    if value is not None and int(value) == 0:
+                        _warn(
+                            warnings,
+                            "zero_max_cardinality_dropped",
+                            prop,
+                            "Zero maximum cardinality cannot be represented.",
+                        )
                     if value is not None and int(value) > 1:
                         _warn(
                             warnings,
@@ -349,20 +424,57 @@ def _read(  # noqa: PLR0912, PLR0915
                             prop,
                             "A scalar property cannot store a maximum above one.",
                         )
-            entity_by_uri[domain]["properties"][prop_label] = {
+            properties = entity_by_uri[domain]["properties"]
+            if prop_label in properties:
+                _warn(
+                    warnings,
+                    "property_name_collision",
+                    prop,
+                    f"Property {prop_label!r} collides with an earlier property; "
+                    "it was ignored.",
+                )
+                continue
+            properties[prop_label] = {
                 "type": value_type,
                 "required": required,
                 "enum": enum_values,
                 "description": description,
             }
 
+    for uri in declared:
+        inherited = {}
+        ancestors = list(parent_uris[uri])
+        seen_ancestors = set()
+        while ancestors:
+            parent = ancestors.pop()
+            if parent in seen_ancestors:
+                continue
+            seen_ancestors.add(parent)
+            ancestors.extend(parent_uris.get(parent, []))
+            if parent in entity_by_uri:
+                inherited.update(entity_by_uri[parent]["properties"])
+        for prop_label, specification in inherited.items():
+            properties = entity_by_uri[uri]["properties"]
+            if prop_label not in properties:
+                properties[prop_label] = specification
+
     relations: list[dict[str, Any]] = []
     for prop in sorted(set(graph.subjects(rdf.type, owl.ObjectProperty)), key=str):
-        domains = _domains(graph, prop, rdfs, owl, collection)
+        domain_statements = list(graph.objects(prop, rdfs.domain))
+        range_statements = list(graph.objects(prop, rdfs.range))
+        if len(domain_statements) > 1 or len(range_statements) > 1:
+            _warn(
+                warnings,
+                "conjunctive_endpoints_unsupported",
+                prop,
+                "Multiple domain or range axioms are conjunctive and were dropped.",
+            )
+            continue
+        domains = _domains(graph, prop, rdfs, owl, rdf)
         ranges = set()
         for node in graph.objects(prop, rdfs.range):
             union = graph.value(node, owl.unionOf)
-            ranges.update(collection(graph, union) if union is not None else [node])
+            ranges.update(_rdf_list(graph, union, rdf) if union is not None else [node])
         ranges = sorted(ranges, key=str)
         sources = [declared[node] for node in domains if node in declared]
         targets = [declared[node] for node in ranges if node in declared]
@@ -426,18 +538,30 @@ def _read(  # noqa: PLR0912, PLR0915
                 prop,
                 "Class-specific relation cardinality applies to the imported relation.",
             )
+        max_per_target = 1 if inverse else None
+        patterns = [[source, target] for source in sources for target in targets]
+        if symmetric:
+            symmetric_limit = max_per_source or max_per_target
+            max_per_source = symmetric_limit
+            max_per_target = symmetric_limit
+            patterns = sorted(
+                {
+                    (source, target)
+                    for source in sources
+                    for target in targets
+                    for source, target in ((source, target), (target, source))
+                }
+            )
         relations.append(
             {
                 "label": rel_label,
                 "description": description,
-                "patterns": [
-                    [source, target] for source in sources for target in targets
-                ],
+                "patterns": patterns,
                 "cardinality": {
                     "max_per_source": max_per_source,
-                    "max_per_target": 1 if inverse else None,
+                    "max_per_target": max_per_target,
                 },
-                "symmetric": symmetric,
+                "symmetric": False,
             }
         )
 
