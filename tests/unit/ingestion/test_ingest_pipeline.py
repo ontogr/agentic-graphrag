@@ -22,6 +22,7 @@ from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
 
 from agrag.chunking.chunker import ChunkPlacement
 from agrag.common.data_models.chunk import Chunk
+from agrag.common.data_models.default_schema import DEFAULT_SCHEMA
 from agrag.common.data_models.document import Document, DocumentFamily, SourceFormat
 from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.extraction import (
@@ -30,7 +31,7 @@ from agrag.common.data_models.extraction import (
     ExtractionResult,
 )
 from agrag.common.data_models.graph_record import UpsertFailure, UpsertResult
-from agrag.common.data_models.graph_schema import GENERIC, GraphSchema
+from agrag.common.data_models.graph_schema import GraphSchema
 from agrag.common.data_models.provenance import TextProvenance
 from agrag.common.data_models.stage_failure import StageFailure
 from agrag.embedding.base import Embedder
@@ -163,7 +164,7 @@ async def _ingest(
         chunks,
         start_index=0,
         extractor=_NoopExtractor(),
-        schema=GENERIC,
+        schema=DEFAULT_SCHEMA,
         error_policy=ErrorPolicy.RAISE,
     )
     batch = await ingest_chunks(
@@ -176,7 +177,7 @@ async def _ingest(
         graph_store=store,
         embedder=_ZeroEmbedder(),
         vector_store=None,
-        graph_schema=GENERIC,
+        graph_schema=DEFAULT_SCHEMA,
         retrieval_settings=RetrievalSettings(),
         error_policy=ErrorPolicy.RAISE,
         ingestion=ingestion or IngestStats(documents=len(documents)),
@@ -235,7 +236,7 @@ class TestIngestChunks:
                 chunks,
                 start_index=0,
                 extractor=_Failing(),
-                schema=GENERIC,
+                schema=DEFAULT_SCHEMA,
                 error_policy=ErrorPolicy.RAISE,
             )
 
@@ -272,7 +273,7 @@ class TestIngestChunks:
             [chunk],
             start_index=0,
             extractor=_BadRelation(),
-            schema=GENERIC,
+            schema=DEFAULT_SCHEMA,
             error_policy=ErrorPolicy.SKIP,
             tracer=provider.get_tracer("test"),
         )
@@ -307,7 +308,7 @@ class TestIngestChunks:
             chunks,
             start_index=0,
             extractor=_Limited(),
-            schema=GENERIC,
+            schema=DEFAULT_SCHEMA,
             error_policy=ErrorPolicy.RAISE,
         )
 
@@ -362,7 +363,7 @@ class TestIngestChunks:
                 graph_store=store,
                 embedder=_ZeroEmbedder(),
                 vector_store=None,
-                graph_schema=GENERIC,
+                graph_schema=DEFAULT_SCHEMA,
                 retrieval_settings=RetrievalSettings(),
                 error_policy=ErrorPolicy.RAISE,
                 ingestion=IngestStats(documents=1),
@@ -417,7 +418,7 @@ class TestIngestChunks:
             graph_store=store,
             embedder=_ZeroEmbedder(),
             vector_store=None,
-            graph_schema=GENERIC,
+            graph_schema=DEFAULT_SCHEMA,
             retrieval_settings=RetrievalSettings(),
             error_policy=error_policy,
             ingestion=IngestStats(documents=1),
@@ -460,7 +461,7 @@ class TestIngestMatchesAdd:
 
         add_store, _ = _store()
         graph = await Graph.open(
-            schema=GENERIC,
+            schema=DEFAULT_SCHEMA,
             graph_store=add_store,
             embedder=_ZeroEmbedder(),
             extractor=_NoopExtractor(),
@@ -507,7 +508,7 @@ class TestHeadingContextEmbedding:
             graph_store=store,
             embedder=_Recorder(),
             vector_store=None,
-            graph_schema=GENERIC,
+            graph_schema=DEFAULT_SCHEMA,
             retrieval_settings=RetrievalSettings(),
             error_policy=ErrorPolicy.RAISE,
             ingestion=IngestStats(documents=1),
@@ -570,7 +571,7 @@ class TestHeadingContextEmbedding:
             graph_store=store,
             embedder=_ZeroEmbedder(),
             vector_store=vector_store,
-            graph_schema=GENERIC,
+            graph_schema=DEFAULT_SCHEMA,
             retrieval_settings=RetrievalSettings(),
             error_policy=ErrorPolicy.RAISE,
             ingestion=IngestStats(documents=1),
@@ -632,14 +633,14 @@ class TestExtractChunks:
             first,
             start_index=0,
             extractor=extractor,
-            schema=GENERIC,
+            schema=DEFAULT_SCHEMA,
             error_policy=ErrorPolicy.RAISE,
         )
         entities_two, relations_two, _ = await extract_chunks(
             second,
             start_index=len(entities_one),
             extractor=extractor,
-            schema=GENERIC,
+            schema=DEFAULT_SCHEMA,
             error_policy=ErrorPolicy.RAISE,
         )
 

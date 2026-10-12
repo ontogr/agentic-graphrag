@@ -160,12 +160,12 @@ print(schema.name, [entity.label for entity in schema.entities])
 
 A search that finds nothing raises no error in most cases. These are the causes, from most to least common.
 
-The engine uses a different schema than the graph. `SearchEngine` searches the entity indexes of one schema. Without `graph_schema`, it uses the generic schema. A graph opened with another schema then returns no entities. Pass the same schema to `Graph.open` and to `SearchEngine`:
+The engine uses a different schema than the graph. `SearchEngine` searches the entity indexes of one schema. Without `graph_schema`, it uses `DEFAULT_SCHEMA`. A graph opened with another schema then returns no entities. Pass the same schema to `Graph.open` and to `SearchEngine`:
 
 ```python fixture:clean_neo4j
 import asyncio
 
-from agrag.common.data_models import GENERIC
+from agrag.common.data_models import DEFAULT_SCHEMA
 from agrag.embedding import build_embedder
 from agrag.graphdb import build_graph_store
 from agrag.ingestion import GlinerExtractor, Graph
@@ -176,14 +176,14 @@ async def main() -> None:
     embedder = build_embedder("ibm-granite/granite-embedding-small-english-r2")
     graph_store = build_graph_store("neo4j")
     graph = await Graph.open(
-        schema=GENERIC,
+        schema=DEFAULT_SCHEMA,
         graph_store=graph_store,
         embedder=embedder,
         extractor=GlinerExtractor(),
     )
     await graph.add(text="Grace Hopper worked at Harvard on the Mark I computer.")
     engine = SearchEngine(
-        graph_store=graph_store, embedder=embedder, graph_schema=GENERIC
+        graph_store=graph_store, embedder=embedder, graph_schema=DEFAULT_SCHEMA
     )
     results = await engine.search("Grace Hopper", ENTITY)
     print(len(results))

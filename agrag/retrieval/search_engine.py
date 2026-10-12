@@ -8,7 +8,8 @@ from typing import Any
 from opentelemetry.trace import Tracer
 
 from agrag.common.data_models.community import Community
-from agrag.common.data_models.graph_schema import GENERIC, GraphSchema
+from agrag.common.data_models.default_schema import DEFAULT_SCHEMA
+from agrag.common.data_models.graph_schema import GraphSchema
 from agrag.common.data_models.search_result import SearchResult
 from agrag.cypher.relations import TraversalDirection
 from agrag.embedding.base import Embedder
@@ -103,7 +104,7 @@ class SearchEngine:
                 a vector_store is configured.
             graph_schema: The graph's declared schema, ground truth for
                 native entity labels and for generated Cypher. None uses
-                ``GENERIC``.
+                ``DEFAULT_SCHEMA``.
             tracer: Opens the search span and flows to every retriever
                 and free function the engine calls. None opens no
                 recorded span.
@@ -117,7 +118,9 @@ class SearchEngine:
         self._vector_store = vector_store
         self._settings = settings or RetrievalSettings()
         self._tracer = tracer
-        self._graph_schema = graph_schema if graph_schema is not None else GENERIC
+        self._graph_schema = (
+            graph_schema if graph_schema is not None else DEFAULT_SCHEMA
+        )
         schema_labels = [entity.label for entity in self._graph_schema.entities]
         if (
             graph_schema is not None
@@ -139,7 +142,7 @@ class SearchEngine:
 
     @property
     def graph_schema(self) -> GraphSchema:
-        """The schema retrieval is grounded in, GENERIC when none was given."""
+        """The schema retrieval is grounded in, DEFAULT_SCHEMA when none was given."""
         return self._graph_schema
 
     async def find_entity(

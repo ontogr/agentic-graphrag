@@ -28,7 +28,7 @@ import asyncio
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from agrag.common.data_models.graph_schema import GENERIC
+from agrag.common.data_models import DEFAULT_SCHEMA
 from agrag.embedding import build_embedder
 from agrag.graphdb import build_graph_store
 from agrag.ingestion import Graph
@@ -38,7 +38,7 @@ from agrag.ingestion.extract import GlinerExtractor
 async def main() -> None:
     graph_store = build_graph_store("neo4j")
     graph = await Graph.open(
-        schema=GENERIC,
+        schema=DEFAULT_SCHEMA,
         graph_store=graph_store,
         embedder=build_embedder("ibm-granite/granite-embedding-small-english-r2"),
         extractor=GlinerExtractor(),
@@ -65,7 +65,7 @@ import asyncio
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from agrag.common.data_models.graph_schema import GENERIC
+from agrag.common.data_models import DEFAULT_SCHEMA
 from agrag.embedding import build_embedder
 from agrag.graphdb import build_graph_store
 from agrag.ingestion import Graph
@@ -75,7 +75,7 @@ from agrag.ingestion.extract import GlinerExtractor
 async def main() -> None:
     graph_store = build_graph_store("neo4j")
     graph = await Graph.open(
-        schema=GENERIC,
+        schema=DEFAULT_SCHEMA,
         graph_store=graph_store,
         embedder=build_embedder("ibm-granite/granite-embedding-small-english-r2"),
         extractor=GlinerExtractor(),
@@ -109,7 +109,7 @@ import asyncio
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from agrag.common.data_models.graph_schema import GENERIC
+from agrag.common.data_models import DEFAULT_SCHEMA
 from agrag.embedding import build_embedder
 from agrag.graphdb import build_graph_store
 from agrag.ingestion import Graph
@@ -119,7 +119,7 @@ from agrag.ingestion.extract import GlinerExtractor
 async def main() -> None:
     graph_store = build_graph_store("neo4j")
     graph = await Graph.open(
-        schema=GENERIC,
+        schema=DEFAULT_SCHEMA,
         graph_store=graph_store,
         embedder=build_embedder("ibm-granite/granite-embedding-small-english-r2"),
         extractor=GlinerExtractor(),
@@ -143,7 +143,7 @@ import asyncio
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from agrag.common.data_models.graph_schema import GENERIC
+from agrag.common.data_models import DEFAULT_SCHEMA
 from agrag.embedding import build_embedder
 from agrag.graphdb import build_graph_store
 from agrag.ingestion import Graph
@@ -160,7 +160,7 @@ from agrag.common.data_models.document import (
 async def main() -> None:
     graph_store = build_graph_store("neo4j")
     graph = await Graph.open(
-        schema=GENERIC,
+        schema=DEFAULT_SCHEMA,
         graph_store=graph_store,
         embedder=build_embedder("ibm-granite/granite-embedding-small-english-r2"),
         extractor=GlinerExtractor(),
@@ -208,7 +208,7 @@ import asyncio
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from agrag.common.data_models.graph_schema import GENERIC
+from agrag.common.data_models import DEFAULT_SCHEMA
 from agrag.embedding import build_embedder
 from agrag.graphdb import build_graph_store
 from agrag.ingestion import Graph
@@ -219,7 +219,7 @@ from agrag.loaders import ChatLoader
 async def main() -> None:
     graph_store = build_graph_store("neo4j")
     graph = await Graph.open(
-        schema=GENERIC,
+        schema=DEFAULT_SCHEMA,
         graph_store=graph_store,
         embedder=build_embedder("ibm-granite/granite-embedding-small-english-r2"),
         extractor=GlinerExtractor(),
@@ -251,7 +251,7 @@ import asyncio
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from agrag.common.data_models.graph_schema import GENERIC
+from agrag.common.data_models import DEFAULT_SCHEMA
 from agrag.embedding import build_embedder
 from agrag.graphdb import build_graph_store
 from agrag.ingestion import Graph
@@ -262,7 +262,7 @@ from agrag.loaders.types import ErrorPolicy
 async def main() -> None:
     graph_store = build_graph_store("neo4j")
     graph = await Graph.open(
-        schema=GENERIC,
+        schema=DEFAULT_SCHEMA,
         graph_store=graph_store,
         embedder=build_embedder("ibm-granite/granite-embedding-small-english-r2"),
         extractor=GlinerExtractor(),
@@ -291,7 +291,7 @@ import asyncio
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from agrag.common.data_models.graph_schema import GENERIC
+from agrag.common.data_models import DEFAULT_SCHEMA
 from agrag.embedding import build_embedder
 from agrag.graphdb import build_graph_store
 from agrag.ingestion import Graph
@@ -302,7 +302,7 @@ from agrag.loaders.types import ErrorPolicy
 async def main() -> None:
     graph_store = build_graph_store("neo4j")
     graph = await Graph.open(
-        schema=GENERIC,
+        schema=DEFAULT_SCHEMA,
         graph_store=graph_store,
         embedder=build_embedder("ibm-granite/granite-embedding-small-english-r2"),
         extractor=GlinerExtractor(),
@@ -336,7 +336,7 @@ import asyncio
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from agrag.common.data_models.graph_schema import GENERIC
+from agrag.common.data_models import DEFAULT_SCHEMA
 from agrag.embedding import build_embedder
 from agrag.graphdb import build_graph_store
 from agrag.ingestion import Graph
@@ -347,7 +347,7 @@ from agrag.ingestion.reports.add_result import AddResult
 async def main() -> None:
     graph_store = build_graph_store("neo4j")
     graph = await Graph.open(
-        schema=GENERIC,
+        schema=DEFAULT_SCHEMA,
         graph_store=graph_store,
         embedder=build_embedder("ibm-granite/granite-embedding-small-english-r2"),
         extractor=GlinerExtractor(),

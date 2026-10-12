@@ -72,7 +72,7 @@ def _loading(store: AsyncMock, *entities: Entity) -> AsyncMock:
     return store
 
 
-# A non-GENERIC schema, so a test cannot pass by matching the fallback's labels.
+# A non-default schema, so a test cannot pass by matching fallback labels.
 _CLINICAL_SCHEMA = GraphSchema(
     name="clinical",
     version="1",

@@ -26,9 +26,10 @@ import agrag.ingestion._ingest as ingest_module
 import agrag.ingestion._job_cleanup as job_cleanup_module
 import agrag.ingestion.graph as graph_module
 from agrag.common.data_models.chunk import Chunk
+from agrag.common.data_models.default_schema import DEFAULT_SCHEMA
 from agrag.common.data_models.document import Document, DocumentFamily, SourceFormat
 from agrag.common.data_models.extraction import ExtractedEntity, ExtractionResult
-from agrag.common.data_models.graph_schema import GENERIC, GraphSchema
+from agrag.common.data_models.graph_schema import GraphSchema
 from agrag.embedding.base import Embedder
 from agrag.graphdb import build_graph_store
 from agrag.graphdb.base import GraphStore
@@ -119,7 +120,7 @@ async def _open_graph(
 ) -> Graph:
     """Open a graph on an already-connected store."""
     return await Graph.open(
-        schema=GENERIC,
+        schema=DEFAULT_SCHEMA,
         graph_store=store,
         embedder=_FixedEmbedder(),
         extractor=extractor,
@@ -347,7 +348,7 @@ async def _grow_component(
             await recovered.connect()
             try:
                 await Graph.open(
-                    schema=GENERIC,
+                    schema=DEFAULT_SCHEMA,
                     graph_store=recovered,
                     embedder=_FixedEmbedder(),
                     extractor=_KeywordExtractor(names[2]),
@@ -416,7 +417,7 @@ class TestCrashBeforeCommit:
             await recovered_store.connect()
             try:
                 await Graph.open(
-                    schema=GENERIC,
+                    schema=DEFAULT_SCHEMA,
                     graph_store=recovered_store,
                     embedder=_FixedEmbedder(),
                     extractor=_NoopExtractor(),
@@ -474,7 +475,7 @@ class TestCrashBeforeCommit:
             await recovered_store.connect()
             try:
                 await Graph.open(
-                    schema=GENERIC,
+                    schema=DEFAULT_SCHEMA,
                     graph_store=recovered_store,
                     embedder=_FixedEmbedder(),
                     extractor=_KeywordExtractor(probe_name),
@@ -526,7 +527,7 @@ class TestCrashBeforeCommit:
             await recovered_store.connect()
             try:
                 await Graph.open(
-                    schema=GENERIC,
+                    schema=DEFAULT_SCHEMA,
                     graph_store=recovered_store,
                     embedder=_FixedEmbedder(),
                     extractor=_NoopExtractor(),
@@ -595,7 +596,7 @@ class TestCrashAfterCommit:
             await recovered_store.connect()
             try:
                 await Graph.open(
-                    schema=GENERIC,
+                    schema=DEFAULT_SCHEMA,
                     graph_store=recovered_store,
                     embedder=_FixedEmbedder(),
                     extractor=_KeywordExtractor(crashed_probe),
@@ -660,7 +661,7 @@ class TestRecoveryIsIdempotent:
             await first_store.connect()
             try:
                 await Graph.open(
-                    schema=GENERIC,
+                    schema=DEFAULT_SCHEMA,
                     graph_store=first_store,
                     embedder=_FixedEmbedder(),
                     extractor=_NoopExtractor(),
@@ -673,7 +674,7 @@ class TestRecoveryIsIdempotent:
             await second_store.connect()
             try:
                 await Graph.open(
-                    schema=GENERIC,
+                    schema=DEFAULT_SCHEMA,
                     graph_store=second_store,
                     embedder=_FixedEmbedder(),
                     extractor=_NoopExtractor(),

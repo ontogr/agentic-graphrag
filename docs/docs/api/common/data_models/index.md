@@ -13,12 +13,14 @@ Shared data models used by agrag components.
 - [**community**](community/index.md) – The Community model: a Leiden-detected entity cluster with an LLM report.
 - [**cutover_job**](cutover_job/index.md) – Crash-recoverable state for one add/update/delete_document call.
 - [**data_point**](data_point/index.md) – The base class for a graph node.
+- [**default_schema**](default_schema/index.md) – The default schema: nine entity types and eight typed relations.
 - [**document**](document/index.md) – The Document model: one unit of source text, before chunking.
 - [**entity**](entity/index.md) – A permanent mention-level graph node, accumulated by exact-name matching.
 - [**extraction**](extraction/index.md) – Pre-resolution entity and relation mentions produced by an Extractor.
 - [**graph_record**](graph_record/index.md) – Graph storage record shapes for GraphStore.
 - [**graph_schema**](graph_schema/index.md) – The GraphSchema contract: entity and relation types extraction validates against.
 - [**normalization**](normalization/index.md) – The Normalization model: how a loader turned source bytes into text.
+- [**presets**](presets/index.md) – Preset schema fragments that add entity types to a base schema.
 - [**provenance**](provenance/index.md) – Provenance types for a chunk.
 - [**query_value**](query_value/index.md) – A result row returned by a direct graph query.
 - [**relation**](relation/index.md) – The canonical, deduped graph relationship that merge mechanics produces.
@@ -43,6 +45,7 @@ Shared data models used by agrag components.
 - [**NodeRecord**](graph_record/NodeRecord.md) – One graph node, ready to write.
 - [**Normalization**](normalization/Normalization-ref.md) – How a loader turned source bytes into `Document.text`.
 - [**PageProvenance**](provenance/PageProvenance.md) – The location of a chunk across one or more pages.
+- [**Preset**](presets/Preset.md) – A curated set of entity types to add to a base schema.
 - [**PropertySpec**](graph_schema/PropertySpec.md) – The declaration of one property on an entity type.
 - [**Relation**](relation/Relation-ref.md) – A resolved relationship between two Entity nodes.
 - [**RelationRecord**](graph_record/RelationRecord.md) – One graph relationship, ready to write.
@@ -57,4 +60,6 @@ Shared data models used by agrag components.
 
 **Attributes:**
 
-- [**GENERIC**](graph_schema/GENERIC.md) – A ready-made schema for open-domain text.
+- [**DEFAULT_SCHEMA**](default_schema/DEFAULT_SCHEMA-ref.md) –
+- [**LEGAL**](presets/LEGAL.md) – Legal types: contracts and regulations.
+- [**OPERATIONS**](presets/OPERATIONS.md) – Operations types: facilities, services and occupations.

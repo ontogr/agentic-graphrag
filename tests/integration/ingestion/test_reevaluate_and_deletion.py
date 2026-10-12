@@ -18,10 +18,11 @@ from uuid import UUID, uuid4
 import pytest
 
 from agrag.common.data_models.chunk import Chunk
+from agrag.common.data_models.default_schema import DEFAULT_SCHEMA
 from agrag.common.data_models.document import Document, DocumentFamily, SourceFormat
 from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.extraction import ExtractedEntity, ExtractionResult
-from agrag.common.data_models.graph_schema import GENERIC, GraphSchema
+from agrag.common.data_models.graph_schema import GraphSchema
 from agrag.embedding.base import Embedder
 from agrag.graphdb import build_graph_store
 from agrag.graphdb.base import GraphStore
@@ -199,7 +200,7 @@ class TestReevaluateIntegration:
         store = build_graph_store("neo4j")
         await store.connect()
         graph = await Graph.open(
-            schema=GENERIC,
+            schema=DEFAULT_SCHEMA,
             graph_store=store,
             embedder=_FixedEmbedder(),
             extractor=_NoopExtractor(),
@@ -269,7 +270,7 @@ class TestReevaluateIntegration:
             lambda **kwargs: LLMVerify(client=_FailingVerifier(answer), **kwargs),
         )
         graph = await Graph.open(
-            schema=GENERIC,
+            schema=DEFAULT_SCHEMA,
             graph_store=store,
             embedder=_BandEmbedder(),
             extractor=_NoopExtractor(),
@@ -292,7 +293,7 @@ class TestReevaluateIntegration:
                     )
                 ],
                 graph_store=store,
-                schema=GENERIC,
+                schema=DEFAULT_SCHEMA,
                 members=[first, second],
             )
 
@@ -347,7 +348,7 @@ class TestDeletionPruningIntegration:
         ]
         survivor_name = f"Keepprobe Galaxy {suffix}"
         graph = await Graph.open(
-            schema=GENERIC,
+            schema=DEFAULT_SCHEMA,
             graph_store=store,
             embedder=_KeywordEmbedder(),
             extractor=_ProbeExtractor(probe_names, survivor_name),
@@ -384,7 +385,7 @@ class TestDeletionPruningIntegration:
                     ),
                 ],
                 graph_store=store,
-                schema=GENERIC,
+                schema=DEFAULT_SCHEMA,
                 members=members,
             )
 
