@@ -937,11 +937,13 @@ class TestReviewFixes:
 class TestShippedNames:
     """The shipped names and presets work as sources and as extends."""
 
-    def test_preset_value_loads_as_the_preset_on_the_default(self):
+    @staticmethod
+    def test_preset_value_loads_as_the_preset_on_the_default():
         """A Preset source is the preset applied to the default schema."""
         assert load_schema(OPERATIONS) == OPERATIONS.apply(DEFAULT_SCHEMA)
 
-    def test_preset_repeating_a_default_type_is_a_load_error(self):
+    @staticmethod
+    def test_preset_repeating_a_default_type_is_a_load_error():
         """A Preset that re-adds a default type fails as a SchemaLoadError."""
         repeated = Preset(
             name="people",
@@ -952,7 +954,8 @@ class TestShippedNames:
 
         assert "already declares 'Person'" in error.issues[0].message
 
-    def test_preset_value_extends_a_child(self):
+    @staticmethod
+    def test_preset_value_extends_a_child():
         """A Preset as extends adds its types below the child's types."""
         schema = load_schema({"entities": ["Vendor"]}, extends=LEGAL)
 
@@ -982,7 +985,8 @@ class TestShippedNames:
         assert schema.entities == shipped.entities
         assert schema.relations == shipped.relations
 
-    def test_extending_default_adds_a_type_below_organization(self):
+    @staticmethod
+    def test_extending_default_adds_a_type_below_organization():
         """A child of default adds a type that inherits from Organization."""
         schema = load_schema(
             {
@@ -997,17 +1001,20 @@ class TestShippedNames:
         assert schema.ancestors("Vendor") == ["Organization"]
         assert len(schema.entities) == len(DEFAULT_SCHEMA.entities) + 1
 
-    def test_omitting_extends_replaces_the_default(self):
+    @staticmethod
+    def test_omitting_extends_replaces_the_default():
         """Without extends, a child is standalone and has only its own types."""
         assert _labels(load_schema({"entities": ["Vendor"]})) == ["Vendor"]
 
-    def test_redeclaring_a_default_type_is_an_error(self):
+    @staticmethod
+    def test_redeclaring_a_default_type_is_an_error():
         """A type already in the shipped default needs override to replace it."""
         error = _error({"extends": "default", "entities": ["Person"]})
 
         assert "already defined by the base schema 'default'" in error.issues[0].message
 
-    def test_redeclaring_a_preset_type_is_an_error(self):
+    @staticmethod
+    def test_redeclaring_a_preset_type_is_an_error():
         """A preset type conflicts with the base like any other base type."""
         error = _error({"entities": ["Facility"]}, extends="operations")
 
@@ -1016,7 +1023,8 @@ class TestShippedNames:
             in error.issues[0].message
         )
 
-    def test_unknown_name_lists_the_shipped_names(self):
+    @staticmethod
+    def test_unknown_name_lists_the_shipped_names():
         """The unknown-name error lists every shipped name."""
         error = _error("defalt")
 

@@ -212,8 +212,7 @@ async def _schema_seen_by_extractor(source: SchemaSource) -> GraphSchema:
         extractor=extractor,
     )
     await graph.add(text="A short note.")
-    (received,) = extractor.received_schemas
-    return received
+    return extractor.received_schemas[0]
 
 
 async def _open_graph(store: _MockGraphStore | None = None) -> Graph:
@@ -883,7 +882,8 @@ class TestGraphOpen:
 class TestGraphSchemaSources:
     """Graph accepts any source load_schema accepts and converts it once."""
 
-    async def test_graph_schema_is_used_as_given(self) -> None:
+    @staticmethod
+    async def test_graph_schema_is_used_as_given() -> None:
         """A GraphSchema reaches the extractor unchanged."""
         custom = load_schema(["Ticket"])
 
@@ -891,7 +891,8 @@ class TestGraphSchemaSources:
 
         assert received == custom
 
-    async def test_shipped_name_gives_its_entity_labels(self) -> None:
+    @staticmethod
+    async def test_shipped_name_gives_its_entity_labels() -> None:
         """A shipped schema name loads the default types plus its own."""
         received = await _schema_seen_by_extractor("operations")
 
@@ -917,7 +918,8 @@ class TestGraphSchemaSources:
 
         assert [entity.label for entity in received.entities] == expected_labels
 
-    async def test_yaml_file_path_matches_load_schema(self, tmp_path: Path) -> None:
+    @staticmethod
+    async def test_yaml_file_path_matches_load_schema(tmp_path: Path) -> None:
         """A YAML file path gives the same schema as load_schema on that path."""
         schema_file = tmp_path / "schema.yaml"
         schema_file.write_text("entities:\n  Person: A person.\n", encoding="utf-8")
@@ -926,7 +928,8 @@ class TestGraphSchemaSources:
 
         assert received == load_schema(schema_file)
 
-    async def test_preset_matches_load_schema(self) -> None:
+    @staticmethod
+    async def test_preset_matches_load_schema() -> None:
         """A Preset value gives the schema load_schema builds from it."""
         received = await _schema_seen_by_extractor(OPERATIONS)
 
@@ -953,7 +956,8 @@ class TestGraphSchemaSources:
             )
         assert store.connect_calls == 0
 
-    def test_constructor_rejects_invalid_dict(self) -> None:
+    @staticmethod
+    def test_constructor_rejects_invalid_dict() -> None:
         """Graph(...) raises SchemaLoadError for an invalid dict schema."""
         with pytest.raises(SchemaLoadError):
             Graph(
