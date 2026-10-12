@@ -122,15 +122,18 @@ def _describe_entity_type(entity_type: EntityType) -> str:
         entity_type: The entity type to describe.
 
     Returns:
-        The type's own description, followed by its declared property names
-        and type hints when it declares any.
+        The type's description, property names, types, required flags and
+        allowed values, with property-specific guidance when it declares any.
     """
     if not entity_type.properties:
         return entity_type.description
-    declared = ", ".join(
-        f"{name} ({type_name})" for name, type_name in entity_type.properties.items()
-    )
-    return f"{entity_type.description} Properties to extract when stated: {declared}."
+    lines = [entity_type.description, "Properties to extract when stated:"]
+    for name, spec in entity_type.properties.items():
+        line = f"- {spec.describe(name)}"
+        if spec.description:
+            line += f": {spec.description}"
+        lines.append(line)
+    return "\n".join(lines)
 
 
 def _resolve_relation_pair(

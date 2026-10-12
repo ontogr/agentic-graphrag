@@ -16,6 +16,7 @@ from agrag.common.data_models.graph_schema import (
     RESERVED_ENTITY_LABELS,
     EntityType,
     GraphSchema,
+    PropertySpec,
     RelationType,
 )
 from agrag.common.data_models.resolved_entity import RESOLVED_ENTITY_LABEL
@@ -37,7 +38,11 @@ _CLINICAL_SCHEMA = GraphSchema(
         EntityType(
             label="Drug",
             description="A medication.",
-            properties={"name": "str", "dosage": "float"},
+            properties={
+                "brand": PropertySpec(type="string", required=True),
+                "dosage": PropertySpec(type="float", description="Dose in milligrams."),
+                "form": PropertySpec(type="string", enum=["tablet", "capsule"]),
+            },
             subtypes=["Biologic"],
         ),
         EntityType(label="Condition", description="A diagnosed condition."),
@@ -74,7 +79,7 @@ class TestEntityTypeReservedPropertyNames:
             EntityType(
                 label="Person",
                 description="A named individual.",
-                properties={reserved: "str"},
+                properties={reserved: PropertySpec(type="string")},
             )
         assert "Rename or remove" in str(excinfo.value)
 
@@ -84,7 +89,10 @@ class TestEntityTypeReservedPropertyNames:
             EntityType(
                 label="Person",
                 description="A named individual.",
-                properties={"role": "str", "label": "str"},
+                properties={
+                    "role": PropertySpec(type="string"),
+                    "label": PropertySpec(type="string"),
+                },
             )
 
 
@@ -130,7 +138,10 @@ class TestPromptSerialization:
             "Schema clinical (version 2)\n"
             "Entity types:\n"
             "- Drug: A medication.\n"
-            "  properties: name: str, dosage: float\n"
+            "  properties:\n"
+            "    - brand (string, required)\n"
+            "    - dosage (float): Dose in milligrams.\n"
+            "    - form (string, one of: tablet, capsule)\n"
             "  subtypes: Biologic\n"
             "- Condition: A diagnosed condition.\n"
             "Relation types:\n"
@@ -163,3 +174,73 @@ class TestPromptSerialization:
 
         assert "Relation types:\n(none)" in schema.to_prompt_description()
         assert "Relation types:\n(none)" in schema.to_compact_summary()
+
+
+class TestPropertySpec:
+    """Property specs validate declared types and enum values."""
+
+    def test_type_is_required_and_rejects_unknown_names(self) -> None:
+        """A spec must name one of the supported value types."""
+        with pytest.raises(ValidationError, match="Field required"):
+            PropertySpec(required=True)  # ty: ignore[missing-argument]
+        with pytest.raises(ValidationError):
+            PropertySpec(type="str")
+
+    @pytest.mark.parametrize(
+        "property_type", ["string", "integer", "float", "boolean", "date"]
+    )
+    def test_accepts_supported_types(self, property_type: str) -> None:
+        """Each supported property type can be declared."""
+        assert PropertySpec(type=property_type).type == property_type
+
+    @pytest.mark.parametrize(
+        ("property_type", "values"),
+        [
+            ("string", ["tablet", "capsule"]),
+            ("integer", ["1", "-2", "40"]),
+            ("float", ["1.5", "-2e3", "3"]),
+            ("boolean", ["true", "false"]),
+            ("date", ["2024-01-31", "1999-12-31"]),
+        ],
+    )
+    def test_accepts_enum_values_that_match_type(
+        self, property_type: str, values: list[str]
+    ) -> None:
+        """Enum entries use the text form accepted by their declared type."""
+        assert PropertySpec(type=property_type, enum=values).enum == values
+
+    @pytest.mark.parametrize(
+        ("property_type", "value"),
+        [
+            ("integer", "1.5"),
+            ("float", "nan"),
+            ("boolean", "yes"),
+            ("date", "2024-13-01"),
+            ("string", " "),
+        ],
+    )
+    def test_rejects_enum_values_that_do_not_match_type(
+        self, property_type: str, value: str
+    ) -> None:
+        """Enum entries must be valid values for their declared type."""
+        with pytest.raises(ValidationError, match="not valid for type"):
+            PropertySpec(type=property_type, enum=[value])
+
+    def test_rejects_empty_or_repeated_enum(self) -> None:
+        """An enum must contain distinct allowed values."""
+        with pytest.raises(ValidationError, match="enum is empty"):
+            PropertySpec(type="string", enum=[])
+        with pytest.raises(ValidationError, match="more than once"):
+            PropertySpec(type="string", enum=["a", "a"])
+
+    def test_description_survives_schema_json_round_trip(self) -> None:
+        """Serialized schema preserves property metadata and prompt wording."""
+        schema = GraphSchema.model_validate_json(_CLINICAL_SCHEMA.model_dump_json())
+
+        assert schema == _CLINICAL_SCHEMA
+        assert schema.entities[0].properties["form"].describe("form") == (
+            "form (string, one of: tablet, capsule)"
+        )
+        assert (
+            schema.to_prompt_description() == _CLINICAL_SCHEMA.to_prompt_description()
+        )
