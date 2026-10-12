@@ -36,6 +36,7 @@ dependencies = [
   "rapidfuzz>=3.0",
   "scipy>=1.14",
   "fastembed>=0.8.0",
+  "pyyaml>=6.0",
 ]
 
 [project.optional-dependencies]
@@ -266,3 +267,6 @@ extend-exclude = [
 # The HealthBench grader prompt in benchmarks/grading/healthbench.py is kept word
 # for word, including this misspelling.
 critera = "critera"
+# Deliberate misspellings in schema-loader tests that check the error hints.
+defalt = "defalt"
+entites = "entites"

@@ -23,6 +23,7 @@ PACKAGES = [
     "agrag.ingestion",
     "agrag.loaders",
     "agrag.retrieval",
+    "agrag.schema",
     "agrag.vectordb",
 ]
 

@@ -1,0 +1,129 @@
+---
+title: Schema file format
+---
+
+# Schema file format
+
+This page lists every key and every short form that `load_schema` accepts. For a worked example, see [Define a graph schema](../guides/define-a-graph-schema.mdx).
+
+`load_schema(source, *, extends=None)` returns a `GraphSchema`. `dump_schema(schema)` returns the full form of a schema as a dict. `load_schema(dump_schema(schema))` returns an equal schema.
+
+## Where a schema can come from
+
+| Source | Example |
+| --- | --- |
+| A `GraphSchema` | `load_schema(schema)` |
+| A dict | `load_schema({"entities": ["Person"]})` |
+| A list of labels and relations | `load_schema(["Person", "Vendor", "Person-WORKS_FOR->Vendor"])` |
+| JSON text | `load_schema('{"entities": ["Person"]}')` |
+| A `.json`, `.yaml` or `.yml` file | `load_schema("schema.yaml")` |
+
+## Top-level keys
+
+| Key | Meaning | Default |
+| --- | --- | --- |
+| `name` | A short name for the schema. | `custom`, or the file name without its suffix. |
+| `version` | The schema version. Raise it when types or patterns change. A number is read as text. Quote `1.10`. | `"1"` |
+| `extends` | The base schema. See [Build on a base schema](#build-on-a-base-schema). | none |
+| `exclude` | Base types or relations to remove. | none |
+| `entities` | The entity types. | none |
+| `relations` | The relation types. | none |
+
+Any other key is an error. The error names the closest valid key.
+
+## Entity types
+
+You can write `entities` in these forms:
+
+| Form | Example |
+| --- | --- |
+| A list of labels | `[Person, Vendor]` |
+| A list of objects | `[{label: Vendor, description: A seller., parents: [Organization]}]` |
+| A label-to-description map | `{Vendor: A seller.}` |
+| A label-to-object map | `{Vendor: {description: A seller., parents: [Organization]}}` |
+
+An entity object has these keys:
+
+| Key | Meaning | Default |
+| --- | --- | --- |
+| `label` | The label. Leave it out in a map form: the key is the label. | required |
+| `description` | One short sentence for the extractor. | empty |
+| `parents` | The labels this type narrows. A single label is a list of one. A type inherits the patterns of its parents. | none |
+| `properties` | The typed properties. | none |
+| `override` | `true` replaces a base type of the same label. | `false` |
+
+### Properties
+
+| Form | Example |
+| --- | --- |
+| A list of names | `[email, phone]` (type `string`) |
+| A name-to-type map | `{born: integer}` |
+| A name-to-object map | `{status: {type: string, required: true, enum: [open, shipped]}}` |
+| A list of objects | `[{name: born, type: integer}]` |
+
+A property object has these keys:
+
+| Key | Meaning | Default |
+| --- | --- | --- |
+| `type` | One of `string`, `integer`, `float`, `boolean` or `date`. | `string` |
+| `required` | Whether an entity of this type should carry the property. | `false` |
+| `enum` | Allowed values as text. Each value must be a valid form of `type`. | none |
+| `description` | Guidance for the extractor. | empty |
+
+## Relation types
+
+You can write `relations` in these forms:
+
+| Form | Example |
+| --- | --- |
+| A list of strings | `["Person-WORKS_FOR->Organization"]` |
+| A list of strings with alternatives | `["Person\|Organization-OWNS->Software\|Dataset"]` (four patterns) |
+| A list of triples (Python only) | `[("Person", "WORKS_FOR", "Organization")]` |
+| A list of objects | `[{label: OWNS, description: A person owns software., patterns: ["Person->Software"]}]` |
+| A label-to-patterns map | `{OWNS: "Person->Software"}` |
+| A label-to-object map | `{OWNS: {description: Ownership., patterns: ["Person->Software"]}}` |
+
+Strings and triples with the same label join into one relation.
+
+A relation object has these keys:
+
+| Key | Meaning | Default |
+| --- | --- | --- |
+| `label` | The label. Letters, digits and underscores only. | required |
+| `description` | One short sentence. | empty |
+| `patterns` | The allowed pairs. Write `"Source->Target"` or `[source, target]`. | required |
+| `add_patterns` | Pairs to add to a base relation. | none |
+| `cardinality`, `symmetric` | The limits that the schema model defines. | model default |
+| `override` | `true` replaces a base relation of the same label. | `false` |
+
+## Build on a base schema
+
+`extends` names the base. It can be a path, a dict, a `GraphSchema` or, once the default schema ships, the names `default`, `operations` and `legal`. You can set it in the file or in the call, but not both. If you leave it out, your schema stands alone and replaces the default schema.
+
+| Rule | Behavior |
+| --- | --- |
+| Add a new label | Allowed. |
+| Declare a label that the base has | Error, unless the item has `override: true`. |
+| `override: true` | Replaces the whole base item. The new item keeps the base position. The loader logs a warning. |
+| Loosen a constraint in an override | Error. You cannot drop a property, change its type, make a required property optional, widen its `enum`, or raise a cardinality limit. You can change patterns. |
+| `exclude: [Label]` | Removes a base type or relation. |
+| Relations that use an excluded type | The loader removes the patterns that name it. It removes a relation that has no pattern left. |
+| A base type that has an excluded type as a parent | Error. Exclude the child as well. |
+| A new relation that names an excluded type | Error. |
+| `add_patterns` | Adds pairs to a base relation. Do not combine it with `patterns` or `override`. |
+
+## Settings are not part of a schema
+
+Thresholds, the model name and the data type are extraction settings. Set them in `ExtractionSettings`. A schema key with one of these names is an error. A schema stays the same when you tune the extractor.
+
+## Errors
+
+`load_schema` raises `SchemaLoadError` for every invalid source. The message lists every problem, one per line, with the path to the key:
+
+```text
+invalid schema in vendors.yaml (2 errors):
+  entities[2].parents[0]: parent 'Organizaton' is not a declared entity type. Did you mean 'Organization'?
+  relations[0]: cannot read 'Person WORKS_FOR Org' as a relation. Write it as 'Source-LABEL->Target', for example 'Person-WORKS_FOR->Organization'.
+```
+
+`SchemaLoadError.issues` holds the same problems as `SchemaIssue(path, message)` values. An item that came from the base schema has the path `extends.<Label>`. A file that cannot be read or parsed raises one error at once.
