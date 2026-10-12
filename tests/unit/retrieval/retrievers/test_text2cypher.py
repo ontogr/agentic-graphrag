@@ -199,6 +199,42 @@ class TestText2CypherBounds:
         executed = gs.execute_read.await_args_list[-1].args[0]
         assert executed.endswith("RETURN n LIMIT 1000")
 
+    @pytest.mark.parametrize(
+        ("generated", "expected_suffix"),
+        [
+            (
+                "MATCH (n:Person) WHERE n._pending_job_id IS NULL "
+                "WITH n LIMIT 5 RETURN n",
+                "WITH n LIMIT 5 RETURN n LIMIT 1000",
+            ),
+            (
+                "MATCH (n:Person) WHERE n._pending_job_id IS NULL RETURN n LIMIT 5000",
+                "RETURN n LIMIT 1000",
+            ),
+            (
+                "MATCH (n:Person) WHERE n._pending_job_id IS NULL RETURN n LIMIT 5;",
+                "RETURN n LIMIT 5;",
+            ),
+            (
+                "MATCH (n:Person) WHERE n._pending_job_id IS NULL RETURN n;",
+                "RETURN n LIMIT 1000",
+            ),
+        ],
+    )
+    async def test_row_cap_applies_to_the_final_limit(
+        self, generated: str, expected_suffix: str
+    ) -> None:
+        """A LIMIT that is not the last clause, or is too large, does not bound."""
+        gs = AsyncMock()
+        gs.execute_read.return_value = []
+        retriever = Text2CypherRetriever(graph_store=gs, schema=DEFAULT_SCHEMA)
+
+        with patch.object(retriever, "_generate_cypher", return_value=generated):
+            await retriever.retrieve("who is Alice?")
+
+        executed = gs.execute_read.await_args_list[-1].args[0]
+        assert executed.endswith(expected_suffix)
+
 
 class TestText2CypherRowShapes:
     """Structured rows are surfaced as Entity/Relation/Chunk results."""

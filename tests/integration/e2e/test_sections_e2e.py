@@ -29,7 +29,7 @@ from agrag.common.data_models.extraction import ExtractionResult
 from agrag.common.data_models.graph_schema import EntityType, GraphSchema
 from agrag.common.data_models.vector_record import Distance
 from agrag.cypher.entities import validate_identifier
-from agrag.cypher.relations import fetch_all_relations_query
+from agrag.cypher.relations import fetch_all_relations_query_cursor
 from agrag.embedding.base import Embedder
 from agrag.graphdb import build_graph_store
 from agrag.graphdb.base import GraphStore
@@ -183,7 +183,8 @@ async def test_outline(env: _Env) -> None:
     assert {row["parents"] for row in parents} == {1}
 
     relations = await env.store.execute_read(
-        fetch_all_relations_query(), {"skip": 0, "limit": 1000}
+        fetch_all_relations_query_cursor(),
+        {"last_a": "", "last_b": "", "last_type": "", "last_rel_id": "", "limit": 1000},
     )
     assert {row["rel_type"] for row in relations}.isdisjoint(
         {"HAS_CHILD", "HAS_DOCUMENT", "HAS_PART"}

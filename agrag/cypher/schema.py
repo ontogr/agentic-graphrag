@@ -112,22 +112,6 @@ def relation_id_constraint_query(rel_type: str) -> str:
     )
 
 
-def plain_index_query(label: str) -> str:
-    """Build a CREATE INDEX query on the node ``id`` property.
-
-    Args:
-        label: The node label. Must already be validated.
-
-    Returns:
-        A Cypher query creating the range index if absent.
-    """
-    safe_label = validate_identifier(label)
-    return (
-        f"CREATE INDEX {safe_label}_id_index IF NOT EXISTS "
-        f"FOR (n:{safe_label}) ON (n.id)"
-    )
-
-
 def merge_key_constraint_query(label: str) -> str:
     """Build a CREATE CONSTRAINT query making ``merge_key`` unique per label.
 
