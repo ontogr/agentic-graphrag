@@ -78,7 +78,178 @@ def _max_length(field: FieldInfo) -> int | None:
 
 
 def _relation_label(field_name: str) -> str:
+    """Return the relation label a field name maps to."""
     return re.sub(r"[^A-Za-z0-9]+", "_", field_name).strip("_").upper()
+
+
+def _parents(
+    model: type[BaseModel], known: dict[type[BaseModel], str]
+) -> list[type[BaseModel]]:
+    """List the base classes of ``model`` that the caller also passes in."""
+    return [
+        base
+        for base in model.__bases__
+        if base in known and isinstance(base, type) and issubclass(base, BaseModel)
+    ]
+
+
+def _class_description(
+    model: type[BaseModel], label: str, warnings: list[FormatWarning]
+) -> str:
+    """Return the cleaned docstring, or the label when the class has none."""
+    description = inspect.cleandoc(model.__doc__) if model.__doc__ else ""
+    if description:
+        return description
+    warnings.append(
+        FormatWarning(
+            "missing_description",
+            label,
+            "The class has no docstring; the label is the description.",
+        )
+    )
+    return label
+
+
+def _collect_relation(
+    relations: dict[str, dict[str, Any]],
+    *,
+    label: str,
+    field: FieldInfo,
+    field_name: str,
+    target: str,
+    many: bool,
+) -> None:
+    """Add one pattern to the relation named after the field."""
+    entry = relations.setdefault(
+        _relation_label(field_name),
+        {"patterns": [], "description": "", "limits": []},
+    )
+    entry["patterns"].append([label, target])
+    entry["description"] = entry["description"] or field.description or ""
+    entry["limits"].append(_max_length(field) if many else 1)
+
+
+def _property_spec(
+    field: FieldInfo, inner: Any, many: bool, optional: bool
+) -> dict[str, Any] | None:
+    """Return the canonical property dict for a field, or None when unmappable."""
+    values = _enum_values(inner)
+    kind: str | None = None
+    if not many:
+        kind = _enum_kind(values) if values else _SCALARS.get(inner)
+    if kind is None:
+        return None
+    return {
+        "type": kind,
+        "required": field.is_required() and not optional,
+        "enum": None if values is None else [_enum_text(value) for value in values],
+        "description": field.description or "",
+    }
+
+
+def _entity_properties(
+    model: type[BaseModel],
+    label: str,
+    known: dict[type[BaseModel], str],
+    relations: dict[str, dict[str, Any]],
+    warnings: list[FormatWarning],
+) -> dict[str, Any]:
+    """Read the fields of one model, filling the relation accumulator.
+
+    A field the class redeclares replaces the inherited one, because a child
+    that narrows a property does that with a new field.
+    """
+    inherited = {name for base in _parents(model, known) for name in base.model_fields}
+    own = set(inspect.get_annotations(model))
+    properties: dict[str, Any] = {}
+    for field_name, field in model.model_fields.items():
+        if field_name in inherited and field_name not in own:
+            continue
+        inner, many, optional = _shape(field.annotation)
+        if inner in known:
+            _collect_relation(
+                relations,
+                label=label,
+                field=field,
+                field_name=field_name,
+                target=known[inner],
+                many=many,
+            )
+            continue
+        spec = _property_spec(field, inner, many, optional)
+        if spec is None:
+            warnings.append(
+                FormatWarning(
+                    "property_dropped",
+                    f"{label}.{field_name}",
+                    f"The type {field.annotation!r} has no schema equivalent.",
+                )
+            )
+            continue
+        properties[field_name] = spec
+    return properties
+
+
+def _entity_body(
+    model: type[BaseModel],
+    label: str,
+    known: dict[type[BaseModel], str],
+    relations: dict[str, dict[str, Any]],
+    warnings: list[FormatWarning],
+) -> dict[str, Any]:
+    """Read one model class as a canonical entity dict."""
+    return {
+        "label": label,
+        "description": _class_description(model, label, warnings),
+        "parents": [known[base] for base in _parents(model, known)],
+        "properties": _entity_properties(model, label, known, relations, warnings),
+    }
+
+
+def _relation_warnings(
+    label: str,
+    entry: dict[str, Any],
+    limits: set[int | None],
+    warnings: list[FormatWarning],
+) -> None:
+    """Warn when the fields of one relation disagree or none is described."""
+    if len(limits) > 1:
+        warnings.append(
+            FormatWarning(
+                "limit_loosened",
+                label,
+                "Fields of this relation disagree on the limit; none applies.",
+            )
+        )
+    if not entry["description"]:
+        warnings.append(
+            FormatWarning(
+                "missing_description",
+                label,
+                "The field has no description; the label is the description.",
+            )
+        )
+
+
+def _relation_bodies(
+    relations: dict[str, dict[str, Any]], warnings: list[FormatWarning]
+) -> list[dict[str, Any]]:
+    """Turn the collected relation fields into canonical relation dicts."""
+    built = []
+    for relation_label, entry in relations.items():
+        limits = set(entry["limits"])
+        _relation_warnings(relation_label, entry, limits, warnings)
+        built.append(
+            {
+                "label": relation_label,
+                "description": entry["description"] or relation_label,
+                "patterns": entry["patterns"],
+                "cardinality": {
+                    "max_per_source": limits.pop() if len(limits) == 1 else None
+                },
+            }
+        )
+    return built
 
 
 def from_pydantic(
@@ -113,95 +284,14 @@ def from_pydantic(
     warnings: list[FormatWarning] = []
     known = {model: model.__name__ for model in models}
     relations: dict[str, dict[str, Any]] = {}
-    entities: list[dict[str, Any]] = []
-    for model, label in known.items():
-        bases: list[type[BaseModel]] = [
-            base
-            for base in model.__bases__
-            if base in known and isinstance(base, type) and issubclass(base, BaseModel)
-        ]
-        inherited = {field for base in bases for field in base.model_fields}
-        own = set(inspect.get_annotations(model))
-        description = inspect.cleandoc(model.__doc__) if model.__doc__ else ""
-        if not description:
-            warnings.append(
-                FormatWarning(
-                    "missing_description",
-                    label,
-                    "The class has no docstring; the label is the description.",
-                )
-            )
-        properties: dict[str, Any] = {}
-        for field_name, field in model.model_fields.items():
-            if field_name in inherited and field_name not in own:
-                continue
-            inner, many, optional = _shape(field.annotation)
-            if inner in known:
-                entry = relations.setdefault(
-                    _relation_label(field_name),
-                    {"patterns": [], "description": "", "limits": []},
-                )
-                entry["patterns"].append([label, known[inner]])
-                entry["description"] = entry["description"] or field.description or ""
-                entry["limits"].append(_max_length(field) if many else 1)
-                continue
-            values = _enum_values(inner)
-            kind: str | None = None
-            if not many:
-                kind = _enum_kind(values) if values else _SCALARS.get(inner)
-            if kind is None:
-                warnings.append(
-                    FormatWarning(
-                        "property_dropped",
-                        f"{label}.{field_name}",
-                        f"The type {field.annotation!r} has no schema equivalent.",
-                    )
-                )
-                continue
-            properties[field_name] = {
-                "type": kind,
-                "required": field.is_required() and not optional,
-                "enum": (
-                    None if values is None else [_enum_text(value) for value in values]
-                ),
-                "description": field.description or "",
-            }
-        entities.append(
-            {
-                "label": label,
-                "description": description or label,
-                "parents": [known[base] for base in bases],
-                "properties": properties,
-            }
-        )
-    built = []
-    for relation_label, entry in relations.items():
-        limits = set(entry["limits"])
-        if len(limits) > 1:
-            warnings.append(
-                FormatWarning(
-                    "limit_loosened",
-                    relation_label,
-                    "Fields of this relation disagree on the limit; none applies.",
-                )
-            )
-        if not entry["description"]:
-            warnings.append(
-                FormatWarning(
-                    "missing_description",
-                    relation_label,
-                    "The field has no description; the label is the description.",
-                )
-            )
-        built.append(
-            {
-                "label": relation_label,
-                "description": entry["description"] or relation_label,
-                "patterns": entry["patterns"],
-                "cardinality": {
-                    "max_per_source": limits.pop() if len(limits) == 1 else None
-                },
-            }
-        )
-    data = {"name": name, "version": version, "entities": entities, "relations": built}
+    entities = [
+        _entity_body(model, label, known, relations, warnings)
+        for model, label in known.items()
+    ]
+    data = {
+        "name": name,
+        "version": version,
+        "entities": entities,
+        "relations": _relation_bodies(relations, warnings),
+    }
     return ImportResult(schema=load_schema(data), warnings=warnings)
