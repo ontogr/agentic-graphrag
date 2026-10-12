@@ -57,8 +57,11 @@ class _FixedEmbedder(Embedder):
         return 4
 
     async def embed(self, texts: Sequence[str]) -> list[list[float]]:
-        """Return a constant vector for every text."""
-        return [[0.1] * 4 for _ in texts]
+        """Return a vector derived from each text, identical for equal texts."""
+        return [
+            [byte / 127.5 - 1.0 for byte in hashlib.sha256(text.encode()).digest()[:4]]
+            for text in texts
+        ]
 
 
 class _KeywordExtractor(Extractor):
@@ -216,15 +219,31 @@ async def _tagged_rows(store: GraphStore, job_id: str) -> tuple[int, int]:
     return int(nodes[0]["n"]), int(relations[0]["n"])
 
 
-async def _wait_for_pending_rollback(store: GraphStore, key: str, job_id: str) -> None:
-    """Wait until an opener that owns recovery finishes a pending rollback."""
-    async with asyncio.timeout(10):
-        while True:
-            status = await _job_status(store, key)
-            tagged_rows = await _tagged_rows(store, job_id)
-            if status is None and tagged_rows == (0, 0):
-                return
-            await asyncio.sleep(0.05)
+async def _reopen_until_settled(
+    store: GraphStore, key: str, extractor: Extractor
+) -> None:
+    """Reopen the graph until one document's job is gone or done.
+
+    One open is one recovery attempt. Another worker may claim the job
+    first, and a failed attempt leaves the job incomplete under a live
+    lease until that lease lapses. Each attempt ages the lease again, so
+    the loop converges within the timeout.
+    """
+    async with asyncio.timeout(30):
+        while await _job_status(store, key) not in (None, "done"):
+            await _age_lease(store, key)
+            recovered_store = build_graph_store("neo4j")
+            await recovered_store.connect()
+            try:
+                await Graph.open(
+                    schema=DEFAULT_SCHEMA,
+                    graph_store=recovered_store,
+                    embedder=_FixedEmbedder(),
+                    extractor=extractor,
+                )
+            finally:
+                await recovered_store.close()
+            await asyncio.sleep(0.5)
 
 
 async def _job_status(store: GraphStore, key: str) -> str | None:
@@ -437,25 +456,11 @@ class TestCrashBeforeCommit:
             assert tagged_nodes > 0
             assert tagged_relations > 0
 
-            await _age_lease(store, crashed_key)
-            recovered_store = build_graph_store("neo4j")
-            await recovered_store.connect()
-            try:
-                await Graph.open(
-                    schema=DEFAULT_SCHEMA,
-                    graph_store=recovered_store,
-                    embedder=_FixedEmbedder(),
-                    extractor=_NoopExtractor(),
-                )
+            await _reopen_until_settled(store, crashed_key, _NoopExtractor())
 
-                await _wait_for_pending_rollback(
-                    store, crashed_key, str(job_id[0]["id"])
-                )
-                assert await _tagged_rows(store, str(job_id[0]["id"])) == (0, 0)
-                assert await _job_status(store, crashed_key) is None
-                assert await _graph_state(store, existing_key) == before
-            finally:
-                await recovered_store.close()
+            assert await _tagged_rows(store, str(job_id[0]["id"])) == (0, 0)
+            assert await _job_status(store, crashed_key) is None
+            assert await _graph_state(store, existing_key) == before
         finally:
             await _cleanup(store, existing_key, None)
             await _cleanup(store, crashed_key, None)
@@ -498,29 +503,18 @@ class TestCrashBeforeCommit:
             job_id = str(rows[0]["id"])
             assert sum(await _tagged_rows(store, job_id)) > 0
 
-            await _age_lease(store, key)
-            recovered_store = build_graph_store("neo4j")
-            await recovered_store.connect()
-            try:
-                await Graph.open(
-                    schema=DEFAULT_SCHEMA,
-                    graph_store=recovered_store,
-                    embedder=_FixedEmbedder(),
-                    extractor=_KeywordExtractor(probe_name),
-                )
+            await _reopen_until_settled(store, key, _KeywordExtractor(probe_name))
 
-                assert await _tagged_rows(store, job_id) == (0, 0)
-                assert await _job_status(store, key) is None
-                rows = await store.execute_read(
-                    "MATCH (d:Document {document_key: $key}) "
-                    "RETURN count(d) AS n, collect(d.current_content_hash) AS hashes",
-                    {"key": key},
-                )
-                assert rows[0]["n"] == 1
-                assert await _open_chunk_ids(store, key) == current_ids
-                assert await _probe_count(store, probe_name) == 1
-            finally:
-                await recovered_store.close()
+            assert await _tagged_rows(store, job_id) == (0, 0)
+            assert await _job_status(store, key) is None
+            rows = await store.execute_read(
+                "MATCH (d:Document {document_key: $key}) "
+                "RETURN count(d) AS n, collect(d.current_content_hash) AS hashes",
+                {"key": key},
+            )
+            assert rows[0]["n"] == 1
+            assert await _open_chunk_ids(store, key) == current_ids
+            assert await _probe_count(store, probe_name) == 1
         finally:
             await _cleanup(store, key, probe_name)
             await store.close()
@@ -618,26 +612,17 @@ class TestCrashAfterCommit:
 
             assert await _job_status(store, crashed_key) == "cleaning"
             assert await _probe_count(store, crashed_probe) == 1
-            await _age_lease(store, crashed_key)
 
-            recovered_store = build_graph_store("neo4j")
-            await recovered_store.connect()
-            try:
-                await Graph.open(
-                    schema=DEFAULT_SCHEMA,
-                    graph_store=recovered_store,
-                    embedder=_FixedEmbedder(),
-                    extractor=_KeywordExtractor(crashed_probe),
-                )
+            await _reopen_until_settled(
+                store, crashed_key, _KeywordExtractor(crashed_probe)
+            )
 
-                assert await _job_status(store, crashed_key) == "done"
-                assert await _probe_count(store, crashed_probe) == 0
-                assert await _probe_count(store, control_probe) == 0
-                assert len(await _open_chunk_ids(store, crashed_key)) == len(
-                    await _open_chunk_ids(store, control_key)
-                )
-            finally:
-                await recovered_store.close()
+            assert await _job_status(store, crashed_key) == "done"
+            assert await _probe_count(store, crashed_probe) == 0
+            assert await _probe_count(store, control_probe) == 0
+            assert len(await _open_chunk_ids(store, crashed_key)) == len(
+                await _open_chunk_ids(store, control_key)
+            )
         finally:
             await _cleanup(store, control_key, control_probe)
             await _cleanup(store, crashed_key, crashed_probe)
@@ -683,19 +668,7 @@ class TestRecoveryIsIdempotent:
             _die_after_pending_writes(monkeypatch)
             with pytest.raises(RuntimeError, match="worker died before commit"):
                 await graph.add(documents=[_document(key, "crash twice. " * 60)])
-            await _age_lease(store, key)
-
-            first_store = build_graph_store("neo4j")
-            await first_store.connect()
-            try:
-                await Graph.open(
-                    schema=DEFAULT_SCHEMA,
-                    graph_store=first_store,
-                    embedder=_FixedEmbedder(),
-                    extractor=_NoopExtractor(),
-                )
-            finally:
-                await first_store.close()
+            await _reopen_until_settled(store, key, _NoopExtractor())
             after_first = await _graph_state(store, key)
 
             second_store = build_graph_store("neo4j")
