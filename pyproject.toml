@@ -79,6 +79,7 @@ eval = [
     "openinference-instrumentation-langchain>=0.1.76,<0.2",
 ]
 community = ["graspologic-native>=1.2.5"]
+schema-formats = ["rdflib>=7.1"]
 
 [project.urls]
 Documentation = "https://ontogr.github.io/agentic-graphrag/"

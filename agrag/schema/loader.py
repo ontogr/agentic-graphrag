@@ -37,7 +37,7 @@ SchemaSource = GraphSchema | Mapping[str, Any] | Sequence[Any] | Path | str
 DEFAULT_NAME = "custom"
 DEFAULT_VERSION = "1"
 
-_FILE_SUFFIXES = (".json", ".yaml", ".yml")
+_FILE_SUFFIXES = (".json", ".yaml", ".yml", ".ttl")
 _BASE_PREFIX = "extends."
 _MODEL_LISTS = ("name", "version", "entities", "relations")
 
@@ -87,10 +87,15 @@ def _parse_yaml(text: str, source: str | None) -> object:
 
 def _read_file(path: Path) -> object:
     suffix = path.suffix.lower()
+    if suffix == ".ttl":
+        from agrag.schema.formats.dispatch import read_owl_file  # noqa: PLC0415
+
+        return read_owl_file(path)
     if suffix not in _FILE_SUFFIXES:
         shown = repr(path.suffix) if path.suffix else "files without a suffix"
         raise _fail(
-            f"cannot read {shown} files. Use a .json, .yaml or .yml file.", str(path)
+            f"cannot read {shown} files. Use a .json, .yaml, .yml or .ttl file.",
+            str(path),
         )
     try:
         text = path.read_text(encoding="utf-8")
@@ -135,7 +140,7 @@ def _read_source(source: SchemaSource) -> GraphSchema | _Raw:
             presets = f"a preset name ({names}), " if names else ""
             raise _fail(
                 f"unknown schema {text!r}. Pass {presets}a path to a .json, "
-                ".yaml or .yml file, a dict, or a list of labels."
+                ".yaml, .yml or .ttl file, a dict, or a list of labels."
             )
         path = Path(text)
     elif isinstance(source, Path):

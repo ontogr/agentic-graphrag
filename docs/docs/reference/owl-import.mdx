@@ -1,0 +1,39 @@
+---
+title: OWL and RDFS Turtle import
+---
+
+# OWL and RDFS Turtle import
+
+`load_owl(source)` reads a local Turtle file and returns an `ImportResult`. `loads_owl(text)` reads Turtle text. Each result contains a `GraphSchema` and an ordered list of `FormatWarning` values. Both functions accept optional `name` and `version` arguments.
+
+`load_schema("ontology.ttl")` also reads Turtle and returns a `GraphSchema`. It logs each import warning at warning level. A `.ttl` file can also be used as the `extends` source.
+
+Install the optional `schema-formats` extra to use these functions:
+
+```bash
+pip install "agentic-graphrag[schema-formats]"
+```
+
+## Supported RDF terms
+
+| Turtle term | Schema field |
+| --- | --- |
+| `owl:Class`, `rdfs:Class` | Entity type |
+| `rdfs:subClassOf` between declared classes | Entity `parents` |
+| `owl:DatatypeProperty` with a declared class domain | Entity property |
+| `owl:ObjectProperty` with declared class domains and ranges | Relation patterns |
+| `owl:FunctionalProperty` | Relation `max_per_source: 1` |
+| `owl:InverseFunctionalProperty` | Relation `max_per_target: 1` |
+| `owl:SymmetricProperty` | Relation `symmetric: true` |
+| `rdfs:comment` | Description |
+| XSD `string`, `integer`, `decimal`, `float`, `double`, `boolean`, `date` | Property type |
+| `owl:unionOf` in domains or ranges | Declared endpoint types |
+| `owl:oneOf` with literal values | Property enum |
+| Unqualified `owl:maxCardinality`, `owl:cardinality` | Relation source limit |
+| Positive datatype `owl:minCardinality`, `owl:cardinality` | Required property |
+
+The importer maps multiple domains or ranges to all source and target pairs. Class-specific relation limits use the loosest limit across source classes. A source class without a limit prevents a global limit. The importer reports loss of class-specific constraints, relation minimums, and datatype maximums above one.
+
+The importer does not infer triples or follow `owl:imports`. Unsupported restrictions, equivalence, property chains, alternative labels, and individuals produce warnings. Unknown parents and endpoint classes are ignored with warnings. Invalid or colliding local class names fail the import. The schema validator rejects reserved labels, cycles, and invalid relation patterns.
+
+`SchemaFormatError` reports Turtle that cannot be read. `SchemaLoadError` reports schema data that fails validation. `SchemaFormatMissingExtraError` names the extra when `rdflib` is not installed.
