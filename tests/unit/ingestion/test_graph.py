@@ -7,7 +7,9 @@ exclusive input validation; progress callbacks; and that Graph.open closes the
 store when connecting fails.
 """
 
+import builtins
 import hashlib
+import logging
 from collections.abc import Mapping, Sequence
 from contextlib import AbstractAsyncContextManager
 from pathlib import Path
@@ -20,6 +22,8 @@ import pytest
 
 import agrag.ingestion._ingest as ingest_module
 import agrag.ingestion._job_cleanup as job_cleanup_module
+import agrag.ingestion.extract as extract_module
+import agrag.ingestion.graph as graph_module
 from agrag.chunking import Chunker
 from agrag.common.data_models.chunk import Chunk
 from agrag.common.data_models.community import (
@@ -27,15 +31,16 @@ from agrag.common.data_models.community import (
 )
 from agrag.common.data_models.document import Document, DocumentFamily, SourceFormat
 from agrag.common.data_models.entity import Entity
-from agrag.common.data_models.extraction import ExtractionResult
+from agrag.common.data_models.extraction import (
+    ExtractedEntity,
+    ExtractionResult,
+)
 from agrag.common.data_models.graph_record import (
     NodeRecord,
     RelationRecord,
     UpsertResult,
 )
-from agrag.common.data_models.graph_schema import (
-    GENERIC,
-)
+from agrag.common.data_models.graph_schema import GENERIC, GraphSchema
 from agrag.common.data_models.normalization import Normalization
 from agrag.common.data_models.resolved_entity import (
     RESOLVED_ENTITY_LABEL,
@@ -48,7 +53,15 @@ from agrag.ingestion._ingest_pipeline import (
     _embed_and_upsert_chunks,
     _embed_and_upsert_survivors,
 )
-from agrag.ingestion.extract import Extractor
+from agrag.ingestion.extract import (
+    BAMLExtractor,
+    ExtractionLLMSettings,
+    Extractor,
+    GlinerExtractor,
+    LLMExtractor,
+)
+from agrag.ingestion.settings import ExtractionSettings, effective_mode
+from agrag.llm.client_config import LLMClientConfig
 from agrag.loaders.prose import TextLoader
 from agrag.loaders.types import ErrorPolicy, ReadOptions
 from tests.unit.ingestion._lease_fake import CutoverJobLeaseFake
@@ -217,6 +230,340 @@ class TestGraphOpenRegistration:
 
         assert RESOLVED_ENTITY_LABEL in store.vector_index_labels
         assert COMMUNITY_LABEL in store.vector_index_labels
+
+
+class _NeverBuiltGliner:
+    """Fails if an LLM-only graph tries to build GLiNER."""
+
+    def __init__(self, **_: object) -> None:
+        raise AssertionError("GLiNER built in llm mode")
+
+
+class _MockLLMExtractor(LLMExtractor):
+    """An LLM slot fake for graph configuration tests."""
+
+    async def extract(
+        self,
+        chunk: Chunk,
+        schema: GraphSchema,
+        candidates: Sequence[ExtractedEntity] | None = None,
+    ) -> ExtractionResult:
+        return ExtractionResult(entities=[], relations=[], extractor_name="llm-fake")
+
+
+def _clear_llm_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Hide LLM settings from the environment and any working-directory .env."""
+    for name in (
+        "EXTRACTION_LLM_CLIENTS",
+        "LLM_BASE_URL",
+        "LLM_API_KEY",
+        "LLM_MODEL_ID",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(extract_module, "load_dotenv", lambda *a, **k: False)
+
+
+class TestGraphExtractionSettings:
+    """Graph exposes and resolves its extraction configuration."""
+
+    async def test_defaults_to_extraction_settings_defaults(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """A non-GLiNER extractor leaves the settings at their defaults."""
+        monkeypatch.chdir(tmp_path)
+
+        graph = await _open_graph()
+
+        assert graph.extraction_settings == ExtractionSettings()
+
+    async def test_explicit_settings_are_exposed(self) -> None:
+        """Graph.open preserves the settings object passed by the caller."""
+        settings = ExtractionSettings(entity_threshold=0.6)
+
+        graph = await Graph.open(
+            schema=GENERIC,
+            graph_store=_MockGraphStore(),
+            embedder=_MockEmbedder(),
+            extractor=_MockExtractor(),
+            extraction_settings=settings,
+        )
+
+        assert graph.extraction_settings is settings
+
+    async def test_uses_settings_from_gliner_extractor(self) -> None:
+        """Graph uses the local GLiNER slot settings when none are passed."""
+        settings = ExtractionSettings(entity_threshold=0.6)
+
+        graph = await Graph.open(
+            schema=GENERIC,
+            graph_store=_MockGraphStore(),
+            embedder=_MockEmbedder(),
+            extractor=GlinerExtractor(settings=settings, model=object()),
+        )
+
+        assert graph.extraction_settings is settings
+
+    async def test_rejects_settings_different_from_gliner_settings(self) -> None:
+        """A graph cannot record settings that differ from its GLiNER slot."""
+        extractor = GlinerExtractor(
+            settings=ExtractionSettings(entity_threshold=0.6), model=object()
+        )
+
+        with pytest.raises(ValueError, match="same ExtractionSettings"):
+            await Graph.open(
+                schema=GENERIC,
+                graph_store=_MockGraphStore(),
+                embedder=_MockEmbedder(),
+                extractor=extractor,
+                extraction_settings=ExtractionSettings(entity_threshold=0.9),
+            )
+
+    async def test_hybrid_without_llm_warns_and_degrades_to_gliner(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Hybrid mode warns once when no LLM slot is configured."""
+        _clear_llm_env(monkeypatch, tmp_path)
+        with caplog.at_level(logging.WARNING):
+            graph = await Graph.open(
+                schema=GENERIC,
+                graph_store=_MockGraphStore(),
+                embedder=_MockEmbedder(),
+                extractor=GlinerExtractor(model=object()),
+            )
+
+        warnings = [
+            record for record in caplog.records if record.levelno == logging.WARNING
+        ]
+        assert graph.effective_mode == "gliner"
+        assert len(warnings) == 1
+        for name in ("EXTRACTION_LLM_CLIENTS", "LLM_BASE_URL", "LLM_MODEL_ID"):
+            assert name in warnings[0].getMessage()
+        assert 'mode="gliner"' in warnings[0].getMessage()
+
+    @pytest.mark.parametrize(
+        ("mode", "llm_available", "expected"),
+        [
+            ("gliner", False, "gliner"),
+            ("gliner", True, "gliner"),
+            ("hybrid", True, "hybrid"),
+            ("hybrid", False, "gliner"),
+            ("llm", True, "llm"),
+            ("llm", False, "llm"),
+        ],
+    )
+    def test_effective_mode_only_degrades_hybrid_without_llm(
+        self, mode: str, llm_available: bool, expected: str
+    ) -> None:
+        """Only hybrid mode changes when no LLM is available."""
+        assert effective_mode(ExtractionSettings(mode=mode), llm_available) == expected
+
+    async def test_gliner_mode_without_extra_raises(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A missing GLiNER extra fails while opening a GLiNER graph."""
+        monkeypatch.setattr(graph_module, "find_spec", lambda name: None)
+
+        with pytest.raises(ValueError, match='"extract" extra'):
+            await Graph.open(
+                schema=GENERIC,
+                graph_store=_MockGraphStore(),
+                embedder=_MockEmbedder(),
+                extraction_settings=ExtractionSettings(mode="gliner"),
+            )
+
+    async def test_llm_mode_without_llm_raises(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """LLM mode requires an LLM slot."""
+        _clear_llm_env(monkeypatch, tmp_path)
+        with pytest.raises(ValueError, match="EXTRACTION_LLM_CLIENTS"):
+            await Graph.open(
+                schema=GENERIC,
+                graph_store=_MockGraphStore(),
+                embedder=_MockEmbedder(),
+                extraction_settings=ExtractionSettings(mode="llm"),
+            )
+
+    async def test_local_slot_is_rejected_in_llm_mode(self) -> None:
+        """LLM mode does not accept an extractor in the local slot."""
+        with pytest.raises(ValueError, match="extractor="):
+            await Graph.open(
+                schema=GENERIC,
+                graph_store=_MockGraphStore(),
+                embedder=_MockEmbedder(),
+                extractor=_MockExtractor(),
+                llm_extractor=_MockLLMExtractor(),
+                extraction_settings=ExtractionSettings(mode="llm"),
+            )
+
+    async def test_llm_extractor_is_rejected_in_local_slot(self) -> None:
+        """An LLM role cannot be passed in the local extractor slot."""
+        with pytest.raises(ValueError, match="llm_extractor="):
+            await Graph.open(
+                schema=GENERIC,
+                graph_store=_MockGraphStore(),
+                embedder=_MockEmbedder(),
+                extractor=_MockLLMExtractor(),  # type: ignore[arg-type]
+                extraction_settings=ExtractionSettings(mode="hybrid"),
+            )
+
+    async def test_local_extractor_is_rejected_in_llm_slot(self) -> None:
+        """A local role cannot be passed in the LLM extractor slot."""
+        with pytest.raises(ValueError, match="extractor="):
+            await Graph.open(
+                schema=GENERIC,
+                graph_store=_MockGraphStore(),
+                embedder=_MockEmbedder(),
+                extractor=_MockExtractor(),
+                llm_extractor=_MockExtractor(),  # type: ignore[arg-type]
+                extraction_settings=ExtractionSettings(mode="hybrid"),
+            )
+
+    async def test_llm_slot_is_rejected_in_gliner_mode(self) -> None:
+        """GLiNER mode does not accept an extractor in the LLM slot."""
+        settings = ExtractionSettings(mode="gliner")
+
+        with pytest.raises(ValueError, match="llm_extractor="):
+            await Graph.open(
+                schema=GENERIC,
+                graph_store=_MockGraphStore(),
+                embedder=_MockEmbedder(),
+                extractor=GlinerExtractor(settings=settings, model=object()),
+                llm_extractor=_MockLLMExtractor(),
+                extraction_settings=settings,
+            )
+
+    async def test_llm_mode_does_not_import_gliner2(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """LLM-only mode does not need the GLiNER extra."""
+        real_import = builtins.__import__
+
+        def guarded_import(name: str, *args: object, **kwargs: object) -> object:
+            if name == "gliner2" or name.startswith("gliner2."):
+                raise AssertionError("gliner2 imported in llm mode")
+            return real_import(name, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "__import__", guarded_import)
+
+        graph = await Graph.open(
+            schema=GENERIC,
+            graph_store=_MockGraphStore(),
+            embedder=_MockEmbedder(),
+            llm_extractor=_MockLLMExtractor(),
+            extraction_settings=ExtractionSettings(mode="llm"),
+        )
+
+        assert graph.effective_mode == "llm"
+
+    async def test_hybrid_builds_default_llm_slot_from_environment(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """Configured LLM environment settings create the BAML slot."""
+        _clear_llm_env(monkeypatch, tmp_path)
+        monkeypatch.setenv("LLM_BASE_URL", "http://localhost:8000/v1")
+        monkeypatch.setenv("LLM_MODEL_ID", "test-model")
+
+        graph = await Graph.open(
+            schema=GENERIC,
+            graph_store=_MockGraphStore(),
+            embedder=_MockEmbedder(),
+            extractor=_MockExtractor(),
+        )
+
+        assert graph.effective_mode == "hybrid"
+        assert isinstance(graph.llm_extractor, BAMLExtractor)
+
+    async def test_llm_mode_builds_only_default_llm_slot(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """LLM mode builds BAML from environment without constructing GLiNER."""
+        _clear_llm_env(monkeypatch, tmp_path)
+        monkeypatch.setenv("LLM_BASE_URL", "http://localhost:8000/v1")
+        monkeypatch.setenv("LLM_MODEL_ID", "test-model")
+        monkeypatch.setattr(graph_module, "GlinerExtractor", _NeverBuiltGliner)
+
+        graph = await Graph.open(
+            schema=GENERIC,
+            graph_store=_MockGraphStore(),
+            embedder=_MockEmbedder(),
+            extraction_settings=ExtractionSettings(mode="llm"),
+        )
+
+        assert graph.effective_mode == "llm"
+        assert isinstance(graph.llm_extractor, BAMLExtractor)
+
+    async def test_model_name_is_none_without_llm_slot(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """A graph without an LLM slot reports no model name."""
+        _clear_llm_env(monkeypatch, tmp_path)
+        settings = ExtractionSettings(mode="gliner")
+        graph = await Graph.open(
+            schema=GENERIC,
+            graph_store=_MockGraphStore(),
+            embedder=_MockEmbedder(),
+            extractor=GlinerExtractor(settings=settings, model=object()),
+            extraction_settings=settings,
+        )
+
+        assert graph.llm_model_name is None
+
+    async def test_model_name_joins_baml_client_models(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """A BAML slot reports its configured client model names."""
+        _clear_llm_env(monkeypatch, tmp_path)
+        settings = ExtractionLLMSettings(
+            clients=[
+                LLMClientConfig(
+                    name="a", provider="openai-generic", model="m1", base_url="http://x"
+                ),
+                LLMClientConfig(
+                    name="b", provider="openai-generic", model="m2", base_url="http://x"
+                ),
+            ]
+        )
+        graph = await Graph.open(
+            schema=GENERIC,
+            graph_store=_MockGraphStore(),
+            embedder=_MockEmbedder(),
+            llm_extractor=BAMLExtractor(settings=settings),
+            extraction_settings=ExtractionSettings(mode="llm"),
+        )
+
+        assert graph.llm_model_name == "m1,m2"
+
+    async def test_custom_llm_extractor_uses_its_class_name_for_model(self) -> None:
+        """A custom LLM slot reports its class name as the model name."""
+        graph = await Graph.open(
+            schema=GENERIC,
+            graph_store=_MockGraphStore(),
+            embedder=_MockEmbedder(),
+            llm_extractor=_MockLLMExtractor(),
+            extraction_settings=ExtractionSettings(mode="llm"),
+        )
+
+        assert graph.llm_model_name == "_MockLLMExtractor"
+
+    async def test_llm_only_graph_can_add_content(self) -> None:
+        """LLM-only graphs still run through the existing ingestion pipeline."""
+        graph = await Graph.open(
+            schema=GENERIC,
+            graph_store=_MockGraphStore(),
+            embedder=_MockEmbedder(),
+            llm_extractor=_MockLLMExtractor(),
+            extraction_settings=ExtractionSettings(mode="llm"),
+        )
+
+        result = await graph.add(text="A short note.")
+
+        assert result.extraction.chunks_processed == 1
+        assert result.extraction.entities_extracted == 0
 
 
 class TestGraphAdd:

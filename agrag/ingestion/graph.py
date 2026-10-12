@@ -3,10 +3,14 @@
 import asyncio
 import contextlib
 import functools
+import logging
 from collections.abc import Callable, Sequence
+from importlib.util import find_spec
+from typing import Literal
 from uuid import UUID
 
 from opentelemetry.trace import Tracer
+from pydantic import ValidationError
 
 from agrag.chunking import Chunker
 from agrag.common.data_models.chunk import CHUNK_LABEL
@@ -40,7 +44,13 @@ from agrag.ingestion._resolution_maintenance import (
 from agrag.ingestion._resume import resume_incomplete_jobs
 from agrag.ingestion._walk import SourcesType
 from agrag.ingestion.community import detect_communities
-from agrag.ingestion.extract import Extractor
+from agrag.ingestion.extract import (
+    BAMLExtractor,
+    ExtractionLLMSettings,
+    Extractor,
+    GlinerExtractor,
+    LLMExtractor,
+)
 from agrag.ingestion.reports import (
     AddResult,
     CommunityDetectionReport,
@@ -50,13 +60,108 @@ from agrag.ingestion.reports import (
 )
 from agrag.ingestion.resolve import SYSTEM_RELATION_TYPES
 from agrag.ingestion.resolve.zone_classifier import MAX_LLM_PAIRS
-from agrag.ingestion.settings import CutoverJobSettings
+from agrag.ingestion.settings import (
+    CutoverJobSettings,
+    ExtractionSettings,
+    effective_mode,
+)
 from agrag.loaders import registry as _corpus_registry
 from agrag.loaders.base import Loader
 from agrag.loaders.types import ErrorPolicy, ReadOptions
 from agrag.observability import get_tracer
 from agrag.retrieval.settings import RetrievalSettings
 from agrag.vectordb.base import VectorStore
+
+
+logger = logging.getLogger(__name__)
+
+_MSG_DEGRADE = (
+    'Extraction mode is "hybrid" but no LLM is configured, so this run uses '
+    '"gliner". Set EXTRACTION_LLM_CLIENTS, LLM_BASE_URL and LLM_MODEL_ID, or set '
+    'mode="gliner" to choose GLiNER only.'
+)
+_MSG_GLINER_MISSING = (
+    'Extraction mode "gliner" needs GLiNER, which is not installed. Install the '
+    '"extract" extra, or use mode="llm" to run without GLiNER.'
+)
+_MSG_LLM_MISSING = (
+    'Extraction mode "llm" needs an LLM, and none is configured. Set '
+    "EXTRACTION_LLM_CLIENTS, LLM_BASE_URL and LLM_MODEL_ID, or pass llm_extractor=."
+)
+_MSG_EXTRACTOR_IN_LLM_MODE = (
+    'extractor= cannot be used with extraction mode "llm", which does not run '
+    'GLiNER. Pass llm_extractor= instead, or use mode="hybrid" or mode="gliner".'
+)
+_MSG_LLM_EXTRACTOR_IN_GLINER_MODE = (
+    'llm_extractor= cannot be used with extraction mode "gliner", which does not '
+    'run the LLM. Use mode="hybrid" or mode="llm".'
+)
+_MSG_LLM_EXTRACTOR_IN_LOCAL_SLOT = (
+    "Pass an LLMExtractor such as BAMLExtractor as llm_extractor=... with "
+    'mode="llm" or mode="hybrid".'
+)
+_MSG_LOCAL_EXTRACTOR_IN_LLM_SLOT = (
+    "Pass a local Extractor such as GlinerExtractor as extractor=..."
+)
+_MSG_SETTINGS_MISMATCH = (
+    "extraction_settings differs from the settings of the GLiNER extractor passed "
+    "as extractor=. Pass the same ExtractionSettings object to both, or omit "
+    "extraction_settings."
+)
+
+
+def _extraction_settings_of(extractor: Extractor | None) -> ExtractionSettings:
+    """Return the GLiNER settings in the local slot, or the defaults."""
+    if isinstance(extractor, GlinerExtractor):
+        return extractor.settings
+    return ExtractionSettings()
+
+
+def _check_slots(
+    settings: ExtractionSettings,
+    extractor: Extractor | None,
+    llm_extractor: LLMExtractor | None,
+    explicit_settings: ExtractionSettings | None,
+) -> None:
+    """Reject extractor slots that do not fit the selected mode."""
+    if isinstance(extractor, LLMExtractor):
+        raise ValueError(_MSG_LLM_EXTRACTOR_IN_LOCAL_SLOT)
+    if isinstance(llm_extractor, Extractor):
+        raise ValueError(_MSG_LOCAL_EXTRACTOR_IN_LLM_SLOT)
+    if settings.mode == "llm" and extractor is not None:
+        raise ValueError(_MSG_EXTRACTOR_IN_LLM_MODE)
+    if settings.mode == "gliner" and llm_extractor is not None:
+        raise ValueError(_MSG_LLM_EXTRACTOR_IN_GLINER_MODE)
+    if settings.mode == "llm" and llm_extractor is None:
+        raise ValueError(_MSG_LLM_MISSING)
+    if (
+        isinstance(extractor, GlinerExtractor)
+        and explicit_settings is not None
+        and explicit_settings != extractor.settings
+    ):
+        raise ValueError(_MSG_SETTINGS_MISMATCH)
+
+
+def _default_gliner_extractor(settings: ExtractionSettings) -> GlinerExtractor:
+    """Build the local slot, or explain that the extract extra is required."""
+    if find_spec("gliner2") is None:
+        raise ValueError(_MSG_GLINER_MISSING)
+    try:
+        return GlinerExtractor(settings=settings)
+    except ImportError as error:
+        raise ValueError(_MSG_GLINER_MISSING) from error
+
+
+def _default_llm_extractor() -> BAMLExtractor | None:
+    """Build the default LLM slot from environment settings when available."""
+    try:
+        settings = ExtractionLLMSettings()
+    except ValidationError:
+        try:
+            settings = ExtractionLLMSettings.from_openai_compatible_env()
+        except RuntimeError:
+            return None
+    return BAMLExtractor(settings=settings)
 
 
 class Graph:
@@ -75,11 +180,13 @@ class Graph:
         schema: GraphSchema,
         graph_store: GraphStore,
         embedder: Embedder,
-        extractor: Extractor,
+        extractor: Extractor | None = None,
         tracer: Tracer | None = None,
         vector_store: VectorStore | None = None,
         retrieval_settings: RetrievalSettings | None = None,
         cutover_settings: CutoverJobSettings | None = None,
+        extraction_settings: ExtractionSettings | None = None,
+        llm_extractor: LLMExtractor | None = None,
         chunker: Chunker | None = None,
         embed_heading_path: bool = True,
         max_llm_pairs: int = MAX_LLM_PAIRS,
@@ -92,7 +199,8 @@ class Graph:
             graph_store: Where entities, relations, chunks, and MENTIONED_IN
                 edges are written.
             embedder: Populates entity embeddings for native vector search.
-            extractor: Runs against each chunk.
+            extractor: The local extraction slot, used in ``gliner`` and
+                ``hybrid`` modes.
             tracer: A tracer to record spans for every step. Pass None for none.
             vector_store: Optional second write target for embeddings. When
                 set, every embedding the pipeline writes to graph_store is
@@ -106,6 +214,11 @@ class Graph:
             cutover_settings: Lease configuration for the Cutover Jobs
                 add/update/delete_document run through. None uses
                 CutoverJobSettings defaults.
+            extraction_settings: The extraction settings this graph uses.
+                None uses settings from a GLiNER extractor, or
+                the ExtractionSettings defaults. Pass the same object to both.
+            llm_extractor: The LLM slot used in ``hybrid`` and ``llm`` modes.
+                None builds a BAMLExtractor when LLM settings are configured.
             chunker: The chunker that splits every document. None uses
                 ``Chunker()``.
             embed_heading_path: Whether chunk embeddings include the chunk's
@@ -119,7 +232,32 @@ class Graph:
         self._schema = schema
         self._graph_store = graph_store
         self._embedder = embedder
-        self._extractor = extractor
+        settings = (
+            extraction_settings
+            if extraction_settings is not None
+            else _extraction_settings_of(extractor)
+        )
+        default_llm = (
+            _default_llm_extractor()
+            if llm_extractor is None and settings.mode != "gliner"
+            else None
+        )
+        llm_slot = llm_extractor if llm_extractor is not None else default_llm
+        _check_slots(settings, extractor, llm_slot, extraction_settings)
+        mode = effective_mode(
+            settings, llm_available=llm_extractor is not None or default_llm is not None
+        )
+        if settings.mode == "hybrid" and mode == "gliner":
+            logger.warning(_MSG_DEGRADE)
+        if extractor is None and settings.mode != "llm":
+            extractor = _default_gliner_extractor(settings)
+        pipeline_extractor = extractor if extractor is not None else llm_slot
+        if pipeline_extractor is None:
+            raise RuntimeError("Graph has no extractor for the selected mode")
+        self.extraction_settings = settings
+        self._effective_mode = mode
+        self._extractor = pipeline_extractor
+        self._llm_extractor = llm_slot
         self._tracer = get_tracer(tracer)
         self._registry = _corpus_registry
         self._chunker = chunker or Chunker()
@@ -136,11 +274,13 @@ class Graph:
         schema: GraphSchema,
         graph_store: GraphStore,
         embedder: Embedder,
-        extractor: Extractor,
+        extractor: Extractor | None = None,
         tracer: Tracer | None = None,
         vector_store: VectorStore | None = None,
         retrieval_settings: RetrievalSettings | None = None,
         cutover_settings: CutoverJobSettings | None = None,
+        extraction_settings: ExtractionSettings | None = None,
+        llm_extractor: LLMExtractor | None = None,
         chunker: Chunker | None = None,
         embed_heading_path: bool = True,
         max_llm_pairs: int = MAX_LLM_PAIRS,
@@ -164,7 +304,8 @@ class Graph:
             graph_store: Where entities, relations, chunks, and MENTIONED_IN
                 edges are written.
             embedder: Populates entity embeddings for native vector search.
-            extractor: Runs against each chunk.
+            extractor: The local extraction slot, used in ``gliner`` and
+                ``hybrid`` modes.
             tracer: A tracer to record spans for every step. Pass None for none.
             vector_store: Optional second write target for embeddings. See
                 __init__.
@@ -173,6 +314,9 @@ class Graph:
             cutover_settings: Lease configuration for the Cutover Jobs
                 add/update/delete_document run through. None uses
                 CutoverJobSettings defaults.
+            extraction_settings: Extraction settings for this graph; see
+                __init__.
+            llm_extractor: The LLM slot; see __init__.
             chunker: The chunker that splits every document; see __init__.
             embed_heading_path: Whether chunk embeddings include the heading path;
                 see __init__.
@@ -286,6 +430,8 @@ class Graph:
                     vector_store=vector_store,
                     retrieval_settings=retrieval_settings,
                     cutover_settings=cutover_settings,
+                    extraction_settings=extraction_settings,
+                    llm_extractor=llm_extractor,
                     chunker=chunker,
                     embed_heading_path=embed_heading_path,
                     max_llm_pairs=max_llm_pairs,
@@ -320,6 +466,26 @@ class Graph:
     def chunker(self) -> Chunker:
         """The chunker that splits every document."""
         return self._chunker
+
+    @property
+    def effective_mode(self) -> Literal["gliner", "hybrid", "llm"]:
+        """The extraction mode this graph uses."""
+        return self._effective_mode
+
+    @property
+    def llm_extractor(self) -> LLMExtractor | None:
+        """The LLM slot, whether injected or built from environment settings."""
+        return self._llm_extractor
+
+    @property
+    def llm_model_name(self) -> str | None:
+        """The model name of the LLM slot, or None when it is unset."""
+        slot = self._llm_extractor
+        if slot is None:
+            return None
+        if isinstance(slot, BAMLExtractor) and slot.settings is not None:
+            return ",".join(client.model for client in slot.settings.clients)
+        return type(slot).__name__
 
     async def add(  # noqa: PLR0912,PLR0915,PLR0913
         self,

@@ -6,7 +6,7 @@ sidebar_label: Graph
 # `agrag.ingestion.graph.Graph` \{#agrag-ingestion-graph-Graph}
 
 ```python
-Graph(*, schema:GraphSchema, graph_store:GraphStore, embedder:Embedder, extractor:Extractor, tracer:Tracer | None = None, vector_store:VectorStore | None = None, retrieval_settings:RetrievalSettings | None = None, cutover_settings:CutoverJobSettings | None = None, chunker:Chunker | None = None, embed_heading_path:bool = True, max_llm_pairs:int = MAX_LLM_PAIRS) -> None
+Graph(*, schema:GraphSchema, graph_store:GraphStore, embedder:Embedder, extractor:Extractor | None = None, tracer:Tracer | None = None, vector_store:VectorStore | None = None, retrieval_settings:RetrievalSettings | None = None, cutover_settings:CutoverJobSettings | None = None, extraction_settings:ExtractionSettings | None = None, llm_extractor:LLMExtractor | None = None, chunker:Chunker | None = None, embed_heading_path:bool = True, max_llm_pairs:int = MAX_LLM_PAIRS) -> None
 ```
 
 A knowledge graph that a caller can open and add content to.
@@ -31,6 +31,10 @@ by `open()` when missing.
 **Attributes:**
 
 - [**chunker**](#agrag-ingestion-graph-Graph-chunker) (<code>[Chunker](../../chunking/chunker/Chunker-ref.md)</code>) – The chunker that splits every document.
+- [**effective_mode**](#agrag-ingestion-graph-Graph-effective_mode) (<code>Literal['gliner', 'hybrid', 'llm']</code>) – The extraction mode this graph uses.
+- [**extraction_settings**](#agrag-ingestion-graph-Graph-extraction_settings) –
+- [**llm_extractor**](#agrag-ingestion-graph-Graph-llm_extractor) (<code>[LLMExtractor](../extract/LLMExtractor.md) | None</code>) – The LLM slot, whether injected or built from environment settings.
+- [**llm_model_name**](#agrag-ingestion-graph-Graph-llm_model_name) (<code>str | None</code>) – The model name of the LLM slot, or None when it is unset.
 
 **Parameters:**
 
@@ -39,7 +43,8 @@ by `open()` when missing.
 - **graph_store** (<code>[GraphStore](../../graphdb/base/GraphStore.md)</code>) – Where entities, relations, chunks, and MENTIONED_IN
   edges are written.
 - **embedder** (<code>[Embedder](../../embedding/base/Embedder.md)</code>) – Populates entity embeddings for native vector search.
-- **extractor** (<code>[Extractor](../extract/Extractor.md)</code>) – Runs against each chunk.
+- **extractor** (<code>[Extractor](../extract/Extractor.md) | None</code>) – The local extraction slot, used in `gliner` and
+  `hybrid` modes.
 - **tracer** (<code>Tracer | None</code>) – A tracer to record spans for every step. Pass None for none.
 - **vector_store** (<code>[VectorStore](../../vectordb/base/VectorStore.md) | None</code>) – Optional second write target for embeddings. When
   set, every embedding the pipeline writes to graph_store is
@@ -53,6 +58,11 @@ by `open()` when missing.
 - **cutover_settings** (<code>[CutoverJobSettings](../settings/CutoverJobSettings.md) | None</code>) – Lease configuration for the Cutover Jobs
   add/update/delete_document run through. None uses
   CutoverJobSettings defaults.
+- **extraction_settings** (<code>[ExtractionSettings](../settings/ExtractionSettings.md) | None</code>) – The extraction settings this graph uses.
+  None uses settings from a GLiNER extractor, or
+  the ExtractionSettings defaults. Pass the same object to both.
+- **llm_extractor** (<code>[LLMExtractor](../extract/LLMExtractor.md) | None</code>) – The LLM slot used in `hybrid` and `llm` modes.
+  None builds a BAMLExtractor when LLM settings are configured.
 - **chunker** (<code>[Chunker](../../chunking/chunker/Chunker-ref.md) | None</code>) – The chunker that splits every document. None uses
   `Chunker()`.
 - **embed_heading_path** (<code>bool</code>) – Whether chunk embeddings include the chunk's
@@ -237,10 +247,40 @@ previous one.
 - <code>[CommunityDetectionMissingExtraError](../community/CommunityDetectionMissingExtraError.md)</code> –
   graspologic-native is not installed.
 
+## `effective_mode` \{#agrag-ingestion-graph-Graph-effective_mode}
+
+```python
+effective_mode: Literal['gliner', 'hybrid', 'llm']
+```
+
+The extraction mode this graph uses.
+
+## `extraction_settings` \{#agrag-ingestion-graph-Graph-extraction_settings}
+
+```python
+extraction_settings = settings
+```
+
+## `llm_extractor` \{#agrag-ingestion-graph-Graph-llm_extractor}
+
+```python
+llm_extractor: LLMExtractor | None
+```
+
+The LLM slot, whether injected or built from environment settings.
+
+## `llm_model_name` \{#agrag-ingestion-graph-Graph-llm_model_name}
+
+```python
+llm_model_name: str | None
+```
+
+The model name of the LLM slot, or None when it is unset.
+
 ## `open` \{#agrag-ingestion-graph-Graph-open}
 
 ```python
-open(*, schema:GraphSchema, graph_store:GraphStore, embedder:Embedder, extractor:Extractor, tracer:Tracer | None = None, vector_store:VectorStore | None = None, retrieval_settings:RetrievalSettings | None = None, cutover_settings:CutoverJobSettings | None = None, chunker:Chunker | None = None, embed_heading_path:bool = True, max_llm_pairs:int = MAX_LLM_PAIRS) -> Graph
+open(*, schema:GraphSchema, graph_store:GraphStore, embedder:Embedder, extractor:Extractor | None = None, tracer:Tracer | None = None, vector_store:VectorStore | None = None, retrieval_settings:RetrievalSettings | None = None, cutover_settings:CutoverJobSettings | None = None, extraction_settings:ExtractionSettings | None = None, llm_extractor:LLMExtractor | None = None, chunker:Chunker | None = None, embed_heading_path:bool = True, max_llm_pairs:int = MAX_LLM_PAIRS) -> Graph
 ```
 
 Open a graph, connecting and fully provisioning graph_store.
@@ -263,7 +303,8 @@ missing) so the dual writes never hit an absent collection.
 - **graph_store** (<code>[GraphStore](../../graphdb/base/GraphStore.md)</code>) – Where entities, relations, chunks, and MENTIONED_IN
   edges are written.
 - **embedder** (<code>[Embedder](../../embedding/base/Embedder.md)</code>) – Populates entity embeddings for native vector search.
-- **extractor** (<code>[Extractor](../extract/Extractor.md)</code>) – Runs against each chunk.
+- **extractor** (<code>[Extractor](../extract/Extractor.md) | None</code>) – The local extraction slot, used in `gliner` and
+  `hybrid` modes.
 - **tracer** (<code>Tracer | None</code>) – A tracer to record spans for every step. Pass None for none.
 - **vector_store** (<code>[VectorStore](../../vectordb/base/VectorStore.md) | None</code>) – Optional second write target for embeddings. See
   __init__.
@@ -272,6 +313,9 @@ missing) so the dual writes never hit an absent collection.
 - **cutover_settings** (<code>[CutoverJobSettings](../settings/CutoverJobSettings.md) | None</code>) – Lease configuration for the Cutover Jobs
   add/update/delete_document run through. None uses
   CutoverJobSettings defaults.
+- **extraction_settings** (<code>[ExtractionSettings](../settings/ExtractionSettings.md) | None</code>) – Extraction settings for this graph; see
+  __init__.
+- **llm_extractor** (<code>[LLMExtractor](../extract/LLMExtractor.md) | None</code>) – The LLM slot; see __init__.
 - **chunker** (<code>[Chunker](../../chunking/chunker/Chunker-ref.md) | None</code>) – The chunker that splits every document; see __init__.
 - **embed_heading_path** (<code>bool</code>) – Whether chunk embeddings include the heading path;
   see __init__.

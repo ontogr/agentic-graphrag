@@ -9,7 +9,7 @@ sidebar_label: BAMLExtractor
 BAMLExtractor(*, settings:ExtractionLLMSettings | None = None, client:object | None = None, tracer:Tracer | None = None, include_heading_path:bool = True) -> None
 ```
 
-Bases: <code>[Extractor](Extractor.md)</code>
+Bases: <code>[LLMExtractor](LLMExtractor.md)</code>
 
 Extract entities and relations with an LLM through a typed BAML function.
 
@@ -39,13 +39,13 @@ entity properties. Needs the `llm` extra and a reachable LLM endpoint.
 
 **Attributes:**
 
-- [**max_concurrency**](#agrag-ingestion-extract-BAMLExtractor-max_concurrency) (<code>int</code>) –
+- [**max_concurrency**](#agrag-ingestion-extract-BAMLExtractor-max_concurrency) (<code>int | None</code>) –
 - [**settings**](#agrag-ingestion-extract-BAMLExtractor-settings) –
 
 ## `extract` \{#agrag-ingestion-extract-BAMLExtractor-extract}
 
 ```python
-extract(chunk:Chunk, schema:GraphSchema) -> ExtractionResult
+extract(chunk:Chunk, schema:GraphSchema, candidates:Sequence[ExtractedEntity] | None = None) -> ExtractionResult
 ```
 
 Extract with an LLM call through the configured ClientRegistry.
@@ -54,6 +54,7 @@ Extract with an LLM call through the configured ClientRegistry.
 
 - **chunk** (<code>[Chunk](../../common/data_models/chunk/Chunk-ref.md)</code>) – The chunk to read. Only `chunk.text` and `chunk.id` are used.
 - **schema** (<code>[GraphSchema](../../common/data_models/graph_schema/GraphSchema.md)</code>) – The entity and relation types to extract.
+- **candidates** (<code>Sequence\[[ExtractedEntity](../../common/data_models/extraction/ExtractedEntity.md)\] | None</code>) – Earlier entity results. BAML currently ignores them.
 
 **Returns:**
 
@@ -68,7 +69,7 @@ Extract with an LLM call through the configured ClientRegistry.
 ## `max_concurrency` \{#agrag-ingestion-extract-BAMLExtractor-max_concurrency}
 
 ```python
-max_concurrency: int = 8
+max_concurrency: int | None = None
 ```
 
 ## `settings` \{#agrag-ingestion-extract-BAMLExtractor-settings}

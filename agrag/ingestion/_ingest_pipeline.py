@@ -47,7 +47,7 @@ from agrag.ingestion._storage import (
     write_nodes_stage,
     write_relations_stage,
 )
-from agrag.ingestion.extract import Extractor
+from agrag.ingestion.extract import Extractor, LLMExtractor
 from agrag.ingestion.reports import AddResult
 from agrag.ingestion.resolve.zone_classifier import MAX_LLM_PAIRS
 from agrag.ingestion.resolved_entities import MatchComponent
@@ -71,13 +71,13 @@ async def extract_chunks(
     chunks: list[Chunk],
     *,
     start_index: int,
-    extractor: Extractor,
+    extractor: Extractor | LLMExtractor,
     schema: GraphSchema,
     error_policy: ErrorPolicy,
     tracer: Tracer | None = None,
 ) -> tuple[list[ExtractedEntity], list[ExtractedRelation], list[StageFailure]]:
     resolved_tracer = get_tracer(tracer)
-    semaphore = asyncio.Semaphore(extractor.max_concurrency)
+    semaphore = asyncio.Semaphore(extractor.max_concurrency or 8)
 
     async def _extract_one(
         chunk: Chunk,

@@ -10,3 +10,7 @@ The public Graph API for ingestion.
 **Classes:**
 
 - [**Graph**](Graph-ref.md) – A knowledge graph that a caller can open and add content to.
+
+**Attributes:**
+
+- [**logger**](logger.md) –

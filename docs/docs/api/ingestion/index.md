@@ -18,7 +18,7 @@ The ingestion package.
 - [**resolve**](resolve/index.md) – Entity resolution public API.
 - [**resolved_embeddings**](resolved_embeddings/index.md) – Embedding and vector synchronization for resolved-entities.
 - [**resolved_entities**](resolved_entities/index.md) – Non-destructive match persistence and resolved-entity computation.
-- [**settings**](settings/index.md) – Configuration for the Cutover Job crash-recovery machine.
+- [**settings**](settings/index.md) – Configuration for ingestion: the Cutover Job and local extraction.
 - [**stats**](stats/index.md) – Per-stage observability types for the ingestion pipeline.
 
 **Classes:**
@@ -29,9 +29,11 @@ The ingestion package.
 - [**ConsolidationReport**](reports/consolidation_report/ConsolidationReport.md) – Report from Graph.consolidate().
 - [**EscalatingExtractor**](extract/EscalatingExtractor.md) – Run a cheap extractor on every chunk and a stronger one on weak results.
 - [**ExtractionLLMSettings**](extract/ExtractionLLMSettings.md) – Env-backed LLM client configuration for the extraction role.
+- [**ExtractionSettings**](settings/ExtractionSettings.md) – Configuration for local entity and relation extraction.
 - [**Extractor**](extract/Extractor.md) – Reads one chunk and returns the entities and relations it contains.
 - [**ExtractorMissingExtraError**](extract/ExtractorMissingExtraError.md) – An Extractor needs a package extra that is not installed.
 - [**GlinerExtractor**](extract/GlinerExtractor.md) – Extracts entities and relations with a local GLiNER2.5 model.
 - [**Graph**](graph/Graph-ref.md) – A knowledge graph that a caller can open and add content to.
+- [**LLMExtractor**](extract/LLMExtractor.md) – LLM role that may receive entities found by an earlier extractor.
 - [**ReevaluationReport**](reports/reevaluation_report/ReevaluationReport.md) – Report from Graph.reevaluate().
 - [**UpdateResult**](reports/update_result/UpdateResult.md) – Summary of an update or soft deletion.

@@ -6,7 +6,7 @@ sidebar_label: EscalatingExtractor
 # `agrag.ingestion.extract.EscalatingExtractor` \{#agrag-ingestion-extract-EscalatingExtractor}
 
 ```python
-EscalatingExtractor(primary:Extractor, escalate_to:Extractor, *, min_confidence:float = 0.5, min_chunk_words:int = 8, tracer:Tracer | None = None) -> None
+EscalatingExtractor(primary:Extractor, escalate_to:Extractor | LLMExtractor, *, min_confidence:float = 0.5, min_chunk_words:int = 8, tracer:Tracer | None = None) -> None
 ```
 
 Bases: <code>[Extractor](Extractor.md)</code>
@@ -23,7 +23,7 @@ fallback.
 **Parameters:**
 
 - **primary** (<code>[Extractor](Extractor.md)</code>) – Extractor that runs on every chunk.
-- **escalate_to** (<code>[Extractor](Extractor.md)</code>) – Extractor that replaces the primary result when escalation
+- **escalate_to** (<code>[Extractor](Extractor.md) | [LLMExtractor](LLMExtractor.md)</code>) – Extractor that replaces the primary result when escalation
   triggers.
 - **min_confidence** (<code>float</code>) – Escalate when the primary's mean reported confidence is
   below this value.
@@ -73,7 +73,7 @@ Extract with the primary extractor, escalating when it is weak.
 ## `max_concurrency` \{#agrag-ingestion-extract-EscalatingExtractor-max_concurrency}
 
 ```python
-max_concurrency = min(primary.max_concurrency, escalate_to.max_concurrency)
+max_concurrency = min(primary.max_concurrency, llm_concurrency)
 ```
 
 ## `min_chunk_words` \{#agrag-ingestion-extract-EscalatingExtractor-min_chunk_words}

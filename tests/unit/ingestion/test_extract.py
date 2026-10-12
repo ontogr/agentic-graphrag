@@ -17,6 +17,7 @@ low yield or low mean confidence, and never merges results from both.
 """
 
 import asyncio
+import logging
 import sys
 import threading
 import types
@@ -46,8 +47,10 @@ from agrag.ingestion.extract import (
     Extractor,
     ExtractorMissingExtraError,
     GlinerExtractor,
+    LLMExtractor,
     _describe_entity_type,
 )
+from agrag.ingestion.settings import ExtractionSettings
 
 
 _DOC_ID = uuid4()
@@ -203,7 +206,11 @@ class TestGlinerExtractor:
                 return self.schema
 
             def extract(
-                self, text: str, schema: MockSchemaBuilder, include_spans: bool = False
+                self,
+                text: str,
+                schema: MockSchemaBuilder,
+                include_spans: bool = False,
+                **_: object,
             ) -> dict:
                 assert text.startswith("Ada Lovelace")
                 assert schema is self.schema
@@ -267,7 +274,9 @@ class TestGlinerExtractor:
             def relations(self, labels: list[str]) -> "MockModel":
                 return self
 
-            def extract(self, text: str, schema: object, include_spans=False) -> dict:
+            def extract(
+                self, text: str, schema: object, include_spans=False, **_: object
+            ) -> dict:
                 return {
                     "entities": {
                         "Person": [
@@ -312,7 +321,9 @@ class TestGlinerExtractor:
             def relations(self, labels: list[str]) -> "MockModel":
                 return self
 
-            def extract(self, text: str, schema: object, include_spans=False) -> dict:
+            def extract(
+                self, text: str, schema: object, include_spans=False, **_: object
+            ) -> dict:
                 return {
                     "entities": {
                         "Person": [{"text": "Ada", "start": 0, "end": 3}],
@@ -353,7 +364,9 @@ class TestGlinerExtractor:
             def relations(self, labels: list[str]) -> "MockModel":
                 return self
 
-            def extract(self, text: str, schema: object, include_spans=False) -> dict:
+            def extract(
+                self, text: str, schema: object, include_spans=False, **_: object
+            ) -> dict:
                 return {
                     "entities": {
                         "Person": [{"text": "Ada", "start": 0, "end": 3}],
@@ -386,7 +399,9 @@ class TestGlinerExtractor:
             def relations(self, labels: list[str]) -> "MockModel":
                 return self
 
-            def extract(self, text: str, schema: object, include_spans=False) -> dict:
+            def extract(
+                self, text: str, schema: object, include_spans=False, **_: object
+            ) -> dict:
                 return {
                     "entities": {
                         "Person": [{"text": "Ada", "start": 0, "end": 3}],
@@ -453,7 +468,9 @@ class TestGlinerExtractor:
             def relations(self, labels: list[str]) -> "MockModel":
                 return self
 
-            def extract(self, text: str, schema: object, include_spans=False) -> dict:
+            def extract(
+                self, text: str, schema: object, include_spans=False, **_: object
+            ) -> dict:
                 return {
                     "entities": {
                         "Person": [{"text": "Ada", "start": 0, "end": 3}],
@@ -489,7 +506,9 @@ class TestGlinerExtractor:
             def relations(self, labels: list[str]) -> "MockModel":
                 return self
 
-            def extract(self, text: str, schema: object, include_spans=False) -> dict:
+            def extract(
+                self, text: str, schema: object, include_spans=False, **_: object
+            ) -> dict:
                 return {
                     "entities": {
                         "Person": [{"text": "Ada", "start": 0, "end": 3}],
@@ -541,10 +560,12 @@ class TestGlinerExtractor:
             def create_schema(self) -> MockSchemaBuilder:
                 return MockSchemaBuilder()
 
-            def extract(self, text: str, schema: object, include_spans=False) -> dict:
+            def extract(
+                self, text: str, schema: object, include_spans=False, **_: object
+            ) -> dict:
                 return {"entities": {}, "relation_extraction": {}}
 
-        extractor = GlinerExtractor(model_name="fake")
+        extractor = GlinerExtractor(settings=ExtractionSettings(model_name="fake"))
         load_started = threading.Event()
         release_load = threading.Event()
         load_calls: list[int] = []
@@ -583,10 +604,12 @@ class TestGlinerExtractor:
             def create_schema(self) -> MockSchemaBuilder:
                 return MockSchemaBuilder()
 
-            def extract(self, text: str, schema: object, include_spans=False) -> dict:
+            def extract(
+                self, text: str, schema: object, include_spans=False, **_: object
+            ) -> dict:
                 return {"entities": {}, "relation_extraction": {}}
 
-        extractor = GlinerExtractor(model_name="fake")
+        extractor = GlinerExtractor(settings=ExtractionSettings(model_name="fake"))
         load_started = threading.Event()
         release_load = threading.Event()
         load_calls: list[int] = []
@@ -641,7 +664,9 @@ class TestGlinerExtractor:
             def relations(self, labels: list[str]) -> "MockModel":
                 return self
 
-            def extract(self, text: str, schema: object, include_spans=False) -> dict:
+            def extract(
+                self, text: str, schema: object, include_spans=False, **_: object
+            ) -> dict:
                 return {
                     "entities": {
                         # Product first: Apple gets index 0, iPhone gets index 1
@@ -706,6 +731,134 @@ class TestGlinerExtractor:
         assert relation.target_index == 1  # iPhone as Product
         assert result.entities[relation.source_index].label == "Product"
         assert result.entities[relation.target_index].label == "Product"
+
+
+class TestGlinerSettings:
+    """GLiNER settings control model loading, thresholds, and confidence."""
+
+    def test_default_settings_select_base_checkpoint(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path
+    ) -> None:
+        """The extractor defaults to the base model checkpoint."""
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.delenv("EXTRACTION_MODEL_NAME", raising=False)
+
+        assert GlinerExtractor().settings.model_name == "fastino/gliner2.5-base-v1"
+
+    def test_half_precision_casts_loaded_model_and_logs_settings(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A non-fp32 setting casts after load and appears in the load log."""
+        calls: list[str] = []
+
+        class Model:
+            def quantize(self, dtype: str) -> None:
+                calls.append(dtype)
+
+        model = Model()
+        fake_module = types.ModuleType("gliner2")
+        fake_module.AutoExtractor = SimpleNamespace(from_pretrained=lambda name: model)
+        extractor = GlinerExtractor(settings=ExtractionSettings(dtype="bf16"))
+
+        with (
+            caplog.at_level(logging.INFO, logger="agrag.ingestion.extract"),
+            patch.dict(sys.modules, {"gliner2": fake_module}),
+        ):
+            assert extractor._ensure_model() is model
+
+        assert calls == ["bf16"]
+        assert "dtype=bf16" in caplog.text
+
+    async def test_confidence_is_preserved_for_entities_and_relations(self) -> None:
+        """Model scores become confidence values on both result types."""
+        calls: list[dict[str, object]] = []
+
+        class Model:
+            def create_schema(self) -> "Model":
+                return self
+
+            def entities(self, *_: object, **__: object) -> "Model":
+                return self
+
+            def relations(self, *_: object, **__: object) -> "Model":
+                return self
+
+            def extract(self, text: str, schema: object, **kwargs: object) -> dict:
+                calls.append(kwargs)
+                return {
+                    "entities": {
+                        "Person": [
+                            {"text": "Ada", "confidence": 0.91, "start": 0, "end": 3}
+                        ],
+                        "Organization": [
+                            {"text": "Acme", "confidence": 0.64, "start": 13, "end": 17}
+                        ],
+                    },
+                    "relation_extraction": {
+                        "WORKS_AT": [
+                            {
+                                "head": {
+                                    "text": "Ada",
+                                    "confidence": 0.83,
+                                    "start": 0,
+                                    "end": 3,
+                                },
+                                "tail": {
+                                    "text": "Acme",
+                                    "confidence": 0.83,
+                                    "start": 13,
+                                    "end": 17,
+                                },
+                            }
+                        ]
+                    },
+                }
+
+        result = await GlinerExtractor(model=Model()).extract(
+            _chunk("Ada works at Acme."), _ONE_PAIR_SCHEMA
+        )
+
+        assert calls[0]["include_confidence"] is True
+        assert calls[0]["include_spans"] is True
+        assert [entity.confidence for entity in result.entities] == [0.91, 0.64]
+        assert [relation.confidence for relation in result.relations] == [0.83]
+
+    async def test_settings_control_call_and_per_label_thresholds(self) -> None:
+        """Global and label thresholds reach the model through supported inputs."""
+        captured: dict[str, object] = {}
+
+        class Model:
+            def create_schema(self) -> "Model":
+                return self
+
+            def entities(self, specs: dict[str, object]) -> "Model":
+                captured["specs"] = specs
+                return self
+
+            def relations(self, *_: object, **__: object) -> "Model":
+                return self
+
+            def extract(self, text: str, schema: object, **kwargs: object) -> dict:
+                captured.update(kwargs)
+                return {"entities": {}, "relation_extraction": {}}
+
+        settings = ExtractionSettings(
+            entity_threshold=0.62,
+            label_thresholds={"Person": 0.8, "Missing": 0.9},
+        )
+
+        await GlinerExtractor(settings=settings, model=Model()).extract(
+            _chunk(), _ONE_PAIR_SCHEMA
+        )
+
+        assert captured["threshold"] == 0.62
+        assert captured["specs"] == {
+            "Person": {
+                "description": "A named individual.",
+                "threshold": 0.8,
+            },
+            "Organization": "A company or institution.",
+        }
 
 
 class TestGlinerConcurrency:
@@ -1643,6 +1796,44 @@ class TestEscalatingExtractor:
         assert ran == ["primary"]
         assert result.extractor_name == "primary"
 
+    async def test_passes_primary_entities_to_llm_escalation(self) -> None:
+        """The LLM escalation role receives the local result as candidates."""
+        candidate = ExtractedEntity(
+            chunk_id=uuid4(),
+            label="Person",
+            text="Ada",
+            char_start=0,
+            char_end=3,
+            confidence=0.3,
+        )
+        primary_result = ExtractionResult(
+            entities=[candidate], relations=[], extractor_name="local"
+        )
+        seen: list[tuple[ExtractedEntity, ...] | None] = []
+
+        class Primary(Extractor):
+            async def extract(self, chunk, schema):  # noqa: ANN001
+                return primary_result
+
+        class LLM(LLMExtractor):
+            async def extract(
+                self,
+                chunk,
+                schema,
+                candidates=None,  # noqa: ANN001
+            ) -> ExtractionResult:
+                seen.append(tuple(candidates) if candidates is not None else None)
+                return ExtractionResult(entities=[], relations=[], extractor_name="llm")
+
+        extractor = EscalatingExtractor(
+            Primary(), LLM(), min_confidence=0.5, min_chunk_words=100
+        )
+
+        result = await extractor.extract(_chunk("Ada works."), GENERIC)
+
+        assert result.extractor_name == "llm"
+        assert seen == [(candidate,)]
+
 
 def _tracing_provider() -> tuple[TracerProvider, InMemorySpanExporter]:
     """Return a provider wired to an in-memory exporter."""
@@ -1706,7 +1897,11 @@ class TestExtractionSpans:
                 return self
 
             def extract(
-                self, text: str, schema: object, include_spans: bool = False
+                self,
+                text: str,
+                schema: object,
+                include_spans: bool = False,
+                **_: object,
             ) -> dict:
                 return {
                     "entities": {
@@ -1744,7 +1939,11 @@ class TestExtractionSpans:
                 return self
 
             def extract(
-                self, text: str, schema: object, include_spans: bool = False
+                self,
+                text: str,
+                schema: object,
+                include_spans: bool = False,
+                **_: object,
             ) -> dict:
                 return {"entities": {}, "relation_extraction": {}}
 
@@ -1754,7 +1953,8 @@ class TestExtractionSpans:
         )
         provider, exporter = _tracing_provider()
         extractor = GlinerExtractor(
-            model_name="fake-checkpoint", tracer=provider.get_tracer("test")
+            settings=ExtractionSettings(model_name="fake-checkpoint"),
+            tracer=provider.get_tracer("test"),
         )
         with patch.dict(sys.modules, {"gliner2": fake_module}):
             await extractor.extract(_chunk(), GENERIC)

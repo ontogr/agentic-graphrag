@@ -32,7 +32,7 @@ from agrag.ingestion._document_lifecycle import find_document
 from agrag.ingestion._ingest_pipeline import extract_chunks, ingest_chunks
 from agrag.ingestion._structure import placement_map
 from agrag.ingestion._walk import SourcesType, chunk_documents, iter_document_batches
-from agrag.ingestion.extract import Extractor
+from agrag.ingestion.extract import Extractor, LLMExtractor
 from agrag.ingestion.reports import AddResult, UpdateResult
 from agrag.ingestion.resolved_entities import MatchComponent
 from agrag.ingestion.settings import CutoverJobSettings
@@ -367,7 +367,7 @@ async def add_documents(  # noqa: PLR0912,PLR0915,PLR0913
     schema: GraphSchema,
     graph_store: GraphStore,
     embedder: Embedder,
-    extractor: Extractor,
+    extractor: Extractor | LLMExtractor,
     vector_store: VectorStore | None,
     retrieval_settings: RetrievalSettings,
     cutover_settings: CutoverJobSettings,
@@ -595,7 +595,7 @@ async def update_document(  # noqa: PLR0913
     schema: GraphSchema,
     graph_store: GraphStore,
     embedder: Embedder,
-    extractor: Extractor,
+    extractor: Extractor | LLMExtractor,
     vector_store: VectorStore | None,
     retrieval_settings: RetrievalSettings,
     cutover_settings: CutoverJobSettings,
