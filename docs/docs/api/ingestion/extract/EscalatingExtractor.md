@@ -14,8 +14,9 @@ Bases: <code>[Extractor](Extractor.md)</code>
 Run a cheap extractor on every chunk and a stronger one on weak results.
 
 The primary extractor runs first. A chunk escalates when the primary finds
-no entities in a chunk of at least `min_chunk_words` words, or when the
-mean entity confidence is below `min_confidence`. An escalated chunk gets
+no entities in a chunk of at least `min_chunk_words` words, when the
+mean entity confidence is below `min_confidence`, or when the primary
+sets `needs_properties`. An escalated chunk gets
 the `escalate_to` result alone. The two results are never combined. A
 common pairing is `GlinerExtractor` as primary and `BAMLExtractor` as
 fallback.
