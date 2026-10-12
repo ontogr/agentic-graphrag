@@ -204,7 +204,8 @@ def _graph(store: _ScriptedStore) -> Graph:
 class TestGraphReevaluate:
     """Graph.reevaluate() adds, removes, and leaves edges alone."""
 
-    async def test_reports_resolution_failure_counts(self) -> None:
+    @staticmethod
+    async def test_reports_resolution_failure_counts() -> None:
         """The public report includes counts from the resolver pass."""
         first, second = uuid4(), uuid4()
         store = _ScriptedStore(

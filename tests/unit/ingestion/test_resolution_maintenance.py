@@ -29,7 +29,8 @@ def _result(failed: int, capped: int, unavailable: int) -> ResolutionResult:
 class TestConsolidateFailureCounts:
     """consolidate() sums resolver failure counts over every label."""
 
-    async def test_sums_failure_counts_over_labels(self) -> None:
+    @staticmethod
+    async def test_sums_failure_counts_over_labels() -> None:
         """Two labels with failures report their summed counts."""
         schema = SimpleNamespace(
             entities=[SimpleNamespace(label="Person"), SimpleNamespace(label="Org")]
@@ -38,7 +39,7 @@ class TestConsolidateFailureCounts:
             Entity(id=uuid4(), label="Person", name="Jon Smith"),
             Entity(id=uuid4(), label="Person", name="John Smith"),
         ]
-        results = iter([(_result(1, 2, 3), []), (_result(10, 20, 30), [])])
+        results = [(_result(1, 2, 3), []), (_result(10, 20, 30), [])]
 
         with (
             mock.patch.object(
@@ -49,7 +50,7 @@ class TestConsolidateFailureCounts:
             mock.patch.object(
                 _resolution_maintenance,
                 "resolve_persisted",
-                AsyncMock(side_effect=lambda *args, **kwargs: next(results)),
+                AsyncMock(side_effect=results),
             ),
         ):
             report = await _resolution_maintenance.consolidate(

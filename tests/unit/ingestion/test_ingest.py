@@ -137,7 +137,8 @@ class TestGroupByDocument:
 class TestMergeAddResultsResolution:
     """Call-level resolution stats sum the per-document counts."""
 
-    def test_sums_failure_counts_across_documents(self) -> None:
+    @staticmethod
+    def test_sums_failure_counts_across_documents() -> None:
         """Every LLM failure count adds up over the document jobs."""
         first = AddResult(
             resolution=ResolutionStats(
