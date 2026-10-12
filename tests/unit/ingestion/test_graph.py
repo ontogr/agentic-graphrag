@@ -19,6 +19,7 @@ from unittest.mock import AsyncMock, MagicMock
 from uuid import UUID, uuid4
 
 import pytest
+from pydantic import ValidationError
 
 import agrag.ingestion._ingest as ingest_module
 import agrag.ingestion._job_cleanup as job_cleanup_module
@@ -55,8 +56,10 @@ from agrag.ingestion._ingest_pipeline import (
 )
 from agrag.ingestion.extract import (
     BAMLExtractor,
+    EscalatingExtractor,
     ExtractionLLMSettings,
     Extractor,
+    ExtractorMissingExtraError,
     GlinerExtractor,
     LLMExtractor,
 )
@@ -367,13 +370,71 @@ class TestGraphExtractionSettings:
         """A missing GLiNER extra fails while opening a GLiNER graph."""
         monkeypatch.setattr(graph_module, "find_spec", lambda name: None)
 
-        with pytest.raises(ValueError, match='"extract" extra'):
+        with pytest.raises(ExtractorMissingExtraError, match="extract.*extra"):
             await Graph.open(
                 schema=GENERIC,
                 graph_store=_MockGraphStore(),
                 embedder=_MockEmbedder(),
                 extraction_settings=ExtractionSettings(mode="gliner"),
             )
+
+    async def test_invalid_extraction_client_does_not_use_shared_endpoint(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """An invalid explicit client fails instead of selecting another model."""
+        _clear_llm_env(monkeypatch, tmp_path)
+        monkeypatch.setenv("LLM_BASE_URL", "http://localhost:8000/v1")
+        monkeypatch.setenv("LLM_MODEL_ID", "shared-model")
+        monkeypatch.setenv(
+            "EXTRACTION_LLM_CLIENTS",
+            '[{"name":"extraction","provider":"openai-generic"}]',
+        )
+
+        with pytest.raises(ValidationError):
+            await Graph.open(
+                schema=GENERIC,
+                graph_store=_MockGraphStore(),
+                embedder=_MockEmbedder(),
+                extraction_settings=ExtractionSettings(mode="llm"),
+            )
+
+    @pytest.mark.parametrize("nested", [False, True])
+    async def test_gliner_mode_rejects_llm_inside_escalating_extractor(
+        self, nested: bool
+    ) -> None:
+        """Local-only mode cannot send content to a wrapped LLM extractor."""
+        extractor = EscalatingExtractor(_MockExtractor(), _MockLLMExtractor())
+        if nested:
+            extractor = EscalatingExtractor(extractor, _MockExtractor())
+
+        with pytest.raises(ValueError, match='mode="hybrid"'):
+            await Graph.open(
+                schema=GENERIC,
+                graph_store=_MockGraphStore(),
+                embedder=_MockEmbedder(),
+                extractor=extractor,
+                extraction_settings=ExtractionSettings(mode="gliner"),
+            )
+
+    async def test_wrapped_llm_keeps_hybrid_without_environment_client(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """An explicitly composed LLM is available without environment settings."""
+        _clear_llm_env(monkeypatch, tmp_path)
+        llm = _MockLLMExtractor()
+        graph = await Graph.open(
+            schema=GENERIC,
+            graph_store=_MockGraphStore(),
+            embedder=_MockEmbedder(),
+            extractor=EscalatingExtractor(_MockExtractor(), llm),
+        )
+
+        assert graph.effective_mode == "hybrid"
+        assert graph.llm_extractor is llm
+        assert "no LLM is configured" not in caplog.text
 
     async def test_llm_mode_without_llm_raises(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path

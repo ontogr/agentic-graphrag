@@ -31,7 +31,7 @@ from agrag.common.data_models.extraction import ExtractedEntity, ExtractionResul
 from agrag.common.data_models.graph_schema import GraphSchema
 from agrag.common.data_models.provenance import TextProvenance
 from agrag.eval.adapter import ScoreMetric, ScoreResult, parse_json_case, to_json_case
-from agrag.ingestion.extract import Extractor
+from agrag.ingestion.extract import Extractor, LLMExtractor
 
 
 _CONCURRENCY = 8
@@ -133,7 +133,7 @@ def extraction_case(
 
 
 async def run_extractor(
-    extractor: Extractor,
+    extractor: Extractor | LLMExtractor,
     items: Sequence[ExtractionGold],
     schema: GraphSchema,
     *,

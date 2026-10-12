@@ -46,8 +46,10 @@ from agrag.ingestion._walk import SourcesType
 from agrag.ingestion.community import detect_communities
 from agrag.ingestion.extract import (
     BAMLExtractor,
+    EscalatingExtractor,
     ExtractionLLMSettings,
     Extractor,
+    ExtractorMissingExtraError,
     GlinerExtractor,
     LLMExtractor,
 )
@@ -79,10 +81,6 @@ _MSG_DEGRADE = (
     'Extraction mode is "hybrid" but no LLM is configured, so this run uses '
     '"gliner". Set EXTRACTION_LLM_CLIENTS, LLM_BASE_URL and LLM_MODEL_ID, or set '
     'mode="gliner" to choose GLiNER only.'
-)
-_MSG_GLINER_MISSING = (
-    'Extraction mode "gliner" needs GLiNER, which is not installed. Install the '
-    '"extract" extra, or use mode="llm" to run without GLiNER.'
 )
 _MSG_LLM_MISSING = (
     'Extraction mode "llm" needs an LLM, and none is configured. Set '
@@ -117,6 +115,15 @@ def _extraction_settings_of(extractor: Extractor | None) -> ExtractionSettings:
     return ExtractionSettings()
 
 
+def _wrapped_llm(extractor: Extractor | LLMExtractor | None) -> LLMExtractor | None:
+    """Find an LLM used by an explicitly composed escalation pipeline."""
+    if isinstance(extractor, LLMExtractor):
+        return extractor
+    if isinstance(extractor, EscalatingExtractor):
+        return _wrapped_llm(extractor.escalate_to) or _wrapped_llm(extractor.primary)
+    return None
+
+
 def _check_slots(
     settings: ExtractionSettings,
     extractor: Extractor | None,
@@ -142,26 +149,33 @@ def _check_slots(
         raise ValueError(_MSG_SETTINGS_MISMATCH)
 
 
-def _default_gliner_extractor(settings: ExtractionSettings) -> GlinerExtractor:
+def _default_gliner_extractor(
+    settings: ExtractionSettings, tracer: Tracer | None
+) -> GlinerExtractor:
     """Build the local slot, or explain that the extract extra is required."""
     if find_spec("gliner2") is None:
-        raise ValueError(_MSG_GLINER_MISSING)
+        raise ExtractorMissingExtraError("GlinerExtractor", "extract")
     try:
-        return GlinerExtractor(settings=settings)
+        return GlinerExtractor(settings=settings, tracer=tracer)
     except ImportError as error:
-        raise ValueError(_MSG_GLINER_MISSING) from error
+        raise ExtractorMissingExtraError("GlinerExtractor", "extract") from error
 
 
-def _default_llm_extractor() -> BAMLExtractor | None:
+def _default_llm_extractor(tracer: Tracer | None) -> BAMLExtractor | None:
     """Build the default LLM slot from environment settings when available."""
     try:
         settings = ExtractionLLMSettings()
-    except ValidationError:
+    except ValidationError as error:
+        if any(
+            detail["type"] != "missing" or detail["loc"] != ("clients",)
+            for detail in error.errors()
+        ):
+            raise
         try:
             settings = ExtractionLLMSettings.from_openai_compatible_env()
         except RuntimeError:
             return None
-    return BAMLExtractor(settings=settings)
+    return BAMLExtractor(settings=settings, tracer=tracer)
 
 
 class Graph:
@@ -218,7 +232,8 @@ class Graph:
                 None uses settings from a GLiNER extractor, or
                 the ExtractionSettings defaults. Pass the same object to both.
             llm_extractor: The LLM slot used in ``hybrid`` and ``llm`` modes.
-                None builds a BAMLExtractor when LLM settings are configured.
+                None uses the LLM in an injected EscalatingExtractor, or builds
+                a BAMLExtractor when LLM settings are configured.
             chunker: The chunker that splits every document. None uses
                 ``Chunker()``.
             embed_heading_path: Whether chunk embeddings include the chunk's
@@ -237,20 +252,17 @@ class Graph:
             if extraction_settings is not None
             else _extraction_settings_of(extractor)
         )
-        default_llm = (
-            _default_llm_extractor()
-            if llm_extractor is None and settings.mode != "gliner"
-            else None
+        llm_slot = (
+            llm_extractor if llm_extractor is not None else _wrapped_llm(extractor)
         )
-        llm_slot = llm_extractor if llm_extractor is not None else default_llm
+        if llm_slot is None and settings.mode != "gliner":
+            llm_slot = _default_llm_extractor(tracer)
         _check_slots(settings, extractor, llm_slot, extraction_settings)
-        mode = effective_mode(
-            settings, llm_available=llm_extractor is not None or default_llm is not None
-        )
+        mode = effective_mode(settings, llm_available=llm_slot is not None)
         if settings.mode == "hybrid" and mode == "gliner":
             logger.warning(_MSG_DEGRADE)
         if extractor is None and settings.mode != "llm":
-            extractor = _default_gliner_extractor(settings)
+            extractor = _default_gliner_extractor(settings, tracer)
         pipeline_extractor = extractor if extractor is not None else llm_slot
         if pipeline_extractor is None:
             raise RuntimeError("Graph has no extractor for the selected mode")

@@ -13,6 +13,10 @@ Every score is between 0 and 1. `ExtractionLLMSettings` variables start
 with `EXTRACTION_LLM_` and are not read here, so no field may start with
 `llm_`.
 
+Relation thresholds and floors, the entity band, escalation controls, and
+candidate capture are validated configuration only; they do not yet affect
+extraction. `EscalatingExtractor` uses its own escalation parameters.
+
 **Attributes:**
 
 - [**mode**](#agrag-ingestion-settings-ExtractionSettings-mode) (<code>Literal['gliner', 'hybrid', 'llm']</code>) – Extractor mode. `gliner` runs GLiNER only; `hybrid` runs

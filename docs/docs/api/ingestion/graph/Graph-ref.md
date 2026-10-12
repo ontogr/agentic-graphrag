@@ -62,7 +62,8 @@ by `open()` when missing.
   None uses settings from a GLiNER extractor, or
   the ExtractionSettings defaults. Pass the same object to both.
 - **llm_extractor** (<code>[LLMExtractor](../extract/LLMExtractor.md) | None</code>) – The LLM slot used in `hybrid` and `llm` modes.
-  None builds a BAMLExtractor when LLM settings are configured.
+  None uses the LLM in an injected EscalatingExtractor, or builds
+  a BAMLExtractor when LLM settings are configured.
 - **chunker** (<code>[Chunker](../../chunking/chunker/Chunker-ref.md) | None</code>) – The chunker that splits every document. None uses
   `Chunker()`.
 - **embed_heading_path** (<code>bool</code>) – Whether chunk embeddings include the chunk's

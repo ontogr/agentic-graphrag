@@ -36,6 +36,10 @@ class ExtractionSettings(BaseSettings):
     with ``EXTRACTION_LLM_`` and are not read here, so no field may start with
     ``llm_``.
 
+    Relation thresholds and floors, the entity band, escalation controls, and
+    candidate capture are validated configuration only; they do not yet affect
+    extraction. ``EscalatingExtractor`` uses its own escalation parameters.
+
     Attributes:
         mode: Extractor mode. ``gliner`` runs GLiNER only; ``hybrid`` runs
             GLiNER and may escalate weak chunks to the LLM; ``llm`` runs the
