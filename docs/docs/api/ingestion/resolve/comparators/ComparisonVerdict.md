@@ -13,7 +13,9 @@ A Comparator's verdict on one entity pair.
 
 - [**MATCH**](#agrag-ingestion-resolve-comparators-ComparisonVerdict-MATCH) – The comparator is confident these are the same entity.
 - [**NO_MATCH**](#agrag-ingestion-resolve-comparators-ComparisonVerdict-NO_MATCH) – The comparator is confident these are different entities.
-- [**UNCERTAIN**](#agrag-ingestion-resolve-comparators-ComparisonVerdict-UNCERTAIN) – This comparator can't decide; the next one gets a turn.
+- [**UNCERTAIN**](#agrag-ingestion-resolve-comparators-ComparisonVerdict-UNCERTAIN) – No decision. The comparator cannot decide, or the LLM tier
+  failed, was capped, or had no settings. The next comparator gets a
+  turn, and a caller must not treat it as a rejection.
 
 ## `MATCH` \{#agrag-ingestion-resolve-comparators-ComparisonVerdict-MATCH}
 

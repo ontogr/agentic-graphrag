@@ -27,6 +27,12 @@ class TestSelectLlmPairs:
 
         assert select_llm_pairs(candidates, max_pairs=2) == [(2, 3), (4, 5)]
 
+    def test_equal_similarity_breaks_ties_by_index(self) -> None:
+        """Equal scores keep lower index pairs first, whatever the input order."""
+        candidates = [(4, 5, 0.85), (0, 1, 0.85), (2, 3, 0.85)]
+
+        assert select_llm_pairs(candidates, max_pairs=2) == [(0, 1), (2, 3)]
+
     def test_non_positive_cap_returns_no_pairs(self) -> None:
         """A non-positive cap cannot bypass the LLM review limit."""
         candidates = [(0, 1, 0.82), (2, 3, 0.90)]

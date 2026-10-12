@@ -27,6 +27,8 @@ from agrag.graphdb import build_graph_store
 from agrag.graphdb.base import GraphStore
 from agrag.ingestion.extract import Extractor
 from agrag.ingestion.graph import Graph
+from agrag.ingestion.resolve import LLMVerify
+from agrag.ingestion.resolve import resolution as resolution_module
 from agrag.ingestion.resolved_entities import MatchDecision, write_matches_and_rebuild
 
 
@@ -45,6 +47,41 @@ class _FixedEmbedder(Embedder):
     async def embed(self, texts: Sequence[str]) -> list[list[float]]:
         """Return a constant vector for every text."""
         return [[0.1] * 4 for _ in texts]
+
+
+class _BandEmbedder(Embedder):
+    """Embed two distinct names below the merge threshold and above discard."""
+
+    model = "band"
+
+    async def dimensions(self) -> int:
+        """Return the existing shared vector-index dimension."""
+        return 4
+
+    async def embed(self, texts: Sequence[str]) -> list[list[float]]:
+        """Return vectors with cosine similarity in the LLM review band."""
+        return [
+            [1.0, 0.0, 0.0, 0.0]
+            if text.startswith("Reeval A")
+            else [3.0, 1.0, 0.0, 0.0]
+            for text in texts
+        ]
+
+
+class _FailingVerifier:
+    """BAML stand-in returning a verdict, invalid output, or a failed request."""
+
+    def __init__(self, answer: str) -> None:
+        """Set the response for every requested pair."""
+        self.answer = answer
+
+    async def VerifyEntityMatches(self, pairs, options):  # noqa: N802
+        """Return the configured answer or raise for an unavailable endpoint."""
+        if self.answer == "failure":
+            raise RuntimeError("LLM endpoint unavailable")
+        if self.answer == "missing":
+            return []
+        return [{"pair_id": pair["pair_id"], "verdict": self.answer} for pair in pairs]
 
 
 class _KeywordEmbedder(Embedder):
@@ -193,6 +230,87 @@ class TestReevaluateIntegration:
                 {"ids": [str(first.id), str(second.id)]},
             )
             assert len(rows) == 1
+        finally:
+            await store.execute_write(
+                "MATCH (e:Person) WHERE e.id IN $ids DETACH DELETE e",
+                {"ids": [str(first.id), str(second.id)]},
+            )
+            await store.execute_write(
+                "MATCH (node:ResolvedEntity) "
+                "WHERE any(member_id IN node.member_ids WHERE member_id IN $ids) "
+                "DETACH DELETE node",
+                {"ids": [str(first.id), str(second.id)]},
+            )
+            await store.close()
+
+    @pytest.mark.parametrize(
+        ("answer", "max_pairs", "expected_active"),
+        [
+            ("failure", 500, True),
+            ("uncertain", 500, True),
+            ("missing", 500, True),
+            ("invalid", 500, True),
+            ("no_match", 0, True),
+            ("no_match", 500, False),
+        ],
+    )
+    async def test_reevaluate_removes_only_rejected_matches(
+        self, monkeypatch, answer: str, max_pairs: int, expected_active: bool
+    ) -> None:
+        """Undecided pairs retain committed edges, but explicit rejections do not."""
+        store = build_graph_store("neo4j")
+        await store.connect()
+        monkeypatch.setattr(
+            resolution_module,
+            "LLMVerify",
+            lambda **kwargs: LLMVerify(client=_FailingVerifier(answer), **kwargs),
+        )
+        graph = await Graph.open(
+            schema=GENERIC,
+            graph_store=store,
+            embedder=_BandEmbedder(),
+            extractor=_NoopExtractor(),
+            max_llm_pairs=max_pairs,
+        )
+        suffix = uuid4().hex[:8]
+        first = Entity(id=uuid4(), label="Person", name=f"Reeval A {suffix}")
+        second = Entity(id=uuid4(), label="Person", name=f"Reeval B {suffix}")
+        try:
+            await store.upsert_nodes(
+                "Person", [first.to_node_record(), second.to_node_record()]
+            )
+            await write_matches_and_rebuild(
+                [
+                    MatchDecision(
+                        entity_a_id=first.id,
+                        entity_b_id=second.id,
+                        comparator="llm",
+                        decided_at=datetime.now(UTC),
+                    )
+                ],
+                graph_store=store,
+                schema=GENERIC,
+                members=[first, second],
+            )
+
+            report = await graph.reevaluate([first.id, second.id])
+
+            assert report.matches_added == []
+            if expected_active:
+                assert report.matches_removed == []
+                assert len(report.matches_unverified) == 1
+                match_id = report.matches_unverified[0]
+            else:
+                assert report.matches_unverified == []
+                assert len(report.matches_removed) == 1
+                match_id = report.matches_removed[0]
+            rows = await store.execute_read(
+                "MATCH (a:Person)-[match:MATCHES]->(b:Person) "
+                "WHERE a.id IN $ids AND b.id IN $ids "
+                "RETURN match.id AS id, match.active AS active",
+                {"ids": [str(first.id), str(second.id)]},
+            )
+            assert rows == [{"id": str(match_id), "active": expected_active}]
         finally:
             await store.execute_write(
                 "MATCH (e:Person) WHERE e.id IN $ids DETACH DELETE e",

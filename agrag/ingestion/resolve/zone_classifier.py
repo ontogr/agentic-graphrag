@@ -1,4 +1,4 @@
-"""Zone classification for entity-resolution candidate pairs."""
+"""Pair selection and sub-clustering for entity-resolution LLM review."""
 
 from collections.abc import Mapping
 from uuid import UUID
@@ -46,19 +46,25 @@ def classify_zone(fuzzy_score: float, embedding_similarity: float | None) -> str
 def select_llm_pairs(
     candidates: list[tuple[int, int, float]], *, max_pairs: int = MAX_LLM_PAIRS
 ) -> list[tuple[int, int]]:
-    """Rank ambiguous candidates for LLM review, most similar first.
+    """Rank ambiguous candidates for LLM review and keep the first ``max_pairs``.
+
+    The order is similarity, highest first. Pairs with equal similarity keep the
+    lower ``(left_index, right_index)`` first, so the same input always yields
+    the same pairs. The pairs this drops are the least similar, and the caller
+    must report them as undecided.
 
     Args:
         candidates: ``(left_index, right_index, similarity)`` triples.
         max_pairs: Maximum pairs to return.
 
     Returns:
-        Index pairs ordered by similarity descending, capped at
-        ``max_pairs``.
+        Index pairs in the order above, at most ``max_pairs`` of them.
     """
     if max_pairs <= 0:
         return []
-    ranked = sorted(candidates, key=lambda candidate: candidate[2], reverse=True)
+    ranked = sorted(
+        candidates, key=lambda candidate: (-candidate[2], candidate[0], candidate[1])
+    )
     return [(left, right) for left, right, _ in ranked[:max_pairs]]
 
 

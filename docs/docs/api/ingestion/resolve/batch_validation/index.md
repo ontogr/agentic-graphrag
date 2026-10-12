@@ -13,4 +13,4 @@ Validation for LLM batch entity-match verdicts.
 
 **Functions:**
 
-- [**validate_batch_verdicts**](validate_batch_verdicts.md) – Return fail-safe verdicts keyed by requested candidate pair identifiers.
+- [**validate_batch_verdicts**](validate_batch_verdicts.md) – Return verdicts keyed by requested candidate pair identifiers.

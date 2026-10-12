@@ -11,27 +11,26 @@ LLMVerify(*, chunks_by_id:dict[UUID, Chunk], settings:ExtractionLLMSettings | No
 
 Bases: <code>[Comparator](../resolver/Comparator.md)</code>
 
-Ask an LLM to verify an ambiguous pair. Last resort. Never UNCERTAIN.
+Ask an LLM to verify an ambiguous pair. Last resort.
 
-Never raises from an LLM-call failure: it resolves to NO_MATCH instead, by
-the same fail-safe design as every comparator a Resolver runs. An
-ambiguous or failed comparison never merges two entities. A missing package
-extra is a configuration error, not an ambiguous judgment call, and is
-raised outright instead (see compare's Raises section).
-
-**Functions:**
-
-- [**compare**](#agrag-ingestion-resolve-comparators-LLMVerify-compare) – Return the LLM's verdict for one pair, or NO_MATCH on failure.
-- [**compare_batch**](#agrag-ingestion-resolve-comparators-LLMVerify-compare_batch) – Verify ambiguous candidate pairs across bounded LLM requests.
-- [**compare_batch_detailed**](#agrag-ingestion-resolve-comparators-LLMVerify-compare_batch_detailed) – Verify pairs and count how many verdicts came back uncertain.
-- [**compare_with_evidence**](#agrag-ingestion-resolve-comparators-LLMVerify-compare_with_evidence) – Compare two entities and retain any available decision evidence.
+Returns `UNCERTAIN`, never `NO_MATCH`, for a pair it could not judge: a
+failed request, missing LLM settings, or a missing or malformed answer. A
+pair it did not judge never merges, and a caller must not treat it as
+rejected. A missing package extra is a configuration error, not a judgment
+call, and is raised outright (see compare's Raises section).
 
 **Attributes:**
 
-- [**chunks_by_id**](#agrag-ingestion-resolve-comparators-LLMVerify-chunks_by_id) –
-- [**failed_requests**](#agrag-ingestion-resolve-comparators-LLMVerify-failed_requests) (<code>int</code>) –
-- [**max_pairs_per_batch**](#agrag-ingestion-resolve-comparators-LLMVerify-max_pairs_per_batch) –
-- [**settings**](#agrag-ingestion-resolve-comparators-LLMVerify-settings) –
+- [**failed_requests**](#agrag-ingestion-resolve-comparators-LLMVerify-failed_requests) (<code>int</code>) – Requests that raised.
+- [**unavailable_pairs**](#agrag-ingestion-resolve-comparators-LLMVerify-unavailable_pairs) (<code>int</code>) – Pairs skipped because no LLM settings were found.
+- [**unavailable_reason**](#agrag-ingestion-resolve-comparators-LLMVerify-unavailable_reason) (<code>str | None</code>) – Why the settings were missing, or None.
+
+**Functions:**
+
+- [**compare**](#agrag-ingestion-resolve-comparators-LLMVerify-compare) – Return the LLM's verdict for one pair, or UNCERTAIN when it gave none.
+- [**compare_batch**](#agrag-ingestion-resolve-comparators-LLMVerify-compare_batch) – Verify ambiguous candidate pairs across bounded LLM requests.
+- [**compare_batch_detailed**](#agrag-ingestion-resolve-comparators-LLMVerify-compare_batch_detailed) – Verify pairs and count how many verdicts came back uncertain.
+- [**compare_with_evidence**](#agrag-ingestion-resolve-comparators-LLMVerify-compare_with_evidence) – Compare two entities and retain any available decision evidence.
 
 **Parameters:**
 
@@ -60,7 +59,7 @@ chunks_by_id = chunks_by_id
 compare(a:ExtractedEntity, b:ExtractedEntity) -> ComparisonVerdict
 ```
 
-Return the LLM's verdict for one pair, or NO_MATCH on failure.
+Return the LLM's verdict for one pair, or UNCERTAIN when it gave none.
 
 Runs through compare_batch so the single-pair path shares the
 batch validation and fail-safe behavior.
@@ -110,10 +109,10 @@ Verify pairs and count how many verdicts came back uncertain.
 
 **Returns:**
 
-- <code>tuple\[dict\[tuple\[int, int\], [ComparisonResult](../resolver/ComparisonResult.md)\], int\]</code> – The per-pair results and the count of raw uncertain verdicts,
-  before the fail-safe maps them to NO_MATCH. A request that
-  errors maps its pairs to NO_MATCH and increments
-  failed_requests.
+- <code>dict\[tuple\[int, int\], [ComparisonResult](../resolver/ComparisonResult.md)\]</code> – The per-pair results and the count of uncertain verdicts, including
+- <code>int</code> – missing and malformed answers. A request that errors or has no
+- <code>tuple\[dict\[tuple\[int, int\], [ComparisonResult](../resolver/ComparisonResult.md)\], int\]</code> – settings returns UNCERTAIN for its pairs and increments
+- <code>tuple\[dict\[tuple\[int, int\], [ComparisonResult](../resolver/ComparisonResult.md)\], int\]</code> – `failed_requests` or `unavailable_pairs` instead.
 
 ## `compare_with_evidence` \{#agrag-ingestion-resolve-comparators-LLMVerify-compare_with_evidence}
 
@@ -139,4 +138,16 @@ max_pairs_per_batch = max_pairs_per_batch
 
 ```python
 settings = settings
+```
+
+## `unavailable_pairs` \{#agrag-ingestion-resolve-comparators-LLMVerify-unavailable_pairs}
+
+```python
+unavailable_pairs: int = 0
+```
+
+## `unavailable_reason` \{#agrag-ingestion-resolve-comparators-LLMVerify-unavailable_reason}
+
+```python
+unavailable_reason: str | None = None
 ```

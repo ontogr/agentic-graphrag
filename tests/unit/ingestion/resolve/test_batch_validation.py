@@ -25,11 +25,11 @@ class TestValidateBatchVerdicts:
     def test_rejects_missing_unknown_malformed_and_duplicate_results(
         self, results: list[object]
     ) -> None:
-        """Unsafe output never confirms an entity match."""
+        """Unsafe output neither confirms nor rejects an entity match."""
         verdicts = validate_batch_verdicts(["first", "second"], results)
 
-        assert verdicts["first"].verdict is ComparisonVerdict.NO_MATCH
-        assert verdicts["second"].verdict is ComparisonVerdict.NO_MATCH
+        assert verdicts["first"].verdict is ComparisonVerdict.UNCERTAIN
+        assert verdicts["second"].verdict is ComparisonVerdict.UNCERTAIN
 
     def test_retains_reasoning_for_a_valid_requested_pair(self) -> None:
         """A well-formed response retains its own explanation only."""
@@ -38,7 +38,7 @@ class TestValidateBatchVerdicts:
             [{"pair_id": "second", "verdict": "match", "reasoning": "same person"}],
         )
 
-        assert verdicts["first"].verdict is ComparisonVerdict.NO_MATCH
+        assert verdicts["first"].verdict is ComparisonVerdict.UNCERTAIN
         assert verdicts["second"].verdict is ComparisonVerdict.MATCH
         assert verdicts["second"].reasoning == "same person"
 

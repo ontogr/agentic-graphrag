@@ -334,6 +334,11 @@ async def reevaluate(
             if normalize_text(entities[left].name)
             == normalize_text(entities[right].name)
         }
+        # An undecided pair has no rejection verdict, so keep its committed edge.
+        unresolved = {
+            frozenset((unique_ids[left], unique_ids[right]))
+            for left, right in resolution.unresolved_pairs
+        }
         edge_rows = await graph_store.execute_read(
             fetch_active_matches_among_ids_query(),
             {"ids": [str(e) for e in unique_ids], "job_id": None},
@@ -387,9 +392,13 @@ async def reevaluate(
             replaced.extend(rebuild.removed_entity_ids)
             matches_added.extend(component)
         matches_removed: list[UUID] = []
+        matches_unverified: list[UUID] = []
         removed_pairs: set[frozenset[UUID]] = set()
         for pair, match_id in sorted(active.items(), key=lambda item: str(item[1])):
             if pair in confirmed or pair in exact_pairs:
+                continue
+            if pair in unresolved:
+                matches_unverified.append(match_id)
                 continue
             with tracer.start_as_current_span(
                 "agrag.merge.deactivate_component",
@@ -420,5 +429,6 @@ async def reevaluate(
             entities_reevaluated=unique_ids,
             matches_added=matches_added,
             matches_removed=matches_removed,
+            matches_unverified=matches_unverified,
             unchanged_count=sum(1 for e in unique_ids if e not in touched),
         )
