@@ -853,6 +853,42 @@ class TestGraphOpenVectorStore:
         assert graph._vector_store is vector_store
 
 
+class TestGraphOpenHierarchyLabels:
+    """Graph.open registers parent and child entity labels with the store."""
+
+    async def test_registers_parent_and_child_labels(self) -> None:
+        """A child type's own label and its parent's label both get registered."""
+        indexed_labels: list[str] = []
+
+        class IndexRecordingStore(MockStore):
+            async def ensure_vector_index(self, **kw: Any) -> None:
+                indexed_labels.append(kw["label"])
+
+        schema = GraphSchema(
+            name="test",
+            version="1",
+            entities=[
+                EntityType(label="Organization", description="test"),
+                EntityType(
+                    label="Vendor", description="test", parents=["Organization"]
+                ),
+            ],
+            relations=[],
+        )
+        store = IndexRecordingStore()
+        await Graph.open(
+            schema=schema,
+            graph_store=store,
+            embedder=MockEmbedder(),
+            extractor=MockExtractor(),
+        )
+        registered = store.register_labels_calls[0]
+        assert "Organization" in registered
+        assert "Vendor" in registered
+        assert "Organization" in indexed_labels
+        assert "Vendor" in indexed_labels
+
+
 class TestResolvePaths:
     """Tests for resolve_paths."""
 

@@ -5,8 +5,10 @@ rules, LLM-assisted description resolution (mocked with ``AsyncMock``),
 property merging, and full merge-plan computation.
 """
 
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import AsyncMock, patch
 from uuid import NAMESPACE_OID, UUID, uuid4, uuid5
 
@@ -30,6 +32,7 @@ from agrag.ingestion.merge import (
     PropertyRules,
     PropertyStrategy,
     _resolve_property,
+    apply_merge,
     compute_merge,
     has_part_id,
     mentioned_in_id,
@@ -850,3 +853,62 @@ class TestHasPartId:
         """Each document version gets a separate relationship id."""
         d, c = uuid4(), uuid4()
         assert has_part_id(d, c, "v1") != has_part_id(d, c, "v2")
+
+
+class _WriteRecordingStore:
+    """Runs merge writes in memory and records each write query text."""
+
+    def __init__(self) -> None:
+        """Create a store with no recorded writes."""
+        self.write_queries: list[str] = []
+
+    async def run_in_transaction(self, work: Callable[[Any], Awaitable[Any]]) -> Any:
+        """Run the transactional work against this store."""
+        return await work(self)
+
+    async def execute_write(
+        self, query: str, parameters: dict[str, Any] | None = None
+    ) -> list[dict[str, Any]]:
+        """Record the write query and report no rows back."""
+        del parameters
+        self.write_queries.append(query)
+        return []
+
+
+def _hierarchy_schema() -> GraphSchema:
+    """Build a schema where Vendor is a child type of Organization."""
+    return GraphSchema(
+        name="test",
+        version="1",
+        entities=[
+            EntityType(label="Organization", description="test"),
+            EntityType(label="Vendor", description="test", parents=["Organization"]),
+        ],
+        relations=[],
+    )
+
+
+class TestApplyMerge:
+    """apply_merge stores a survivor with its schema ancestor labels."""
+
+    async def test_child_survivor_is_stored_with_ancestor_labels(self) -> None:
+        """A Vendor survivor carries Organization as a stored label."""
+        store = _WriteRecordingStore()
+        plan, _ = await compute_merge(
+            existing_entities=[],
+            mentions=[_mention(text="Acme", label="Vendor")],
+            schema=_hierarchy_schema(),
+        )
+        await apply_merge(plan, graph_store=store, schema=_hierarchy_schema())
+        assert "SET n:Vendor:Organization " in store.write_queries[0]
+
+    async def test_undeclared_label_is_stored_alone(self) -> None:
+        """A label the schema does not declare is stored without ancestors."""
+        store = _WriteRecordingStore()
+        plan, _ = await compute_merge(
+            existing_entities=[],
+            mentions=[_mention(text="Acme", label="Ghost")],
+            schema=_hierarchy_schema(),
+        )
+        await apply_merge(plan, graph_store=store, schema=_hierarchy_schema())
+        assert "SET n:Ghost " in store.write_queries[0]
