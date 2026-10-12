@@ -24,6 +24,7 @@ PACKAGES = [
     "agrag.loaders",
     "agrag.retrieval",
     "agrag.schema",
+    "agrag.schema.formats",
     "agrag.vectordb",
 ]
 
@@ -42,6 +43,7 @@ OPTIONAL_MODULES = [
     "neo4j",
     "openinference.instrumentation",
     "pymilvus",
+    "rdflib",
     "qdrant_client",
     "sentence_transformers",
     "weaviate",
