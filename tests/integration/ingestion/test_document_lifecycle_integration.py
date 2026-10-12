@@ -14,9 +14,10 @@ from uuid import uuid4
 import pytest
 
 from agrag.common.data_models.chunk import Chunk
+from agrag.common.data_models.default_schema import DEFAULT_SCHEMA
 from agrag.common.data_models.document import Document, DocumentFamily, SourceFormat
 from agrag.common.data_models.extraction import ExtractedEntity, ExtractionResult
-from agrag.common.data_models.graph_schema import GENERIC, GraphSchema
+from agrag.common.data_models.graph_schema import GraphSchema
 from agrag.embedding.base import Embedder
 from agrag.graphdb import build_graph_store
 from agrag.graphdb.base import GraphStore
@@ -100,7 +101,7 @@ def _document(key: str, text: str) -> Document:
 async def _open_graph(store: GraphStore) -> Graph:
     """Open a graph on an already-connected store."""
     return await Graph.open(
-        schema=GENERIC,
+        schema=DEFAULT_SCHEMA,
         graph_store=store,
         embedder=_FixedEmbedder(),
         extractor=_NoopExtractor(),
@@ -247,7 +248,7 @@ class TestDocumentLifecycle:
         await store.connect()
         probe_name = f"Zzxqy Deleteprobe {uuid4().hex[:8]}"
         graph = await Graph.open(
-            schema=GENERIC,
+            schema=DEFAULT_SCHEMA,
             graph_store=store,
             embedder=_FixedEmbedder(),
             extractor=_KeywordExtractor(probe_name),

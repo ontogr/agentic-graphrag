@@ -15,7 +15,7 @@ from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
     InMemorySpanExporter,
 )
 
-from agrag.common.data_models.graph_schema import GENERIC
+from agrag.common.data_models.default_schema import DEFAULT_SCHEMA
 from agrag.common.data_models.vector_record import VectorHit
 from agrag.retrieval.retrievers import text2cypher as t2c_module
 from agrag.retrieval.retrievers.chunk import ChunkRetriever
@@ -130,7 +130,7 @@ class TestText2CypherSpans:
         )
         retriever = Text2CypherRetriever(
             graph_store=AsyncMock(),
-            schema=GENERIC,
+            schema=DEFAULT_SCHEMA,
             settings=RetrievalSettings(),
             tracer=tracer,
         )

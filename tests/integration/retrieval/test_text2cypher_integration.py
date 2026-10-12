@@ -2,7 +2,7 @@
 
 Run against the Docker Compose Neo4j instance from
 ``docker/docker-compose.ci.yml`` (``make dev-services-up``). Every test seeds
-a freshly and randomly labelled graph under a custom, non-``GENERIC``
+a freshly and randomly labelled graph under a custom, non-default schema
 :class:`GraphSchema`, then deletes only its own labels, so the suite can run
 alongside other tests against one database.
 
@@ -304,7 +304,7 @@ class TestText2CypherIntegration:
 
         assert self.person_label in cypher
         assert self.org_label in cypher
-        assert "RELATED_TO" not in cypher
+        assert "DEPENDS_ON" not in cypher
         assert "MENTIONED_IN" not in cypher
 
     @pytest.mark.skipif(

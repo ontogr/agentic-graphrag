@@ -30,6 +30,7 @@ from agrag.common.data_models.chunk import Chunk
 from agrag.common.data_models.community import (
     COMMUNITY_LABEL,
 )
+from agrag.common.data_models.default_schema import DEFAULT_SCHEMA
 from agrag.common.data_models.document import Document, DocumentFamily, SourceFormat
 from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.extraction import (
@@ -41,7 +42,7 @@ from agrag.common.data_models.graph_record import (
     RelationRecord,
     UpsertResult,
 )
-from agrag.common.data_models.graph_schema import GENERIC, GraphSchema
+from agrag.common.data_models.graph_schema import GraphSchema
 from agrag.common.data_models.normalization import Normalization
 from agrag.common.data_models.resolved_entity import (
     RESOLVED_ENTITY_LABEL,
@@ -189,7 +190,7 @@ class _MockExtractor(Extractor):
 async def _open_graph(store: _MockGraphStore | None = None) -> Graph:
     """Open a graph with fake dependencies for ingestion-only tests."""
     return await Graph.open(
-        schema=GENERIC,
+        schema=DEFAULT_SCHEMA,
         graph_store=store if store is not None else _MockGraphStore(),
         embedder=_MockEmbedder(),
         extractor=_MockExtractor(),
@@ -225,7 +226,7 @@ class TestGraphOpenRegistration:
         """Native vector search covers the derived label like Community's."""
         store = _RecordingOpenStore()
         await Graph.open(
-            schema=GENERIC,
+            schema=DEFAULT_SCHEMA,
             graph_store=store,
             embedder=_MockEmbedder(),
             extractor=_MockExtractor(),
@@ -285,7 +286,7 @@ class TestGraphExtractionSettings:
         settings = ExtractionSettings(entity_threshold=0.6)
 
         graph = await Graph.open(
-            schema=GENERIC,
+            schema=DEFAULT_SCHEMA,
             graph_store=_MockGraphStore(),
             embedder=_MockEmbedder(),
             extractor=_MockExtractor(),
@@ -299,7 +300,7 @@ class TestGraphExtractionSettings:
         settings = ExtractionSettings(entity_threshold=0.6)
 
         graph = await Graph.open(
-            schema=GENERIC,
+            schema=DEFAULT_SCHEMA,
             graph_store=_MockGraphStore(),
             embedder=_MockEmbedder(),
             extractor=GlinerExtractor(settings=settings, model=object()),
@@ -315,7 +316,7 @@ class TestGraphExtractionSettings:
 
         with pytest.raises(ValueError, match="same ExtractionSettings"):
             await Graph.open(
-                schema=GENERIC,
+                schema=DEFAULT_SCHEMA,
                 graph_store=_MockGraphStore(),
                 embedder=_MockEmbedder(),
                 extractor=extractor,
@@ -332,7 +333,7 @@ class TestGraphExtractionSettings:
         _clear_llm_env(monkeypatch, tmp_path)
         with caplog.at_level(logging.WARNING):
             graph = await Graph.open(
-                schema=GENERIC,
+                schema=DEFAULT_SCHEMA,
                 graph_store=_MockGraphStore(),
                 embedder=_MockEmbedder(),
                 extractor=GlinerExtractor(model=object()),
@@ -372,7 +373,7 @@ class TestGraphExtractionSettings:
 
         with pytest.raises(ExtractorMissingExtraError, match="extract.*extra"):
             await Graph.open(
-                schema=GENERIC,
+                schema=DEFAULT_SCHEMA,
                 graph_store=_MockGraphStore(),
                 embedder=_MockEmbedder(),
                 extraction_settings=ExtractionSettings(mode="gliner"),
@@ -392,7 +393,7 @@ class TestGraphExtractionSettings:
 
         with pytest.raises(ValidationError):
             await Graph.open(
-                schema=GENERIC,
+                schema=DEFAULT_SCHEMA,
                 graph_store=_MockGraphStore(),
                 embedder=_MockEmbedder(),
                 extraction_settings=ExtractionSettings(mode="llm"),
@@ -409,7 +410,7 @@ class TestGraphExtractionSettings:
 
         with pytest.raises(ValueError, match='mode="hybrid"'):
             await Graph.open(
-                schema=GENERIC,
+                schema=DEFAULT_SCHEMA,
                 graph_store=_MockGraphStore(),
                 embedder=_MockEmbedder(),
                 extractor=extractor,
@@ -426,7 +427,7 @@ class TestGraphExtractionSettings:
         _clear_llm_env(monkeypatch, tmp_path)
         llm = _MockLLMExtractor()
         graph = await Graph.open(
-            schema=GENERIC,
+            schema=DEFAULT_SCHEMA,
             graph_store=_MockGraphStore(),
             embedder=_MockEmbedder(),
             extractor=EscalatingExtractor(_MockExtractor(), llm),
@@ -443,7 +444,7 @@ class TestGraphExtractionSettings:
         _clear_llm_env(monkeypatch, tmp_path)
         with pytest.raises(ValueError, match="EXTRACTION_LLM_CLIENTS"):
             await Graph.open(
-                schema=GENERIC,
+                schema=DEFAULT_SCHEMA,
                 graph_store=_MockGraphStore(),
                 embedder=_MockEmbedder(),
                 extraction_settings=ExtractionSettings(mode="llm"),
@@ -453,7 +454,7 @@ class TestGraphExtractionSettings:
         """LLM mode does not accept an extractor in the local slot."""
         with pytest.raises(ValueError, match="extractor="):
             await Graph.open(
-                schema=GENERIC,
+                schema=DEFAULT_SCHEMA,
                 graph_store=_MockGraphStore(),
                 embedder=_MockEmbedder(),
                 extractor=_MockExtractor(),
@@ -465,7 +466,7 @@ class TestGraphExtractionSettings:
         """An LLM role cannot be passed in the local extractor slot."""
         with pytest.raises(ValueError, match="llm_extractor="):
             await Graph.open(
-                schema=GENERIC,
+                schema=DEFAULT_SCHEMA,
                 graph_store=_MockGraphStore(),
                 embedder=_MockEmbedder(),
                 extractor=_MockLLMExtractor(),  # type: ignore[arg-type]
@@ -476,7 +477,7 @@ class TestGraphExtractionSettings:
         """A local role cannot be passed in the LLM extractor slot."""
         with pytest.raises(ValueError, match="extractor="):
             await Graph.open(
-                schema=GENERIC,
+                schema=DEFAULT_SCHEMA,
                 graph_store=_MockGraphStore(),
                 embedder=_MockEmbedder(),
                 extractor=_MockExtractor(),
@@ -490,7 +491,7 @@ class TestGraphExtractionSettings:
 
         with pytest.raises(ValueError, match="llm_extractor="):
             await Graph.open(
-                schema=GENERIC,
+                schema=DEFAULT_SCHEMA,
                 graph_store=_MockGraphStore(),
                 embedder=_MockEmbedder(),
                 extractor=GlinerExtractor(settings=settings, model=object()),
@@ -512,7 +513,7 @@ class TestGraphExtractionSettings:
         monkeypatch.setattr(builtins, "__import__", guarded_import)
 
         graph = await Graph.open(
-            schema=GENERIC,
+            schema=DEFAULT_SCHEMA,
             graph_store=_MockGraphStore(),
             embedder=_MockEmbedder(),
             llm_extractor=_MockLLMExtractor(),
@@ -530,7 +531,7 @@ class TestGraphExtractionSettings:
         monkeypatch.setenv("LLM_MODEL_ID", "test-model")
 
         graph = await Graph.open(
-            schema=GENERIC,
+            schema=DEFAULT_SCHEMA,
             graph_store=_MockGraphStore(),
             embedder=_MockEmbedder(),
             extractor=_MockExtractor(),
@@ -549,7 +550,7 @@ class TestGraphExtractionSettings:
         monkeypatch.setattr(graph_module, "GlinerExtractor", _NeverBuiltGliner)
 
         graph = await Graph.open(
-            schema=GENERIC,
+            schema=DEFAULT_SCHEMA,
             graph_store=_MockGraphStore(),
             embedder=_MockEmbedder(),
             extraction_settings=ExtractionSettings(mode="llm"),
@@ -565,7 +566,7 @@ class TestGraphExtractionSettings:
         _clear_llm_env(monkeypatch, tmp_path)
         settings = ExtractionSettings(mode="gliner")
         graph = await Graph.open(
-            schema=GENERIC,
+            schema=DEFAULT_SCHEMA,
             graph_store=_MockGraphStore(),
             embedder=_MockEmbedder(),
             extractor=GlinerExtractor(settings=settings, model=object()),
@@ -590,7 +591,7 @@ class TestGraphExtractionSettings:
             ]
         )
         graph = await Graph.open(
-            schema=GENERIC,
+            schema=DEFAULT_SCHEMA,
             graph_store=_MockGraphStore(),
             embedder=_MockEmbedder(),
             llm_extractor=BAMLExtractor(settings=settings),
@@ -602,7 +603,7 @@ class TestGraphExtractionSettings:
     async def test_custom_llm_extractor_uses_its_class_name_for_model(self) -> None:
         """A custom LLM slot reports its class name as the model name."""
         graph = await Graph.open(
-            schema=GENERIC,
+            schema=DEFAULT_SCHEMA,
             graph_store=_MockGraphStore(),
             embedder=_MockEmbedder(),
             llm_extractor=_MockLLMExtractor(),
@@ -614,7 +615,7 @@ class TestGraphExtractionSettings:
     async def test_llm_only_graph_can_add_content(self) -> None:
         """LLM-only graphs still run through the existing ingestion pipeline."""
         graph = await Graph.open(
-            schema=GENERIC,
+            schema=DEFAULT_SCHEMA,
             graph_store=_MockGraphStore(),
             embedder=_MockEmbedder(),
             llm_extractor=_MockLLMExtractor(),
@@ -842,7 +843,7 @@ class TestGraphOpen:
         store = _FailingStore()
         with pytest.raises(RuntimeError, match="boom"):
             await Graph.open(
-                schema=GENERIC,
+                schema=DEFAULT_SCHEMA,
                 graph_store=store,
                 embedder=_MockEmbedder(),
                 extractor=_MockExtractor(),
@@ -908,7 +909,7 @@ class TestGraphChunking:
         kwargs = {} if chunker is None else {"chunker": chunker}
         store = _MockGraphStore()
         graph = await Graph.open(
-            schema=GENERIC,
+            schema=DEFAULT_SCHEMA,
             graph_store=store,
             embedder=_MockEmbedder(),
             extractor=_MockExtractor(),

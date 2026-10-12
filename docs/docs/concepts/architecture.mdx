@@ -66,7 +66,7 @@ Why a graph store and a vector store? The [Graph storage](./graph-storage.mdx) p
 
 Why must you pass in the components? `Graph.open` takes the store, the embedder, the extractor and the schema as arguments. The library has no global configuration for them. Two graphs in one process can use different stores. A test can pass a fake.
 
-Why is the schema required? Extraction, validation and storage all use the schema. Without one, each stage guesses what an entity is. The `GENERIC` preset gives a starting point.
+Why is the schema required? Extraction, validation and storage all use the schema. Without one, each stage guesses what an entity is. `DEFAULT_SCHEMA` gives a starting point.
 
 Why are the public APIs async? Ingestion and search wait on models and databases. Async calls let the library run those waits together.
 

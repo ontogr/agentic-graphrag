@@ -22,8 +22,8 @@ from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
 
 from agrag.agents.build import build_agent
 from agrag.agents.settings import AgentLLMSettings
+from agrag.common.data_models.default_schema import DEFAULT_SCHEMA
 from agrag.common.data_models.entity import Entity
-from agrag.common.data_models.graph_schema import GENERIC
 from agrag.common.data_models.search_result import SearchResult
 from tests.integration.e2e._artifact import write_artifact
 
@@ -49,7 +49,7 @@ class TestAgentTracingE2E:
         provider = TracerProvider()
         provider.add_span_processor(SimpleSpanProcessor(exporter))
         engine = MagicMock()
-        engine.graph_schema = GENERIC
+        engine.graph_schema = DEFAULT_SCHEMA
         engine.find_entity = AsyncMock(return_value=None)
         engine.list_relationship_types = AsyncMock(return_value=[])
         engine.traverse = AsyncMock(return_value=[])
