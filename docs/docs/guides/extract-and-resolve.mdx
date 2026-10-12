@@ -116,13 +116,13 @@ For LLM-only ingestion, pass `extraction_settings=ExtractionSettings(mode="llm")
 
 `GlinerExtractor` runs a local model. `EscalatingExtractor` runs it first and calls the LLM only when the local result is weak. It needs both extras:
 
-The extractor treats a chunk as weak when it finds no entities in at least `min_chunk_words` words (8 by default), or when the mean `confidence` of its entities is below `min_confidence` (0.5 by default). GLiNER keeps entities at or above 0.5 by default, so the mean-confidence condition needs a higher `min_confidence` or a lower entity threshold to fire. For example, set `min_confidence=0.75` on `EscalatingExtractor` to escalate retained entities with a mean score below 0.75.
-
-When you pass an `EscalatingExtractor` with an LLM fallback to `Graph`, use `hybrid` mode. The graph recognizes the wrapped LLM and reports `hybrid` without requiring an environment-configured client. `gliner` mode rejects a wrapper that could invoke an LLM, including nested wrappers.
-
 ```bash
 uv pip install "agentic-graphrag[extract,llm]"
 ```
+
+The extractor treats a chunk as weak if it has at least `min_chunk_words` words (8 by default) and no entities, or if the mean `confidence` of its entities is below `min_confidence` (0.5 by default). GLiNER keeps entities at or above 0.5 by default, so the mean-confidence condition needs a higher `min_confidence` or a lower entity threshold to fire. For example, set `min_confidence=0.75` on `EscalatingExtractor` to escalate retained entities with a mean score below 0.75.
+
+When you pass an `EscalatingExtractor` with an LLM fallback to `Graph`, use `hybrid` mode. The graph recognizes the wrapped LLM and reports `hybrid` without requiring an environment-configured client. `gliner` mode rejects a wrapper that could invoke an LLM, including nested wrappers.
 
 {/* pmd-metadata: fixture:llm_env */}
 
