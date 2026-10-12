@@ -1,9 +1,9 @@
 ---
 name: writing-diataxis-docs
-description: Diataxis and ASD-STE100 rules for user-facing docs. Use when writing or editing pages under docs/ or other user-facing Markdown or MDX.
+description: Organizes user-facing documentation by audience and purpose with Diataxis. Use when writing or editing pages under docs/ or other user-facing Markdown or MDX.
 ---
 
-# Diátaxis Documentation Framework
+# Diátaxis documentation framework
 
 ## What binds this repo
 
@@ -19,27 +19,15 @@ these points:
 
 Use the sections below to identify which of the four modes a page belongs to.
 
-## Prose style: ASD-STE100
+## Prose style
 
-User-facing prose (headings, paragraphs, list items, table cells — not code samples) follows
-Simplified Technical English:
+Use [writing-plain](../writing-plain/SKILL.md) for prose style. Diátaxis governs documentation organization, audience, and purpose. It does not impose a separate STE vocabulary or sentence-length limit.
 
-- One approved meaning per word on a given page.
-- About 20 words or fewer per instruction sentence, about 25 for a description.
-- Active voice; name the actor.
-- One instruction per sentence; use a numbered list instead of "and."
-- "Must" for a required action, "can" for an optional one.
-- No stacked nouns: split "the vector store connection timeout setting" into
-  "the timeout for the connection to the vector store."
-- No vague verbs such as "handle" or "leverage"; name the real action.
-- No slashes or ampersands in prose; write "or" and "and" in full.
-- One idea per paragraph.
+## Core concept
 
-## Core Concept
+Diátaxis groups documentation by the reader's purpose. Tutorials support learning through practice, and how-to guides help readers complete tasks. Reference provides technical facts, and explanation provides context and reasons.
 
-The fundamental idea behind Diátaxis is that documentation needs fall into four distinct categories. Each category serves a different purpose and requires a different approach to writing. The framework is not just a list of types, but a systematic way to think about documentation.
-
-## The Four Documentation Types
+## The four documentation types
 
 ### 1. Tutorials
 - **Definition**: A tutorial is a lesson that guides a learner through a practical experience
@@ -56,9 +44,9 @@ The fundamental idea behind Diátaxis is that documentation needs fall into four
   - Don't focus on options or alternatives
   - Don't include reference material
   - Don't show all possible ways to do something
-- **Example**: Like a driving lesson - the goal is developing skills and confidence, not reaching a destination
+- **Purpose**: Help learners build skills through guided practice.
 
-### 2. How-to Guides
+### 2. How-to guides
 - **Definition**: Step-by-step guidance to achieve a specific goal
 - **Core Purpose**: Practical problem solving
 - **Key Attributes**:
@@ -84,7 +72,7 @@ The fundamental idea behind Diátaxis is that documentation needs fall into four
   - Contains pure technical facts
   - Must be accurate and complete
   - Structure mirrors the code/system architecture
-  - Neutral and objective - like a map
+  - Neutral and objective
   - Serves users who know what they're looking for
 - **What to Avoid**:
   - Don't include tutorials or guides
@@ -93,7 +81,7 @@ The fundamental idea behind Diátaxis is that documentation needs fall into four
   - Don't provide step-by-step instructions
   - Don't teach or guide the reader
   - Don't include best practices
-- **Distinction**: Like a map that could be used by both a navigator plotting a course or a magistrate in a legal case
+- **Audience**: Readers who need accurate facts about the system.
 
 ### 4. Explanation
 - **Definition**: Discussion that clarifies and illuminates a particular topic
@@ -113,7 +101,7 @@ The fundamental idea behind Diátaxis is that documentation needs fall into four
   - Don't include best practices
 - **Important Note**: Should be separated from tutorials to avoid overloading learners
 
-## The Diátaxis Map
+## The Diátaxis map
 
 The documentation types are arranged along two axes:
 
@@ -122,13 +110,13 @@ The documentation types are arranged along two axes:
 | Learning  | Tutorials               | Explanation             |
 | Work      | How-to Guides           | Reference              |
 
-This creates natural tensions and relationships:
+The documentation types have related purposes:
 - Tutorials ↔ How-to guides (practical knowledge)
 - Reference ↔ Explanation (theoretical knowledge)
 - Tutorials ↔ Explanation (learning-oriented)
 - How-to guides ↔ Reference (work-oriented)
 
-## The Diátaxis Compass
+## The Diátaxis compass
 
 Use this tool to identify documentation types:
 
@@ -147,7 +135,7 @@ Use this tool to identify documentation types:
 4. Make that improvement
 5. Repeat
 
-## Key Principles
+## Key principles
 
 1. **Separation of Concerns**
    - Keep the four types distinct
@@ -173,7 +161,7 @@ Use this tool to identify documentation types:
    - Use diagrams or short step-by-step flows for complex component interactions
    - Keep each document focused on a clear audience and purpose
 
-## Important Notes
+## Important notes
 
 - The framework is a practical tool, not a theoretical construct
 - You don't need to understand all of Diátaxis to start using it
