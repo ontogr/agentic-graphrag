@@ -197,8 +197,16 @@ class TestCandidateStore:
             assert str(records[0].id) in visible_ids
             assert str(records[1].id) not in visible_ids
 
+            lease_token = str(uuid4())
             await store.execute_write(
-                rollback_job_query(), {"job_id": str(rollback_job)}
+                "CREATE (:CutoverJob {id: $job_id, status: 'rolling_back', "
+                "lease_token: $lease_token, "
+                "lease_expires_at: datetime() + duration({seconds: 300})})",
+                {"job_id": str(rollback_job), "lease_token": lease_token},
+            )
+            await store.execute_write(
+                rollback_job_query(),
+                {"job_id": str(rollback_job), "lease_token": lease_token},
             )
             remaining = await store.execute_read(
                 f"MATCH (c:{CANDIDATE_LABEL}) WHERE c.id IN $ids RETURN c.id AS id",
