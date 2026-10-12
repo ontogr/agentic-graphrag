@@ -34,7 +34,8 @@ def clean_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
 class TestEvalJudgeSettings:
     """EvalJudgeSettings resolves the judge client from the environment."""
 
-    def test_reads_dotenv_from_the_working_directory(self, tmp_path: Path) -> None:
+    @staticmethod
+    def test_reads_dotenv_from_the_working_directory(tmp_path: Path) -> None:
         """The judge reads shared model settings from the working directory."""
         (tmp_path / ".env").write_text("LLM_MODEL_ID=dotenv-judge\n")
 
@@ -42,8 +43,9 @@ class TestEvalJudgeSettings:
 
         assert settings.client.model == "dotenv-judge"
 
+    @staticmethod
     def test_settings_repr_hides_judge_api_key(
-        self, monkeypatch: pytest.MonkeyPatch
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Printing judge settings does not expose the environment key."""
         secret = "x" * 5
@@ -88,11 +90,15 @@ class TestEvalJudgeSettings:
     ) -> None:
         """An empty EVAL_JUDGE_* value falls back to LLM_*, like an unset one."""
         monkeypatch.setenv("EVAL_JUDGE_MODEL_ID", "")
+        monkeypatch.setenv("EVAL_JUDGE_API_KEY", "")
         monkeypatch.setenv("LLM_MODEL_ID", "agent-model")
+        monkeypatch.setenv("LLM_API_KEY", "shared-key")
 
         client = EvalJudgeSettings.from_openai_compatible_env().client
 
         assert client.model == "agent-model"
+        assert client.api_key is not None
+        assert client.api_key.get_secret_value() == "shared-key"
 
     def test_raises_without_a_model_id(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """No model id, or an empty one, is an error, never a default."""

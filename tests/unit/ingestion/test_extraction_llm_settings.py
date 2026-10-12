@@ -38,8 +38,9 @@ class TestFromOpenAICompatibleEnv:
         with pytest.raises(RuntimeError):
             ExtractionLLMSettings.from_openai_compatible_env()
 
+    @staticmethod
     def test_reads_dotenv_from_the_working_directory(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_path
+        monkeypatch: pytest.MonkeyPatch, tmp_path
     ) -> None:
         """The working directory .env supplies the shared LLM model."""
         for name in ("LLM_BASE_URL", "LLM_API_KEY", "LLM_MODEL_ID"):

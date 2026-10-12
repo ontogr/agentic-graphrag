@@ -51,8 +51,9 @@ class TestAgentLLMSettings:
             del os.environ["LLM_API_KEY"]
             del os.environ["LLM_MODEL_ID"]
 
+    @staticmethod
     def test_reads_dotenv_from_the_working_directory(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+        monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
         """Agent-specific values in the working directory configure its model."""
         for name in (

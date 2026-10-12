@@ -14,3 +14,12 @@ def test_repr_hides_client_api_key() -> None:
 
     assert "xyz123" not in repr(config)
     assert "xyz123" not in str(config)
+
+
+def test_empty_credential_is_falsy() -> None:
+    """An empty credential keeps provider-test skip guards effective."""
+    config = LLMClientConfig(
+        name="local", provider="openai-generic", model="model", api_key=""
+    )
+
+    assert not config.api_key

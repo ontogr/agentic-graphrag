@@ -36,7 +36,8 @@ def _client(name: str, provider: str = "openai") -> LLMClientConfig:
 class TestBuildClientRegistry:
     """The builder registers clients and picks a primary per strategy."""
 
-    def test_registry_receives_unwrapped_api_key(self, monkeypatch) -> None:
+    @staticmethod
+    def test_registry_receives_unwrapped_api_key(monkeypatch) -> None:
         """The BAML registry receives a plain API key string."""
         mock = MockClientRegistry()
         monkeypatch.setattr("baml_py.ClientRegistry", lambda: mock)
