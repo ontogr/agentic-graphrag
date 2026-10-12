@@ -9,6 +9,7 @@ The GraphSchema contract: entity and relation types extraction validates against
 
 **Classes:**
 
+- [**Cardinality**](Cardinality.md) – Declared limits on distinct endpoints of one relation, across its patterns.
 - [**EntityType**](EntityType.md) – One kind of entity a schema recognizes.
 - [**GraphSchema**](GraphSchema.md) – A versioned contract of entity and relation types.
 - [**PropertySpec**](PropertySpec.md) – The declaration of one property on an entity type.

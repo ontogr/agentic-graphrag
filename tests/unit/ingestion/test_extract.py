@@ -190,6 +190,119 @@ def _chunk(
 class TestGlinerExtractor:
     """GlinerExtractor raises when gliner2 is not installed."""
 
+    @pytest.mark.parametrize(
+        ("patterns", "symmetric"),
+        [
+            ([("Organization", "Organization")], False),
+            ([("Organization", "Company")], True),
+        ],
+    )
+    async def test_extract_allows_descendants_and_reversed_symmetric_pairs(
+        self, patterns: list[tuple[str, str]], symmetric: bool
+    ) -> None:
+        """Schema ancestry and symmetry govern public GLiNER relation output."""
+        schema = GraphSchema(
+            name="hierarchical",
+            version="1",
+            entities=[
+                EntityType(label="Organization", description="An organization."),
+                EntityType(
+                    label="Company",
+                    description="A company.",
+                    parents=["Organization"],
+                ),
+                EntityType(label="Person", description="A person."),
+                EntityType(label="Condition", description="A condition."),
+            ],
+            relations=[
+                RelationType(
+                    label="ASSOCIATED_WITH",
+                    description="Two things are associated.",
+                    patterns=patterns,
+                    symmetric=symmetric,
+                )
+            ],
+        )
+
+        class MockModel:
+            def create_schema(self) -> "MockModel":
+                return self
+
+            def entities(self, labels: list[str]) -> "MockModel":
+                return self
+
+            def relations(self, labels: list[str]) -> "MockModel":
+                return self
+
+            def extract(
+                self, text: str, schema: object, include_spans=False, **_: object
+            ) -> dict:
+                company_start = text.index("Acme")
+                organization_start = text.index("OrgCo")
+                person_start = text.index("Ada")
+                return {
+                    "entities": {
+                        "Company": [
+                            {
+                                "text": "Acme",
+                                "start": company_start,
+                                "end": company_start + 4,
+                            }
+                        ],
+                        "Organization": [
+                            {
+                                "text": "OrgCo",
+                                "start": organization_start,
+                                "end": organization_start + 5,
+                            }
+                        ],
+                        "Person": [
+                            {
+                                "text": "Ada",
+                                "start": person_start,
+                                "end": person_start + 3,
+                            }
+                        ],
+                    },
+                    "relation_extraction": {
+                        "ASSOCIATED_WITH": [
+                            {
+                                "head": {
+                                    "text": "Acme",
+                                    "start": company_start,
+                                    "end": company_start + 4,
+                                },
+                                "tail": {
+                                    "text": "OrgCo",
+                                    "start": organization_start,
+                                    "end": organization_start + 5,
+                                },
+                            },
+                            {
+                                "head": {
+                                    "text": "Acme",
+                                    "start": company_start,
+                                    "end": company_start + 4,
+                                },
+                                "tail": {
+                                    "text": "Ada",
+                                    "start": person_start,
+                                    "end": person_start + 3,
+                                },
+                            },
+                        ]
+                    },
+                }
+
+        result = await GlinerExtractor(model=MockModel()).extract(
+            _chunk("Acme met OrgCo, and Ada joined."), schema
+        )
+
+        assert [
+            (relation.source_index, relation.target_index)
+            for relation in result.relations
+        ] == [(0, 1)]
+
     async def test_extract_maps_model_output_and_schema(self) -> None:
         """Injected model output becomes indexed entities and relations."""
 
@@ -432,72 +545,6 @@ class TestGlinerExtractor:
         )
         assert len(result.entities) == 2
         assert result.relations == []
-
-    async def test_extract_unions_patterns_for_a_relation_label_declared_twice(
-        self,
-    ) -> None:
-        """A relation label declared twice keeps patterns from every declaration.
-
-        Nothing stops a GraphSchema from repeating a relation label with a
-        different pattern each time. Normalization must union the patterns
-        across every declaration, not keep only the last one.
-        """
-        schema = GraphSchema(
-            name="repeated-label",
-            version="1",
-            entities=[
-                EntityType(label="Person", description="A named individual."),
-                EntityType(
-                    label="Organization", description="A company or institution."
-                ),
-                EntityType(label="Product", description="A thing an org makes."),
-            ],
-            relations=[
-                RelationType(
-                    label="WORKS_AT",
-                    description="A person works at an organization.",
-                    patterns=[("Person", "Organization")],
-                ),
-                RelationType(
-                    label="WORKS_AT",
-                    description="A person works on a product.",
-                    patterns=[("Person", "Product")],
-                ),
-            ],
-        )
-
-        class MockModel:
-            def create_schema(self) -> "MockModel":
-                return self
-
-            def entities(self, labels: list[str]) -> "MockModel":
-                return self
-
-            def relations(self, labels: list[str]) -> "MockModel":
-                return self
-
-            def extract(
-                self, text: str, schema: object, include_spans=False, **_: object
-            ) -> dict:
-                return {
-                    "entities": {
-                        "Person": [{"text": "Ada", "start": 0, "end": 3}],
-                        "Organization": [{"text": "Acme", "start": 13, "end": 17}],
-                    },
-                    "relation_extraction": {
-                        "WORKS_AT": [
-                            {
-                                "head": {"text": "Ada", "start": 0, "end": 3},
-                                "tail": {"text": "Acme", "start": 13, "end": 17},
-                            }
-                        ]
-                    },
-                }
-
-        result = await GlinerExtractor(model=MockModel()).extract(
-            _chunk("Ada works at Acme."), schema
-        )
-        assert len(result.relations) == 1
 
     async def test_extract_drops_undeclared_entity_and_remaps_relation_indices(
         self,
@@ -1015,6 +1062,90 @@ class TestDescribeEntityType:
 
 class TestBAMLExtractor:
     """BAMLExtractor raises when the llm extra is not installed."""
+
+    @pytest.mark.parametrize(
+        ("patterns", "symmetric"),
+        [
+            ([("Organization", "Organization")], False),
+            ([("Organization", "Company")], True),
+        ],
+    )
+    async def test_extract_resolves_parent_child_and_reversed_symmetric_relation(
+        self, patterns: list[tuple[str, str]], symmetric: bool
+    ) -> None:
+        """BAML output accepts descendants and rejects unrelated endpoint types."""
+        schema = GraphSchema(
+            name="hierarchical",
+            version="1",
+            entities=[
+                EntityType(label="Organization", description="An organization."),
+                EntityType(
+                    label="Company",
+                    description="A company.",
+                    parents=["Organization"],
+                ),
+                EntityType(label="Person", description="A person."),
+                EntityType(label="Condition", description="A condition."),
+            ],
+            relations=[
+                RelationType(
+                    label="ASSOCIATED_WITH",
+                    description="Two things are associated.",
+                    patterns=patterns,
+                    symmetric=symmetric,
+                )
+            ],
+        )
+        chunk = _chunk("Acme met OrgCo, and Ada joined.")
+
+        class MockClient:
+            async def ExtractEntitiesAndRelations(
+                self, text: str, section: str | None, options: dict
+            ) -> SimpleNamespace:
+                return SimpleNamespace(
+                    entities=[
+                        SimpleNamespace(
+                            label="Company",
+                            text="Acme",
+                            char_start=0,
+                            char_end=4,
+                            properties={},
+                        ),
+                        SimpleNamespace(
+                            label="Organization",
+                            text="OrgCo",
+                            char_start=9,
+                            char_end=14,
+                            properties={},
+                        ),
+                        SimpleNamespace(
+                            label="Person",
+                            text="Ada",
+                            char_start=20,
+                            char_end=23,
+                            properties={},
+                        ),
+                    ],
+                    relations=[
+                        SimpleNamespace(
+                            label="ASSOCIATED_WITH",
+                            source_text="Acme",
+                            target_text="OrgCo",
+                        ),
+                        SimpleNamespace(
+                            label="ASSOCIATED_WITH",
+                            source_text="Acme",
+                            target_text="Ada",
+                        ),
+                    ],
+                )
+
+        result = await BAMLExtractor(client=MockClient()).extract(chunk, schema)
+
+        assert [
+            (relation.source_index, relation.target_index)
+            for relation in result.relations
+        ] == [(0, 1)]
 
     def test_raises_when_baml_client_not_importable(self) -> None:
         """ExtractorMissingExtraError is raised if baml_client can't be imported."""

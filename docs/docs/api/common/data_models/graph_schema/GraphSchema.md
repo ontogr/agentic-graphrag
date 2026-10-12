@@ -13,8 +13,7 @@ Every extraction call is validated against a GraphSchema. There is no
 schema-free extraction path. Round-trip with
 `model_dump(mode="json")` and `model_validate()`. A schema declaring
 an entity property name that the vector payload reserves fails that
-validation, so a payload written before the check existed must be migrated
-before it loads again. See `EntityType.properties`.
+validation. See `EntityType.properties`.
 
 **Attributes:**
 
@@ -25,13 +24,58 @@ before it loads again. See `EntityType.properties`.
 
 **Functions:**
 
-- [**to_compact_summary**](#agrag-common-data_models-graph_schema-GraphSchema-to_compact_summary) – Serialize only entity labels and relation patterns for a prompt.
+- [**allows**](#agrag-common-data_models-graph_schema-GraphSchema-allows) – Return whether a pair of entity types is allowed for a relation.
+- [**ancestors**](#agrag-common-data_models-graph_schema-GraphSchema-ancestors) – Return an entity type's ancestors in nearest-first breadth-first order.
+- [**node_labels**](#agrag-common-data_models-graph_schema-GraphSchema-node_labels) – Return a node's leaf label followed by its ancestors.
+- [**resolve**](#agrag-common-data_models-graph_schema-GraphSchema-resolve) – Render entity details and relation patterns expanded over child types.
+- [**to_compact_summary**](#agrag-common-data_models-graph_schema-GraphSchema-to_compact_summary) – Serialize entity labels, parents and relation patterns for a prompt.
 - [**to_prompt_description**](#agrag-common-data_models-graph_schema-GraphSchema-to_prompt_description) – Serialize this schema in full for an LLM prompt.
+
+## `allows` \{#agrag-common-data_models-graph_schema-GraphSchema-allows}
+
+```python
+allows(relation:str, source_label:str, target_label:str) -> bool
+```
+
+Return whether a pair of entity types is allowed for a relation.
+
+Patterns cover descendants, and symmetric relations accept reversal.
+Unknown entity or relation labels return False.
+
+**Parameters:**
+
+- **relation** (<code>str</code>) – The relation label.
+- **source_label** (<code>str</code>) – The source entity's leaf label.
+- **target_label** (<code>str</code>) – The target entity's leaf label.
+
+## `ancestors` \{#agrag-common-data_models-graph_schema-GraphSchema-ancestors}
+
+```python
+ancestors(label:str) -> list[str]
+```
+
+Return an entity type's ancestors in nearest-first breadth-first order.
+
+Parents retain their listed order. Shared ancestors appear only once.
+
+**Parameters:**
+
+- **label** (<code>str</code>) – A declared entity label.
+
+**Raises:**
+
+- <code>ValueError</code> – If the label is not declared in this schema.
 
 ## `entities` \{#agrag-common-data_models-graph_schema-GraphSchema-entities}
 
 ```python
 entities: list[EntityType]
+```
+
+## `model_config` \{#agrag-common-data_models-graph_schema-GraphSchema-model_config}
+
+```python
+model_config = ConfigDict(extra='forbid')
 ```
 
 ## `name` \{#agrag-common-data_models-graph_schema-GraphSchema-name}
@@ -40,11 +84,37 @@ entities: list[EntityType]
 name: str
 ```
 
+## `node_labels` \{#agrag-common-data_models-graph_schema-GraphSchema-node_labels}
+
+```python
+node_labels(label:str) -> list[str]
+```
+
+Return a node's leaf label followed by its ancestors.
+
+**Parameters:**
+
+- **label** (<code>str</code>) – A declared entity label.
+
+**Raises:**
+
+- <code>ValueError</code> – If the label is not declared in this schema.
+
 ## `relations` \{#agrag-common-data_models-graph_schema-GraphSchema-relations}
 
 ```python
 relations: list[RelationType]
 ```
+
+## `resolve` \{#agrag-common-data_models-graph_schema-GraphSchema-resolve}
+
+```python
+resolve() -> str
+```
+
+Render entity details and relation patterns expanded over child types.
+
+The final line counts entity and relation labels.
 
 ## `to_compact_summary` \{#agrag-common-data_models-graph_schema-GraphSchema-to_compact_summary}
 
@@ -52,10 +122,10 @@ relations: list[RelationType]
 to_compact_summary() -> str
 ```
 
-Serialize only entity labels and relation patterns for a prompt.
+Serialize entity labels, parents and relation patterns for a prompt.
 
-Descriptions, properties, and subtypes are omitted, so this is the
-shape to inject where prompt space is tight.
+Descriptions, properties and cardinality limits are omitted, so this is
+the shape to inject where prompt space is tight.
 `to_prompt_description` carries the same labels with their
 full detail.
 
@@ -72,9 +142,8 @@ to_prompt_description() -> str
 
 Serialize this schema in full for an LLM prompt.
 
-Every entity type's label, description, declared properties, and
-subtypes are listed, followed by every relation type's label,
-description, and valid (source, target) patterns. Use
+Entity labels, parents and declared properties are followed by each
+relation's valid patterns, symmetry and cardinality. Use
 `to_compact_summary` instead when prompt space is tight.
 
 **Returns:**
