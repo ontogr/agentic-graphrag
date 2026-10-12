@@ -347,23 +347,20 @@ class TestExtends:
         child = {
             "entities": [
                 {
-                    "label": "Person",
+                    "label": "Organization",
                     "override": True,
-                    "description": "A human.",
-                    "properties": {
-                        "email": {"type": "string", "required": True},
-                        "born": "integer",
-                        "phone": "string",
-                    },
+                    "description": "A firm.",
+                    "properties": {"founded": "integer"},
                 }
             ]
         }
 
         schema = load_schema(child, extends=_base())
 
-        assert _labels(schema)[0] == "Person"
-        assert schema.entities[0].description == "A human."
-        assert "phone" in schema.entities[0].properties
+        assert _labels(schema) == ["Person", "Organization", "Location"]
+        assert _labels(schema)[1] == "Organization"
+        assert schema.entities[1].description == "A firm."
+        assert "founded" in schema.entities[1].properties
 
     def test_override_of_a_missing_type(self):
         """An override of a type the base lacks names the fix."""
@@ -469,7 +466,7 @@ class TestExtends:
                         "label": "LOCATED_IN",
                         "override": True,
                         "description": "x",
-                        "patterns": ["Organization|Person->Location"],
+                        "patterns": ["Person->Location"],
                     }
                 ]
             },
@@ -477,7 +474,7 @@ class TestExtends:
         )
 
         located = {r.label: r for r in schema.relations}["LOCATED_IN"]
-        assert len(located.patterns) == 2
+        assert [tuple(p) for p in located.patterns] == [("Person", "Location")]
 
     def test_relation_override_may_not_loosen_cardinality(self):
         """An override that removes a cardinality limit is an error."""
@@ -713,3 +710,215 @@ class TestExtends:
             )
 
         assert "replaces the base entity type 'Organization'" in caplog.text
+
+
+class TestReviewFixes:
+    """Regression tests for the review findings on the schema loader."""
+
+    def test_mode_key_names_extraction_settings(self):
+        """A top-level mode key points at ExtractionSettings."""
+        error = _error({"entities": ["A"], "mode": "hybrid"})
+
+        assert "'mode' is an extraction setting" in str(error)
+        assert "ExtractionSettings" in str(error)
+
+    def test_invalid_utf8_file_reports_schema_error(self, tmp_path: Path):
+        """A file with invalid UTF-8 raises SchemaLoadError with the source."""
+        path = tmp_path / "s.json"
+        path.write_bytes(b'{"entities": ["A\xff"]}')
+
+        error = _error(path)
+
+        assert error.source == str(path)
+
+    def test_blank_triple_endpoint_is_an_error(self):
+        """A relation triple with a blank endpoint is rejected."""
+        error = _error(["A", ("A", "R", "")])
+
+        assert _paths(error) == ["relations[0]"]
+        assert "empty target" in str(error)
+
+    def test_empty_patterns_list_is_an_error(self):
+        """A relation with an empty patterns list is rejected."""
+        error = _error(
+            {"entities": ["A"], "relations": [{"label": "R", "patterns": []}]}
+        )
+
+        assert _paths(error) == ["relations[0]"]
+        assert "needs 'patterns'" in str(error)
+
+    def test_empty_patterns_map_is_an_error(self):
+        """A mapping relation with an empty patterns list is rejected."""
+        error = _error({"entities": ["A"], "relations": {"R": []}})
+
+        assert _paths(error) == ["relations.R"]
+        assert "needs 'patterns'" in str(error)
+
+    def test_duplicate_property_is_an_error(self):
+        """A repeated property name names the first declaration."""
+        error = _error({"entities": [{"label": "A", "properties": ["email", "email"]}]})
+
+        assert _paths(error) == ["entities[0].properties[1]"]
+        assert "duplicate property 'email'" in str(error)
+
+    def test_add_patterns_with_cardinality_is_an_error(self):
+        """Cardinality cannot be combined with add_patterns."""
+        error = _error(
+            {
+                "relations": [
+                    {
+                        "label": "LOCATED_IN",
+                        "add_patterns": ["Person->Location"],
+                        "cardinality": {"max_per_source": 1},
+                    }
+                ]
+            },
+            extends=_base(),
+        )
+
+        assert "cannot be combined" in str(error)
+
+    def test_file_extends_resolves_beside_child(self, tmp_path: Path):
+        """A relative extends in a file resolves against the child directory."""
+        folder = tmp_path / "schemas"
+        folder.mkdir()
+        (folder / "base.json").write_text(json.dumps(dump_schema(_base())))
+        child = folder / "child.json"
+        child.write_text(json.dumps({"extends": "base.json", "entities": ["Vendor"]}))
+
+        assert "Vendor" in _labels(load_schema(child))
+
+    def test_in_memory_extends_cycle_is_an_error(self):
+        """A dict that extends itself reports a cycle instead of recursing."""
+        source: dict = {"entities": ["A"]}
+        source["extends"] = source
+
+        error = _error(source)
+
+        assert "loops back" in str(error)
+
+    def test_relation_declared_and_excluded_is_an_error(self):
+        """A relation that is both excluded and declared is an error."""
+        error = _error(
+            {
+                "exclude": ["WORKS_FOR"],
+                "relations": [
+                    {"label": "WORKS_FOR", "patterns": ["Person->Organization"]}
+                ],
+            },
+            extends=_base(),
+        )
+
+        assert "is excluded from the base schema and declared here" in str(error)
+
+    def test_malformed_enum_override_reports_schema_error(self):
+        """An unhashable enum in an override does not escape SchemaLoadError."""
+        error = _error(
+            {
+                "entities": [
+                    {
+                        "label": "Person",
+                        "override": True,
+                        "properties": {
+                            "email": {
+                                "type": "string",
+                                "required": True,
+                                "enum": [["a"]],
+                            },
+                            "born": "integer",
+                        },
+                    }
+                ]
+            },
+            extends=_base(),
+        )
+
+        assert isinstance(error, SchemaLoadError)
+
+    def test_quoted_cardinality_override_tightens(self):
+        """A quoted tightening limit loads without escaping SchemaLoadError."""
+        base = GraphSchema(
+            name="b",
+            version="1",
+            entities=[
+                EntityType(label="Person", description=""),
+                EntityType(label="Software", description=""),
+            ],
+            relations=[
+                RelationType(
+                    label="OWNS",
+                    description="",
+                    patterns=[("Person", "Software")],
+                    cardinality=Cardinality(max_per_source=3),
+                )
+            ],
+        )
+        schema = load_schema(
+            {
+                "relations": [
+                    {
+                        "label": "OWNS",
+                        "override": True,
+                        "patterns": ["Person->Software"],
+                        "cardinality": {"max_per_source": "1"},
+                    }
+                ]
+            },
+            extends=base,
+        )
+
+        assert schema.relations[0].cardinality.max_per_source == 1
+
+    def test_quoted_cardinality_loosening_is_an_error(self):
+        """A quoted loosening limit is rejected like a plain one."""
+        base = GraphSchema(
+            name="b",
+            version="1",
+            entities=[
+                EntityType(label="Person", description=""),
+                EntityType(label="Software", description=""),
+            ],
+            relations=[
+                RelationType(
+                    label="OWNS",
+                    description="",
+                    patterns=[("Person", "Software")],
+                    cardinality=Cardinality(max_per_source=3),
+                )
+            ],
+        )
+        error = _error(
+            {
+                "relations": [
+                    {
+                        "label": "OWNS",
+                        "override": True,
+                        "patterns": ["Person->Software"],
+                        "cardinality": {"max_per_source": "9"},
+                    }
+                ]
+            },
+            extends=base,
+        )
+
+        assert "raises the cardinality limit" in str(error)
+
+    def test_string_false_required_reports_loosening(self):
+        """A quoted false for a required property still counts as loosening."""
+        error = _error(
+            {
+                "entities": [
+                    {
+                        "label": "Person",
+                        "override": True,
+                        "properties": {
+                            "email": {"type": "string", "required": "false"},
+                            "born": "integer",
+                        },
+                    }
+                ]
+            },
+            extends=_base(),
+        )
+
+        assert "makes property 'email' optional" in str(error)

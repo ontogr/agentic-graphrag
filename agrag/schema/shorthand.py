@@ -29,6 +29,7 @@ DEFAULT_PROPERTY_TYPE = "string"
 # fields; the second holds the names users are likely to try.
 _SETTING_KEYS = frozenset(
     {
+        "mode",
         "model_name",
         "dtype",
         "entity_threshold",
@@ -209,33 +210,64 @@ def _property(value: object, path: str, issues: Issues) -> JsonObject | None:
     return None
 
 
+def _note_duplicate(seen: dict[str, str], name: str, path: str, issues: Issues) -> bool:
+    """Record a duplicate property name, or remember it and return False."""
+    if name in seen:
+        issues.add(
+            path,
+            f"duplicate property {name!r}. First declared at {seen[name]}.",
+        )
+        return True
+    seen[name] = path
+    return False
+
+
+def _property_from_list(
+    item: object, item_path: str, seen: dict[str, str], issues: Issues
+) -> tuple[str, JsonObject] | None:
+    """Read one property from a list item, or record why it is unusable."""
+    if isinstance(item, str) and item.strip():
+        name = item.strip()
+        if _note_duplicate(seen, name, item_path, issues):
+            return None
+        return name, {"type": DEFAULT_PROPERTY_TYPE}
+    if isinstance(item, Mapping) and isinstance(item.get("name"), str):
+        name = item["name"]
+        if _note_duplicate(seen, name, item_path, issues):
+            return None
+        spec = _property(
+            {k: v for k, v in item.items() if k != "name"}, item_path, issues
+        )
+        if spec is None:
+            return None
+        return name, spec
+    issues.add(
+        item_path,
+        "expected a property name or a mapping with a 'name' key, "
+        f"got {describe(item)}.",
+    )
+    return None
+
+
 def _properties(value: object, path: str, issues: Issues) -> JsonObject:
     if value is None:
         return {}
     out: JsonObject = {}
+    seen: dict[str, str] = {}
     if isinstance(value, Mapping):
         for name, spec in value.items():
-            item = _property(spec, join_path(path, str(name)), issues)
+            item_path = join_path(path, str(name))
+            if _note_duplicate(seen, str(name), item_path, issues):
+                continue
+            item = _property(spec, item_path, issues)
             if item is not None:
                 out[str(name)] = item
         return out
     if isinstance(value, (list, tuple)):
         for index, item in enumerate(value):
-            item_path = f"{path}[{index}]"
-            if isinstance(item, str) and item.strip():
-                out[item.strip()] = {"type": DEFAULT_PROPERTY_TYPE}
-            elif isinstance(item, Mapping) and isinstance(item.get("name"), str):
-                spec = _property(
-                    {k: v for k, v in item.items() if k != "name"}, item_path, issues
-                )
-                if spec is not None:
-                    out[item["name"]] = spec
-            else:
-                issues.add(
-                    item_path,
-                    "expected a property name or a mapping with a 'name' key, "
-                    f"got {describe(item)}.",
-                )
+            found = _property_from_list(item, f"{path}[{index}]", seen, issues)
+            if found is not None:
+                out[found[0]] = found[1]
         return out
     issues.add(
         path, f"expected a list or a mapping of properties, got {describe(value)}."
@@ -430,9 +462,16 @@ def _relation_from_map(
     """Read one relation from a mapping value, where the key is the label."""
     if isinstance(item, (str, list, tuple)):
         label = _relation_label(key, item_path, issues)
+        before = len(issues.items)
         pairs = _patterns(item, item_path, issues)
         if label is not None and pairs:
             _add_shorthand(drafts, shorthand, label, pairs, item_path)
+        elif label is not None and not pairs and len(issues.items) == before:
+            issues.add(
+                item_path,
+                "a relation needs 'patterns'. Write at least one pair, "
+                "for example patterns: ['Person->Organization'].",
+            )
     elif isinstance(item, Mapping):
         if "label" in item and item["label"] != key:
             issues.add(
@@ -479,6 +518,13 @@ def _relation_from_list(
         if label is not None and sources and targets:
             _add_shorthand(
                 drafts, shorthand, label, _cross(sources, targets), item_path
+            )
+        elif label is not None and (not sources or not targets):
+            side = "source" if not sources else "target"
+            issues.add(
+                item_path,
+                f"relation triple has an empty {side}. Use non-empty labels, "
+                "for example ('Person', 'WORKS_FOR', 'Organization').",
             )
     elif isinstance(item, Mapping):
         draft = _relation(item, item_path, issues)

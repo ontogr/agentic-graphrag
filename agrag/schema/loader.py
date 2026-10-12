@@ -9,7 +9,11 @@ from typing import Any, NamedTuple
 
 import yaml
 
-from agrag.common.data_models.graph_schema import GraphSchema
+from agrag.common.data_models.graph_schema import (
+    Cardinality,
+    GraphSchema,
+    PropertySpec,
+)
 from agrag.schema.canonical import build_schema, dump_schema
 from agrag.schema.errors import Issues, SchemaIssue, SchemaLoadError
 from agrag.schema.shorthand import (
@@ -92,6 +96,8 @@ def _read_file(path: Path) -> object:
         text = path.read_text(encoding="utf-8")
     except FileNotFoundError as exc:
         raise _fail("the file does not exist.", str(path)) from exc
+    except UnicodeDecodeError as exc:
+        raise _fail(f"cannot decode the file as UTF-8: {exc}.", str(path)) from exc
     except OSError as exc:
         raise _fail(f"cannot read the file: {exc.strerror}.", str(path)) from exc
     if suffix == ".json":
@@ -196,24 +202,63 @@ def _read_child(data: JsonObject, default_name: str, issues: Issues) -> _Child:
     )
 
 
+def _enum_loosened(old_enum: object, new_enum: object) -> bool:
+    """Return whether a child widens the allowed values of a property."""
+    if new_enum is None and isinstance(old_enum, (list, tuple)) and old_enum:
+        try:
+            set(old_enum)
+        except TypeError:
+            return False
+        return True
+    if not isinstance(old_enum, (list, tuple)) or not old_enum:
+        return False
+    if not isinstance(new_enum, (list, tuple)) or not new_enum:
+        return False
+    try:
+        return not set(new_enum) <= set(old_enum)
+    except TypeError:
+        return False
+
+
+def _normalized_spec(spec: object) -> PropertySpec | None:
+    """Validate a raw property spec, or return None when it is invalid."""
+    if not isinstance(spec, Mapping):
+        return None
+    try:
+        return PropertySpec.model_validate(dict(spec))
+    except Exception:
+        return None
+
+
 def _loosened(base: JsonObject, new: JsonObject) -> list[str]:
     """List the ways ``new`` loosens the property constraints of ``base``."""
     problems: list[str] = []
-    new_properties = new.get("properties", {})
-    for name, old in base.get("properties", {}).items():
-        spec = new_properties.get(name)
+    raw_new_properties = new.get("properties", {})
+    if not isinstance(raw_new_properties, Mapping):
+        return problems
+    raw_base_properties = base.get("properties", {})
+    if not isinstance(raw_base_properties, Mapping):
+        return problems
+    for name, old in raw_base_properties.items():
+        if not isinstance(old, Mapping):
+            continue
+        spec = raw_new_properties.get(name)
         if spec is None:
             problems.append(f"drops property {name!r}")
             continue
-        if spec.get("type") != old.get("type"):
+        if not isinstance(spec, Mapping):
+            continue
+        shaped = _normalized_spec(spec)
+        if shaped is None:
+            continue
+        if shaped.type != old.get("type"):
             problems.append(
                 f"changes the type of property {name!r} from {old.get('type')!r} "
-                f"to {spec.get('type')!r}"
+                f"to {shaped.type!r}"
             )
-        if old.get("required") and not spec.get("required"):
+        if old.get("required", False) is True and not shaped.required:
             problems.append(f"makes property {name!r} optional")
-        old_enum, new_enum = set(old.get("enum") or []), set(spec.get("enum") or [])
-        if old_enum and not (new_enum and new_enum <= old_enum):
+        if _enum_loosened(old.get("enum"), shaped.enum):
             problems.append(f"widens the allowed values of property {name!r}")
     return problems
 
@@ -222,12 +267,20 @@ def _relation_loosened(base: JsonObject, new: JsonObject) -> list[str]:
     """List the ways ``new`` loosens the cardinality limits of ``base``."""
     base_limits = base.get("cardinality") or {}
     new_limits = new.get("cardinality") or {}
+    if not isinstance(base_limits, Mapping) or not isinstance(new_limits, Mapping):
+        return []
+    try:
+        shaped = Cardinality.model_validate(dict(new_limits))
+    except Exception:
+        return []
     problems: list[str] = []
-    for key, side in (("max_per_source", "source"), ("max_per_target", "target")):
+    for key, side, updated in (
+        ("max_per_source", "source", shaped.max_per_source),
+        ("max_per_target", "target", shaped.max_per_target),
+    ):
         limit = base_limits.get(key)
-        if limit is None:
+        if limit is None or isinstance(limit, bool) or not isinstance(limit, int):
             continue
-        updated = new_limits.get(key)
         if updated is None:
             problems.append(f"removes the cardinality limit on the {side} side")
         elif updated > limit:
@@ -235,8 +288,11 @@ def _relation_loosened(base: JsonObject, new: JsonObject) -> list[str]:
     return problems
 
 
-def _apply_exclude(labels: list[str], merged: _Merged, issues: Issues) -> set[str]:
+def _apply_exclude(
+    labels: list[str], merged: _Merged, issues: Issues
+) -> tuple[set[str], set[str]]:
     removed: set[str] = set()
+    excluded_relations: set[str] = set()
     for index, label in enumerate(labels):
         found = False
         if label in merged.entities:
@@ -245,6 +301,7 @@ def _apply_exclude(labels: list[str], merged: _Merged, issues: Issues) -> set[st
             found = True
         if label in merged.relations:
             del merged.relations[label]
+            excluded_relations.add(label)
             found = True
         if not found:
             issues.add(
@@ -268,7 +325,7 @@ def _apply_exclude(labels: list[str], merged: _Merged, issues: Issues) -> set[st
                 "Relation %s removed: all its patterns used excluded types.", label
             )
             del merged.relations[label]
-    return removed
+    return removed, excluded_relations
 
 
 def _add_entities(
@@ -322,8 +379,11 @@ def _add_relations(
     base_name: str | None,
     removed: set[str],
     issues: Issues,
+    *,
+    excluded_relations: set[str] | None = None,
 ) -> None:
     seen: dict[str, str] = {}
+    gone = excluded_relations if excluded_relations is not None else set()
     for draft in drafts:
         body = dict(draft.body)
         label = body["label"]
@@ -336,6 +396,14 @@ def _add_relations(
             )
             continue
         seen[label] = draft.path
+        if label in removed or label in gone:
+            issues.add(
+                draft.path,
+                f"relation type {label!r} is excluded from the base schema and "
+                "declared here. Remove it from 'exclude' and add 'override: true' "
+                "to replace it.",
+            )
+            continue
         existing = merged.relations.get(label)
         if extra is not None:
             _add_patterns(
@@ -349,7 +417,7 @@ def _add_relations(
                 issues=issues,
             )
             continue
-        if "patterns" not in body:
+        if "patterns" not in body or not body["patterns"]:
             issues.add(
                 draft.path,
                 "a relation needs 'patterns'. Write at least one pair, for example "
@@ -400,9 +468,26 @@ def _add_patterns(
             "'add_patterns' to add to them, not both.",
         )
     else:
+        blocked = sorted(
+            key
+            for key in body
+            if key not in ("label", "description", "add_patterns", "override")
+        )
+        if blocked:
+            issues.add(
+                draft.path,
+                f"'add_patterns' cannot be combined with {blocked}. Use "
+                "'patterns' with 'override: true' to replace the relation, "
+                "or remove these keys.",
+            )
+            return
         patterns = [list(pair) for pair in existing[1]["patterns"]]
         patterns.extend(pair for pair in extra if pair not in patterns)
-        merged.relations[label] = (draft.path, {**existing[1], "patterns": patterns})
+        description = body.get("description") or existing[1].get("description", "")
+        merged.relations[label] = (
+            draft.path,
+            {**existing[1], "description": description, "patterns": patterns},
+        )
 
 
 def _no_target(base_name: str | None, kind: str, label: str) -> str:
@@ -470,6 +555,7 @@ def _check_references(merged: _Merged, removed: set[str], issues: Issues) -> Non
 def _merge(base: GraphSchema | None, child: _Child, issues: Issues) -> _Merged:
     merged = _Merged({}, {})
     removed: set[str] = set()
+    excluded_relations: set[str] = set()
     base_name = None if base is None else base.name
     if base is None:
         if child.exclude:
@@ -482,9 +568,16 @@ def _merge(base: GraphSchema | None, child: _Child, issues: Issues) -> _Merged:
             merged.entities[body["label"]] = (f"{_BASE_PREFIX}{body['label']}", body)
         for body in data["relations"]:
             merged.relations[body["label"]] = (f"{_BASE_PREFIX}{body['label']}", body)
-        removed = _apply_exclude(child.exclude, merged, issues)
+        removed, excluded_relations = _apply_exclude(child.exclude, merged, issues)
     _add_entities(child.entities, merged, base_name, removed, issues)
-    _add_relations(child.relations, merged, base_name, removed, issues)
+    _add_relations(
+        child.relations,
+        merged,
+        base_name,
+        removed,
+        issues,
+        excluded_relations=excluded_relations,
+    )
     _check_references(merged, removed, issues)
     return merged
 
@@ -509,9 +602,42 @@ def _pick_extends(
     return None
 
 
+def _resolve_base(
+    base_source: SchemaSource | None, child_origin: str | None
+) -> SchemaSource | None:
+    """Resolve a file-declared base path against the child file directory."""
+    if base_source is None or child_origin is None:
+        return base_source
+    folder = Path(child_origin).parent
+    if isinstance(base_source, Path):
+        target = base_source
+    elif isinstance(base_source, str):
+        text = base_source.strip()
+        if (
+            text in _NAMED_SCHEMAS
+            or text.startswith(("{", "["))
+            or Path(text).is_absolute()
+        ):
+            return base_source
+        target = Path(text)
+        if not (text.lower().endswith(_FILE_SUFFIXES) or (folder / target).is_file()):
+            return base_source
+    else:
+        return base_source
+    if target.is_absolute():
+        return base_source
+    return str(folder / target)
+
+
 def _load(
-    source: SchemaSource, extends: SchemaSource | None, stack: tuple[str, ...]
+    source: SchemaSource,
+    extends: SchemaSource | None,
+    stack: tuple[str, ...],
+    _seen: tuple[int, ...] = (),
 ) -> GraphSchema:
+    if isinstance(source, Mapping) and id(source) in _seen:
+        raise _fail("'extends' loops back to this schema.")
+    seen = (*_seen, id(source)) if isinstance(source, Mapping) else _seen
     read = _read_source(source)
     if isinstance(read, GraphSchema):
         if extends is None:
@@ -527,9 +653,11 @@ def _load(
     base_source = _pick_extends(extends, read.data.get("extends"), issues)
     if issues:
         raise issues.error(read.origin)
+    if base_source is not None and extends is None and read.origin is not None:
+        base_source = _resolve_base(base_source, read.origin)
     base = None
     if base_source is not None:
-        base = _load(base_source, None, stack if key is None else (*stack, key))
+        base = _load(base_source, None, stack if key is None else (*stack, key), seen)
 
     child = _read_child(read.data, read.name, issues)
     merged = _merge(base, child, issues)
