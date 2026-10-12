@@ -2,8 +2,10 @@
 
 import asyncio
 import contextvars
+import logging
 import os
 from abc import ABC, abstractmethod
+from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor
 from functools import partial
 from typing import Any, Literal
@@ -20,10 +22,14 @@ from agrag.common.data_models.extraction import (
     ExtractionResult,
 )
 from agrag.common.data_models.graph_schema import EntityType, GraphSchema
+from agrag.ingestion.settings import ExtractionSettings
 from agrag.llm.client_config import LLMClientConfig, RetryConfig
 from agrag.llm.retry import NO_RETRY, call_with_retry
 from agrag.loaders.errors import IngestionError
 from agrag.observability import get_tracer
+
+
+logger = logging.getLogger(__name__)
 
 
 def _resolve_span(
@@ -262,10 +268,10 @@ class Extractor(ABC):
 
     Note:
         Subclass this class to provide custom extraction. ``Graph`` awaits
-        ``extract`` once for each chunk. The built-in extractors are
-        ``GlinerExtractor`` (a local model), ``BAMLExtractor`` (an LLM call),
-        and ``EscalatingExtractor`` (a cheap extractor first, a stronger one
-        when the result is weak).
+        ``extract`` once for each chunk. ``GlinerExtractor`` is a local
+        extractor, ``LLMExtractor`` marks the LLM role, and
+        ``EscalatingExtractor`` runs a local extractor before an LLM when its
+        result is weak.
 
         ``Graph`` runs up to ``max_concurrency`` ``extract`` calls at the same
         time. An extractor that is not safe to call from several tasks at once
@@ -290,6 +296,31 @@ class Extractor(ABC):
 
         Returns:
             The entities and relations this call found, in extraction order.
+        """
+
+
+class LLMExtractor(ABC):
+    """LLM role that may receive entities found by an earlier extractor."""
+
+    max_concurrency: int | None = None
+
+    @abstractmethod
+    async def extract(
+        self,
+        chunk: Chunk,
+        schema: GraphSchema,
+        candidates: Sequence[ExtractedEntity] | None = None,
+    ) -> ExtractionResult:
+        """Extract entities and relations from one chunk.
+
+        Args:
+            chunk: The chunk to read.
+            schema: The entity and relation types to extract.
+            candidates: Entities found by an earlier extractor. Escalation may
+                pass them for review; an implementation may ignore them.
+
+        Returns:
+            The entities and relations found in the chunk.
         """
 
 
@@ -358,13 +389,20 @@ class GlinerExtractor(Extractor):
     downloads the weights from Hugging Face unless
     ``model`` is passed. GLiNER reports entity spans and types, so extracted
     entities carry no property values. Needs the ``extract`` extra.
+    It asks for confidence and spans, and applies the configured entity and
+    per-label thresholds.
 
     Args:
-        model_name: Checkpoint to load when ``model`` is not provided.
-        model: An already-built GLiNER2.5 model.
+        settings: The checkpoint, precision and score thresholds. ``None``
+            reads ``ExtractionSettings`` from the environment and ``.env``.
+        model: An already-built GLiNER2.5 model. The checkpoint and precision
+            settings do not apply to this model.
         tracer: Opens ``agrag.extraction.gliner`` and
             ``agrag.extraction.model_load`` spans. ``None`` opens no recorded
             span.
+
+    Attributes:
+        settings: The checkpoint, precision and thresholds used by extraction.
     """
 
     # Inference runs on one worker thread, so extra concurrent calls only queue.
@@ -373,12 +411,12 @@ class GlinerExtractor(Extractor):
     def __init__(
         self,
         *,
-        model_name: str = "fastino/gliner2.5-small-v1",
+        settings: ExtractionSettings | None = None,
         model: object | None = None,
         tracer: Tracer | None = None,
     ) -> None:
-        """Create an extractor with a model name or an already-built model."""
-        self.model_name = model_name
+        """Create an extractor from settings or an already-built model."""
+        self.settings = settings if settings is not None else ExtractionSettings()
         self._model = model
         self._tracer = tracer
         self._load_task: asyncio.Task[object] | None = None
@@ -418,6 +456,8 @@ class GlinerExtractor(Extractor):
                     model.extract,  # ty: ignore[unresolved-attribute]
                     chunk.text,
                     gliner_schema,
+                    threshold=self.settings.entity_threshold,
+                    include_confidence=True,
                     include_spans=True,
                 ),
             )
@@ -463,7 +503,7 @@ class GlinerExtractor(Extractor):
         return model
 
     def _ensure_model(self) -> object:
-        """Return the cached model, building it from ``model_name`` on first call."""
+        """Return the cached model, building it from settings on first call."""
         if self._model is not None:
             return self._model
         try:
@@ -472,9 +512,20 @@ class GlinerExtractor(Extractor):
             raise ExtractorMissingExtraError("GlinerExtractor", "extract") from exc
         with get_tracer(self._tracer).start_as_current_span(
             "agrag.extraction.model_load",
-            attributes={"agrag.model": self.model_name},
+            attributes={"agrag.model": self.settings.model_name},
         ):
-            self._model = AutoExtractor.from_pretrained(self.model_name)
+            model = AutoExtractor.from_pretrained(self.settings.model_name)
+            if self.settings.dtype != "fp32":
+                model.quantize(self.settings.dtype)
+            self._model = model
+            logger.info(
+                "Loaded GLiNER model %s (dtype=%s, entity_threshold=%s, "
+                "label_thresholds=%s).",
+                self.settings.model_name,
+                self.settings.dtype,
+                self.settings.entity_threshold,
+                self.settings.label_thresholds,
+            )
         return self._model
 
     def _build_schema(self, model: object, schema: GraphSchema) -> object:
@@ -486,7 +537,17 @@ class GlinerExtractor(Extractor):
         """
         builder = model.create_schema()  # ty: ignore[unresolved-attribute]
         builder = builder.entities(
-            {entity.label: entity.description for entity in schema.entities}
+            {
+                entity.label: (
+                    {
+                        "description": entity.description,
+                        "threshold": self.settings.label_thresholds[entity.label],
+                    }
+                    if entity.label in self.settings.label_thresholds
+                    else entity.description
+                )
+                for entity in schema.entities
+            }
         )
         return builder.relations(
             {relation.label: relation.description for relation in schema.relations}
@@ -497,9 +558,10 @@ class GlinerExtractor(Extractor):
     ) -> ExtractionResult:
         """Return an ExtractionResult built from gliner2's raw output.
 
-        Called with ``include_spans=True``, GLiNER2.5's extract() returns a dict
-        with ``entities`` (label -> list of mention dicts each having the keys
-        text, start, end) and ``relation_extraction`` (label -> list of relation
+        Called with ``include_spans=True`` and ``include_confidence=True``,
+        GLiNER2.5's extract() returns a dict with ``entities`` (label -> list of
+        mention dicts with text, confidence, start, end) and
+        ``relation_extraction`` (label -> list of relation
         dicts each having the keys head, tail, with endpoints shaped like mention
         dicts). Every reported span is
         verified against chunk.text via ``_resolve_span``: a mention whose text
@@ -512,6 +574,9 @@ class GlinerExtractor(Extractor):
         with its declared endpoint patterns. A relation whose endpoints both
         resolve to the same entity is dropped, not raised, so one malformed
         relation does not abort the whole chunk.
+
+        Entity confidence is the mention score. Relation confidence is the
+        relation score, which head and tail share.
 
         GLiNER2.5 is used here as a span extractor only, so every entity's
         ``properties`` is empty; it never claims a schema-declared property
@@ -548,6 +613,7 @@ class GlinerExtractor(Extractor):
                         text=mention["text"],
                         char_start=start,
                         char_end=end,
+                        confidence=mention.get("confidence"),
                     )
                 )
 
@@ -597,6 +663,7 @@ class GlinerExtractor(Extractor):
                             label=label,
                             source_index=si,
                             target_index=ti,
+                            confidence=head.get("confidence"),
                         )
                     )
         return ExtractionResult(
@@ -604,7 +671,7 @@ class GlinerExtractor(Extractor):
         )
 
 
-class BAMLExtractor(Extractor):
+class BAMLExtractor(LLMExtractor):
     """Extract entities and relations with an LLM through a typed BAML function.
 
     The extractor calls ``ExtractEntitiesAndRelations`` on the clients in
@@ -641,12 +708,18 @@ class BAMLExtractor(Extractor):
         self._tracer = tracer
         self._include_heading_path = include_heading_path
 
-    async def extract(self, chunk: Chunk, schema: GraphSchema) -> ExtractionResult:
+    async def extract(
+        self,
+        chunk: Chunk,
+        schema: GraphSchema,
+        candidates: Sequence[ExtractedEntity] | None = None,
+    ) -> ExtractionResult:
         """Extract with an LLM call through the configured ClientRegistry.
 
         Args:
             chunk: The chunk to read. Only ``chunk.text`` and ``chunk.id`` are used.
             schema: The entity and relation types to extract.
+            candidates: Earlier entity results. BAML currently ignores them.
 
         Returns:
             The normalized entities and relations found in the chunk.
@@ -860,7 +933,7 @@ class EscalatingExtractor(Extractor):
     def __init__(
         self,
         primary: Extractor,
-        escalate_to: Extractor,
+        escalate_to: Extractor | LLMExtractor,
         *,
         min_confidence: float = 0.5,
         min_chunk_words: int = 8,
@@ -869,7 +942,8 @@ class EscalatingExtractor(Extractor):
         """Create an extractor that escalates from a primary to a stronger one."""
         self.primary = primary
         self.escalate_to = escalate_to
-        self.max_concurrency = min(primary.max_concurrency, escalate_to.max_concurrency)
+        llm_concurrency = escalate_to.max_concurrency or primary.max_concurrency
+        self.max_concurrency = min(primary.max_concurrency, llm_concurrency)
         self.min_confidence = min_confidence
         self.min_chunk_words = min_chunk_words
         self._tracer = tracer
@@ -892,6 +966,10 @@ class EscalatingExtractor(Extractor):
             escalate = self._should_escalate(result, chunk)
             span.set_attribute("agrag.escalated", escalate)
             if escalate:
+                if isinstance(self.escalate_to, LLMExtractor):
+                    return await self.escalate_to.extract(
+                        chunk, schema, candidates=result.entities
+                    )
                 return await self.escalate_to.extract(chunk, schema)
             return result
 

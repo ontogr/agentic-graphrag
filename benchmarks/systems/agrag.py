@@ -24,7 +24,7 @@ from agrag.embedding.sentence_transformers import SentenceTransformerEmbedder
 from agrag.embedding.settings import EmbeddingSettings
 from agrag.eval import ChatModelJudge, EvalJudgeSettings, final_answer
 from agrag.graphdb import GraphStore
-from agrag.ingestion import Graph
+from agrag.ingestion import ExtractionSettings, Graph
 from agrag.ingestion.extract import BAMLExtractor, ExtractionLLMSettings
 from agrag.ingestion.resolve.zone_classifier import MAX_LLM_PAIRS
 from agrag.retrieval.search_engine import SearchEngine
@@ -159,7 +159,8 @@ class AgragSystem:
             schema=self._schema,
             graph_store=self._store,
             embedder=self._embedder,
-            extractor=BAMLExtractor(
+            extraction_settings=ExtractionSettings(mode="llm"),
+            llm_extractor=BAMLExtractor(
                 settings=self._settings.extraction, tracer=self._tracer
             ),
             tracer=self._tracer,

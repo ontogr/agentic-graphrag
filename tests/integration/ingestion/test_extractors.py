@@ -6,6 +6,7 @@ their prerequisites are not available.
 """
 
 import os
+from pathlib import Path
 from uuid import uuid4
 
 import pytest
@@ -20,6 +21,7 @@ from agrag.ingestion.extract import (
     ExtractionLLMSettings,
     GlinerExtractor,
 )
+from agrag.ingestion.settings import ExtractionSettings
 
 
 _PARAGRAPH = (
@@ -145,6 +147,32 @@ class TestGlinerExtractorIntegration:
             assert entity.label in schema_entity_labels
         for rel in result.relations:
             assert rel.label in schema_relation_labels
+
+    @pytest.mark.skipif(not _has_gliner2(), reason="gliner2 not installed")
+    async def test_entities_and_relations_carry_confidence(
+        self, tmp_path: Path
+    ) -> None:
+        """A real model supplies a bounded score for each extracted item."""
+        result = await GlinerExtractor().extract(_chunk(), GENERIC)
+
+        assert result.entities
+        assert result.relations
+        for entity in result.entities:
+            assert entity.confidence is not None
+            assert 0.5 <= entity.confidence <= 1.0
+        for relation in result.relations:
+            assert relation.confidence is not None
+            assert 0.5 <= relation.confidence <= 1.0
+        (tmp_path / "extraction.json").write_text(result.model_dump_json(indent=2))
+
+    @pytest.mark.skipif(not _has_gliner2(), reason="gliner2 not installed")
+    async def test_bf16_model_still_extracts(self) -> None:
+        """Casting the loaded model to bf16 leaves it able to extract."""
+        result = await GlinerExtractor(
+            settings=ExtractionSettings(dtype="bf16")
+        ).extract(_chunk(), GENERIC)
+
+        assert result.entities
 
 
 # ── EscalatingExtractor ────────────────────────────────────────────────

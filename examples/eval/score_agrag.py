@@ -27,7 +27,12 @@ from agrag.eval import (
     faithfulness,
 )
 from agrag.graphdb import build_graph_store
-from agrag.ingestion import BAMLExtractor, ExtractionLLMSettings, Graph
+from agrag.ingestion import (
+    BAMLExtractor,
+    ExtractionLLMSettings,
+    ExtractionSettings,
+    Graph,
+)
 from agrag.retrieval import SearchEngine
 
 
@@ -67,7 +72,8 @@ async def main(dataset: Path) -> None:
         schema=GENERIC,
         graph_store=store,
         embedder=embedder,
-        extractor=BAMLExtractor(
+        extraction_settings=ExtractionSettings(mode="llm"),
+        llm_extractor=BAMLExtractor(
             settings=ExtractionLLMSettings.from_openai_compatible_env()
         ),
     )

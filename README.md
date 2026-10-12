@@ -30,7 +30,7 @@ A plain vector search finds passages that look like your question. It cannot joi
 - One ingestion API for raw text, files, directories, globs, and prebuilt documents.
 - Structure-aware loading with Docling for rich documents and core readers for text, XML, and records. Sections, tables, and figures go into the graph, and one section-aware chunker packs every format.
 - Schema-driven extraction with runtime-defined entity types, relation types, and valid graph patterns.
-- Local-first extraction cascade using GLiNER 2.5 with type-safe BAML/LLM fallback for weak or ambiguous chunks. You need no LLM key to build a graph.
+- Local extraction with GLiNER 2.5. `Graph` also supports an LLM extractor slot, and `EscalatingExtractor` can explicitly send weak local results to an LLM. You need no LLM key to build a graph.
 - Tiered entity resolution combining exact, fuzzy, embedding, and LLM-verified matching. An unsure comparison never matches.
 - Non-destructive matching. Fuzzy, embedding, and LLM matches write `MATCHES` edges and a derived `ResolvedEntity`. The original entities and their provenance stay in the graph.
 - Pluggable storage with Neo4j for graph data and native vectors, plus Qdrant, Weaviate, and Milvus/Zilliz for dedicated vector search.
@@ -111,12 +111,12 @@ Ingestion turns a source into a document, then into chunks, mentions, a matched 
 
 1. Load: Select a loader by format. Decode or parse the source. Preserve source metadata. Apply `RAISE`, `SKIP`, or `QUARANTINE` as the error policy for each source.
 2. Chunk: Pack the sections of every document into chunks with one section-aware chunker, using 600 tokens as the packing budget. Tokenizer context around the joined units can add a few tokens past it. A table becomes its own chunks, and a small chunk carries on into the next section.
-3. Extract: Run GLiNER locally against the active schema. Escalate weak results to a typed BAML extraction function when configured. Validation drops entities and triples that do not conform to the schema.
+3. Extract: Run GLiNER locally against the active schema. An explicitly configured `EscalatingExtractor` can send weak results to a typed BAML extraction function. Validation drops entities and triples that do not conform to the schema.
 4. Resolve: Apply exact, fuzzy, embedding, and LLM-verified comparison tiers. Ambiguous or failed comparisons do not match.
 5. Merge: Combine the mentions of exact matches into one entity. Decide each property value and join the chunk ids that mention it. Fuzzy, embedding, and LLM matches are stored as `MATCHES` edges, not merged.
 6. Store: Upsert nodes and relations, then populate graph-native or dedicated vector indexes.
 
-The extraction cascade replaces a weak local result with the LLM result instead of combining two conflicting outputs. A chunk escalates if the local model finds no entities in a chunk of eight words or more. It also escalates if the mean entity confidence is below 0.5. Exact matches use global store-backed lookup. More expensive fuzzy and LLM comparisons run on a smaller candidate set.
+`EscalatingExtractor` replaces a weak local result with the LLM result instead of combining two conflicting outputs. It treats a chunk as weak when the local model finds no entities in a chunk of at least eight words, or when the mean entity confidence is below 0.5. `Graph` can hold both extractor slots in `hybrid` mode, but it does not yet escalate between them automatically. Exact matches use global store-backed lookup. More expensive fuzzy and LLM comparisons run on a smaller candidate set.
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/ontogr/agentic-graphrag/main/docs/static/img/readme/resolution.png" alt="Entity resolution tiers. A pair of mentions with the same label passes an exact tier, a fuzzy tier, an embedding tier, and an LLM tier. An unsure pair is never matched. A match writes MATCHES edges and a derived ResolvedEntity, and the original entities stay." width="900">
@@ -330,7 +330,7 @@ if __name__ == "__main__":
     asyncio.run(main())
 ```
 
-The script prints the counts below. The first run downloads two models, about 385 MB in total.
+The script prints the counts below. The first run downloads two models, about 850 MB in total.
 
 ```text
 documents: 1

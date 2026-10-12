@@ -34,7 +34,6 @@ from agrag.eval import (
 from agrag.ingestion.extract import (
     BAMLExtractor,
     ExtractionLLMSettings,
-    Extractor,
 )
 from tests.integration.e2e._artifact import write_artifact
 
@@ -50,7 +49,7 @@ ENTITY_THRESHOLD = 0.45
 RELATION_THRESHOLD = 0.15
 
 
-def _baml_extractor() -> Extractor:
+def _baml_extractor() -> BAMLExtractor:
     """Build the LLM extractor, or skip when no endpoint is configured."""
     try:
         settings = ExtractionLLMSettings.from_openai_compatible_env()

@@ -6,7 +6,7 @@ sidebar_label: GlinerExtractor
 # `agrag.ingestion.extract.GlinerExtractor` \{#agrag-ingestion-extract-GlinerExtractor}
 
 ```python
-GlinerExtractor(*, model_name:str = 'fastino/gliner2.5-small-v1', model:object | None = None, tracer:Tracer | None = None) -> None
+GlinerExtractor(*, settings:ExtractionSettings | None = None, model:object | None = None, tracer:Tracer | None = None) -> None
 ```
 
 Bases: <code>[Extractor](Extractor.md)</code>
@@ -23,23 +23,26 @@ Concurrent calls from separate event loops are not supported. The first load
 downloads the weights from Hugging Face unless
 `model` is passed. GLiNER reports entity spans and types, so extracted
 entities carry no property values. Needs the `extract` extra.
+It asks for confidence and spans, and applies the configured entity and
+per-label thresholds.
 
 **Parameters:**
 
-- **model_name** (<code>str</code>) – Checkpoint to load when `model` is not provided.
-- **model** (<code>object | None</code>) – An already-built GLiNER2.5 model.
+- **settings** (<code>[ExtractionSettings](../settings/ExtractionSettings.md) | None</code>) – The checkpoint, precision and score thresholds. `None`
+  reads `ExtractionSettings` from the environment and `.env`.
+- **model** (<code>object | None</code>) – An already-built GLiNER2.5 model. The checkpoint and precision
+  settings do not apply to this model.
 - **tracer** (<code>Tracer | None</code>) – Opens `agrag.extraction.gliner` and
   `agrag.extraction.model_load` spans. `None` opens no recorded
   span.
 
+**Attributes:**
+
+- [**settings**](#agrag-ingestion-extract-GlinerExtractor-settings) – The checkpoint, precision and thresholds used by extraction.
+
 **Functions:**
 
 - [**extract**](#agrag-ingestion-extract-GlinerExtractor-extract) – Extract with the local GLiNER2.5 model.
-
-**Attributes:**
-
-- [**max_concurrency**](#agrag-ingestion-extract-GlinerExtractor-max_concurrency) –
-- [**model_name**](#agrag-ingestion-extract-GlinerExtractor-model_name) –
 
 ## `extract` \{#agrag-ingestion-extract-GlinerExtractor-extract}
 
@@ -70,8 +73,8 @@ Extract with the local GLiNER2.5 model.
 max_concurrency = 1
 ```
 
-## `model_name` \{#agrag-ingestion-extract-GlinerExtractor-model_name}
+## `settings` \{#agrag-ingestion-extract-GlinerExtractor-settings}
 
 ```python
-model_name = model_name
+settings = settings if settings is not None else ExtractionSettings()
 ```

@@ -75,6 +75,43 @@ asyncio.run(main())
 
 Only `BAMLExtractor` uses the heading path. The local and escalating extractors read the chunk text only. See [Configure chunking](./configure-chunking.mdx) for the embedding side of this configuration.
 
+## Configure extraction
+
+`GlinerExtractor` reads its settings from `ExtractionSettings`. By default, it loads the base GLiNER 2.5 model in full precision and keeps entity spans with a score of at least 0.5. Set environment variables, add them to `.env`, or pass an `ExtractionSettings` object to the extractor. `Graph` accepts a local `Extractor` through `extractor=` and an LLM `LLMExtractor` through `llm_extractor=`.
+
+| Variable | Default | Effect |
+| --- | --- | --- |
+| `EXTRACTION_MODEL_NAME` | `fastino/gliner2.5-base-v1` | GLiNER checkpoint to load. `fastino/gliner2.5-small-v1` uses less memory and has lower accuracy. |
+| `EXTRACTION_DTYPE` | `fp32` | Model precision: `fp32`, `fp16`, or `bf16`. |
+| `EXTRACTION_ENTITY_THRESHOLD` | `0.5` | Lowest entity score kept, unless a label has its own threshold. |
+| `EXTRACTION_LABEL_THRESHOLDS` | `{}` | JSON object of per-label thresholds. |
+
+The base model needs about 850 MB for the first model download. `fp16` and `bf16` reduce model memory use, but their speed and support vary by device and PyTorch build. The model loads in `fp32` before it is cast. Check extraction results on your data before using a lower precision in production.
+
+For example, set per-label scores and the precision in `.env`:
+
+```dotenv
+EXTRACTION_DTYPE=bf16
+EXTRACTION_LABEL_THRESHOLDS={"Person": 0.7, "Organization": 0.6}
+```
+
+You can set the same values in Python:
+
+```python
+from agrag.ingestion import ExtractionSettings, GlinerExtractor
+
+settings = ExtractionSettings(dtype="bf16", label_thresholds={"Person": 0.7})
+extractor = GlinerExtractor(settings=settings)
+```
+
+`Graph` takes the settings from an injected, top-level `GlinerExtractor`. For a custom extractor, pass `extraction_settings=` to `Graph.open`. If you pass settings to both the graph and a top-level GLiNER extractor, their values must match. Graph does not inherit or compare GLiNER settings inside an `EscalatingExtractor`, including nested wrappers. When composing extractors, pass the same settings to Graph and the wrapped GLiNER extractor yourself.
+
+See the [configuration reference](../reference/configuration.mdx#local-extraction) for all extraction settings. Each extracted entity and relation has a `confidence` score from the model.
+
+`EXTRACTION_MODE` accepts `gliner`, `hybrid` (the default), and `llm`. `Graph.effective_mode` reports the mode selected for the graph, not the class of the extractor. When `hybrid` has no LLM configured, the mode becomes `gliner` and Graph logs a warning. An injected custom local extractor still runs unchanged in that mode; Graph does not replace it with GLiNER. `Graph` can configure both extractor slots in `hybrid`, but it does not yet escalate automatically between them. To escalate now, compose `GlinerExtractor` and an LLM extractor with `EscalatingExtractor`, as shown below.
+
+For LLM-only ingestion, pass `extraction_settings=ExtractionSettings(mode="llm")` and `llm_extractor=BAMLExtractor(...)` to `Graph.open`. Do not pass `extractor=` in that mode. If you omit `llm_extractor=`, `Graph` reads `EXTRACTION_LLM_CLIENTS`, or `LLM_BASE_URL` with `LLM_MODEL_ID`, to build it. `Graph.llm_model_name` reports the configured client models, or the class name of a custom LLM extractor.
+
 ## Run locally first, escalating to an LLM
 
 `GlinerExtractor` runs a local model. `EscalatingExtractor` runs it first and calls the LLM only when the local result is weak. It needs both extras:
@@ -82,6 +119,10 @@ Only `BAMLExtractor` uses the heading path. The local and escalating extractors 
 ```bash
 uv pip install "agentic-graphrag[extract,llm]"
 ```
+
+The extractor treats a chunk as weak if it has at least `min_chunk_words` words (8 by default) and no entities, or if the mean `confidence` of its entities is below `min_confidence` (0.5 by default). GLiNER keeps entities at or above 0.5 by default, so the mean-confidence condition needs a higher `min_confidence` or a lower entity threshold to fire. For example, set `min_confidence=0.75` on `EscalatingExtractor` to escalate retained entities with a mean score below 0.75.
+
+When you pass an `EscalatingExtractor` with an LLM fallback to `Graph`, use `hybrid` mode. The graph recognizes the wrapped LLM and reports `hybrid` without requiring an environment-configured client. `gliner` mode rejects a wrapper that could invoke an LLM, including nested wrappers.
 
 {/* pmd-metadata: fixture:llm_env */}
 
