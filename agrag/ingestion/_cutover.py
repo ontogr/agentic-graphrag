@@ -101,15 +101,49 @@ async def _acquire_lease(
         )
         if claimed:
             rollback_job_id = UUID(str(rows[0]["id"]))
-            await delete_pending_vectors(
-                vector_store=vector_store,
-                collections=vector_collections,
-                job_id=rollback_job_id,
+            stop_renewal = asyncio.Event()
+            renewal_stopped = asyncio.Event()
+            renewal = asyncio.create_task(
+                _renew_periodically(
+                    graph_store=graph_store,
+                    job_id=rollback_job_id,
+                    token=rollback_token,
+                    ttl_seconds=settings.lease_ttl_seconds,
+                    stop_event=stop_renewal,
+                    stopped_event=renewal_stopped,
+                )
             )
-            rolled_back = await graph_store.execute_write(
-                rollback_job_query(),
-                {"job_id": str(rollback_job_id), "lease_token": str(rollback_token)},
+            deletion = asyncio.create_task(
+                delete_pending_vectors(
+                    vector_store=vector_store,
+                    collections=vector_collections,
+                    job_id=rollback_job_id,
+                )
             )
+            try:
+                done, _ = await asyncio.wait(
+                    (deletion, renewal), return_when=asyncio.FIRST_COMPLETED
+                )
+                if renewal in done:
+                    await renewal
+                    raise RuntimeError("Lease renewal stopped unexpectedly.")
+                await deletion
+                stop_renewal.set()
+                await renewal
+                rolled_back = await graph_store.execute_write(
+                    rollback_job_query(),
+                    {
+                        "job_id": str(rollback_job_id),
+                        "lease_token": str(rollback_token),
+                    },
+                )
+            finally:
+                stop_renewal.set()
+                if not deletion.done():
+                    deletion.cancel()
+                if not renewal.done():
+                    renewal.cancel()
+                await asyncio.gather(deletion, renewal, return_exceptions=True)
             if rolled_back:
                 return await _acquire_lease(
                     document_key=document_key,
