@@ -121,7 +121,7 @@ def from_pydantic(
             if base in known and isinstance(base, type) and issubclass(base, BaseModel)
         ]
         inherited = {field for base in bases for field in base.model_fields}
-        own = set(model.__dict__.get("__annotations__") or ())
+        own = set(inspect.get_annotations(model))
         description = inspect.cleandoc(model.__doc__) if model.__doc__ else ""
         if not description:
             warnings.append(
