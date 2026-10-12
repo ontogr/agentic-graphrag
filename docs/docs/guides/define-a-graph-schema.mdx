@@ -112,7 +112,7 @@ This script contains the whole flow. It opens a graph, adds two sentences, and p
 ```python fixture:clean_neo4j
 import asyncio
 
-from agrag.common.data_models import EntityType, GraphSchema, RelationType
+from agrag.common.data_models import EntityType, GraphSchema, PropertySpec, RelationType
 from agrag.embedding import build_embedder
 from agrag.graphdb import build_graph_store
 from agrag.ingestion import GlinerExtractor, Graph
