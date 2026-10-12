@@ -36,6 +36,7 @@ const sidebars = {
     ]),
     section('Build the graph', [
       'guides/define-a-graph-schema',
+      'guides/write-a-custom-schema',
       'guides/use-a-preset',
       'guides/ingest-documents',
       'concepts/ingestion',
