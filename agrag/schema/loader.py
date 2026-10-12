@@ -5,9 +5,10 @@ import json
 import logging
 from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Any, NamedTuple
+from typing import Any, NamedTuple, cast
 
 import yaml
+from pydantic import BaseModel
 
 from agrag.common.data_models.graph_schema import (
     Cardinality,
@@ -32,12 +33,14 @@ from agrag.schema.shorthand import (
 
 logger = logging.getLogger(__name__)
 
-SchemaSource = GraphSchema | Mapping[str, Any] | Sequence[Any] | Path | str
+SchemaSource = (
+    GraphSchema | Mapping[str, Any] | Sequence[Any] | type[BaseModel] | Path | str
+)
 
 DEFAULT_NAME = "custom"
 DEFAULT_VERSION = "1"
 
-_FILE_SUFFIXES = (".json", ".yaml", ".yml")
+_FILE_SUFFIXES = (".json", ".yaml", ".yml", ".ttl")
 _BASE_PREFIX = "extends."
 _MODEL_LISTS = ("name", "version", "entities", "relations")
 
@@ -87,10 +90,22 @@ def _parse_yaml(text: str, source: str | None) -> object:
 
 def _read_file(path: Path) -> object:
     suffix = path.suffix.lower()
+    if suffix == ".ttl":
+        from agrag.schema.formats.dispatch import read_owl_file  # noqa: PLC0415
+
+        try:
+            return read_owl_file(path)
+        except Exception as exc:
+            from agrag.schema.formats.errors import SchemaFormatError  # noqa: PLC0415
+
+            if isinstance(exc, SchemaFormatError):
+                raise _fail(str(exc), str(path)) from exc
+            raise
     if suffix not in _FILE_SUFFIXES:
         shown = repr(path.suffix) if path.suffix else "files without a suffix"
         raise _fail(
-            f"cannot read {shown} files. Use a .json, .yaml or .yml file.", str(path)
+            f"cannot read {shown} files. Use a .json, .yaml, .yml or .ttl file.",
+            str(path),
         )
     try:
         text = path.read_text(encoding="utf-8")
@@ -119,9 +134,17 @@ def _from_parsed(parsed: object, name: str, origin: str | None) -> _Raw:
     )
 
 
-def _read_source(source: SchemaSource) -> GraphSchema | _Raw:
+def _read_source(source: SchemaSource) -> GraphSchema | _Raw:  # noqa: PLR0911
     if isinstance(source, GraphSchema):
         return source
+    # The format modules import this package, so the import runs at call time.
+    from agrag.schema.formats.dispatch import (  # noqa: PLC0415
+        is_model_source,
+        read_models,
+    )
+
+    if is_model_source(source):
+        return read_models(source)
     if isinstance(source, Mapping):
         return _Raw(dict(source), DEFAULT_NAME, None)
     if isinstance(source, str):
@@ -135,7 +158,7 @@ def _read_source(source: SchemaSource) -> GraphSchema | _Raw:
             presets = f"a preset name ({names}), " if names else ""
             raise _fail(
                 f"unknown schema {text!r}. Pass {presets}a path to a .json, "
-                ".yaml or .yml file, a dict, or a list of labels."
+                ".yaml, .yml or .ttl file, a dict, or a list of labels."
             )
         path = Path(text)
     elif isinstance(source, Path):
@@ -593,6 +616,10 @@ def _pick_extends(
         chosen, (GraphSchema, Mapping, Sequence, Path, str)
     ):
         return chosen
+    from agrag.schema.formats.dispatch import is_model_source  # noqa: PLC0415
+
+    if is_model_source(chosen):
+        return cast(SchemaSource, chosen)
     issues.add(
         "extends",
         f"extends must be a name, a path or a schema, got {describe(chosen)}.",
@@ -695,8 +722,10 @@ def load_schema(
     """Load a schema from any accepted source.
 
     ``source`` may be a ``GraphSchema``, a dict, a list of entity labels and
-    relations, JSON text, a path to a ``.json``, ``.yaml`` or ``.yml`` file, or
-    the name of a shipped schema. Shorthand is accepted at every level. The
+    relations, JSON text, a path to a ``.json``, ``.yaml``, ``.yml`` or
+    ``.ttl`` file, a Pydantic class or a list of Pydantic classes, or the name
+    of a shipped schema. Turtle import needs the optional ``schema-formats``
+    extra. Shorthand is accepted at every level. The
     result is always the canonical ``GraphSchema``.
 
     A schema with no ``extends`` stands alone and replaces the default schema.
