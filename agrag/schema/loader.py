@@ -48,7 +48,7 @@ SchemaSource = (
 DEFAULT_NAME = "custom"
 DEFAULT_VERSION = "1"
 
-_FILE_SUFFIXES = (".json", ".yaml", ".yml")
+_FILE_SUFFIXES = (".json", ".yaml", ".yml", ".ttl")
 _BASE_PREFIX = "extends."
 _MODEL_LISTS = ("name", "version", "entities", "relations")
 
@@ -102,10 +102,22 @@ def _parse_yaml(text: str, source: str | None) -> object:
 
 def _read_file(path: Path) -> object:
     suffix = path.suffix.lower()
+    if suffix == ".ttl":
+        from agrag.schema.formats.dispatch import read_owl_file  # noqa: PLC0415
+
+        try:
+            return read_owl_file(path)
+        except Exception as exc:
+            from agrag.schema.formats.errors import SchemaFormatError  # noqa: PLC0415
+
+            if isinstance(exc, SchemaFormatError):
+                raise _fail(str(exc), str(path)) from exc
+            raise
     if suffix not in _FILE_SUFFIXES:
         shown = repr(path.suffix) if path.suffix else "files without a suffix"
         raise _fail(
-            f"cannot read {shown} files. Use a .json, .yaml or .yml file.", str(path)
+            f"cannot read {shown} files. Use a .json, .yaml, .yml or .ttl file.",
+            str(path),
         )
     try:
         text = path.read_text(encoding="utf-8")
@@ -167,7 +179,7 @@ def _read_source(source: SchemaSource) -> GraphSchema | _Raw:  # noqa: PLR0911
             presets = f"a shipped schema name ({names}), " if names else ""
             raise _fail(
                 f"unknown schema {text!r}. Pass {presets}a path to a .json, "
-                ".yaml or .yml file, a dict, or a list of labels."
+                ".yaml, .yml or .ttl file, a dict, or a list of labels."
             )
         path = Path(text)
     elif isinstance(source, Path):
@@ -731,9 +743,10 @@ def load_schema(
     """Load a schema from any accepted source.
 
     ``source`` may be a ``GraphSchema``, a ``Preset``, a dict, a list of entity
-    labels and relations, JSON text, a path to a ``.json``, ``.yaml`` or ``.yml``
-    file, a Pydantic class or a list of Pydantic classes, or the name of a
-    shipped schema. Shorthand is accepted at every level. The
+    labels and relations, JSON text, a path to a ``.json``, ``.yaml``, ``.yml``
+    or ``.ttl`` file, a Pydantic class or a list of Pydantic classes, or the
+    name of a shipped schema. Turtle (``.ttl``) import needs the optional
+    ``schema-formats`` extra. Shorthand is accepted at every level. The
     result is always the canonical ``GraphSchema``.
 
     The shipped names are ``"default"``, ``"operations"`` and ``"legal"``. A

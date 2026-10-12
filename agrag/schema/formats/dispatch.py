@@ -1,11 +1,13 @@
 """Hooks that let ``load_schema`` read Pydantic classes and Turtle files."""
 
 import logging
+from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel
 
 from agrag.common.data_models.graph_schema import GraphSchema
+from agrag.schema.formats.owl import load_owl
 from agrag.schema.formats.pydantic_models import from_pydantic
 
 
@@ -39,3 +41,16 @@ def read_models(source: Any) -> GraphSchema:
     for warning in result.warnings:
         logger.warning("Schema import: %s", warning)
     return result.schema
+
+
+def read_owl_file(path: Path) -> dict[str, Any]:
+    """Read Turtle and return its validated canonical schema data."""
+    result = load_owl(path)
+    for warning in result.warnings:
+        fields = (warning.code, warning.element, warning.message)
+        safe_fields = tuple(
+            "".join(char if char.isprintable() else " " for char in field)
+            for field in fields
+        )
+        logger.warning("%s: %s: %s", *safe_fields)
+    return result.schema.model_dump(mode="json")
