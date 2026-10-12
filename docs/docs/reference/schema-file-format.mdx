@@ -76,9 +76,9 @@ You can write `relations` in these forms:
 
 | Form | Example |
 | --- | --- |
-| A string | `"Person-WORKS_FOR->Organization"` |
-| A string with alternatives | `"Person\|Organization-OWNS->Software\|Dataset"` (four patterns) |
-| A triple (Python only) | `("Person", "WORKS_FOR", "Organization")` |
+| A list of strings | `["Person-WORKS_FOR->Organization"]` |
+| A list of strings with alternatives | `["Person\|Organization-OWNS->Software\|Dataset"]` (four patterns) |
+| A list of triples (Python only) | `[("Person", "WORKS_FOR", "Organization")]` |
 | A list of objects | `[{label: OWNS, description: A person owns software., patterns: ["Person->Software"]}]` |
 | A label-to-patterns map | `{OWNS: "Person->Software"}` |
 | A label-to-object map | `{OWNS: {description: Ownership., patterns: ["Person->Software"]}}` |
