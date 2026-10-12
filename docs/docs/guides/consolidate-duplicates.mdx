@@ -59,7 +59,7 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
-Each `add` prints a resolution summary. `ambiguous_count` includes uncertain, missing, and malformed LLM answers. A failed request, unavailable LLM, or pair over the per-label cap also leaves the pair undecided, not rejected. Without an LLM, "C. Babbage" stays a separate entity.
+Each `add` prints a resolution summary. `ambiguous_count` counts uncertain, missing, and malformed LLM answers. `failed_llm_requests`, `cap_truncated_pairs`, and `llm_unavailable_pairs` count requests that raised, ambiguous pairs over the per-label cap, and pairs skipped because no LLM settings were found. These pairs stay undecided. Without an LLM, "C. Babbage" stays a separate entity.
 
 ## 2. Preview and apply the matches
 
@@ -141,9 +141,12 @@ The order of the names, and the name of the group, can differ in your run.
 
 - `would_match` lists every confirmed match. Each item has the two entity ids, the tier, a score when the tier has one, and the reason when an LLM decided. The tier is `fuzzy_fast_path`, `embedding`, or `llm`.
 - `ambiguous_count` is the number of LLM answers that were uncertain, missing, or malformed. Those pairs never merge.
+- `failed_llm_requests` is the number of LLM requests that raised an error. The pairs of those requests stay undecided.
+- `cap_truncated_pairs` is the number of ambiguous pairs over the per-label cap. The cap keeps the most similar pairs. Raise `max_llm_pairs` in `Graph(...)` to review more.
+- `llm_unavailable_pairs` is the number of ambiguous pairs that were skipped because no LLM settings were found. Set `EXTRACTION_LLM_CLIENTS`, or `LLM_BASE_URL` and `LLM_MODEL_ID`.
 - `applied` is `True` when the matches were written. `failures` lists any match that Agentic GraphRAG did not write, and any entity whose candidates it did not read. Consolidate does not compare that entity in this call. Run it again after you fix the cause.
 
-The report lists matches that the graph already stores. Applying the same matches again is safe. It does not include a count of LLM-unavailable pairs. Check the log for an unavailable-LLM warning; pairs the LLM could not judge stay separate and can be reviewed in a later run.
+If any of the three failure counts is not zero, the pass is partial. Run `consolidate` again after you fix the cause. The report lists matches that the graph already stores, so applying the same matches again is safe.
 
 ## Related
 

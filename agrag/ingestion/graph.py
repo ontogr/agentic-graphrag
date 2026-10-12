@@ -540,7 +540,13 @@ class Graph:
                 at ceil(L * MAX_LLM_PAIRS / 10) requests for L labels;
                 within each label, the highest-similarity pairs are verified
                 first. Inspect result.resolution.ambiguous_count for uncertain
-                model verdicts.
+                model verdicts. ``failed_llm_requests`` counts requests that
+                raised, ``cap_truncated_pairs`` counts ambiguous pairs over
+                the per-label cap, and ``llm_unavailable_pairs`` counts
+                ambiguous pairs skipped because LLM settings or a comparator
+                were unavailable.
+                These pairs stay undecided. ``in_batch_groups`` counts only
+                groups with at least two mentions from this batch.
 
         Raises:
             ValueError: The call got zero, or more than one, of ``source``, ``text``,
@@ -749,7 +755,9 @@ class Graph:
 
         Returns:
             A report of every confirmed non-exact match, applied or not,
-                plus the count of uncertain LLM verdicts and every failure.
+                plus the count of uncertain LLM verdicts, failed LLM requests,
+                pairs over the per-label cap, pairs skipped because LLM
+                settings were missing, and every other failure.
         """
         return await consolidate(
             apply=apply,
@@ -789,8 +797,10 @@ class Graph:
         Returns:
             Which entities were reevaluated, which matches were added,
                 which match edges were deactivated, which were left
-                unverified, and how many inputs had no incident added or
-                removed edge.
+                unverified, how many inputs had no incident added or removed
+                edge, and the counts of failed LLM requests, pairs over the
+                per-label cap, and pairs skipped because LLM settings were
+                missing.
 
         Raises:
             ValueError: An id has no live persisted entity.

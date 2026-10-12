@@ -202,6 +202,9 @@ async def main() -> None:
         result = await graph.add(text="Ada Lovelace wrote the first algorithm.")
         print(result.resolution.exact_match_hits)
         print(result.resolution.ambiguous_count)
+        print(result.resolution.failed_llm_requests)
+        print(result.resolution.cap_truncated_pairs)
+        print(result.resolution.llm_unavailable_pairs)
     finally:
         await graph_store.close()
 
@@ -209,7 +212,7 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
-`Graph.open` has no resolution configuration. Resolution uses the schema, the embedder, and the extractor that you pass to it. Inspect every run through the resolution stats on the returned `AddResult`. A pair that the LLM could not judge stays undecided. It is not a rejection, and it does not merge.
+`Graph.open` has no resolution configuration. Resolution uses the schema, the embedder, and the extractor that you pass to it. Inspect every run through the resolution stats on the returned `AddResult`. A pair that the LLM could not judge stays undecided. It is not a rejection, and it does not merge. Nonzero `failed_llm_requests`, `cap_truncated_pairs`, or `llm_unavailable_pairs` means that some pairs did not receive an LLM verdict. Fix the cause and run `consolidate()` to review them. Zero counts do not guarantee a decision for every pair, because the LLM can still return an uncertain answer. `in_batch_groups` counts only groups with at least two incoming mentions, not singletons or a lone mention joined to persisted candidates.
 
 ## Consolidate the whole graph
 
@@ -239,6 +242,7 @@ async def main() -> None:
         report = await graph.consolidate()
         print([(m.entity_a_id, m.entity_b_id) for m in report.would_match])
         print(report.ambiguous_count)
+        print(report.failed_llm_requests)
 
         applied = await graph.consolidate(apply=True)
     finally:

@@ -220,6 +220,9 @@ async def consolidate(
     with tracer.start_as_current_span("agrag.ingestion.consolidate"):
         would_match: list[MatchDecision] = []
         ambiguous_count = 0
+        failed_llm_requests = 0
+        cap_truncated_pairs = 0
+        llm_unavailable_pairs = 0
         entities_by_id: dict[UUID, Entity] = {}
         candidate_read_failures: list[StageFailure] = []
         # For each label, fetch all entities, then pairwise compare via Resolver
@@ -241,6 +244,9 @@ async def consolidate(
             )
             candidate_read_failures.extend(candidate_failures)
             ambiguous_count += resolution_result.ambiguous_count
+            failed_llm_requests += resolution_result.failed_llm_requests
+            cap_truncated_pairs += resolution_result.cap_truncated_pairs
+            llm_unavailable_pairs += resolution_result.llm_unavailable_pairs
             entities_by_id.update({entity.id: entity for entity in all_entities})
             for match in resolution_result.matches:
                 would_match.append(
@@ -288,6 +294,9 @@ async def consolidate(
             applied=apply and bool(rebuilt_entities),
             failures=consolidation_failures,
             ambiguous_count=ambiguous_count,
+            failed_llm_requests=failed_llm_requests,
+            cap_truncated_pairs=cap_truncated_pairs,
+            llm_unavailable_pairs=llm_unavailable_pairs,
         )
 
 
@@ -430,5 +439,8 @@ async def reevaluate(
             matches_added=matches_added,
             matches_removed=matches_removed,
             matches_unverified=matches_unverified,
+            failed_llm_requests=resolution.failed_llm_requests,
+            cap_truncated_pairs=resolution.cap_truncated_pairs,
+            llm_unavailable_pairs=resolution.llm_unavailable_pairs,
             unchanged_count=sum(1 for e in unique_ids if e not in touched),
         )
