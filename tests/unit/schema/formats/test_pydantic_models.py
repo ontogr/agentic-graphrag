@@ -2,7 +2,7 @@
 
 from datetime import date, datetime
 from enum import Enum
-from typing import Literal
+from typing import List, Literal
 
 import pytest
 from pydantic import BaseModel, Field
@@ -122,6 +122,72 @@ class TestFromPydantic:
         assert ("property_dropped", "Person.works_for") in [
             (w.code, w.element) for w in result.warnings
         ]
+        by_label = {entity.label: entity for entity in result.schema.entities}
+        assert "works_for" not in by_label["Person"].properties
+
+    def test_boolean_enum_values_use_lowercase_text(self) -> None:
+        """Boolean Literal values map to true and false, not True and False."""
+
+        class Switch(BaseModel):
+            """A boolean flag."""
+
+            enabled: Literal[True, False]
+
+        result = from_pydantic([Switch], name="t")
+
+        assert result.schema.entities[0].properties["enabled"].enum == [
+            "true",
+            "false",
+        ]
+
+    def test_mixed_enum_values_are_dropped_with_a_warning(self) -> None:
+        """A Literal of mixed types has no single property type."""
+
+        class Mixed(BaseModel):
+            """A mixed holder."""
+
+            value: Literal[1, "a"]
+
+        result = from_pydantic([Mixed], name="t")
+
+        assert ("property_dropped", "Mixed.value") in [
+            (w.code, w.element) for w in result.warnings
+        ]
+        assert "value" not in result.schema.entities[0].properties
+
+    def test_bare_collection_is_dropped_with_a_warning(self) -> None:
+        """A collection without an item type has no schema equivalent."""
+
+        class Bag(BaseModel):
+            """A bare holder."""
+
+            items: List
+
+        result = from_pydantic([Bag], name="t")
+
+        assert ("property_dropped", "Bag.items") in [
+            (w.code, w.element) for w in result.warnings
+        ]
+        assert "items" not in result.schema.entities[0].properties
+
+    def test_child_override_replaces_the_parent_field(self) -> None:
+        """A child that redeclares a parent field keeps its own mapping."""
+
+        class Status(BaseModel):
+            """A base holder."""
+
+            state: str
+
+        class ActiveStatus(Status):
+            """A child holder."""
+
+            state: Literal["active"]
+
+        result = from_pydantic([Status, ActiveStatus], name="t")
+
+        by_label = {entity.label: entity for entity in result.schema.entities}
+        assert by_label["ActiveStatus"].properties["state"].enum == ["active"]
+        assert by_label["Status"].properties["state"].enum is None
 
     def test_reserved_class_name_raises(self) -> None:
         """A class named like a graph label fails with a schema format error."""

@@ -36,7 +36,10 @@ def _shape(annotation: Any) -> tuple[Any, bool, bool]:
             return annotation, False, optional
         annotation = kept[0]
     if get_origin(annotation) in _COLLECTIONS:
-        return get_args(annotation)[0], True, optional
+        args = get_args(annotation)
+        if not args:
+            return annotation, False, optional
+        return args[0], True, optional
     return annotation, False, optional
 
 
@@ -48,6 +51,23 @@ def _enum_values(inner: Any) -> list[Any] | None:
     else:
         return None
     return values or None
+
+
+def _enum_kind(values: list[Any]) -> str | None:
+    """Infer one property type for enum values, or None when mixed."""
+    kinds = {_SCALARS.get(type(value)) for value in values}
+    if len(kinds) == 1:
+        return kinds.pop()
+    if kinds <= {"integer", "float"}:
+        return "float"
+    return None
+
+
+def _enum_text(value: Any) -> str:
+    """Render an enum value as the text the schema stores."""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    return str(value)
 
 
 def _max_length(field: FieldInfo) -> int | None:
@@ -68,14 +88,14 @@ def from_pydantic(
 
     Each class is an entity type: the class name is the label and the
     docstring is the description. A base class in ``models`` becomes a parent,
-    and the child keeps only the fields it adds. A field typed as another class
-    in ``models``, alone or in a list, is a relation named after the field in
-    upper case, from the class to the field type. Any other field is a
-    property. A field without a default, and not optional, is required. A
-    ``Literal`` or ``Enum`` field becomes a property with ``enum`` values. A
-    single-valued relation field gets a limit of one per source, and
-    ``max_length`` on a list field sets the limit. ``Field(description=...)``
-    is the description of a property or relation.
+    and the child keeps only the fields it adds or overrides. A field typed
+    as another class in ``models``, alone or in a list, is a relation named
+    after the field in upper case, from the class to the field type. Any
+    other field is a property. A field without a default, and not optional,
+    is required. A ``Literal`` or ``Enum`` field becomes a property with
+    ``enum`` values. A single-valued relation field gets a limit of one per
+    source, and ``max_length`` on a list field sets the limit.
+    ``Field(description=...)`` is the description of a property or relation.
 
     Args:
         models: The classes to read. Every class that a field refers to must
@@ -101,6 +121,7 @@ def from_pydantic(
             if base in known and isinstance(base, type) and issubclass(base, BaseModel)
         ]
         inherited = {field for base in bases for field in base.model_fields}
+        own = set(model.__dict__.get("__annotations__") or ())
         description = inspect.cleandoc(model.__doc__) if model.__doc__ else ""
         if not description:
             warnings.append(
@@ -112,7 +133,7 @@ def from_pydantic(
             )
         properties: dict[str, Any] = {}
         for field_name, field in model.model_fields.items():
-            if field_name in inherited:
+            if field_name in inherited and field_name not in own:
                 continue
             inner, many, optional = _shape(field.annotation)
             if inner in known:
@@ -125,7 +146,9 @@ def from_pydantic(
                 entry["limits"].append(_max_length(field) if many else 1)
                 continue
             values = _enum_values(inner)
-            kind = None if many else _SCALARS.get(type(values[0]) if values else inner)
+            kind: str | None = None
+            if not many:
+                kind = _enum_kind(values) if values else _SCALARS.get(inner)
             if kind is None:
                 warnings.append(
                     FormatWarning(
@@ -138,7 +161,9 @@ def from_pydantic(
             properties[field_name] = {
                 "type": kind,
                 "required": field.is_required() and not optional,
-                "enum": None if values is None else [str(value) for value in values],
+                "enum": (
+                    None if values is None else [_enum_text(value) for value in values]
+                ),
                 "description": field.description or "",
             }
         entities.append(
