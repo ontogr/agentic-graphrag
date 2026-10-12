@@ -592,6 +592,17 @@ class TestComputeMerge:
         )
         assert plan.survivor.properties["role"] == "engineer"
 
+    async def test_a_property_called_name_never_replaces_the_surface_name(
+        self,
+    ) -> None:
+        """The mention text is the name, whatever the mention holds."""
+        mention = _mention(text="Ada", properties={"name": "Someone Else"})
+        plan, _ = await compute_merge(
+            existing_entities=[], mentions=[mention], schema=_schema()
+        )
+
+        assert plan.survivor.name == "Ada"
+
     async def test_mismatched_labels_raise(self) -> None:
         """Mismatched labels raise ValueError."""
         e = _entity(label="Person", name="Ada")
