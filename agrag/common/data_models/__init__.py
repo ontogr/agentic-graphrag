@@ -14,6 +14,7 @@ from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.graph_record import NodeRecord, RelationRecord
 from agrag.common.data_models.graph_schema import (
     GENERIC,
+    Cardinality,
     EntityType,
     GraphSchema,
     PropertySpec,
@@ -29,6 +30,7 @@ from agrag.common.data_models.vector_record import Distance, VectorRecord
 
 __all__ = [
     "GENERIC",
+    "Cardinality",
     "Chunk",
     "Community",
     "Distance",

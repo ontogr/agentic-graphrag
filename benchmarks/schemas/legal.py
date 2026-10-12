@@ -61,7 +61,6 @@ LEGAL = GraphSchema(
                 "description": PropertySpec(type="string"),
                 "kind": PropertySpec(type="string", enum=_CLAUSE_KINDS),
             },
-            subtypes=_CLAUSE_KINDS,
         ),
         EntityType(
             label="Obligation",

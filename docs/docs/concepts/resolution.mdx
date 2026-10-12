@@ -12,7 +12,7 @@ Entity resolution decides which mentions name the same real-world thing. It only
 
 One thing has many names. A corpus can say "Charles Babbage", "Babbage Charles", and "C. Babbage". A graph with three nodes splits the evidence. A search then finds only a part of it.
 
-A wrong match costs more than a missed match. A missed match can be found later. A wrong match mixes the facts of two different things. For this reason, every tier prefers "no match" when it is not sure.
+A wrong match costs more than a missed match. A missed match can be found later. A wrong match mixes the facts of two different things. For this reason, every tier avoids merging when it is not sure. A pair that no tier could judge, for example because the LLM request failed, is undecided rather than rejected. Existing matches for that pair stay in place.
 
 ## How it works
 
@@ -29,7 +29,8 @@ flowchart TD
     E -- Yes --> M4[Match: cluster]
     E -- No --> F[LLM review]
     F -- Match --> M5[Match: LLM]
-    F -- "No match or unsure" --> N
+    F -- No match --> N
+    F -- "Uncertain or request failed" --> U[Undecided]
 ```
 
 *A pair goes down the tiers. The first tier that is sure decides.*
@@ -39,9 +40,9 @@ flowchart TD
 3. Fuzzy tier. The tier compares the words of both names and ignores their order. A score of 0.97 or more is a match. A lower score is not a rejection. It only means that the fast path does not apply.
 4. Embedding tier. Each name becomes a vector. A cosine similarity of 0.95 or more is a match. A similarity below 0.80 drops the pair. A similarity from 0.80 to 0.95 makes the pair ambiguous.
 5. Cluster tier. Ambiguous pairs are grouped by average similarity. A tight group is a match without an LLM call.
-6. LLM tier. An LLM reads each remaining pair with its context. It answers match, no match, or uncertain. Only a match merges. The LLM sees at most 500 pairs for each label, most similar first.
+6. LLM tier. An LLM reads each remaining pair with its context. It answers match, no match, or uncertain. Only a match merges. A failed request also leaves the pair undecided. The LLM sees at most 500 pairs for each label, most similar first; entity indices break ties. Pairs over the cap stay undecided and are counted in the resolution result.
 
-If no LLM is configured, the remaining pairs stay unmatched. The graph stays correct and is less complete.
+If no LLM is configured, the remaining pairs stay undecided. The graph does not merge them. A resolution call logs one warning, and `reevaluate` keeps any existing match edge for those pairs.
 
 ## Two scopes
 
@@ -65,7 +66,7 @@ Why cluster before the LLM? A tight group of similar names needs no judgment. Gr
 
 Why cap the LLM pairs for each label? The cap bounds the cost. One call makes at most ceil(L × 500 ÷ 10) LLM requests for L labels.
 
-Why does "unsure" mean no match? A missed match is recoverable with `Graph.consolidate`. A wrong match corrupts the graph.
+Why does "unsure" mean no merge? A missed match is recoverable with `Graph.consolidate`. An uncertain answer is not a rejection, so `Graph.reevaluate` does not remove a match because the model was unsure.
 
 Why compare only equal labels? A city and a company can have the same name. Keeping labels apart stops a merge across types.
 

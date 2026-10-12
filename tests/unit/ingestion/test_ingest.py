@@ -9,7 +9,9 @@ from agrag.common.data_models.chunk import Chunk
 from agrag.common.data_models.document import Document, DocumentFamily, SourceFormat
 from agrag.common.data_models.extraction import ExtractedEntity, ExtractedRelation
 from agrag.common.data_models.provenance import TextProvenance
-from agrag.ingestion._ingest import _group_by_document
+from agrag.ingestion._ingest import _group_by_document, _merge_add_results
+from agrag.ingestion.reports import AddResult
+from agrag.ingestion.stats import ChunkingStats, IngestStats, ResolutionStats
 
 
 LOGGER_NAME = "agrag.ingestion._ingest"
@@ -130,3 +132,33 @@ class TestGroupByDocument:
         warnings = _warnings(caplog)
         assert len(warnings) == 1
         assert "KNOWS" in warnings[0]
+
+
+class TestMergeAddResultsResolution:
+    """Call-level resolution stats sum the per-document counts."""
+
+    @staticmethod
+    def test_sums_failure_counts_across_documents() -> None:
+        """Every LLM failure count adds up over the document jobs."""
+        first = AddResult(
+            resolution=ResolutionStats(
+                failed_llm_requests=1,
+                cap_truncated_pairs=2,
+                llm_unavailable_pairs=3,
+            )
+        )
+        second = AddResult(
+            resolution=ResolutionStats(
+                failed_llm_requests=10,
+                cap_truncated_pairs=20,
+                llm_unavailable_pairs=30,
+            )
+        )
+
+        merged = _merge_add_results(
+            [first, second], ingestion=IngestStats(), chunking=ChunkingStats()
+        )
+
+        assert merged.resolution.failed_llm_requests == 11
+        assert merged.resolution.cap_truncated_pairs == 22
+        assert merged.resolution.llm_unavailable_pairs == 33

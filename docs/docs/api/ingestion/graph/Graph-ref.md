@@ -25,7 +25,7 @@ by `open()` when missing.
 - [**delete_document**](#agrag-ingestion-graph-Graph-delete_document) – Soft-delete a document by closing its current HAS_PART edges.
 - [**detect_communities**](#agrag-ingestion-graph-Graph-detect_communities) – Detect entity communities via hierarchical Leiden.
 - [**open**](#agrag-ingestion-graph-Graph-open) – Open a graph, connecting and fully provisioning graph_store.
-- [**reevaluate**](#agrag-ingestion-graph-Graph-reevaluate) – Reevaluate matches among the given entities, adding and removing edges.
+- [**reevaluate**](#agrag-ingestion-graph-Graph-reevaluate) – Reevaluate matches among the given entities.
 - [**update**](#agrag-ingestion-graph-Graph-update) – Replace one document version, closing its former HAS_PART edges.
 
 **Attributes:**
@@ -109,8 +109,15 @@ Give exactly one of `source`, `text`, and `documents`.
   confirmed matches persisted as MATCHES edges and derived
   ResolvedEntity nodes. LLM verification calls stay bounded
   at ceil(L * MAX_LLM_PAIRS / 10) requests for L labels;
-  inspect result.resolution.ambiguous_count for the pairs no
-  tier could decide.
+  within each label, the highest-similarity pairs are verified
+  first. Inspect result.resolution.ambiguous_count for uncertain
+  model verdicts. `failed_llm_requests` counts requests that
+  raised, `cap_truncated_pairs` counts ambiguous pairs over
+  the per-label cap, and `llm_unavailable_pairs` counts
+  ambiguous pairs skipped because LLM settings or a comparator
+  were unavailable.
+  These pairs stay undecided. `in_batch_groups` counts only
+  groups with at least two mentions from this batch.
 
 **Raises:**
 
@@ -152,7 +159,8 @@ candidate pairs. Confirmed non-exact matches preserve both raw
 Entity nodes and their relationships.
 
 LLM verification calls stay bounded: at most
-ceil(L * MAX_LLM_PAIRS / 10) requests for L labels. See Graph.add.
+ceil(L * MAX_LLM_PAIRS / 10) requests for L labels, as in Graph.add.
+Within a label, the highest-similarity pairs are verified first.
 
 **Parameters:**
 
@@ -165,7 +173,9 @@ entity is not compared in this call and the report lists the failure.
 **Returns:**
 
 - <code>[ConsolidationReport](../reports/consolidation_report/ConsolidationReport.md)</code> – A report of every confirmed non-exact match, applied or not,
-  plus the count of uncertain LLM verdicts and every failure.
+  plus the count of uncertain LLM verdicts, failed LLM requests,
+  pairs over the per-label cap, pairs skipped because LLM
+  settings were missing, and every other failure.
 
 ## `deactivate_match` \{#agrag-ingestion-graph-Graph-deactivate_match}
 
@@ -345,17 +355,24 @@ missing) so the dual writes never hit an absent collection.
 reevaluate(entity_ids:list[UUID]) -> ReevaluationReport
 ```
 
-Reevaluate matches among the given entities, adding and removing edges.
+Reevaluate matches among the given entities.
 
 Fetches exactly the supplied entities, compares same-label pairs
 only among this set through one zone-routed Resolver pass, writes
 confirmed matches that lack an active edge, and deactivates active
-edges among the set the resolver did not confirm. Exact-text pairs
-never gain or lose edges. Nothing outside the input set is compared
-or touched, and nothing calls this automatically.
+edges only when the resolver rejects their pair. Exact-text pairs
+never gain or lose edges. An active edge is deactivated only when the
+resolver rejects its pair: an embedding score under the discard
+threshold, or an explicit LLM "no match". When the resolver cannot
+decide the pair (the LLM request failed, the pair was over the
+per-label cap, no LLM settings were found, or the model answered
+uncertain), the edge stays active and its id appears in
+`matches_unverified`. Nothing outside the input set is compared or
+touched, and nothing calls this automatically.
 
 LLM verification calls stay bounded at ceil(L * MAX_LLM_PAIRS / 10)
-requests for L labels, as in Graph.add.
+requests for L labels, as in Graph.add. Within a label, the
+highest-similarity pairs are verified first.
 
 **Parameters:**
 
@@ -365,8 +382,11 @@ requests for L labels, as in Graph.add.
 **Returns:**
 
 - <code>[ReevaluationReport](../reports/reevaluation_report/ReevaluationReport.md)</code> – Which entities were reevaluated, which matches were added,
-  which match edges were deactivated, and how many inputs had no
-  incident added or removed edge.
+  which match edges were deactivated, which were left
+  unverified, how many inputs had no incident added or removed
+  edge, and the counts of failed LLM requests, pairs over the
+  per-label cap, and pairs skipped because LLM settings were
+  missing.
 
 **Raises:**
 

@@ -15,7 +15,7 @@ Exact identity groups mentions without evidence. A near-identical
 fuzzy score merges on the fast path. Every other pair consults its
 embedding cosine similarity: at or above the hard-merge threshold it
 merges, below the discard threshold it drops, and inside the band it
-needs LLM review, capped per label. Tight ambiguous sub-clusters
+needs LLM review, capped per label, most similar first. Tight sub-clusters
 merge without spending LLM calls.
 
 **Functions:**
@@ -46,8 +46,8 @@ merge without spending LLM calls.
   a pair merges without LLM review.
 - **discard_threshold** (<code>float</code>) – Embedding similarity below which a pair
   drops without LLM review.
-- **max_llm_pairs** (<code>int</code>) – Maximum ambiguous pairs sent to the LLM per
-  label.
+- **max_llm_pairs** (<code>int</code>) – Maximum ambiguous pairs sent to the LLM per label,
+  most similar first. The rest are undecided.
 - **llm_batch_size** (<code>int</code>) – Pairs per LLM request. Must fit the
   LLMVerify comparator's max_pairs_per_batch.
 - **tracer** (<code>Tracer | None</code>) – Opens this resolver's spans.
@@ -126,6 +126,6 @@ Resolve entity groups and retain each confirmed non-exact match.
 
 **Returns:**
 
-- <code>[ResolutionResult](ResolutionResult.md)</code> – Groups for every input index, evidence for every confirmed
-- <code>[ResolutionResult](ResolutionResult.md)</code> – non-exact pair, the count of uncertain LLM verdicts, and the
-- <code>[ResolutionResult](ResolutionResult.md)</code> – counts of failed LLM requests and cap-truncated pairs.
+- <code>[ResolutionResult](ResolutionResult.md)</code> – Groups and evidence, plus counts of uncertain verdicts, failed
+- <code>[ResolutionResult](ResolutionResult.md)</code> – requests, cap-truncated pairs, unavailable pairs, and all
+- <code>[ResolutionResult](ResolutionResult.md)</code> – unresolved pairs.

@@ -4,12 +4,13 @@ import logging
 import math
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
 from uuid import UUID, uuid4
 
 from opentelemetry.trace import Tracer
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from agrag.common.data_models.chunk import Chunk
 from agrag.common.data_models.extraction import ExtractedEntity
@@ -58,17 +59,21 @@ class ResolvedMatch(BaseModel):
 
 
 class ResolutionResult(BaseModel):
-    """The groups, non-exact evidence, and ambiguity count of one pass.
+    """The groups, non-exact evidence, and failure counts of one pass.
 
     Attributes:
         groups: One group per transitively connected mention set.
         matches: Evidence for every confirmed non-exact pair.
-        ambiguous_count: LLM verdicts that came back uncertain. These
-            pairs never merge.
-        failed_llm_requests: LLM verification requests that errored
-            and were mapped to "no match".
+        ambiguous_count: LLM answers that were uncertain, missing, or
+            malformed. These pairs never merge.
+        failed_llm_requests: LLM verification requests that errored. Their
+            pairs are undecided.
         cap_truncated_pairs: Boundary pairs that never reached the LLM
-            because of the per-label pair cap.
+            because of the per-label pair cap. They are undecided.
+        llm_unavailable_pairs: Boundary pairs skipped because no LLM
+            settings were found or the resolver has no LLM comparator.
+        unresolved_pairs: Every pair the resolver could not decide, sorted as
+            ``(left_index, right_index)`` with the lower index first.
     """
 
     groups: list[ResolutionGroup]
@@ -76,6 +81,8 @@ class ResolutionResult(BaseModel):
     ambiguous_count: int = 0
     failed_llm_requests: int = 0
     cap_truncated_pairs: int = 0
+    llm_unavailable_pairs: int = 0
+    unresolved_pairs: list[tuple[int, int]] = Field(default_factory=list)
 
 
 class ComparisonVerdict(StrEnum):
@@ -84,7 +91,9 @@ class ComparisonVerdict(StrEnum):
     Attributes:
         MATCH: The comparator is confident these are the same entity.
         NO_MATCH: The comparator is confident these are different entities.
-        UNCERTAIN: This comparator can't decide; the next one gets a turn.
+        UNCERTAIN: No decision. The comparator cannot decide, or the LLM tier
+            failed, was capped, or had no settings. The next comparator gets a
+            turn, and a caller must not treat it as a rejection.
     """
 
     MATCH = "match"
@@ -171,13 +180,18 @@ class FuzzyMatch(Comparator):
 
 
 class LLMVerify(Comparator):
-    """Ask an LLM to verify an ambiguous pair. Last resort. Never UNCERTAIN.
+    """Ask an LLM to verify an ambiguous pair. Last resort.
 
-    Never raises from an LLM-call failure: it resolves to NO_MATCH instead, by
-    the same fail-safe design as every comparator a Resolver runs. An
-    ambiguous or failed comparison never merges two entities. A missing package
-    extra is a configuration error, not an ambiguous judgment call, and is
-    raised outright instead (see compare's Raises section).
+    Returns ``UNCERTAIN``, never ``NO_MATCH``, for a pair it could not judge: a
+    failed request, missing LLM settings, or a missing or malformed answer. A
+    pair it did not judge never merges, and a caller must not treat it as
+    rejected. A missing package extra is a configuration error, not a judgment
+    call, and is raised outright (see compare's Raises section).
+
+    Attributes:
+        failed_requests: Requests that raised.
+        unavailable_pairs: Pairs skipped because no LLM settings were found.
+        unavailable_reason: Why the settings were missing, or None.
     """
 
     def __init__(
@@ -212,12 +226,15 @@ class LLMVerify(Comparator):
         self._client = client
         self.max_pairs_per_batch = max_pairs_per_batch
         self.failed_requests: int = 0
+        self.unavailable_pairs: int = 0
+        self.unavailable_reason: str | None = None
+        self._resolved_settings: ExtractionLLMSettings | None = settings
         self._tracer = tracer
 
     async def compare(
         self, a: ExtractedEntity, b: ExtractedEntity
     ) -> ComparisonVerdict:
-        """Return the LLM's verdict for one pair, or NO_MATCH on failure.
+        """Return the LLM's verdict for one pair, or UNCERTAIN when it gave none.
 
         Runs through compare_batch so the single-pair path shares the
         batch validation and fail-safe behavior.
@@ -273,10 +290,10 @@ class LLMVerify(Comparator):
                 same map.
 
         Returns:
-            The per-pair results and the count of raw uncertain verdicts,
-                before the fail-safe maps them to NO_MATCH. A request that
-                errors maps its pairs to NO_MATCH and increments
-                failed_requests.
+            The per-pair results and the count of uncertain verdicts, including
+                missing and malformed answers. A request that errors or has no
+                settings returns UNCERTAIN for its pairs and increments
+                ``failed_requests`` or ``unavailable_pairs`` instead.
         """
         if not pairs:
             return {}, 0
@@ -312,24 +329,11 @@ class LLMVerify(Comparator):
                     from agrag.llm import client_registry  # noqa: PLC0415
 
                     client = self._default_client()
-                    if self.settings is not None:
-                        settings = self.settings
-                    else:
-                        try:
-                            settings = ExtractionLLMSettings()
-                        except Exception:
-                            try:
-                                settings = (
-                                    ExtractionLLMSettings.from_openai_compatible_env()
-                                )
-                            except Exception:
-                                span.set_attribute("agrag.request_failed", True)
-                                return {
-                                    (left, right): ComparisonResult(
-                                        verdict=ComparisonVerdict.NO_MATCH
-                                    )
-                                    for left, right, _, _ in pairs
-                                }, 0
+                    settings = self._load_settings()
+                    if settings is None:
+                        span.set_attribute("agrag.llm_unavailable", True)
+                        self.unavailable_pairs += len(pairs)
+                        return _undecided(pairs), 0
                     registry = client_registry.build_client_registry(
                         settings.clients, strategy=settings.strategy
                     )
@@ -367,10 +371,7 @@ class LLMVerify(Comparator):
                 record_swallowed_exception(exc)
                 span.set_attribute("agrag.request_failed", True)
                 self.failed_requests += 1
-                return {
-                    (left, right): ComparisonResult(verdict=ComparisonVerdict.NO_MATCH)
-                    for left, right, _, _ in pairs
-                }, 0
+                return _undecided(pairs), 0
             from agrag.ingestion.resolve.batch_validation import (  # noqa: PLC0415
                 validate_batch_verdicts,
             )
@@ -381,7 +382,7 @@ class LLMVerify(Comparator):
                 for verdict in verdicts.values()
             )
             final = {
-                (left, right): _final_llm_result(verdicts[pair_id])
+                (left, right): verdicts[pair_id]
                 for pair_id, (left, right, _, _) in zip(pair_ids, pairs, strict=True)
             }
             span.set_attribute(
@@ -402,6 +403,26 @@ class LLMVerify(Comparator):
         except ImportError as exc:
             raise ExtractorMissingExtraError("LLMVerify", "llm") from exc
         return b
+
+    def _load_settings(self) -> ExtractionLLMSettings | None:
+        """Return LLM settings, trying the two environment sources once."""
+        if self._resolved_settings is not None:
+            return self._resolved_settings
+        if self.unavailable_reason is not None:
+            return None
+        try:
+            self._resolved_settings = ExtractionLLMSettings()
+        except Exception:  # noqa: BLE001
+            try:
+                self._resolved_settings = (
+                    ExtractionLLMSettings.from_openai_compatible_env()
+                )
+            except Exception as exc:  # noqa: BLE001
+                self.unavailable_reason = (
+                    "set EXTRACTION_LLM_CLIENTS, or LLM_BASE_URL and "
+                    f"LLM_MODEL_ID ({type(exc).__name__})"
+                )
+        return self._resolved_settings
 
     def _context_for(self, entity: ExtractedEntity) -> str:
         """Return the mention's source chunk text as comparison context."""
@@ -443,11 +464,14 @@ def _group_matches(entity_count: int, edges: list[tuple[int, int]]) -> list[list
     return list(groups.values())
 
 
-def _final_llm_result(result: ComparisonResult) -> ComparisonResult:
-    """Make an inconclusive LLM judgment a fail-safe negative decision."""
-    if result.verdict is ComparisonVerdict.UNCERTAIN:
-        return ComparisonResult(verdict=ComparisonVerdict.NO_MATCH)
-    return result
+def _undecided(
+    pairs: list[tuple[int, int, ExtractedEntity, ExtractedEntity]],
+) -> dict[tuple[int, int], ComparisonResult]:
+    """Return an UNCERTAIN result for every pair of a request that gave no answer."""
+    return {
+        (left, right): ComparisonResult(verdict=ComparisonVerdict.UNCERTAIN)
+        for left, right, _, _ in pairs
+    }
 
 
 def _cosine_similarity(left: Sequence[float], right: Sequence[float]) -> float:
@@ -479,6 +503,18 @@ def _match_record(
     )
 
 
+@dataclass(frozen=True)
+class _LlmTier:
+    """What the LLM tier left behind for one resolve call."""
+
+    ambiguous_count: int = 0
+    failed_requests: int = 0
+    cap_truncated_pairs: int = 0
+    unavailable_pairs: int = 0
+    unavailable_reason: str | None = None
+    unresolved_pairs: tuple[tuple[int, int], ...] = ()
+
+
 class Resolver:
     """Routes blocked candidate pairs through exact, fuzzy, embedding, and LLM zones.
 
@@ -486,7 +522,7 @@ class Resolver:
     fuzzy score merges on the fast path. Every other pair consults its
     embedding cosine similarity: at or above the hard-merge threshold it
     merges, below the discard threshold it drops, and inside the band it
-    needs LLM review, capped per label. Tight ambiguous sub-clusters
+    needs LLM review, capped per label, most similar first. Tight sub-clusters
     merge without spending LLM calls.
     """
 
@@ -517,8 +553,8 @@ class Resolver:
                 a pair merges without LLM review.
             discard_threshold: Embedding similarity below which a pair
                 drops without LLM review.
-            max_llm_pairs: Maximum ambiguous pairs sent to the LLM per
-                label.
+            max_llm_pairs: Maximum ambiguous pairs sent to the LLM per label,
+                most similar first. The rest are undecided.
             llm_batch_size: Pairs per LLM request. Must fit the
                 LLMVerify comparator's max_pairs_per_batch.
             tracer: Opens this resolver's spans.
@@ -575,9 +611,9 @@ class Resolver:
                 anyway. Not mutated.
 
         Returns:
-            Groups for every input index, evidence for every confirmed
-            non-exact pair, the count of uncertain LLM verdicts, and the
-            counts of failed LLM requests and cap-truncated pairs.
+            Groups and evidence, plus counts of uncertain verdicts, failed
+            requests, cap-truncated pairs, unavailable pairs, and all
+            unresolved pairs.
         """
         with self._tracer.start_as_current_span(
             "agrag.resolution.resolve", attributes={"agrag.entity_count": len(entities)}
@@ -592,36 +628,40 @@ class Resolver:
                         continue
                     compared.add(pair)
                     pairs.append(pair)
-            (
-                edges,
-                matches,
-                ambiguous_count,
-                failed,
-                truncated,
-            ) = await self._resolve_pairs(
+            edges, matches, tier = await self._resolve_pairs(
                 pairs, entities, neighbors_by_index or {}, similarity_by_pair or {}
             )
             span.set_attribute("agrag.pair_count", len(pairs))
-            span.set_attribute("agrag.ambiguous_count", ambiguous_count)
-            span.set_attribute("agrag.failed_llm_requests", failed)
-            span.set_attribute("agrag.cap_truncated_pairs", truncated)
+            span.set_attribute("agrag.ambiguous_count", tier.ambiguous_count)
+            span.set_attribute("agrag.failed_llm_requests", tier.failed_requests)
+            span.set_attribute("agrag.cap_truncated_pairs", tier.cap_truncated_pairs)
+            span.set_attribute("agrag.llm_unavailable_pairs", tier.unavailable_pairs)
             groups = _group_matches(len(entities), edges)
             result = ResolutionResult(
                 groups=[ResolutionGroup(entity_indices=group) for group in groups],
                 matches=matches,
-                ambiguous_count=ambiguous_count,
-                failed_llm_requests=failed,
-                cap_truncated_pairs=truncated,
+                ambiguous_count=tier.ambiguous_count,
+                failed_llm_requests=tier.failed_requests,
+                cap_truncated_pairs=tier.cap_truncated_pairs,
+                llm_unavailable_pairs=tier.unavailable_pairs,
+                unresolved_pairs=sorted(set(tier.unresolved_pairs)),
             )
-            if result.failed_llm_requests:
-                logger.warning(
-                    "Resolution mapped %d failed LLM requests to no-match",
-                    result.failed_llm_requests,
+            if result.unresolved_pairs:
+                reason = (
+                    f" LLM tier unavailable: {tier.unavailable_reason}."
+                    if tier.unavailable_pairs
+                    else ""
                 )
-            if result.cap_truncated_pairs:
                 logger.warning(
-                    "Resolution dropped %d boundary pairs at the LLM cap",
+                    "Resolution left %d pairs undecided: %d failed LLM requests, "
+                    "%d pairs over the cap of %d per label, %d pairs without an "
+                    "LLM.%s Existing matches stay in place.",
+                    len(result.unresolved_pairs),
+                    result.failed_llm_requests,
                     result.cap_truncated_pairs,
+                    self.max_llm_pairs,
+                    result.llm_unavailable_pairs,
+                    reason,
                 )
             return result
 
@@ -631,7 +671,7 @@ class Resolver:
         entities: list[ExtractedEntity],
         neighbors_by_index: dict[int, list[str]],
         similarity_by_pair: dict[tuple[int, int], float],
-    ) -> tuple[list[tuple[int, int]], list[ResolvedMatch], int, int, int]:
+    ) -> tuple[list[tuple[int, int]], list[ResolvedMatch], _LlmTier]:
         """Route candidate pairs through the exact, fuzzy, embedding, and LLM zones.
 
         LLM calls stay bounded: ambiguous pairs are capped per label at
@@ -681,7 +721,7 @@ class Resolver:
             fuzzy_uncertain, entities, edges, matches
         )
         boundary = self._precluster_tier(ambiguous, scored, edges, matches)
-        ambiguous_count, failed, truncated = await self._llm_tier(
+        tier = await self._llm_tier(
             boundary,
             entities,
             edges,
@@ -689,7 +729,7 @@ class Resolver:
             neighbors_by_index=neighbors_by_index,
             similarity_by_pair=similarity_by_pair,
         )
-        return edges, matches, ambiguous_count, failed, truncated
+        return edges, matches, tier
 
     async def _embedding_tier(
         self,
@@ -849,15 +889,21 @@ class Resolver:
         *,
         neighbors_by_index: dict[int, list[str]],
         similarity_by_pair: dict[tuple[int, int], float],
-    ) -> tuple[int, int, int]:
+    ) -> _LlmTier:
         """Verify capped boundary pairs with the LLM and merge its matches.
 
-        Returns:
-            Uncertain verdicts, failed LLM requests, and boundary pairs
-            dropped by the per-label cap.
+        Every boundary pair the tier cannot decide is returned in
+        ``unresolved_pairs``: pairs over the cap, from failed requests, skipped
+        for missing settings, or left uncertain by the model.
         """
-        if not boundary or self._llm is None:
-            return 0, 0, 0
+        if not boundary:
+            return _LlmTier()
+        if self._llm is None:
+            return _LlmTier(
+                unavailable_pairs=len(boundary),
+                unavailable_reason="the resolver has no LLMVerify comparator",
+                unresolved_pairs=tuple((left, right) for left, right, _ in boundary),
+            )
         with self._tracer.start_as_current_span(
             "agrag.resolution.llm_tier",
             attributes={"agrag.boundary_pair_count": len(boundary)},
@@ -868,14 +914,21 @@ class Resolver:
                     (left, right, similarity)
                 )
             selected: list[tuple[int, int]] = []
-            cap_truncated_pairs = 0
+            unresolved: list[tuple[int, int]] = []
             for candidates in by_label.values():
                 chosen = select_llm_pairs(candidates, max_pairs=self.max_llm_pairs)
-                cap_truncated_pairs += len(candidates) - len(chosen)
+                chosen_set = set(chosen)
+                unresolved.extend(
+                    (left, right)
+                    for left, right, _ in candidates
+                    if (left, right) not in chosen_set
+                )
                 selected.extend(chosen)
+            cap_truncated_pairs = len(unresolved)
             span.set_attribute("agrag.selected_pair_count", len(selected))
             span.set_attribute("agrag.cap_truncated_pairs", cap_truncated_pairs)
             failed_before = self._llm.failed_requests
+            unavailable_before = self._llm.unavailable_pairs
             ambiguous_count = 0
             for start in range(0, len(selected), self.llm_batch_size):
                 selected_chunk = selected[start : start + self.llm_batch_size]
@@ -911,7 +964,18 @@ class Resolver:
                                     reasoning=comparison.reasoning,
                                 )
                             )
+                        elif comparison.verdict is ComparisonVerdict.UNCERTAIN:
+                            unresolved.append((left, right))
             failed_llm_requests = self._llm.failed_requests - failed_before
+            unavailable_pairs = self._llm.unavailable_pairs - unavailable_before
             span.set_attribute("agrag.ambiguous_count", ambiguous_count)
             span.set_attribute("agrag.failed_llm_requests", failed_llm_requests)
-        return ambiguous_count, failed_llm_requests, cap_truncated_pairs
+            span.set_attribute("agrag.llm_unavailable_pairs", unavailable_pairs)
+        return _LlmTier(
+            ambiguous_count=ambiguous_count,
+            failed_requests=failed_llm_requests,
+            cap_truncated_pairs=cap_truncated_pairs,
+            unavailable_pairs=unavailable_pairs,
+            unavailable_reason=self._llm.unavailable_reason,
+            unresolved_pairs=tuple(unresolved),
+        )

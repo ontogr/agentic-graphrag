@@ -135,11 +135,11 @@ agrag.ingestion.add
 |---|---|
 | `agrag.resolution.global_exact_match` | `agrag.mention_count`, `agrag.exact_match_hits` |
 | `agrag.resolution.candidate_generation` | `agrag.mention_count`, `agrag.persisted_candidate_count`, `agrag.in_batch_candidate_count` |
-| `agrag.resolution.resolve` | `agrag.entity_count`, `agrag.pair_count`, `agrag.ambiguous_count`, `agrag.failed_llm_requests`, `agrag.cap_truncated_pairs` |
+| `agrag.resolution.resolve` | `agrag.entity_count`, `agrag.pair_count`, `agrag.ambiguous_count`, `agrag.failed_llm_requests`, `agrag.cap_truncated_pairs`, `agrag.llm_unavailable_pairs` |
 | `agrag.resolution.exact_fuzzy_pass` | `agrag.pair_count`, `agrag.exact_match_count`, `agrag.fuzzy_fast_path_count`, `agrag.fuzzy_uncertain_count` |
 | `agrag.resolution.embedding_tier` | `agrag.fuzzy_uncertain_count`, `agrag.hard_merge_count`, `agrag.ambiguous_count` |
 | `agrag.resolution.precluster_tier` | `agrag.boundary_pairs_before`, `agrag.auto_merged_count`, `agrag.boundary_pairs_after` |
-| `agrag.resolution.llm_tier` | `agrag.boundary_pair_count`, `agrag.selected_pair_count`, `agrag.cap_truncated_pairs`, `agrag.ambiguous_count`, `agrag.failed_llm_requests` |
+| `agrag.resolution.llm_tier` | `agrag.boundary_pair_count`, `agrag.selected_pair_count`, `agrag.cap_truncated_pairs`, `agrag.ambiguous_count`, `agrag.failed_llm_requests`, `agrag.llm_unavailable_pairs` |
 | `agrag.resolution.llm_batch` | `agrag.batch_size`, `agrag.uncertain_count` |
 | `agrag.merge.merge_group` | `agrag.mention_count`, `agrag.conflicts_resolved` |
 | `agrag.merge.rebuild_components` | `agrag.component_count` |
@@ -216,7 +216,7 @@ Each LLM path also opens one small domain span carrying its own ids and counts.
 | Extraction, BAML | `agrag.extraction.baml` | `agrag.chunk_id`, `agrag.entities_extracted`, `agrag.relations_extracted`, `agrag.extraction.heading_context` (bool, whether a section line was sent) |
 | Extraction, GLiNER | `agrag.extraction.gliner`, and `agrag.extraction.model_load` around the one-time model build | the same counts. `agrag.model` is on the load span |
 | Extraction, escalating | `agrag.extraction.escalating` | `agrag.chunk_id`, `agrag.escalated` (bool) |
-| Resolution | `agrag.resolution.llm_verify` | `agrag.pair_count`, `agrag.match_count`, `agrag.uncertain_count`, `agrag.request_failed` (bool) |
+| Resolution | `agrag.resolution.llm_verify` | `agrag.pair_count`, `agrag.match_count`, `agrag.uncertain_count`, `agrag.request_failed` (bool), `agrag.llm_unavailable` (bool) |
 | Merge | `agrag.merge.resolve_description` | `agrag.description_count`, `agrag.summarized` (bool) |
 | Community | `agrag.community.report_batch` | `agrag.batch_size` |
 | Text2cypher | `agrag.retrieval.generate_cypher` | `agrag.is_repair` (bool) |
@@ -231,8 +231,9 @@ Two of these are conditional:
   `agrag.is_repair` tells a first attempt from a retry after a failure.
 
 `agrag.resolution.llm_verify` never carries an `ERROR` status. A failed LLM
-call resolves to `NO_MATCH`, not an error. The span stays `UNSET` and sets
-`agrag.request_failed` instead.
+call leaves its pairs undecided, not rejected, and is not an error. The span
+stays `UNSET` and sets `agrag.request_failed` instead. When no LLM settings are
+available, it sets `agrag.llm_unavailable` instead.
 
 ## The retrieval span tree
 

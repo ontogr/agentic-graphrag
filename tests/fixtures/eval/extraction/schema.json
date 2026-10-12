@@ -5,68 +5,68 @@
     {
       "label": "kpi",
       "description": "Key performance indicator expressible in numerical and monetary value, such as revenue or net sales. Every word of the KPI name.",
-      "properties": {},
-      "subtypes": []
+      "parents": [],
+      "properties": {}
     },
     {
       "label": "cy",
       "description": "The current year value of a KPI. Only the number, without a currency sign or a scale word such as million. Not a forecast or a limit that the company sets.",
-      "properties": {},
-      "subtypes": []
+      "parents": [],
+      "properties": {}
     },
     {
       "label": "py",
       "description": "The prior year value of a KPI (current year minus 1). Only the number, without a currency sign or a scale word such as million. Not a forecast or a limit that the company sets.",
-      "properties": {},
-      "subtypes": []
+      "parents": [],
+      "properties": {}
     },
     {
       "label": "py1",
       "description": "The value of a KPI two years before the current year. Only the number, without a currency sign or a scale word such as million. Not a forecast or a limit that the company sets.",
-      "properties": {},
-      "subtypes": []
+      "parents": [],
+      "properties": {}
     },
     {
       "label": "increase",
       "description": "The number that gives an increase of a KPI from the previous year to the current year. Only the number, without a currency sign or a scale word.",
-      "properties": {},
-      "subtypes": []
+      "parents": [],
+      "properties": {}
     },
     {
       "label": "increase_py",
       "description": "The number that gives an increase of a KPI from two years back to the prior year. Only the number, without a currency sign or a scale word.",
-      "properties": {},
-      "subtypes": []
+      "parents": [],
+      "properties": {}
     },
     {
       "label": "decrease",
       "description": "The number that gives a decrease of a KPI from the previous year to the current year. Only the number, without a currency sign or a scale word.",
-      "properties": {},
-      "subtypes": []
+      "parents": [],
+      "properties": {}
     },
     {
       "label": "decrease_py",
       "description": "The number that gives a decrease of a KPI from two years back to the prior year. Only the number, without a currency sign or a scale word.",
-      "properties": {},
-      "subtypes": []
+      "parents": [],
+      "properties": {}
     },
     {
       "label": "thereof",
       "description": "A subordinate KPI: a KPI that is part of another, broader KPI. Every word of its name.",
-      "properties": {},
-      "subtypes": []
+      "parents": [],
+      "properties": {}
     },
     {
       "label": "attr",
       "description": "Words that further describe a KPI and define its exact name.",
-      "properties": {},
-      "subtypes": []
+      "parents": [],
+      "properties": {}
     },
     {
       "label": "kpi_coref",
       "description": "A co-reference to a KPI mentioned in a previous sentence.",
-      "properties": {},
-      "subtypes": []
+      "parents": [],
+      "properties": {}
     }
   ],
   "relations": [

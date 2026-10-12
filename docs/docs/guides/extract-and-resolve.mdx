@@ -178,7 +178,7 @@ Alternatively, use `ExtractionLLMSettings.from_openai_compatible_env()` to read 
 
 ## Resolution runs inside every write
 
-You never call resolution directly. `graph.add()` resolves every batch automatically. Exact-name identity groups mentions without evidence. A fuzzy fast path merges near-identical names. Embedding similarity decides the rest. A capped LLM tier reviews only the ambiguous band. Raw entity nodes are permanent. Confirmed non-exact matches persist as `MATCHES` edges with a derived resolved node. No call deletes a node.
+You never call resolution directly. `graph.add()` resolves every batch automatically. Exact-name identity groups mentions without evidence. A fuzzy fast path merges near-identical names. Embedding similarity decides the rest. A capped LLM tier reviews only the ambiguous band, starting with the most similar pairs. If pairs tie, their entity indices set the order. Pairs over the cap stay undecided. Raw entity nodes are permanent. Confirmed non-exact matches persist as `MATCHES` edges with a derived resolved node. No call deletes a node.
 
 ```python
 import asyncio
@@ -202,6 +202,9 @@ async def main() -> None:
         result = await graph.add(text="Ada Lovelace wrote the first algorithm.")
         print(result.resolution.exact_match_hits)
         print(result.resolution.ambiguous_count)
+        print(result.resolution.failed_llm_requests)
+        print(result.resolution.cap_truncated_pairs)
+        print(result.resolution.llm_unavailable_pairs)
     finally:
         await graph_store.close()
 
@@ -209,11 +212,11 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
-`Graph.open` has no resolution configuration. Resolution uses the schema, the embedder, and the extractor that you pass to it. Inspect every run through the resolution stats on the returned `AddResult`.
+`Graph.open` has no resolution configuration. Resolution uses the schema, the embedder, and the extractor that you pass to it. Inspect every run through the resolution stats on the returned `AddResult`. A pair that the LLM could not judge stays undecided. It is not a rejection, and it does not merge. Nonzero `failed_llm_requests`, `cap_truncated_pairs`, or `llm_unavailable_pairs` means that some pairs did not receive an LLM verdict. Fix the cause and run `consolidate()` to review them. Zero counts do not guarantee a decision for every pair, because the LLM can still return an uncertain answer. `in_batch_groups` counts only groups with at least two incoming mentions, not singletons or a lone mention joined to persisted candidates.
 
 ## Consolidate the whole graph
 
-`consolidate()` runs the same resolution as a full pass over every persisted entity of each type. Run a dry run first, then apply:
+`consolidate()` runs the same resolution as a full pass over every persisted entity of each type. The LLM reviews the most similar pairs first for each label, with entity indices breaking ties. Pairs over the cap stay undecided. Run a dry run first, then apply:
 
 ```python
 import asyncio
@@ -239,6 +242,7 @@ async def main() -> None:
         report = await graph.consolidate()
         print([(m.entity_a_id, m.entity_b_id) for m in report.would_match])
         print(report.ambiguous_count)
+        print(report.failed_llm_requests)
 
         applied = await graph.consolidate(apply=True)
     finally:
@@ -252,7 +256,7 @@ A dry run writes nothing. An apply run writes `MATCHES` edges and derived resolv
 
 ## Re-evaluate specific entities
 
-`reevaluate()` re-runs the same resolution for entities you name, when new evidence lands or a past decision looks wrong. It adds newly confirmed matches. It deactivates edges that the current evidence no longer supports. It leaves every entity outside the list untouched:
+`reevaluate()` re-runs the same resolution for entities you name, when new evidence lands or a past decision looks wrong. It adds newly confirmed matches. It deactivates an edge only when the current evidence rejects its pair, such as an embedding score below the discard threshold or an explicit LLM "no match". If the LLM request fails, the pair is over the cap, the LLM is unavailable, or the model is uncertain, the pair stays undecided and its edge stays active. The edge id appears in `report.matches_unverified`. It leaves every entity outside the list untouched:
 
 ```python
 import asyncio
@@ -283,6 +287,7 @@ async def main() -> None:
         report = await graph.reevaluate(entity_ids)
         print(report.matches_added)
         print(report.matches_removed)
+        print(report.matches_unverified)
     finally:
         await graph_store.close()
 
@@ -290,7 +295,7 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
-There is no automatic trigger. A caller that learns something new calls `reevaluate()` explicitly.
+There is no automatic trigger. A caller that learns something new calls `reevaluate()` explicitly. An edge in `matches_unverified` remains active because the resolver could not re-check its pair. See [Entity resolution](../concepts/resolution.mdx) for the difference between an undecided pair and a rejection.
 
 `Resolver.resolve()` also takes an optional `neighbors_by_index` map of per-entity neighboring-relationship strings, which batched `LLMVerify` calls send to the model as extra context. `Graph.add()` and `Graph.consolidate()` build one automatically from a batch's extracted relations and each persisted entity's stored graph edges.
 

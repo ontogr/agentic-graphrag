@@ -13,10 +13,9 @@ One kind of entity a schema recognizes.
 
 - [**label**](#agrag-common-data_models-graph_schema-EntityType-label) (<code>str</code>) – The node label used in the extraction prompt and the graph.
 - [**description**](#agrag-common-data_models-graph_schema-EntityType-description) (<code>str</code>) – Guidance fed to the extractor prompt or schema builder.
-- [**properties**](#agrag-common-data_models-graph_schema-EntityType-properties) (<code>dict\[str, [PropertySpec](PropertySpec.md)\]</code>) – Property names mapped to their `PropertySpec`. `label`
-  and `text` are rejected as names, because retrieval filtering and
-  keyword search use both as vector payload keys.
-- [**subtypes**](#agrag-common-data_models-graph_schema-EntityType-subtypes) (<code>list\[str\]</code>) – Labels that narrow this type. Empty when this type has no subtypes.
+- [**parents**](#agrag-common-data_models-graph_schema-EntityType-parents) (<code>list\[str\]</code>) – Declared parent labels, nearest parent first.
+- [**properties**](#agrag-common-data_models-graph_schema-EntityType-properties) (<code>dict\[str, [PropertySpec](PropertySpec.md)\]</code>) – Property names mapped to their `PropertySpec`. Properties
+  are not inherited from parents.
 
 ## `description` \{#agrag-common-data_models-graph_schema-EntityType-description}
 
@@ -30,14 +29,20 @@ description: str
 label: str
 ```
 
+## `model_config` \{#agrag-common-data_models-graph_schema-EntityType-model_config}
+
+```python
+model_config = ConfigDict(extra='forbid')
+```
+
+## `parents` \{#agrag-common-data_models-graph_schema-EntityType-parents}
+
+```python
+parents: list[str] = Field(default_factory=list)
+```
+
 ## `properties` \{#agrag-common-data_models-graph_schema-EntityType-properties}
 
 ```python
 properties: dict[str, PropertySpec] = Field(default_factory=dict)
-```
-
-## `subtypes` \{#agrag-common-data_models-graph_schema-EntityType-subtypes}
-
-```python
-subtypes: list[str] = Field(default_factory=list)
 ```

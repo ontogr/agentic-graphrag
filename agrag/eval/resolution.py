@@ -34,8 +34,8 @@ class ClusterAssignment(BaseModel):
             of one.
         matches_by_tier: How many confirmed non-exact matches each comparator
             made. Empty for gold clusters.
-        failed_llm_requests: LLM verification requests that errored and were
-            mapped to "no match". Zero on gold clusters.
+        failed_llm_requests: LLM verification requests that errored. Their
+            pairs stay undecided. Zero on gold clusters.
     """
 
     size: int

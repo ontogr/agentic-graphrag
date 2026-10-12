@@ -35,7 +35,7 @@ The text of a document is read exactly as the gold offsets count it: a carriage 
 
 ## The graph schema
 
-One schema covers all four sources: privacy policies, non-disclosure agreements, contracts, and merger agreements. It has 11 entity types (such as `Agreement`, `Party`, `DefinedTerm`, `Clause`, `Obligation`, `TimePeriod`, `DataCategory`), 16 relation types (such as `PARTY_TO`, `IMPOSES`, `DEFINES`, `SHARED_WITH`), and 12 clause kinds as subtypes of `Clause`. The clause kinds are a general legal list, not the labels of CUAD, MAUD, or ContractNLI. Read the schema in `benchmarks/schemas/legal.py`.
+One schema covers all four sources: privacy policies, non-disclosure agreements, contracts, and merger agreements. It has 11 entity types (such as `Agreement`, `Party`, `DefinedTerm`, `Clause`, `Obligation`, `TimePeriod`, `DataCategory`), 16 relation types (such as `PARTY_TO`, `IMPOSES`, `DEFINES`, `SHARED_WITH`), and 12 clause kinds, which are the allowed values of the `kind` property of `Clause`. The clause kinds are a general legal list, not the labels of CUAD, MAUD, or ContractNLI. Read the schema in `benchmarks/schemas/legal.py`.
 
 ## How answers are scored
 

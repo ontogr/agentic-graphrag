@@ -298,6 +298,15 @@ def _merge_add_results(
             ambiguous_count=sum(
                 result.resolution.ambiguous_count for result in results
             ),
+            failed_llm_requests=sum(
+                result.resolution.failed_llm_requests for result in results
+            ),
+            cap_truncated_pairs=sum(
+                result.resolution.cap_truncated_pairs for result in results
+            ),
+            llm_unavailable_pairs=sum(
+                result.resolution.llm_unavailable_pairs for result in results
+            ),
         ),
         merge=MergeStats(
             nodes_created=sum(result.merge.nodes_created for result in results),
