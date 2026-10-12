@@ -36,6 +36,26 @@ def _client(name: str, provider: str = "openai") -> LLMClientConfig:
 class TestBuildClientRegistry:
     """The builder registers clients and picks a primary per strategy."""
 
+    @staticmethod
+    def test_registry_receives_unwrapped_api_key(monkeypatch) -> None:
+        """The BAML registry receives a plain API key string."""
+        mock = MockClientRegistry()
+        monkeypatch.setattr("baml_py.ClientRegistry", lambda: mock)
+        secret = "x" * 5
+
+        build_client_registry(
+            [
+                LLMClientConfig(
+                    name="secured",
+                    provider="openai",
+                    model="m",
+                    api_key=secret,
+                )
+            ]
+        )
+
+        assert mock.added[0][2]["api_key"] == secret
+
     def test_fallback_registers_a_composite_over_all_names(self, monkeypatch) -> None:
         """Fallback adds one composite client and makes it primary."""
         mock = MockClientRegistry()

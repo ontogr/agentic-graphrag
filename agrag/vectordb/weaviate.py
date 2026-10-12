@@ -103,8 +103,8 @@ class WeaviateVectorStore(VectorStore):
                 except ImportError as exc:
                     raise VectorStoreMissingExtraError("weaviate") from exc
                 auth = (
-                    Auth.api_key(self._settings.api_key)
-                    if self._settings.api_key
+                    Auth.api_key(self._settings.api_key.get_secret_value())
+                    if self._settings.api_key.get_secret_value()
                     else None
                 )
                 if self._settings.mode == "cloud":
