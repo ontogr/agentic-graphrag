@@ -315,7 +315,10 @@ class TestOwlImport:
 
             <urn:example:Parent> a owl:Class .
             <urn:example:Child> a owl:Class ;
-                rdfs:subClassOf <urn:example:Parent> .
+                rdfs:subClassOf <urn:example:Parent>, [
+                    a owl:Restriction ; owl:onProperty <urn:example:hasCode> ;
+                    owl:maxCardinality 1
+                ] .
             <urn:example:hasCode> a owl:DatatypeProperty ;
                 rdfs:domain <urn:example:Parent> .
         """)
@@ -324,6 +327,7 @@ class TestOwlImport:
             entity for entity in result.schema.entities if entity.label == "Child"
         )
         assert "hasCode" in child.properties
+        assert any(warning.code == "restriction_ignored" for warning in result.warnings)
 
     def test_timezone_date_enum_is_normalized_to_schema_date(self):
         """Timezone suffixes are removed from date enum lexical values."""

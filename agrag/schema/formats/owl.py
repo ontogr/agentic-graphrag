@@ -637,6 +637,10 @@ def _read(  # noqa: PLR0912, PLR0915
                     not owners
                     or not mapped_property
                     or not any(
+                        owner in _domains(graph, prop, rdfs, owl, rdf)
+                        for owner in owners
+                    )
+                    or not any(
                         graph.value(subject, term) is not None
                         for term in cardinality_terms
                     )
