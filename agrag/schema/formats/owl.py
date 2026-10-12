@@ -33,12 +33,10 @@ _SCALAR_TYPES = {
 def _rdflib() -> tuple[Any, ...]:
     try:
         rdf = import_module("rdflib")
-        collection = import_module("rdflib.collection")
         namespace = import_module("rdflib.namespace")
     except ImportError as exc:
         raise SchemaFormatMissingExtraError("OWL Turtle import", _EXTRA) from exc
     return (
-        collection.Collection,
         rdf.Graph,
         namespace.OWL,
         rdf.RDF,
@@ -195,7 +193,7 @@ def _relation_limits(  # noqa: PLR0917
 def _read(  # noqa: PLR0912, PLR0915
     text: str, *, name: str | None, version: str | None
 ) -> ImportResult:
-    collection, graph_type, owl, rdf, rdfs, uri_ref, xsd = _rdflib()
+    graph_type, owl, rdf, rdfs, uri_ref, xsd = _rdflib()
     graph = graph_type()
     try:
         graph.parse(data=text, format="turtle", publicID="urn:agrag:input:")
@@ -471,11 +469,13 @@ def _read(  # noqa: PLR0912, PLR0915
             )
             continue
         domains = _domains(graph, prop, rdfs, owl, rdf)
-        ranges = set()
+        range_uris = set()
         for node in graph.objects(prop, rdfs.range):
             union = graph.value(node, owl.unionOf)
-            ranges.update(_rdf_list(graph, union, rdf) if union is not None else [node])
-        ranges = sorted(ranges, key=str)
+            range_uris.update(
+                _rdf_list(graph, union, rdf) if union is not None else [node]
+            )
+        ranges = sorted(range_uris, key=str)
         sources = [declared[node] for node in domains if node in declared]
         targets = [declared[node] for node in ranges if node in declared]
         for node in [*domains, *ranges]:
@@ -544,7 +544,7 @@ def _read(  # noqa: PLR0912, PLR0915
             symmetric_limit = max_per_source or max_per_target
             max_per_source = symmetric_limit
             max_per_target = symmetric_limit
-            patterns = sorted(
+            reverse_patterns = sorted(
                 {
                     (source, target)
                     for source in sources
@@ -552,6 +552,7 @@ def _read(  # noqa: PLR0912, PLR0915
                     for source, target in ((source, target), (target, source))
                 }
             )
+            patterns = [[source, target] for source, target in reverse_patterns]
         relations.append(
             {
                 "label": rel_label,
