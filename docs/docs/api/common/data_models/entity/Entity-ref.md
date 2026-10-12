@@ -123,7 +123,7 @@ source_chunk_ids: list[UUID] = Field(default_factory=list)
 ## `to_node_record` \{#agrag-common-data_models-entity-Entity-to_node_record}
 
 ```python
-to_node_record() -> NodeRecord
+to_node_record(*, ancestor_labels:Sequence[str] = ()) -> NodeRecord
 ```
 
 Return this entity as a GraphStore write record.
@@ -131,3 +131,14 @@ Return this entity as a GraphStore write record.
 Name, merge_key, merge_count, and source_chunk_ids are
 flattened into properties as plain JSON-safe values. GraphStore has
 no reason to know these fields are special.
+
+**Parameters:**
+
+- **ancestor_labels** (<code>Sequence\[str\]</code>) – Labels of this entity's parent types, nearest
+  first. They follow the entity's own label, so a query on a
+  parent label also finds the node. Empty for a root type.
+
+**Returns:**
+
+- <code>[NodeRecord](../graph_record/NodeRecord.md)</code> – A NodeRecord whose labels are the entity's own label followed by
+- <code>[NodeRecord](../graph_record/NodeRecord.md)</code> – `ancestor_labels`.
