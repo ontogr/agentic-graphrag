@@ -1,7 +1,8 @@
-"""Tests for LLM pair selection and ambiguous-cluster preclustering.
+"""Tests for pair ranking and safe pre-clustering of ambiguous candidates.
 
-Covers select_llm_pairs ranking ambiguous candidates by similarity with a cap,
-and precluster_ambiguous auto-merging only tight sub-clusters.
+The ranking tests check the similarity cap and index tie-break. The clustering
+tests check that only tight groups auto-merge and that missing similarities do
+not create a group.
 """
 
 from uuid import uuid4
@@ -26,6 +27,12 @@ class TestSelectLlmPairs:
         candidates = [(0, 1, 0.82), (2, 3, 0.90), (4, 5, 0.85)]
 
         assert select_llm_pairs(candidates, max_pairs=2) == [(2, 3), (4, 5)]
+
+    def test_equal_similarity_breaks_ties_by_index(self) -> None:
+        """Equal scores keep lower index pairs first, whatever the input order."""
+        candidates = [(4, 5, 0.85), (0, 1, 0.85), (2, 3, 0.85)]
+
+        assert select_llm_pairs(candidates, max_pairs=2) == [(0, 1), (2, 3)]
 
     def test_non_positive_cap_returns_no_pairs(self) -> None:
         """A non-positive cap cannot bypass the LLM review limit."""

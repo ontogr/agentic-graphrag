@@ -1,4 +1,4 @@
-"""Zone classification for entity-resolution candidate pairs."""
+"""Pair selection and sub-clustering for entity-resolution LLM review."""
 
 from collections.abc import Mapping
 from uuid import UUID
@@ -10,55 +10,31 @@ from agrag.ingestion._clustering import average_linkage_clusters
 
 HARD_MERGE_THRESHOLD = 0.95
 DISCARD_THRESHOLD = 0.80
-FUZZY_FAST_PATH_THRESHOLD = 0.97
 MAX_LLM_PAIRS = 500
-
-
-def classify_zone(fuzzy_score: float, embedding_similarity: float | None) -> str:
-    """Assign a candidate pair to a resolution zone.
-
-    A near-identical fuzzy score merges without consulting the embedding.
-    Otherwise the embedding similarity decides: at or above the hard-merge
-    threshold the pair merges, inside the discard-to-hard-merge band it
-    needs LLM review, and below the discard threshold it is dropped. A
-    missing embedding with a below-fast-path fuzzy score also discards,
-    since no signal supports a merge.
-
-    Args:
-        fuzzy_score: Token-sort-ratio similarity in ``[0, 1]``.
-        embedding_similarity: Cosine similarity in ``[-1, 1]``, or ``None``
-            when no embedding is available.
-
-    Returns:
-        ``"hard_merge"``, ``"ambiguous"``, or ``"discard"``.
-    """
-    if fuzzy_score >= FUZZY_FAST_PATH_THRESHOLD:
-        return "hard_merge"
-    if embedding_similarity is None:
-        return "discard"
-    if embedding_similarity >= HARD_MERGE_THRESHOLD:
-        return "hard_merge"
-    if embedding_similarity >= DISCARD_THRESHOLD:
-        return "ambiguous"
-    return "discard"
 
 
 def select_llm_pairs(
     candidates: list[tuple[int, int, float]], *, max_pairs: int = MAX_LLM_PAIRS
 ) -> list[tuple[int, int]]:
-    """Rank ambiguous candidates for LLM review, most similar first.
+    """Rank ambiguous candidates for LLM review and keep the first ``max_pairs``.
+
+    The order is similarity, highest first. Pairs with equal similarity keep the
+    lower ``(left_index, right_index)`` first, so the same input always yields
+    the same pairs. The pairs this drops are the least similar, and the caller
+    must report them as undecided.
 
     Args:
         candidates: ``(left_index, right_index, similarity)`` triples.
         max_pairs: Maximum pairs to return.
 
     Returns:
-        Index pairs ordered by similarity descending, capped at
-        ``max_pairs``.
+        Index pairs in the order above, at most ``max_pairs`` of them.
     """
     if max_pairs <= 0:
         return []
-    ranked = sorted(candidates, key=lambda candidate: candidate[2], reverse=True)
+    ranked = sorted(
+        candidates, key=lambda candidate: (-candidate[2], candidate[0], candidate[1])
+    )
     return [(left, right) for left, right, _ in ranked[:max_pairs]]
 
 

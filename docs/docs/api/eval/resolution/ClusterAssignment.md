@@ -16,8 +16,8 @@ A grouping of mentions, listed by position in the mention list.
   of one.
 - [**matches_by_tier**](#agrag-eval-resolution-ClusterAssignment-matches_by_tier) (<code>dict\[str, int\]</code>) – How many confirmed non-exact matches each comparator
   made. Empty for gold clusters.
-- [**failed_llm_requests**](#agrag-eval-resolution-ClusterAssignment-failed_llm_requests) (<code>int</code>) – LLM verification requests that errored and were
-  mapped to "no match". Zero on gold clusters.
+- [**failed_llm_requests**](#agrag-eval-resolution-ClusterAssignment-failed_llm_requests) (<code>int</code>) – LLM verification requests that errored. Their
+  pairs stay undecided. Zero on gold clusters.
 
 ## `clusters` \{#agrag-eval-resolution-ClusterAssignment-clusters}
 

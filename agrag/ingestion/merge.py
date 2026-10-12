@@ -28,7 +28,7 @@ from agrag.observability import get_tracer, record_stage_failure
 if TYPE_CHECKING:
     from baml_py import ClientRegistry
 
-    from agrag.graphdb.base import GraphStore
+    from agrag.graphdb.base import GraphStore, GraphStoreTransaction
     from agrag.llm.baml_client.runtime import BamlCallOptions
 
 
@@ -595,7 +595,7 @@ async def apply_merge(
     validate_identifier(plan.survivor.label)
     survivor_id = str(plan.survivor.id)
 
-    async with graph_store.transaction() as txn:
+    async def write(txn: GraphStoreTransaction) -> None:
         # Everything except source_chunk_ids/merge_count is applied as-is;
         # those two go through upsert_survivor_query's atomic accumulation
         # instead, using node_params only to get their driver-safe encoding,
@@ -631,6 +631,8 @@ async def apply_merge(
         }
         if conflicts:
             raise GraphStoreAliasConflictError(conflicts)
+
+    await graph_store.run_in_transaction(write)
 
 
 def mentioned_in_id(chunk_id: UUID, entity_id: UUID) -> UUID:

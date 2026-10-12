@@ -27,10 +27,10 @@ driver's managed transactions with no added retry loop.
 - [**execute_write**](#agrag-graphdb-neo4j-Neo4jGraphStore-execute_write) – Run a write transaction and return its rows.
 - [**register_labels**](#agrag-graphdb-neo4j-Neo4jGraphStore-register_labels) – Add labels to this instance's known-label set.
 - [**register_relation_types**](#agrag-graphdb-neo4j-Neo4jGraphStore-register_relation_types) – Add types to this instance's known-relation-type set.
+- [**run_in_transaction**](#agrag-graphdb-neo4j-Neo4jGraphStore-run_in_transaction) – Run work in a Neo4j managed transaction and return its result.
 - [**session**](#agrag-graphdb-neo4j-Neo4jGraphStore-session) – Open a session to the configured database.
 - [**setup_constraints**](#agrag-graphdb-neo4j-Neo4jGraphStore-setup_constraints) – Create `id` and `merge_key` uniqueness constraints per label.
 - [**setup_indexes**](#agrag-graphdb-neo4j-Neo4jGraphStore-setup_indexes) – Set up indexes now provided by the store's uniqueness constraints.
-- [**transaction**](#agrag-graphdb-neo4j-Neo4jGraphStore-transaction) – Open one Neo4j explicit transaction spanning multiple writes.
 - [**upsert_nodes**](#agrag-graphdb-neo4j-Neo4jGraphStore-upsert_nodes) – Write or merge nodes, honoring each record's full label set.
 - [**upsert_relations**](#agrag-graphdb-neo4j-Neo4jGraphStore-upsert_relations) – Write or merge relationships between existing nodes.
 - [**vector_search**](#agrag-graphdb-neo4j-Neo4jGraphStore-vector_search) – Search nodes by dense vector using the native vector index.
@@ -163,6 +163,31 @@ Add types to this instance's known-relation-type set.
 
 - <code>ValueError</code> – Any type is not a safe identifier.
 
+## `run_in_transaction` \{#agrag-graphdb-neo4j-Neo4jGraphStore-run_in_transaction}
+
+```python
+run_in_transaction(work:Callable[[GraphStoreTransaction], Awaitable[_T]]) -> _T
+```
+
+Run work in a Neo4j managed transaction and return its result.
+
+Neo4j may retry `work` after a transient failure. The callback must
+therefore be safe to run again and must return results rather than
+mutate state outside the callback.
+
+**Parameters:**
+
+- **work** (<code>Callable\[\[[GraphStoreTransaction](../base/GraphStoreTransaction.md)\], Awaitable\[\_T\]\]</code>) – The reads and writes to run together. Must be safe to retry.
+
+**Returns:**
+
+- <code>\_T</code> – Whatever `work` returns.
+
+**Raises:**
+
+- <code>[GraphStoreConstraintViolationError](../errors/GraphStoreConstraintViolationError.md)</code> – The transaction violated a
+  uniqueness constraint.
+
 ## `session` \{#agrag-graphdb-neo4j-Neo4jGraphStore-session}
 
 ```python
@@ -203,28 +228,6 @@ Kept as a no-op for callers that provision constraints and indexes in
 separate steps. Neo4j creates backing indexes for the `id` and
 `merge_key` uniqueness constraints, so creating range indexes for
 the same properties would conflict with those constraints.
-
-## `transaction` \{#agrag-graphdb-neo4j-Neo4jGraphStore-transaction}
-
-```python
-transaction() -> AsyncIterator[GraphStoreTransaction]
-```
-
-Open one Neo4j explicit transaction spanning multiple writes.
-
-Commits when the `async with` block exits cleanly; rolls back and
-re-raises when it raises. The identity constraint is ensured before
-opening the transaction, the same way `upsert_nodes` ensures it
-before writing, since `_Neo4jTransaction.upsert_nodes` skips that
-check to avoid a nested write racing the transaction it belongs to.
-
-**Raises:**
-
-- <code>[GraphStoreConstraintViolationError](../errors/GraphStoreConstraintViolationError.md)</code> – A write inside the block, or the
-  commit itself, violated a uniqueness constraint -- Neo4j
-  validates some constraints only at commit time for an
-  explicit transaction, so this can surface here even when
-  every individual write appeared to succeed.
 
 ## `upsert_nodes` \{#agrag-graphdb-neo4j-Neo4jGraphStore-upsert_nodes}
 

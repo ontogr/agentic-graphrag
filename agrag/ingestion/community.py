@@ -262,7 +262,7 @@ async def delete_all_communities(
     Args:
         graph_store: Where the delete runs. Accepts either a
             ``GraphStore`` or a ``GraphStoreTransaction`` handle so a
-            caller inside ``store.transaction()`` can delete and rewrite
+            ``store.run_in_transaction`` callback can delete and rewrite
             communities atomically.
         batch_size: Community nodes deleted per statement.
     """
@@ -727,8 +727,7 @@ async def _clear_communities(
     graph_store: GraphStore, vector_store: VectorStore | None, collection: str
 ) -> list[StageFailure]:
     """Delete every stored community and return the vector store failures."""
-    async with graph_store.transaction() as tx:
-        await delete_all_communities(tx)
+    await graph_store.run_in_transaction(delete_all_communities)
     if vector_store is None:
         return []
     try:
@@ -746,7 +745,8 @@ async def _replace_community_nodes(
     The write first deletes every earlier community, so a failure leaves the
     previous communities in place.
     """
-    async with graph_store.transaction() as tx:
+
+    async def replace(tx: GraphStoreTransaction) -> None:
         await delete_all_communities(tx)
         for start in range(0, len(communities), _WRITE_BATCH_SIZE):
             batch = communities[start : start + _WRITE_BATCH_SIZE]
@@ -767,6 +767,8 @@ async def _replace_community_nodes(
                     buffer = []
         if buffer:
             await tx.upsert_relations(buffer)
+
+    await graph_store.run_in_transaction(replace)
 
 
 async def _replace_community_vectors(

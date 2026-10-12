@@ -5,7 +5,6 @@ community writes. Clustering runs the real Leiden implementation on a graph
 small enough to split the same way on every run.
 """
 
-from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, MagicMock
 from uuid import UUID, uuid4
 
@@ -46,11 +45,10 @@ def _graph_store(
     store = MagicMock()
     store.execute_read = AsyncMock(side_effect=execute_read)
 
-    @asynccontextmanager
-    async def open_transaction():
-        yield transaction
+    async def run_in_transaction(work):
+        return await work(transaction)
 
-    store.transaction = open_transaction
+    store.run_in_transaction = run_in_transaction
     return store, transaction
 
 
