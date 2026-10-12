@@ -93,6 +93,22 @@ _CLINICAL_SCHEMA = GraphSchema(
 class TestSearchEngine:
     """SearchEngine fans out methods, fuses, and reranks."""
 
+    def test_schema_edits_do_not_change_other_engines(self) -> None:
+        """Each engine keeps an independent snapshot of its input schema."""
+        schema = _CLINICAL_SCHEMA.model_copy(deep=True)
+        first = SearchEngine(
+            graph_store=AsyncMock(), embedder=MockEmbedder(), graph_schema=schema
+        )
+        second = SearchEngine(
+            graph_store=AsyncMock(), embedder=MockEmbedder(), graph_schema=schema
+        )
+
+        schema.entities[0].description = "Changed by the caller."
+        first.graph_schema.relations[0].patterns.clear()
+
+        assert first.graph_schema.entities[0].description == "A medication."
+        assert second.graph_schema.relations[0].patterns == [("Drug", "Disease")]
+
     async def test_cross_encoder_reserves_slots_for_community_items(self) -> None:
         """cross_encoder reranking excludes communities and reserves them slots.
 

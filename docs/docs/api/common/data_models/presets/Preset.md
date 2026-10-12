@@ -37,7 +37,8 @@ Return a new schema with this preset's entity types appended.
 **Returns:**
 
 - <code>[GraphSchema](../graph_schema/GraphSchema.md)</code> – A new schema named `"<base name>+<preset name>"` with the base
-- <code>[GraphSchema](../graph_schema/GraphSchema.md)</code> – version and relations.
+- <code>[GraphSchema](../graph_schema/GraphSchema.md)</code> – version and relations. The new name identifies the preset variant;
+- <code>[GraphSchema](../graph_schema/GraphSchema.md)</code> – its version tracks revisions within that variant.
 
 **Raises:**
 

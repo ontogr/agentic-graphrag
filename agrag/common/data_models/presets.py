@@ -31,7 +31,8 @@ class Preset(BaseModel):
 
         Returns:
             A new schema named ``"<base name>+<preset name>"`` with the base
-            version and relations.
+            version and relations. The new name identifies the preset variant;
+            its version tracks revisions within that variant.
 
         Raises:
             ValueError: The base already declares a preset entity label.

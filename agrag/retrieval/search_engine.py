@@ -119,7 +119,9 @@ class SearchEngine:
         self._settings = settings or RetrievalSettings()
         self._tracer = tracer
         self._graph_schema = (
-            graph_schema if graph_schema is not None else DEFAULT_SCHEMA
+            graph_schema.model_copy(deep=True)
+            if graph_schema is not None
+            else DEFAULT_SCHEMA.model_copy(deep=True)
         )
         schema_labels = [entity.label for entity in self._graph_schema.entities]
         if (
