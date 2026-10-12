@@ -44,6 +44,7 @@ OPTIONAL_MODULES = [
     "openinference.instrumentation",
     "pymilvus",
     "qdrant_client",
+    "rdflib",
     "sentence_transformers",
     "weaviate",
 ]
