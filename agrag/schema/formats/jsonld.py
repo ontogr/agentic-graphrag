@@ -37,7 +37,7 @@ def _property_node(
     base: str, label: str, name: str, spec: PropertySpec
 ) -> dict[str, Any]:
     node: dict[str, Any] = {
-        "@id": _iri(base, f"{label}/{name}"),
+        "@id": f"{base}{quote(label, safe='')}/{quote(name, safe='')}",
         "@type": "owl:DatatypeProperty",
         "rdfs:label": {"@value": name},
         "rdfs:domain": {"@id": _iri(base, label)},
@@ -69,8 +69,13 @@ def _relation_node(base: str, relation: RelationType) -> dict[str, Any]:
     if relation.description:
         node["rdfs:comment"] = {"@value": relation.description}
     if relation.patterns:
-        domains = sorted({_iri(base, source) for source, _ in relation.patterns})
-        ranges = sorted({_iri(base, target) for _, target in relation.patterns})
+        domains = {source for source, _ in relation.patterns}
+        ranges = {target for _, target in relation.patterns}
+        if relation.symmetric:
+            domains.update(ranges)
+            ranges.update(source for source, _ in relation.patterns)
+        domains = sorted({_iri(base, label) for label in domains})
+        ranges = sorted({_iri(base, label) for label in ranges})
         node["rdfs:domain"] = _union(domains)
         node["rdfs:range"] = _union(ranges)
     for limit, annotation, owl_type in (

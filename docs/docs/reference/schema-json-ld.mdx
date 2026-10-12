@@ -65,11 +65,11 @@ document = to_jsonld(schema, base_iri="https://example.org/catalog#")
 | Symmetry | `agrag:symmetric` boolean annotation |
 | Property required flag and enum | `agrag:required` and `agrag:enum` annotations |
 
-The `agrag` prefix names `https://ontogr.com/agrag/schema#`. The annotations preserve declarations for tools that understand them; OWL reasoners do not enforce them. Symmetry is an annotation rather than an `owl:SymmetricProperty` axiom because reversing the relation could conflict with its declared domain and range.
+The `agrag` prefix names `https://ontogr.com/agrag/schema#`. The annotations preserve declarations for tools that understand them; OWL reasoners do not enforce them. Symmetry is an annotation rather than an `owl:SymmetricProperty` axiom, so OWL reasoners do not infer reverse edges from the export.
 
-Entity and relation IRIs append the percent-encoded label to the base. Property IRIs append the percent-encoded `EntityLabel/propertyName`, so properties with the same name on different entity types remain distinct. Parent links use standard OWL inheritance. In OWL, a child therefore also belongs to a parent's property domain, although `GraphSchema` does not inherit property declarations.
+Entity and relation IRIs append the percent-encoded label to the base. Property IRIs append the separately percent-encoded entity label and property name, separated by `/`, so slash-containing names cannot make distinct declarations share an IRI. Parent links use standard OWL inheritance. In OWL, a child therefore also belongs to a parent's property domain, although `GraphSchema` does not inherit property declarations.
 
-Domain and range unions do not preserve the pairing between endpoint types. For example, patterns `(Person, Company)` and `(Team, Project)` produce domain and range unions that also admit the other pairings. Read `agrag:patterns` for the original pairs. A relation with no patterns has no domain or range axiom.
+Domain and range unions do not preserve the pairing between endpoint types. For example, patterns `(Person, Company)` and `(Team, Project)` produce domain and range unions that also admit the other pairings. Symmetric relations include both endpoints in both unions because each allowed edge can also be reversed. Read `agrag:patterns` for the original pairs. A relation with no patterns has no domain or range axiom.
 
 The export omits the schema version. It does not validate `base_iri`; pass an absolute namespace IRI, usually ending in `#`, `/`, or `:`. OWL functional properties express identity constraints, not data validation rules that reject a second value.
 
