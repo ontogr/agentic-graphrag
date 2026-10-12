@@ -42,6 +42,7 @@ Shared data models used by agrag components.
 - [**NodeRecord**](graph_record/NodeRecord.md) – One graph node, ready to write.
 - [**Normalization**](normalization/Normalization-ref.md) – How a loader turned source bytes into `Document.text`.
 - [**PageProvenance**](provenance/PageProvenance.md) – The location of a chunk across one or more pages.
+- [**PropertySpec**](graph_schema/PropertySpec.md) – The declaration of one property on an entity type.
 - [**Relation**](relation/Relation-ref.md) – A resolved relationship between two Entity nodes.
 - [**RelationRecord**](graph_record/RelationRecord.md) – One graph relationship, ready to write.
 - [**RelationType**](graph_schema/RelationType.md) – One kind of relation a schema recognizes.

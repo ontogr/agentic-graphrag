@@ -16,6 +16,7 @@ from agrag.common.data_models.graph_schema import (
     GENERIC,
     EntityType,
     GraphSchema,
+    PropertySpec,
     RelationType,
 )
 from agrag.common.data_models.normalization import Normalization
@@ -40,6 +41,7 @@ __all__ = [
     "NodeRecord",
     "Normalization",
     "PageProvenance",
+    "PropertySpec",
     "Relation",
     "RelationRecord",
     "RelationType",

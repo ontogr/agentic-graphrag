@@ -5,7 +5,17 @@ items, each with a value, unit, scale and period. Periods and filings are entiti
 because questions name a company and a period but not the document.
 """
 
-from agrag.common.data_models.graph_schema import EntityType, GraphSchema, RelationType
+from agrag.common.data_models.graph_schema import (
+    EntityType,
+    GraphSchema,
+    PropertySpec,
+    RelationType,
+)
+
+
+_TEXT = PropertySpec(type="string")
+_NUMBER = PropertySpec(type="float")
+_DATE = PropertySpec(type="date")
 
 
 FINANCIAL = GraphSchema(
@@ -18,7 +28,7 @@ FINANCIAL = GraphSchema(
                 "The reporting company of a filing, under its legal name or common "
                 "short name (for example Boeing, The Boeing Company)."
             ),
-            properties={"ticker": "str", "sector": "str"},
+            properties={"ticker": _TEXT, "sector": _TEXT},
         ),
         EntityType(
             label="Filing",
@@ -26,7 +36,7 @@ FINANCIAL = GraphSchema(
                 "One filed document: a 10-K, 10-Q, 8-K or earnings release, named by "
                 "its cover page."
             ),
-            properties={"form_type": "str", "fiscal_year": "str", "period_end": "date"},
+            properties={"form_type": _TEXT, "fiscal_year": _TEXT, "period_end": _DATE},
         ),
         EntityType(
             label="FiscalPeriod",
@@ -34,7 +44,7 @@ FINANCIAL = GraphSchema(
                 "A fiscal year or quarter as the company labels it, such as FY2022 or "
                 "the fourth quarter of fiscal 2022."
             ),
-            properties={"period_kind": "str", "period_end": "date"},
+            properties={"period_kind": _TEXT, "period_end": _DATE},
         ),
         EntityType(
             label="FinancialMetric",
@@ -46,11 +56,11 @@ FINANCIAL = GraphSchema(
                 "an effective tax rate. Do not extract other table line items."
             ),
             properties={
-                "metric_name": "str",
-                "value": "float",
-                "unit": "str",
-                "scale": "str",
-                "currency": "str",
+                "metric_name": _TEXT,
+                "value": _NUMBER,
+                "unit": _TEXT,
+                "scale": _TEXT,
+                "currency": _TEXT,
             },
         ),
         EntityType(
@@ -73,26 +83,26 @@ FINANCIAL = GraphSchema(
         EntityType(
             label="Person",
             description="A named executive, director or other individual.",
-            properties={"title": "str"},
+            properties={"title": _TEXT},
         ),
         EntityType(
             label="Risk",
             description=(
                 "A stated risk factor or business exposure, such as cyclicality."
             ),
-            properties={"description": "str"},
+            properties={"description": _TEXT},
         ),
         EntityType(
             label="LegalProceeding",
             description="A lawsuit, investigation, claim or regulatory action.",
-            properties={"status": "str", "description": "str"},
+            properties={"status": _TEXT, "description": _TEXT},
         ),
         EntityType(
             label="Guidance",
             description=(
                 "A forward-looking statement, outlook or forecast the company gives."
             ),
-            properties={"description": "str"},
+            properties={"description": _TEXT},
         ),
         EntityType(
             label="Event",
@@ -100,7 +110,7 @@ FINANCIAL = GraphSchema(
                 "A dated corporate event such "
                 "as an acquisition, divestiture or restructuring."
             ),
-            properties={"event_type": "str", "description": "str"},
+            properties={"event_type": _TEXT, "description": _TEXT},
         ),
         EntityType(
             label="FilingSection",
@@ -108,7 +118,7 @@ FINANCIAL = GraphSchema(
                 "A named part of a filing, such as Item 7, Item 3 or Note 21, that the "
                 "text cites or that holds a fact."
             ),
-            properties={"section_id": "str"},
+            properties={"section_id": _TEXT},
         ),
     ],
     relations=[

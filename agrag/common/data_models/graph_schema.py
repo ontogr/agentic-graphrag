@@ -1,6 +1,12 @@
 """The GraphSchema contract: entity and relation types extraction validates against."""
 
-from pydantic import BaseModel, Field, model_validator
+import math
+import re
+from collections.abc import Callable
+from datetime import date
+from typing import Literal
+
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from agrag.common.data_models.chunk import CHUNK_LABEL
 from agrag.common.data_models.community import COMMUNITY_LABEL
@@ -47,21 +53,114 @@ def _format_patterns(patterns: list[tuple[str, str]]) -> str:
     return ", ".join(f"({source}, {target})" for source, target in patterns)
 
 
+PropertyType = Literal["string", "integer", "float", "boolean", "date"]
+"""The value types an entity property can declare."""
+
+_INTEGER_VALUE = re.compile(r"-?[0-9]+")
+_FLOAT_VALUE = re.compile(r"-?[0-9]+(\.[0-9]+)?([eE][+-]?[0-9]+)?")
+_DATE_VALUE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
+
+
+def _is_valid_float(value: str) -> bool:
+    """Return whether ``value`` is a finite decimal or exponent number."""
+    return _FLOAT_VALUE.fullmatch(value) is not None and math.isfinite(float(value))
+
+
+def _is_valid_date(value: str) -> bool:
+    """Return whether ``value`` is a real calendar date as ``YYYY-MM-DD``."""
+    if _DATE_VALUE.fullmatch(value) is None:
+        return False
+    try:
+        date.fromisoformat(value)
+    except ValueError:
+        return False
+    return True
+
+
+_VALUE_CHECKS: dict[str, Callable[[str], bool]] = {
+    "string": lambda value: bool(value.strip()),
+    "integer": lambda value: _INTEGER_VALUE.fullmatch(value) is not None,
+    "float": _is_valid_float,
+    "boolean": lambda value: value in {"true", "false"},
+    "date": _is_valid_date,
+}
+
+_VALUE_HINTS = {
+    "string": "A string value must not be blank.",
+    "integer": "An integer value looks like 12 or -3.",
+    "float": "A float value looks like 1.5 or -2e3.",
+    "boolean": "A boolean value is 'true' or 'false'.",
+    "date": "A date value looks like 2024-01-31.",
+}
+
+
+class PropertySpec(BaseModel):
+    """The declaration of one property on an entity type.
+
+    A spec describes the property but does not validate extracted values.
+
+    Attributes:
+        type: The value type: ``string``, ``integer``, ``float``, ``boolean`` or
+            ``date``.
+        required: Whether an entity of this type should carry the property.
+        enum: Allowed values as text, or None for no restriction. Each value
+            must be a valid text form of ``type``.
+        description: Guidance for the extractor. Empty when there is none.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    type: PropertyType
+    required: bool = False
+    enum: list[str] | None = None
+    description: str = ""
+
+    @model_validator(mode="after")
+    def _check_enum_values(self) -> "PropertySpec":
+        if self.enum is None:
+            return self
+        if not self.enum:
+            raise ValueError(
+                "enum is empty; list at least one allowed value, or remove enum."
+            )
+        repeated = sorted({value for value in self.enum if self.enum.count(value) > 1})
+        if repeated:
+            raise ValueError(
+                f"enum lists {repeated} more than once. Remove the repeated values."
+            )
+        invalid = [value for value in self.enum if not _VALUE_CHECKS[self.type](value)]
+        if invalid:
+            raise ValueError(
+                f"enum value(s) {invalid} are not valid for type '{self.type}'. "
+                f"{_VALUE_HINTS[self.type]}"
+            )
+        return self
+
+    def describe(self, name: str) -> str:
+        """Render this property as one prompt phrase."""
+        traits = [self.type]
+        if self.required:
+            traits.append("required")
+        if self.enum is not None:
+            traits.append(f"one of: {', '.join(self.enum)}")
+        return f"{name} ({', '.join(traits)})"
+
+
 class EntityType(BaseModel):
     """One kind of entity a schema recognizes.
 
     Attributes:
         label: The node label used in the extraction prompt and the graph.
         description: Guidance fed to the extractor prompt or schema builder.
-        properties: Property names mapped to a type name, such as ``"str"`` or
-            ``"date"``. ``label`` and ``text`` are rejected, because retrieval
-            filtering and keyword search use both as vector payload keys.
+        properties: Property names mapped to their ``PropertySpec``. ``label``
+            and ``text`` are rejected as names, because retrieval filtering and
+            keyword search use both as vector payload keys.
         subtypes: Labels that narrow this type. Empty when this type has no subtypes.
     """
 
     label: str
     description: str
-    properties: dict[str, str] = Field(default_factory=dict)
+    properties: dict[str, PropertySpec] = Field(default_factory=dict)
     subtypes: list[str] = Field(default_factory=list)
 
     @model_validator(mode="after")
@@ -167,11 +266,12 @@ class GraphSchema(BaseModel):
         for entity in self.entities:
             lines.append(f"- {entity.label}: {entity.description}")
             if entity.properties:
-                declared = ", ".join(
-                    f"{name}: {type_name}"
-                    for name, type_name in entity.properties.items()
-                )
-                lines.append(f"  properties: {declared}")
+                lines.append("  properties:")
+                for name, spec in entity.properties.items():
+                    line = f"    - {spec.describe(name)}"
+                    if spec.description:
+                        line += f": {spec.description}"
+                    lines.append(line)
             if entity.subtypes:
                 lines.append(f"  subtypes: {', '.join(entity.subtypes)}")
         lines.append("Relation types:")

@@ -11,13 +11,19 @@ as "name: description" only when that property exists.
 
 from itertools import product
 
-from agrag.common.data_models.graph_schema import EntityType, GraphSchema, RelationType
+from agrag.common.data_models.graph_schema import (
+    EntityType,
+    GraphSchema,
+    PropertySpec,
+    PropertyType,
+    RelationType,
+)
 
 
-def _entity(label: str, text: str, **extra: str) -> EntityType:
-    return EntityType(
-        label=label, description=text, properties={"description": "str", **extra}
-    )
+def _entity(label: str, text: str, **extra: PropertyType) -> EntityType:
+    properties = {"description": PropertySpec(type="string")}
+    properties.update({name: PropertySpec(type=kind) for name, kind in extra.items()})
+    return EntityType(label=label, description=text, properties=properties)
 
 
 _ALL = [
@@ -57,10 +63,10 @@ HEALTHCARE = GraphSchema(
             "with the drug and the group, for example 'ibuprofen 10 mg/kg every 6 "
             "hours "
             "in children'.",
-            amount="str",
-            unit="str",
-            frequency="str",
-            route="str",
+            amount="string",
+            unit="string",
+            frequency="string",
+            route="string",
         ),
         _entity(
             "Test",
@@ -88,7 +94,7 @@ HEALTHCARE = GraphSchema(
             "A stated piece of clinical advice or guideline, such as when to seek "
             "urgent "
             "care or which option is first line.",
-            strength="str",
+            strength="string",
         ),
     ],
     relations=[
