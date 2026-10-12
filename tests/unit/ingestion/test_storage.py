@@ -12,6 +12,7 @@ from uuid import uuid4
 
 import pytest
 
+from agrag.common.data_models.default_schema import DEFAULT_SCHEMA
 from agrag.common.data_models.document import (
     DOCUMENT_LABEL,
     Document,
@@ -24,7 +25,6 @@ from agrag.common.data_models.graph_record import (
     UpsertFailure,
     UpsertResult,
 )
-from agrag.common.data_models.graph_schema import GENERIC
 from agrag.common.data_models.structure import (
     FIGURE_LABEL,
     SECTION_LABEL,
@@ -232,7 +232,7 @@ class TestEmptyChunkWrites:
             graph_store=store,
             embedder=AsyncMock(),
             vector_store=None,
-            graph_schema=GENERIC,
+            graph_schema=DEFAULT_SCHEMA,
             retrieval_settings=RetrievalSettings(),
             error_policy=error_policy,
             ingestion=IngestStats(documents=1),

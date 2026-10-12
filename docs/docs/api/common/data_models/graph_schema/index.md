@@ -17,7 +17,6 @@ The GraphSchema contract: entity and relation types extraction validates against
 
 **Attributes:**
 
-- [**GENERIC**](GENERIC.md) – A ready-made schema for open-domain text.
 - [**PropertyType**](PropertyType.md) – The value types an entity property can declare.
 - [**RESERVED_ENTITY_LABELS**](RESERVED_ENTITY_LABELS.md) –
 - [**RESERVED_RELATION_TYPES**](RESERVED_RELATION_TYPES.md) –

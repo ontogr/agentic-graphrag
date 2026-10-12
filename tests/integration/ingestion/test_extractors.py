@@ -12,8 +12,8 @@ from uuid import uuid4
 import pytest
 
 from agrag.common.data_models.chunk import Chunk
+from agrag.common.data_models.default_schema import DEFAULT_SCHEMA
 from agrag.common.data_models.extraction import ExtractionResult
-from agrag.common.data_models.graph_schema import GENERIC
 from agrag.common.data_models.provenance import TextProvenance
 from agrag.ingestion.extract import (
     BAMLExtractor,
@@ -67,13 +67,13 @@ class TestBAMLExtractorIntegration:
         """A real LLM call returns recognized entities."""
         settings = ExtractionLLMSettings.from_openai_compatible_env()
         extractor = BAMLExtractor(settings=settings)
-        result = await extractor.extract(_chunk(), GENERIC)
+        result = await extractor.extract(_chunk(), DEFAULT_SCHEMA)
 
         assert isinstance(result, ExtractionResult)
         assert result.extractor_name == "baml"
         assert len(result.entities) > 0
         labels = {e.label for e in result.entities}
-        # At least one entity should be a known GENERIC label
+        # At least one entity should be a known DEFAULT_SCHEMA label
         known = {"Person", "Organization", "Location"}
         assert labels & known, f"Expected known labels, got {labels}"
 
@@ -82,14 +82,14 @@ class TestBAMLExtractorIntegration:
         """A real LLM call returns relations between entities."""
         settings = ExtractionLLMSettings.from_openai_compatible_env()
         extractor = BAMLExtractor(settings=settings)
-        result = await extractor.extract(_chunk(), GENERIC)
+        result = await extractor.extract(_chunk(), DEFAULT_SCHEMA)
 
         assert isinstance(result, ExtractionResult)
         # The paragraph describes Ada working at a company, so at least one
         # relation should be extracted.
         assert len(result.relations) > 0, "Expected at least one relation"
         rel = result.relations[0]
-        assert rel.label in {r.label for r in GENERIC.relations}
+        assert rel.label in {r.label for r in DEFAULT_SCHEMA.relations}
         assert 0 <= rel.source_index < len(result.entities)
         assert 0 <= rel.target_index < len(result.entities)
 
@@ -98,7 +98,7 @@ class TestBAMLExtractorIntegration:
         """Every relation's source and target index points to a real entity."""
         settings = ExtractionLLMSettings.from_openai_compatible_env()
         extractor = BAMLExtractor(settings=settings)
-        result = await extractor.extract(_chunk(), GENERIC)
+        result = await extractor.extract(_chunk(), DEFAULT_SCHEMA)
 
         for rel in result.relations:
             assert 0 <= rel.source_index < len(result.entities)
@@ -115,13 +115,13 @@ class TestGlinerExtractorIntegration:
     async def test_extracts_entities_from_paragraph(self) -> None:
         """A real GLiNER2.5 model returns recognized entities."""
         extractor = GlinerExtractor()
-        result = await extractor.extract(_chunk(), GENERIC)
+        result = await extractor.extract(_chunk(), DEFAULT_SCHEMA)
 
         assert isinstance(result, ExtractionResult)
         assert result.extractor_name == "gliner"
         assert len(result.entities) > 0
         for entity in result.entities:
-            assert entity.label in {e.label for e in GENERIC.entities}
+            assert entity.label in {e.label for e in DEFAULT_SCHEMA.entities}
             assert entity.text
             assert entity.char_start < entity.char_end
 
@@ -129,7 +129,7 @@ class TestGlinerExtractorIntegration:
     async def test_relation_indices_reference_valid_entities(self) -> None:
         """Every relation's source and target index points to a real entity."""
         extractor = GlinerExtractor()
-        result = await extractor.extract(_chunk(), GENERIC)
+        result = await extractor.extract(_chunk(), DEFAULT_SCHEMA)
 
         for rel in result.relations:
             assert 0 <= rel.source_index < len(result.entities)
@@ -139,10 +139,10 @@ class TestGlinerExtractorIntegration:
     async def test_extracted_labels_match_schema(self) -> None:
         """No entity or relation label is outside the schema."""
         extractor = GlinerExtractor()
-        result = await extractor.extract(_chunk(), GENERIC)
+        result = await extractor.extract(_chunk(), DEFAULT_SCHEMA)
 
-        schema_entity_labels = {e.label for e in GENERIC.entities}
-        schema_relation_labels = {r.label for r in GENERIC.relations}
+        schema_entity_labels = {e.label for e in DEFAULT_SCHEMA.entities}
+        schema_relation_labels = {r.label for r in DEFAULT_SCHEMA.relations}
         for entity in result.entities:
             assert entity.label in schema_entity_labels
         for rel in result.relations:
@@ -153,7 +153,7 @@ class TestGlinerExtractorIntegration:
         self, tmp_path: Path
     ) -> None:
         """A real model supplies a bounded score for each extracted item."""
-        result = await GlinerExtractor().extract(_chunk(), GENERIC)
+        result = await GlinerExtractor().extract(_chunk(), DEFAULT_SCHEMA)
 
         assert result.entities
         assert result.relations
@@ -170,7 +170,7 @@ class TestGlinerExtractorIntegration:
         """Casting the loaded model to bf16 leaves it able to extract."""
         result = await GlinerExtractor(
             settings=ExtractionSettings(dtype="bf16")
-        ).extract(_chunk(), GENERIC)
+        ).extract(_chunk(), DEFAULT_SCHEMA)
 
         assert result.entities
 
@@ -199,7 +199,7 @@ class TestEscalatingExtractorIntegration:
             escalate_to=BAMLExtractor(settings=settings),
             min_chunk_words=2,
         )
-        result = await extractor.extract(_chunk(), GENERIC)
+        result = await extractor.extract(_chunk(), DEFAULT_SCHEMA)
 
         assert isinstance(result, ExtractionResult)
         assert len(result.entities) > 0
@@ -217,7 +217,7 @@ class TestEscalatingExtractorIntegration:
             escalate_to=BAMLExtractor(settings=settings),
             min_confidence=0.01,  # Very low threshold — GLiNER should pass
         )
-        result = await extractor.extract(_chunk(), GENERIC)
+        result = await extractor.extract(_chunk(), DEFAULT_SCHEMA)
 
         assert isinstance(result, ExtractionResult)
         assert result.extractor_name == "gliner"

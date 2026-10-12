@@ -1,0 +1,87 @@
+---
+title: Default schema
+description: Entity types, relation types, and presets in DEFAULT_SCHEMA.
+---
+
+# Default schema
+
+`DEFAULT_SCHEMA` ships with Agentic GraphRAG. It has nine entity types and eight relation types. Import it from `agrag.common.data_models`.
+
+```python
+from agrag.common.data_models import DEFAULT_SCHEMA
+
+print(DEFAULT_SCHEMA.name, DEFAULT_SCHEMA.version)
+```
+
+`SearchEngine` uses `DEFAULT_SCHEMA` when `graph_schema` is omitted. Pass the same schema used for ingestion when searching a graph with custom types.
+
+The exported schema and presets contain mutable models and lists. Do not edit their contents directly. Use `DEFAULT_SCHEMA.model_copy(deep=True)` to customize a schema, or call `Preset.apply` to obtain an independent schema. `SearchEngine` takes a deep copy of its input schema.
+
+The schema is closed. The extractor reports only declared types. It has no catch-all type, catch-all relation, or wildcard pattern.
+
+## Entity types
+
+| Type | Description |
+| --- | --- |
+| `Person` | A person, living, dead, or fictional. |
+| `Organization` | An organization such as a company, school, NGO, or club. |
+| `Location` | A place with a somewhat fixed, physical extension. |
+| `Event` | A happening at a set time and place, such as a concert or lecture. |
+| `Product` | A material or service produced or provided by an organization. |
+| `Software` | A computer program or software application. |
+| `Publication` | A written or published work such as a book, report, or article. |
+| `Dataset` | A structured body of information about one or more topics. |
+| `Project` | A planned, typically collaborative effort to achieve a particular aim. |
+
+`Publication` is not named `Document`, because `Document` is the label for each loaded source.
+
+## Relation types
+
+| Relation | Description | Allowed pairs (source to target) |
+| --- | --- | --- |
+| `WORKS_FOR` | A person is employed by, or works for, an organization. | `Person` to `Organization` |
+| `PART_OF` | The source is a part of the target it belongs to. | `Organization` to `Organization`; `Project` to `Project`; `Software` to `Software`; `Publication` to `Publication` |
+| `LOCATED_IN` | The source is physically situated in the target place. | `Organization`, `Event` or `Project` to `Location` |
+| `OWNS` | The source is the owner of the target. | `Person` or `Organization` to `Software`, `Dataset` or `Project` |
+| `AUTHORED` | The source is primarily responsible for creating the target. | `Person` or `Organization` to `Publication`, `Software` or `Dataset` |
+| `PARTICIPATED_IN` | The source took part in the target event or project. | `Person` or `Organization` to `Event` or `Project` |
+| `DEPENDS_ON` | The source software requires the target software or dataset to run. | `Software` to `Software` or `Dataset` |
+| `SUPPLIES` | The source provides or sells the target product or service. | `Organization` to `Product` |
+
+The extractor drops a relation when its source and target types do not form an allowed pair.
+
+## Description sources
+
+The descriptions use public vocabularies, including [schema.org](https://schema.org), [Wikidata](https://www.wikidata.org), and [Dublin Core](https://www.dublincore.org). `Person`, `Organization`, `Location`, `Event`, `Software`, `Dataset`, and `Project` match schema.org types. `Product` follows Wikidata property P1056.
+
+Four items use broader wording because the public vocabularies provide only a partial match:
+
+- `Publication` is narrower than the schema.org type `CreativeWork`.
+- `PARTICIPATED_IN` allows a `Project` target. Wikidata defines "participant in" for events.
+- `DEPENDS_ON` allows a `Dataset` target. Wikidata defines "depends on software" for software.
+- `SUPPLIES` describes an organization providing a product. The closest schema.org property, `seller`, belongs to an offer.
+
+## Presets
+
+A preset adds entity types to a schema. It does not add relations. The default relations do not accept preset types. See [Use a preset](../guides/use-a-preset.mdx).
+
+| Preset | Name | Types added |
+| --- | --- | --- |
+| `OPERATIONS` | `operations` | `Facility`, `Service`, `Occupation` |
+| `LEGAL` | `legal` | `Contract`, `Regulation` |
+
+| Type | Description |
+| --- | --- |
+| `Facility` | A place, equipment, or service that supports a specific function. |
+| `Service` | A service provided by an organization, such as delivery or printing. |
+| `Occupation` | A profession, which may need long training or a formal qualification. |
+| `Contract` | An agreement with a lawful object, made by two or more parties. |
+| `Regulation` | A rule with legal force, issued by a legislative body. |
+
+The default schema with both presets has 14 entity types and 8 relation types.
+
+## Related
+
+- Guide: [Define a graph schema](../guides/define-a-graph-schema.mdx)
+- Guide: [Use a preset](../guides/use-a-preset.mdx)
+- Concept: [Extraction](../concepts/extraction.mdx)

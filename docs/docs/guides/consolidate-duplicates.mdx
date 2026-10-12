@@ -28,7 +28,7 @@ uv pip install "agentic-graphrag[neo4j,extract]"
 ```python fixture:clean_neo4j
 import asyncio
 
-from agrag.common.data_models import GENERIC
+from agrag.common.data_models import DEFAULT_SCHEMA
 from agrag.embedding import build_embedder
 from agrag.graphdb import build_graph_store
 from agrag.ingestion import GlinerExtractor, Graph
@@ -43,7 +43,7 @@ DOCUMENTS = [
 async def main() -> None:
     graph_store = build_graph_store("neo4j")
     graph = await Graph.open(
-        schema=GENERIC,
+        schema=DEFAULT_SCHEMA,
         graph_store=graph_store,
         embedder=build_embedder("ibm-granite/granite-embedding-small-english-r2"),
         extractor=GlinerExtractor(),
@@ -68,7 +68,7 @@ Each `add` prints a resolution summary. `ambiguous_count` counts uncertain, miss
 ```python
 import asyncio
 
-from agrag.common.data_models import GENERIC
+from agrag.common.data_models import DEFAULT_SCHEMA
 from agrag.embedding import build_embedder
 from agrag.graphdb import build_graph_store
 from agrag.ingestion import GlinerExtractor, Graph
@@ -77,7 +77,7 @@ from agrag.ingestion import GlinerExtractor, Graph
 async def main() -> None:
     graph_store = build_graph_store("neo4j")
     graph = await Graph.open(
-        schema=GENERIC,
+        schema=DEFAULT_SCHEMA,
         graph_store=graph_store,
         embedder=build_embedder("ibm-granite/granite-embedding-small-english-r2"),
         extractor=GlinerExtractor(),

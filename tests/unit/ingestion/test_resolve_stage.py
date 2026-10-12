@@ -4,8 +4,8 @@ from unittest import mock
 from unittest.mock import AsyncMock
 from uuid import uuid4
 
+from agrag.common.data_models.default_schema import DEFAULT_SCHEMA
 from agrag.common.data_models.extraction import ExtractedEntity
-from agrag.common.data_models.graph_schema import GENERIC
 from agrag.ingestion import _resolve_stage
 from agrag.ingestion._resolve_stage import resolve_stage
 from agrag.ingestion._stage_context import StageContext
@@ -65,7 +65,7 @@ class TestResolveStage:
                 [],
                 [],
                 ctx,
-                graph_schema=GENERIC,
+                graph_schema=DEFAULT_SCHEMA,
                 retrieval_settings=RetrievalSettings(),
                 max_llm_pairs=10,
             )

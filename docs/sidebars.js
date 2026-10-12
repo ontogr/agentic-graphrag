@@ -36,6 +36,7 @@ const sidebars = {
     ]),
     section('Build the graph', [
       'guides/define-a-graph-schema',
+      'guides/use-a-preset',
       'guides/ingest-documents',
       'concepts/ingestion',
       'concepts/loading',
@@ -75,7 +76,12 @@ const sidebars = {
     ]),
   ],
   referenceSidebar: [
-    section('Reference', ['reference/configuration', 'reference/schema-file-format', 'reference/trace-spans']),
+    section('Reference', [
+      'reference/configuration',
+      'reference/schema-file-format',
+      'reference/trace-spans',
+      'reference/default-schema',
+    ]),
     {
       type: 'category',
       label: 'Python API',
