@@ -120,10 +120,18 @@ Value error, Entity type 'Drug' declares reserved property name(s) ['text']; ['l
 ```
 
 ```text
+Value error, Entity type 'Vendor' names unknown parent 'Organisation'. Declare 'Organisation' as an entity type or fix the spelling. Did you mean 'Organization'?
+```
+
+```text
+Value error, Entity type parents form a cycle: A -> B -> A. Remove one parent link in the cycle.
+```
+
+```text
 Value error, enum value(s) ['many'] are not valid for type 'integer'. An integer value looks like 12 or -3.
 ```
 
-Every relation pattern must name entity types that the schema declares. An entity property cannot be named `label` or `text`. Each `enum` value of a property must match the property type.
+Every relation pattern must name entity types that the schema declares. An entity property cannot be named `label` or `text`. Each `enum` value of a property must match the property type. Every parent must be a declared entity type, and the parents must not form a cycle. A label can be declared only once, for entity types and for relation types.
 
 Declare each entity type, then write the pattern. This schema passes:
 

@@ -30,6 +30,7 @@ Shared data models used by agrag components.
 
 **Classes:**
 
+- [**Cardinality**](graph_schema/Cardinality.md) – Declared limits on distinct endpoints of one relation, across its patterns.
 - [**Chunk**](chunk/Chunk-ref.md) – One retrieval-sized piece of a Document.
 - [**Community**](community/Community-ref.md) – A cluster of entities detected by hierarchical Leiden, with an LLM report.
 - [**Distance**](vector_record/Distance.md) – A distance metric a vector index compares embeddings with.
