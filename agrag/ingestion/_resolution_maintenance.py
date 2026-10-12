@@ -220,6 +220,9 @@ async def consolidate(
     with tracer.start_as_current_span("agrag.ingestion.consolidate"):
         would_match: list[MatchDecision] = []
         ambiguous_count = 0
+        failed_llm_requests = 0
+        cap_truncated_pairs = 0
+        llm_unavailable_pairs = 0
         entities_by_id: dict[UUID, Entity] = {}
         candidate_read_failures: list[StageFailure] = []
         # For each label, fetch all entities, then pairwise compare via Resolver
@@ -241,6 +244,9 @@ async def consolidate(
             )
             candidate_read_failures.extend(candidate_failures)
             ambiguous_count += resolution_result.ambiguous_count
+            failed_llm_requests += resolution_result.failed_llm_requests
+            cap_truncated_pairs += resolution_result.cap_truncated_pairs
+            llm_unavailable_pairs += resolution_result.llm_unavailable_pairs
             entities_by_id.update({entity.id: entity for entity in all_entities})
             for match in resolution_result.matches:
                 would_match.append(
@@ -288,6 +294,9 @@ async def consolidate(
             applied=apply and bool(rebuilt_entities),
             failures=consolidation_failures,
             ambiguous_count=ambiguous_count,
+            failed_llm_requests=failed_llm_requests,
+            cap_truncated_pairs=cap_truncated_pairs,
+            llm_unavailable_pairs=llm_unavailable_pairs,
         )
 
 
@@ -333,6 +342,11 @@ async def reevaluate(
             for right in range(left + 1, len(entities))
             if normalize_text(entities[left].name)
             == normalize_text(entities[right].name)
+        }
+        # An undecided pair has no rejection verdict, so keep its committed edge.
+        unresolved = {
+            frozenset((unique_ids[left], unique_ids[right]))
+            for left, right in resolution.unresolved_pairs
         }
         edge_rows = await graph_store.execute_read(
             fetch_active_matches_among_ids_query(),
@@ -387,9 +401,13 @@ async def reevaluate(
             replaced.extend(rebuild.removed_entity_ids)
             matches_added.extend(component)
         matches_removed: list[UUID] = []
+        matches_unverified: list[UUID] = []
         removed_pairs: set[frozenset[UUID]] = set()
         for pair, match_id in sorted(active.items(), key=lambda item: str(item[1])):
             if pair in confirmed or pair in exact_pairs:
+                continue
+            if pair in unresolved:
+                matches_unverified.append(match_id)
                 continue
             with tracer.start_as_current_span(
                 "agrag.merge.deactivate_component",
@@ -420,5 +438,9 @@ async def reevaluate(
             entities_reevaluated=unique_ids,
             matches_added=matches_added,
             matches_removed=matches_removed,
+            matches_unverified=matches_unverified,
+            failed_llm_requests=resolution.failed_llm_requests,
+            cap_truncated_pairs=resolution.cap_truncated_pairs,
+            llm_unavailable_pairs=resolution.llm_unavailable_pairs,
             unchanged_count=sum(1 for e in unique_ids if e not in touched),
         )

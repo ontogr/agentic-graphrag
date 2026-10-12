@@ -101,6 +101,12 @@ A source with a missing loader extra follows your error policy. With `SKIP`, Age
 Without the `agents` extra, `build_agent` raises no error. It returns a simple agent that runs one search and writes one answer. Install `agents` to get the planner, researcher, and verifier.
 :::
 
+## Resolution reports unavailable LLM pairs
+
+`llm_unavailable_pairs` is above zero in a resolution result or report. The resolver found ambiguous pairs but could not send them to the LLM because no LLM settings were configured.
+
+Set `EXTRACTION_LLM_CLIENTS`, or set `LLM_BASE_URL` and `LLM_MODEL_ID`. Then run `consolidate(apply=True)` to review the remaining pairs.
+
 ## The schema is rejected
 
 You see one of these:

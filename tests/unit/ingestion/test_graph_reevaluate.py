@@ -10,7 +10,7 @@ the real rebuild functions persist through the fake's transaction.
 from collections.abc import Mapping, Sequence
 from contextlib import AbstractAsyncContextManager
 from typing import Any
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 from uuid import UUID, uuid4
 
 import pytest
@@ -24,7 +24,8 @@ from agrag.common.data_models.graph_schema import GENERIC
 from agrag.common.data_models.vector_record import Distance, VectorHit
 from agrag.embedding.base import Embedder
 from agrag.graphdb.base import GraphStore
-from agrag.ingestion import Graph
+from agrag.ingestion import Graph, _resolution_maintenance
+from agrag.ingestion.resolve.resolver import ResolutionGroup, ResolutionResult
 
 
 _A_NAME = "Alpha Meridian"
@@ -202,6 +203,36 @@ def _graph(store: _ScriptedStore) -> Graph:
 
 class TestGraphReevaluate:
     """Graph.reevaluate() adds, removes, and leaves edges alone."""
+
+    @staticmethod
+    async def test_reports_resolution_failure_counts() -> None:
+        """The public report includes counts from the resolver pass."""
+        first, second = uuid4(), uuid4()
+        store = _ScriptedStore(
+            reads=[_load_rows({first: _A_NAME, second: _C_NAME}), []]
+        )
+        resolution = ResolutionResult(
+            groups=[
+                ResolutionGroup(entity_indices=[0]),
+                ResolutionGroup(entity_indices=[1]),
+            ],
+            matches=[],
+            failed_llm_requests=1,
+            cap_truncated_pairs=2,
+            llm_unavailable_pairs=3,
+        )
+
+        with pytest.MonkeyPatch.context() as monkeypatch:
+            monkeypatch.setattr(
+                _resolution_maintenance,
+                "resolve_among",
+                AsyncMock(return_value=resolution),
+            )
+            report = await _graph(store).reevaluate([first, second])
+
+        assert report.failed_llm_requests == 1
+        assert report.cap_truncated_pairs == 2
+        assert report.llm_unavailable_pairs == 3
 
     async def test_adds_confirmed_removes_stale_and_counts_unchanged(self) -> None:
         """One batch reports an addition, a removal, and three unchanged."""

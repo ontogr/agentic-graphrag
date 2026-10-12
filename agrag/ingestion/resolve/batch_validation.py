@@ -16,18 +16,21 @@ class BatchMatchVerdict(BaseModel):
 
 
 def validate_batch_verdicts(
-    pair_ids: Iterable[str], results: Iterable[object]
+    pair_ids: Iterable[str], results: object
 ) -> dict[str, ComparisonResult]:
-    """Return fail-safe verdicts keyed by requested candidate pair identifiers.
+    """Return verdicts keyed by requested candidate pair identifiers.
 
-    Unknown, duplicate, missing, and malformed results resolve to ``NO_MATCH``.
-    This avoids assigning a valid LLM response to a different candidate pair.
+    Unknown, duplicate, missing, and malformed results leave a pair
+    ``UNCERTAIN``. An answer the model never gave is not a rejection, and a valid
+    response is never assigned to a different pair.
     """
     requested = set(pair_ids)
     verdicts = {
-        pair_id: ComparisonResult(verdict=ComparisonVerdict.NO_MATCH)
+        pair_id: ComparisonResult(verdict=ComparisonVerdict.UNCERTAIN)
         for pair_id in requested
     }
+    if not isinstance(results, Iterable):
+        return verdicts
     seen: set[str] = set()
     for result in results:
         value = result.model_dump() if isinstance(result, BaseModel) else result
@@ -39,7 +42,7 @@ def validate_batch_verdicts(
             continue
         if verdict.pair_id in seen:
             verdicts[verdict.pair_id] = ComparisonResult(
-                verdict=ComparisonVerdict.NO_MATCH
+                verdict=ComparisonVerdict.UNCERTAIN
             )
             continue
         seen.add(verdict.pair_id)

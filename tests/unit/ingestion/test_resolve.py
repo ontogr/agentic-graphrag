@@ -3,7 +3,7 @@
 Covers ExactMatch (case/whitespace-insensitive match, otherwise UNCERTAIN,
 never NO_MATCH), FuzzyMatch's fast-path accept (MATCH at or above
 threshold, otherwise UNCERTAIN, never NO_MATCH), and LLMVerify's fail-safe
-NO_MATCH on a raising injected client, working without settings when a
+UNCERTAIN on a raising injected client, working without settings when a
 client is injected directly, raising
 ExtractorMissingExtraError when no client is available (simulated by
 patching ``agrag.llm.baml_client`` out of ``sys.modules``), and
@@ -189,7 +189,7 @@ class TestFuzzyMatch:
 
 
 class TestLLMVerify:
-    """LLMVerify returns NO_MATCH on failure, raises on missing extra."""
+    """LLMVerify returns UNCERTAIN on failure, raises on missing extra."""
 
     @pytest.mark.parametrize("max_pairs_per_batch", [0, -1])
     def test_rejects_non_positive_max_pairs_per_batch(
@@ -203,8 +203,8 @@ class TestLLMVerify:
                 max_pairs_per_batch=max_pairs_per_batch,
             )
 
-    async def test_returns_no_match_on_client_exception(self) -> None:
-        """An injected client that raises produces NO_MATCH (fail-safe)."""
+    async def test_returns_uncertain_on_client_exception(self) -> None:
+        """An injected client that raises leaves the pair undecided."""
 
         class RaisingClient:
             async def VerifyEntityMatches(self, *args):  # noqa: N802
@@ -221,7 +221,8 @@ class TestLLMVerify:
             client=RaisingClient(),
         )
         verdict = await verifier.compare(a, b)
-        assert verdict is ComparisonVerdict.NO_MATCH
+        assert verdict is ComparisonVerdict.UNCERTAIN
+        assert verifier.failed_requests == 1
 
     async def test_injected_client_works_without_settings(self) -> None:
         """An injected client works without EXTRACTION_LLM_CLIENTS env vars."""
@@ -336,10 +337,10 @@ class TestLLMVerify:
 
         assert verdict is ComparisonVerdict.MATCH
 
-    async def test_returns_no_match_when_no_llm_config(
+    async def test_returns_uncertain_and_records_reason_when_no_llm_config(
         self, monkeypatch, _fake_settings_no_config_cls
     ) -> None:
-        """No EXTRACTION_LLM_* and no LLM_* returns NO_MATCH without calling LLM."""
+        """Missing settings returns UNCERTAIN and records unavailable variables."""
         monkeypatch.delenv("EXTRACTION_LLM_CLIENTS", raising=False)
         monkeypatch.delenv("LLM_BASE_URL", raising=False)
         monkeypatch.delenv("LLM_MODEL_ID", raising=False)
@@ -360,7 +361,11 @@ class TestLLMVerify:
 
         verdict = await verifier.compare(a, b)
 
-        assert verdict is ComparisonVerdict.NO_MATCH
+        assert verdict is ComparisonVerdict.UNCERTAIN
+        assert verifier.unavailable_pairs == 1
+        assert verifier.failed_requests == 0
+        assert verifier.unavailable_reason is not None
+        assert "EXTRACTION_LLM_CLIENTS" in verifier.unavailable_reason
 
 
 # ── _group_matches (union-find) ────────────────────────────────────────
@@ -606,6 +611,7 @@ class TestZoneRouting:
         assert sorted(group.entity_indices for group in result.groups) == [[0], [1]]
         assert result.matches == []
         assert result.ambiguous_count == 1
+        assert result.unresolved_pairs == [(0, 1)]
 
     async def test_precluster_auto_merges_without_llm(self) -> None:
         """An ambiguous pair inside a tight cluster merges with no LLM call."""
@@ -650,6 +656,8 @@ class TestZoneRouting:
         assert sorted(group.entity_indices for group in result.groups) == [[0], [1]]
         assert result.matches == []
         assert result.ambiguous_count == 0
+        assert result.llm_unavailable_pairs == 1
+        assert result.unresolved_pairs == [(0, 1)]
 
     async def test_llm_calls_stay_within_budget(self) -> None:
         """LLM requests never exceed ceil(L * max_llm_pairs / llm_batch_size)."""
@@ -677,7 +685,7 @@ class TestZoneRouting:
         assert result.ambiguous_count == 0
 
     async def test_failing_llm_client_counts_failed_requests(self) -> None:
-        """A raising LLM client maps to no-match and counts one failed request."""
+        """A raising LLM client leaves the pair undecided and counts the failure."""
         chunk = _llm_chunk()
 
         class _FakeRaisingClient:
@@ -700,6 +708,7 @@ class TestZoneRouting:
         assert result.matches == []
         assert result.failed_llm_requests == 1
         assert result.cap_truncated_pairs == 0
+        assert result.unresolved_pairs == [(0, 1)]
 
     async def test_pairs_over_cap_count_truncated(self) -> None:
         """Boundary pairs past max_llm_pairs never reach the LLM."""
@@ -721,6 +730,13 @@ class TestZoneRouting:
         assert client.calls == 1
         assert result.cap_truncated_pairs == 5
         assert result.failed_llm_requests == 0
+        assert result.unresolved_pairs == [
+            (0, 2),
+            (0, 3),
+            (1, 2),
+            (1, 3),
+            (2, 3),
+        ]
 
     async def test_neighbors_reach_the_llm_verify_tier(self) -> None:
         """Neighbor context passed to resolve() arrives in the LLM request."""
@@ -898,7 +914,7 @@ class TestLLMVerifySpans:
     async def test_failing_client_marks_request_failed_without_error_status(
         self,
     ) -> None:
-        """A raising client maps to NO_MATCH with request_failed on an UNSET span."""
+        """A raising client maps to UNCERTAIN with request_failed on an UNSET span."""
 
         class RaisingClient:
             async def VerifyEntityMatches(self, pairs, options):  # noqa: N802
@@ -916,7 +932,7 @@ class TestLLMVerifySpans:
 
         verdict = await verifier.compare(a, b)
 
-        assert verdict is ComparisonVerdict.NO_MATCH
+        assert verdict is ComparisonVerdict.UNCERTAIN
         assert verifier.failed_requests == 1
         (span,) = [
             finished

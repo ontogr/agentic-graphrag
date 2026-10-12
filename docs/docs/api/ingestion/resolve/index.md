@@ -15,7 +15,7 @@ Entity resolution public API.
 - [**exact_groups**](exact_groups/index.md) – Exact-name grouping for permanent raw entity records.
 - [**resolution**](resolution/index.md) – Resolve mentions and persisted entities against the graph.
 - [**resolver**](resolver/index.md) – Entity resolution: deciding which ExtractedEntity mentions are the same thing.
-- [**zone_classifier**](zone_classifier/index.md) – Zone classification for entity-resolution candidate pairs.
+- [**zone_classifier**](zone_classifier/index.md) – Pair selection and sub-clustering for entity-resolution LLM review.
 
 **Classes:**
 
@@ -27,10 +27,10 @@ Entity resolution public API.
 - [**ExactMatch**](comparators/ExactMatch.md) – Matches when normalized text is identical. Never returns NO_MATCH.
 - [**FuzzyMatch**](comparators/FuzzyMatch.md) – Fast-path accepter for near-identical names. Never returns NO_MATCH.
 - [**GraphCandidateSource**](candidate_source/GraphCandidateSource.md) – Block by label in-batch. Search persisted entities globally with ANN.
-- [**LLMVerify**](comparators/LLMVerify.md) – Ask an LLM to verify an ambiguous pair. Last resort. Never UNCERTAIN.
+- [**LLMVerify**](comparators/LLMVerify.md) – Ask an LLM to verify an ambiguous pair. Last resort.
 - [**PersistedCandidateSource**](candidate_source/PersistedCandidateSource.md) – Supplies only candidate pairs between new mentions and raw graph entities.
 - [**ResolutionGroup**](resolver/ResolutionGroup.md) – One set of ExtractedEntity indices resolution decided are the same entity.
-- [**ResolutionResult**](resolver/ResolutionResult.md) – The groups, non-exact evidence, and ambiguity count of one pass.
+- [**ResolutionResult**](resolver/ResolutionResult.md) – The groups, non-exact evidence, and failure counts of one pass.
 - [**ResolvedMatch**](resolver/ResolvedMatch.md) – One confirmed non-exact match between two input entity indices.
 - [**Resolver**](resolver/Resolver-ref.md) – Routes blocked candidate pairs through exact, fuzzy, embedding, and LLM zones.
 
