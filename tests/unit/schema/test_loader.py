@@ -13,7 +13,7 @@ from agrag.common.data_models.graph_schema import (
     PropertySpec,
     RelationType,
 )
-from agrag.common.data_models.presets import LEGAL, OPERATIONS
+from agrag.common.data_models.presets import LEGAL, OPERATIONS, Preset
 from agrag.schema import SchemaLoadError, dump_schema, load_schema
 
 
@@ -940,6 +940,17 @@ class TestShippedNames:
     def test_preset_value_loads_as_the_preset_on_the_default(self):
         """A Preset source is the preset applied to the default schema."""
         assert load_schema(OPERATIONS) == OPERATIONS.apply(DEFAULT_SCHEMA)
+
+    def test_preset_repeating_a_default_type_is_a_load_error(self):
+        """A Preset that re-adds a default type fails as a SchemaLoadError."""
+        repeated = Preset(
+            name="people",
+            entities=[EntityType(label="Person", description="A person.")],
+        )
+
+        error = _error(repeated)
+
+        assert "already declares 'Person'" in error.issues[0].message
 
     def test_preset_value_extends_a_child(self):
         """A Preset as extends adds its types below the child's types."""

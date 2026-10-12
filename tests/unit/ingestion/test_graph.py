@@ -885,15 +885,22 @@ class TestGraphSchemaSources:
 
     async def test_graph_schema_is_used_as_given(self) -> None:
         """A GraphSchema reaches the extractor unchanged."""
-        received = await _schema_seen_by_extractor(DEFAULT_SCHEMA)
+        custom = load_schema(["Ticket"])
 
-        assert received == DEFAULT_SCHEMA
+        received = await _schema_seen_by_extractor(custom)
+
+        assert received == custom
 
     async def test_shipped_name_gives_its_entity_labels(self) -> None:
-        """A shipped schema name loads that schema's entity types."""
+        """A shipped schema name loads the default types plus its own."""
         received = await _schema_seen_by_extractor("operations")
 
-        assert "Facility" in [entity.label for entity in received.entities]
+        assert [entity.label for entity in received.entities] == [
+            *[entity.label for entity in DEFAULT_SCHEMA.entities],
+            "Facility",
+            "Service",
+            "Occupation",
+        ]
 
     @pytest.mark.parametrize(
         ("source", "expected_labels"),

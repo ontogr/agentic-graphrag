@@ -214,7 +214,7 @@ class Graph:
                 used as given. Any other value goes through ``load_schema``: a
                 ``Preset``, a shipped name (``"default"``, ``"operations"`` or
                 ``"legal"``), a file path, a dict, a list of strings, a Pydantic
-                class, or JSON or YAML text. Raises ``SchemaLoadError`` when the
+                class, or JSON text. Raises ``SchemaLoadError`` when the
                 value is not a valid schema.
             graph_store: Where entities, relations, chunks, and MENTIONED_IN
                 edges are written.
@@ -323,7 +323,7 @@ class Graph:
                 used as given. Any other value goes through ``load_schema``: a
                 ``Preset``, a shipped name (``"default"``, ``"operations"`` or
                 ``"legal"``), a file path, a dict, a list of strings, a Pydantic
-                class, or JSON or YAML text. Raises ``SchemaLoadError`` when the
+                class, or JSON text. Raises ``SchemaLoadError`` when the
                 value is not a valid schema.
             graph_store: Where entities, relations, chunks, and MENTIONED_IN
                 edges are written.

@@ -134,11 +134,18 @@ def _from_parsed(parsed: object, name: str, origin: str | None) -> _Raw:
     )
 
 
+def _apply_preset(preset: Preset) -> GraphSchema:
+    try:
+        return preset.apply(DEFAULT_SCHEMA)
+    except ValueError as exc:
+        raise _fail(str(exc)) from exc
+
+
 def _read_source(source: SchemaSource) -> GraphSchema | _Raw:  # noqa: PLR0911
     if isinstance(source, GraphSchema):
         return source
     if isinstance(source, Preset):
-        return source.apply(DEFAULT_SCHEMA)
+        return _apply_preset(source)
     # The format modules import this package, so the import runs at call time.
     from agrag.schema.formats.dispatch import (  # noqa: PLC0415
         is_model_source,
