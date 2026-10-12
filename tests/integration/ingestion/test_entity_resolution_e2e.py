@@ -16,10 +16,11 @@ from uuid import uuid4
 import pytest
 
 from agrag.common.data_models.chunk import Chunk
+from agrag.common.data_models.default_schema import DEFAULT_SCHEMA
 from agrag.common.data_models.document import Document, DocumentFamily, SourceFormat
 from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.extraction import ExtractedEntity, ExtractionResult
-from agrag.common.data_models.graph_schema import GENERIC, GraphSchema
+from agrag.common.data_models.graph_schema import GraphSchema
 from agrag.embedding.base import Embedder
 from agrag.graphdb import build_graph_store
 from agrag.ingestion.extract import Extractor
@@ -148,7 +149,7 @@ class TestEntityResolutionEndToEnd:
             f"E2e Quasarr {suffix}",
         )
         graph = await Graph.open(
-            schema=GENERIC,
+            schema=DEFAULT_SCHEMA,
             graph_store=store,
             embedder=_SuffixEmbedder(suffix),
             extractor=_ProbeExtractor(
@@ -260,7 +261,7 @@ class TestEntityResolutionEndToEnd:
             embedding=[1.0, 0.0, 0.0, 0.0],
         )
         graph = await Graph.open(
-            schema=GENERIC,
+            schema=DEFAULT_SCHEMA,
             graph_store=store,
             embedder=_SuffixEmbedder(suffix),
             extractor=_ProbeExtractor({}),

@@ -14,7 +14,7 @@ from deepeval.metrics import BaseMetric
 
 from agrag.agents import AgentLLMSettings
 from agrag.agents.build import build_agent
-from agrag.common.data_models import GENERIC
+from agrag.common.data_models import DEFAULT_SCHEMA
 from agrag.embedding import SentenceTransformerEmbedder
 from agrag.eval import (
     ChatModelJudge,
@@ -69,7 +69,7 @@ async def main(dataset: Path) -> None:
     store = build_graph_store("neo4j")
     embedder = SentenceTransformerEmbedder()
     graph = await Graph.open(
-        schema=GENERIC,
+        schema=DEFAULT_SCHEMA,
         graph_store=store,
         embedder=embedder,
         extraction_settings=ExtractionSettings(mode="llm"),
@@ -80,7 +80,7 @@ async def main(dataset: Path) -> None:
     try:
         await graph.add(source=dataset / "documents")
         engine = SearchEngine(
-            graph_store=store, embedder=embedder, graph_schema=GENERIC
+            graph_store=store, embedder=embedder, graph_schema=DEFAULT_SCHEMA
         )
         llm_settings = AgentLLMSettings.from_openai_compatible_env()
         judge = ChatModelJudge.from_settings(
@@ -90,7 +90,7 @@ async def main(dataset: Path) -> None:
         for item in questions:
             # A new agent for each question keeps the run state apart.
             agent = build_agent(
-                engine=engine, llm_settings=llm_settings, graph_schema=GENERIC
+                engine=engine, llm_settings=llm_settings, graph_schema=DEFAULT_SCHEMA
             )
             result = await agent.ainvoke(
                 {"messages": [{"role": "user", "content": item["question"]}]}
