@@ -12,6 +12,7 @@ the extra installed the tests expect a reachable Neo4j at the default
 ``NEO4J_URI``.
 """
 
+import asyncio
 import hashlib
 import importlib.util
 import unicodedata
@@ -212,6 +213,17 @@ async def _tagged_rows(store: GraphStore, job_id: str) -> tuple[int, int]:
         {"job_id": job_id},
     )
     return int(nodes[0]["n"]), int(relations[0]["n"])
+
+
+async def _wait_for_pending_rollback(store: GraphStore, key: str, job_id: str) -> None:
+    """Wait until an opener that owns recovery finishes a pending rollback."""
+    async with asyncio.timeout(10):
+        while True:
+            status = await _job_status(store, key)
+            tagged_rows = await _tagged_rows(store, job_id)
+            if status is None and tagged_rows == (0, 0):
+                return
+            await asyncio.sleep(0.05)
 
 
 async def _job_status(store: GraphStore, key: str) -> str | None:
@@ -423,6 +435,9 @@ class TestCrashBeforeCommit:
                     extractor=_NoopExtractor(),
                 )
 
+                await _wait_for_pending_rollback(
+                    store, crashed_key, str(job_id[0]["id"])
+                )
                 assert await _tagged_rows(store, str(job_id[0]["id"])) == (0, 0)
                 assert await _job_status(store, crashed_key) is None
                 assert await _graph_state(store, existing_key) == before
