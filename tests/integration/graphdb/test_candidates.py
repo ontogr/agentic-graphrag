@@ -226,7 +226,10 @@ class TestCandidateStore:
             reason="entity_band",
             chunk_id=chunk_id,
         )
-        stale_record = record.model_copy(update={"state": "pending", "id": uuid4()})
+        recapture = record.model_copy(update={"state": "pending", "id": uuid4()})
+        pending_other = record.model_copy(
+            update={"text": f"Other-{uuid4()}", "id": uuid4()}
+        )
         try:
             await _chunk(store, chunk_id)
             await store.execute_write(
@@ -242,7 +245,9 @@ class TestCandidateStore:
             )
 
             blocked = await store.blocked_candidate_keys([record.key])
-            await store.upsert_candidates([stale_record])
+            recaptured = await store.upsert_candidates([recapture])
+            other_written = await store.upsert_candidates([pending_other])
+            assert other_written.written == 1
             stale = await store.execute_write(
                 delete_stale_candidates_query(), {"document_node_id": str(document_id)}
             )
@@ -250,12 +255,24 @@ class TestCandidateStore:
                 f"MATCH (c:{CANDIDATE_LABEL} {{id: $id}}) RETURN c.state AS state",
                 {"id": str(record.id)},
             )
+            remaining = await store.execute_read(
+                f"MATCH (c:{CANDIDATE_LABEL} {{id: $id}}) RETURN c.id AS id",
+                {"id": str(pending_other.id)},
+            )
 
             assert blocked == {record.key}
+            assert recaptured.written == 0
+            assert [failure.error_type for failure in recaptured.failures] == [
+                "ReviewedKeyBlocked"
+            ]
             assert stale == [{"removed": 1}]
+            assert remaining == []
             assert state == [{"state": "rejected"}]
         finally:
-            await _delete_candidates(store, [str(record.id), str(stale_record.id)])
+            await _delete_candidates(
+                store,
+                [str(record.id), str(recapture.id), str(pending_other.id)],
+            )
             await store.execute_write(
                 "MATCH (n) WHERE n.id IN $ids DETACH DELETE n",
                 {"ids": [str(chunk_id), str(document_id)]},

@@ -935,16 +935,30 @@ class Neo4jGraphStore(GraphStore):
             for edge_type in sorted(CANDIDATE_EDGE_TYPES):
                 await self._ensure_relation_constraint(edge_type)
             self._known_relation_types.update(CANDIDATE_EDGE_TYPES)
-            records = [
-                candidate_params(record, pending_job_id=pending_job_id)
-                for record in candidates
-            ]
-            outcome = await self._batch_write(
+            blocked = await self.blocked_candidate_keys(
+                [record.key for record in candidates]
+            )
+            outcome = UpsertResult()
+            records = []
+            for record in candidates:
+                if record.key in blocked:
+                    outcome.failures.append(
+                        UpsertFailure(
+                            id=str(record.id),
+                            error_type="ReviewedKeyBlocked",
+                            error_message="a reviewed candidate with this key exists",
+                        )
+                    )
+                    continue
+                records.append(candidate_params(record, pending_job_id=pending_job_id))
+            batch_outcome = await self._batch_write(
                 upsert_candidates_query(),
                 records,
                 batch_size,
                 require_returned_ids=True,
             )
+            outcome.written += batch_outcome.written
+            outcome.failures.extend(batch_outcome.failures)
             span.set_attribute("agrag.written", outcome.written)
             span.set_attribute("agrag.failures_count", len(outcome.failures))
             return outcome
