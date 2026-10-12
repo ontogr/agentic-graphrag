@@ -24,7 +24,8 @@ def acquire_lease_query() -> str:
         $lease_token, $lease_expires_at (ISO-8601 string, stored as a
         native datetime for expiry comparison), $affected_entity_ids
         (list of string ids, snapshotted before any pending write), and
-        $created_at. Returns the node's lease_token and status.
+        $created_at. Returns the job id, lease token, status, and whether
+        its lease has expired.
     """
     return (
         f"MERGE (job:{CUTOVER_JOB_LABEL} {{document_key: $document_key}}) "
@@ -33,7 +34,8 @@ def acquire_lease_query() -> str:
         "job.lease_expires_at = datetime($lease_expires_at), "
         "job.affected_entity_ids = $affected_entity_ids, "
         "job.created_at = $created_at "
-        "RETURN job.lease_token AS lease_token, job.status AS status"
+        "RETURN job.id AS id, job.lease_token AS lease_token, job.status AS status, "
+        "job.lease_expires_at < datetime() AS lease_expired"
     )
 
 
@@ -244,7 +246,8 @@ def start_cleaning_query() -> str:
 def renew_lease_query() -> str:
     """Build Cypher extending a live job's lease, fenced by its token.
 
-    Applies in every non-terminal phase (pending, committed, cleaning) only
+    Applies in every non-terminal phase (pending, rolling_back, committed,
+    cleaning) only
     while the lease remains live and the caller's fencing token is still
     current, so a worker that lost its lease cannot revive it.
 
@@ -258,7 +261,7 @@ def renew_lease_query() -> str:
         f"{_job_lock_clause()}"
         "WHERE job.lease_token = $lease_token "
         "AND job.lease_expires_at >= datetime() "
-        "AND job.status IN ['pending', 'committed', 'cleaning'] "
+        "AND job.status IN ['pending', 'rolling_back', 'committed', 'cleaning'] "
         "SET job.lease_expires_at = datetime($lease_expires_at) "
         "RETURN job.id AS id"
     )

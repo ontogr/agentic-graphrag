@@ -22,6 +22,7 @@ from agrag.common.data_models.vector_record import VectorRecord
 from agrag.cypher.cutover_job_write import (
     acquire_lease_query,
     begin_rollback_query,
+    claim_pending_job_query,
     clear_pending_tag_query,
     commit_job_query,
     finish_cleaning_query,
@@ -90,6 +91,7 @@ class _FakeCutoverStore:
             renew_lease_query(): self._renew,
             clear_pending_tag_query(): self._clear_tag,
             begin_rollback_query(): self._begin_rollback,
+            claim_pending_job_query(): self._claim_pending_rollback,
             job_status_query(): self._job_status,
             record_parts_closed_query(): self._record_parts_closed,
             rollback_job_query(): self._rollback,
@@ -110,7 +112,35 @@ class _FakeCutoverStore:
                 ),
             }
             self.jobs[key] = job
-        return [{"lease_token": job["lease_token"], "status": job["status"]}]
+        return [
+            {
+                "id": job["id"],
+                "lease_token": job["lease_token"],
+                "status": job["status"],
+                "lease_expired": datetime.fromisoformat(str(job["lease_expires_at"]))
+                < datetime.now(UTC),
+            }
+        ]
+
+    def _claim_pending_rollback(self, params: dict[str, Any]) -> list[dict[str, Any]]:
+        """Take over an expired rollback before another write can start."""
+        job = next(
+            (job for job in self.jobs.values() if job["id"] == params["job_id"]),
+            None,
+        )
+        if (
+            job is None
+            or job["status"] not in {"pending", "rolling_back"}
+            or job["lease_token"] != params["expected_lease_token"]
+            or job["lease_expires_at"] >= datetime.now(UTC)
+        ):
+            return []
+        job["status"] = "rolling_back"
+        job["lease_token"] = str(params["lease_token"])
+        job["lease_expires_at"] = datetime.fromisoformat(
+            str(params["lease_expires_at"])
+        )
+        return [{"id": job["id"]}]
 
     def _steal(self, params: dict[str, Any]) -> list[dict[str, Any]]:
         """Take over a job only when its lease lapsed or it went terminal."""
@@ -150,7 +180,8 @@ class _FakeCutoverStore:
             if (
                 job["id"] == str(params["job_id"])
                 and job["lease_token"] == str(params["lease_token"])
-                and job["status"] in {"pending", "committed", "cleaning"}
+                and job["status"]
+                in {"pending", "rolling_back", "committed", "cleaning"}
                 and job["lease_expires_at"] >= datetime.now(UTC)
             ):
                 job["lease_expires_at"] = datetime.fromisoformat(
@@ -599,6 +630,39 @@ class TestRunCutoverJobLeaseRenewal:
 class TestRunCutoverJobRollback:
     """A pending_write failure rolls everything back."""
 
+    async def test_new_write_recovers_expired_rollback_first(self) -> None:
+        """A later write finishes expired rollback before acquiring the key."""
+        store = _FakeCutoverStore()
+        vector_store = _FakeVectorStore()
+        old_job_id = uuid4()
+        vector_id = uuid4()
+        store.jobs["doc-1"] = {
+            "id": str(old_job_id),
+            "status": "rolling_back",
+            "lease_token": str(uuid4()),
+            "lease_expires_at": datetime.now(UTC) - timedelta(seconds=1),
+        }
+        store.nodes.append(_tag_node(old_job_id))
+        await vector_store.upsert(
+            "col-a",
+            [VectorRecord(id=vector_id, vector=[0.0], payload={})],
+            pending_job_id=old_job_id,
+        )
+
+        async def pending(job_id: UUID) -> None:
+            store.nodes.append(_tag_node(job_id))
+
+        await run_cutover_job(
+            **_write_job(pending, graph_store=store, vector_store=vector_store)
+        )
+
+        assert old_job_id != UUID(store.jobs["doc-1"]["id"])
+        assert all(
+            node["properties"].get("_pending_job_id") != str(old_job_id)
+            for node in store.nodes
+        )
+        assert str(vector_id) not in vector_store.records["col-a"]
+
     async def test_pending_write_failure_deletes_tagged_writes(self) -> None:
         """A pending-write failure deletes tagged nodes and the job record."""
         store = _FakeCutoverStore()
@@ -632,6 +696,40 @@ class TestRunCutoverJobRollback:
 
         assert store.jobs["doc-1"]["status"] == "rolling_back"
         assert store.nodes
+
+    async def test_renews_lease_during_long_rollback(self) -> None:
+        """A rollback that outlasts a renewal interval keeps its lease."""
+        store = _FakeCutoverStore()
+        vector_store = _FakeVectorStore()
+        original_delete = vector_store.delete_pending
+
+        async def slow_delete(collection: str, *, job_id: UUID) -> None:
+            await asyncio.sleep(0.4)
+            await original_delete(collection, job_id=job_id)
+
+        vector_store.delete_pending = slow_delete  # type: ignore[method-assign]
+
+        async def pending(job_id: UUID) -> None:
+            store.nodes.append(_tag_node(job_id))
+            await vector_store.upsert(
+                "col-a",
+                [VectorRecord(id=uuid4(), vector=[0.0], payload={})],
+                pending_job_id=job_id,
+            )
+            raise RuntimeError("pending failed")
+
+        with pytest.raises(RuntimeError, match="pending failed"):
+            await run_cutover_job(
+                **_write_job(
+                    pending,
+                    graph_store=store,
+                    vector_store=vector_store,
+                    settings=CutoverJobSettings(lease_ttl_seconds=1),
+                )
+            )
+
+        assert "doc-1" not in store.jobs
+        assert any(query == renew_lease_query() for query in store.executed)
 
     async def test_commit_transaction_failure_rolls_back(self) -> None:
         """A failure inside the commit transaction rolls the pending writes back too."""
@@ -800,6 +898,29 @@ class TestAmbiguousCommit:
         assert result[2] == 0
         assert store.jobs["doc-1"]["parts_closed"] == 0
         assert store.jobs["doc-1"]["status"] == "done"
+        assert rollback_job_query() not in store.executed
+
+    async def test_recovery_owned_commit_is_still_reported_as_applied(self) -> None:
+        """A recovery claim after commit preserves the applied result."""
+        store = _FakeCutoverStore()
+        store.raise_after_applying = commit_job_query()
+        original_status = store._job_status
+
+        def recovery_claim(params: dict[str, Any]) -> list[dict[str, Any]]:
+            job = store.jobs["doc-1"]
+            job["status"] = "cleaning"
+            job["lease_token"] = str(uuid4())
+            job["parts_closed"] = 7
+            return original_status(params)
+
+        store._job_status = recovery_claim  # type: ignore[method-assign]
+
+        async def pending(job_id: UUID) -> None:
+            store.nodes.append(_tag_node(job_id))
+
+        with pytest.raises(CutoverJobLeaseError, match="lost its lease"):
+            await run_cutover_job(**_write_job(pending, graph_store=store))
+
         assert rollback_job_query() not in store.executed
 
 

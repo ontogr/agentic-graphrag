@@ -15,6 +15,7 @@ from opentelemetry.trace import Tracer
 from agrag.cypher.cutover_job_write import (
     acquire_lease_query,
     begin_rollback_query,
+    claim_pending_job_query,
     clear_pending_tag_query,
     commit_job_query,
     finish_cleaning_query,
@@ -47,6 +48,8 @@ async def _acquire_lease(
     verb: Literal["add", "update", "delete_document"],
     affected_entity_ids: list[UUID],
     graph_store: GraphStore,
+    vector_store: VectorStore | None,
+    vector_collections: Sequence[str],
     settings: CutoverJobSettings,
 ) -> tuple[UUID, UUID]:
     """Acquire the lease for one document, stealing only a dead one's.
@@ -78,6 +81,45 @@ async def _acquire_lease(
     existing_token = rows[0].get("lease_token") if rows else None
     if existing_token == str(token):
         return job_id, token
+    if (
+        rows
+        and rows[0].get("status") == "rolling_back"
+        and rows[0].get("lease_expired")
+    ):
+        rollback_token = uuid4()
+        now = datetime.now(UTC)
+        claimed = await graph_store.execute_write(
+            claim_pending_job_query(),
+            {
+                "job_id": str(rows[0]["id"]),
+                "expected_lease_token": existing_token,
+                "lease_token": str(rollback_token),
+                "lease_expires_at": (
+                    now + timedelta(seconds=settings.lease_ttl_seconds)
+                ).isoformat(),
+            },
+        )
+        if claimed:
+            rollback_job_id = UUID(str(rows[0]["id"]))
+            await delete_pending_vectors(
+                vector_store=vector_store,
+                collections=vector_collections,
+                job_id=rollback_job_id,
+            )
+            rolled_back = await graph_store.execute_write(
+                rollback_job_query(),
+                {"job_id": str(rollback_job_id), "lease_token": str(rollback_token)},
+            )
+            if rolled_back:
+                return await _acquire_lease(
+                    document_key=document_key,
+                    verb=verb,
+                    affected_entity_ids=affected_entity_ids,
+                    graph_store=graph_store,
+                    vector_store=vector_store,
+                    vector_collections=vector_collections,
+                    settings=settings,
+                )
     token = uuid4()
     now = datetime.now(UTC)
     rows = await graph_store.execute_write(
@@ -225,13 +267,16 @@ async def _commit_applied(
     """Read the committed result through the write-routed database path.
 
     Returns:
-        The recorded parts-closed count when this token committed the job;
-        None when the job is absent, uncommitted, or owned by another token.
+        The recorded parts-closed count when this token committed the job
+        or recovery has advanced it to cleaning or done. None when the job
+        is absent, uncommitted, or still committed under another token.
     """
     rows = await graph_store.execute_write(job_status_query(), {"job_id": str(job_id)})
     if not rows:
         return None
     row = rows[0]
+    if row.get("status") in {"cleaning", "done"}:
+        return int(row.get("parts_closed") or 0)
     if row.get("status") == "committed" and row.get("lease_token") == str(token):
         return int(row.get("parts_closed") or 0)
     return None
@@ -348,6 +393,8 @@ async def run_cutover_job(
             verb=verb,
             affected_entity_ids=affected_entity_ids,
             graph_store=graph_store,
+            vector_store=vector_store,
+            vector_collections=vector_collections,
             settings=settings,
         )
         span.set_attribute("agrag.job_id", str(job_id))

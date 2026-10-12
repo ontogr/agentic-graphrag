@@ -60,6 +60,8 @@ If a process stops during a call, the next `Graph.open` finds the unfinished job
 
 Rollback starts only while the job is still pending under the worker's lease token. The job enters `rolling_back` before its staged vectors and graph rows are deleted. If the worker stops during rollback, `Graph.open` finishes it after the lease expires. If a commit fails with an unclear result, the worker reads the job. A committed job is never rolled back; the worker finishes its cleanup instead.
 
+Workers that share a graph must run the same version during an upgrade. Use the new version to recover any `rolling_back` jobs before you downgrade.
+
 ## Example
 
 You call `Graph.add` with a folder of 200 files and `ErrorPolicy.SKIP`. One file ends in `.dat`, and no loader reads that extension. The loader skips it and counts it. The other 199 files become documents and chunks. The `AddResult` shows 199 documents, 1 skipped source, and the number of entities that extraction found.
