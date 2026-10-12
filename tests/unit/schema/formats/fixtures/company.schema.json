@@ -1,0 +1,215 @@
+{
+  "$defs": {
+    "COLLEAGUE_OF": {
+      "anyOf": [
+        {
+          "properties": {
+            "source_label": {
+              "const": "Person"
+            },
+            "target_label": {
+              "enum": [
+                "Person"
+              ]
+            }
+          }
+        }
+      ],
+      "description": "Two people work together.",
+      "properties": {
+        "source": {
+          "type": "string"
+        },
+        "target": {
+          "type": "string"
+        },
+        "type": {
+          "const": "COLLEAGUE_OF"
+        }
+      },
+      "required": [
+        "type",
+        "source",
+        "target",
+        "source_label",
+        "target_label"
+      ],
+      "title": "COLLEAGUE_OF",
+      "type": "object",
+      "unevaluatedProperties": false,
+      "x-agrag-symmetric": true
+    },
+    "Company": {
+      "additionalProperties": false,
+      "description": "A for-profit organization.",
+      "properties": {
+        "label": {
+          "const": "Company"
+        },
+        "properties": {
+          "additionalProperties": false,
+          "properties": {
+            "status": {
+              "enum": [
+                "active",
+                "dissolved"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "status"
+          ],
+          "type": "object"
+        },
+        "text": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "label",
+        "text",
+        "properties"
+      ],
+      "title": "Company",
+      "type": "object",
+      "x-agrag-parents": [
+        "Organization"
+      ]
+    },
+    "Organization": {
+      "additionalProperties": false,
+      "description": "A company or institution.",
+      "properties": {
+        "label": {
+          "const": "Organization"
+        },
+        "text": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "label",
+        "text"
+      ],
+      "title": "Organization",
+      "type": "object"
+    },
+    "Person": {
+      "additionalProperties": false,
+      "description": "A named individual.",
+      "properties": {
+        "label": {
+          "const": "Person"
+        },
+        "properties": {
+          "additionalProperties": false,
+          "properties": {
+            "born": {
+              "format": "date",
+              "type": "string"
+            },
+            "email": {
+              "description": "Work email address.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "email"
+          ],
+          "type": "object"
+        },
+        "text": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "label",
+        "text",
+        "properties"
+      ],
+      "title": "Person",
+      "type": "object"
+    },
+    "WORKS_FOR": {
+      "anyOf": [
+        {
+          "properties": {
+            "source_label": {
+              "const": "Person"
+            },
+            "target_label": {
+              "enum": [
+                "Company",
+                "Organization"
+              ]
+            }
+          }
+        }
+      ],
+      "description": "A person is employed by an organization.",
+      "properties": {
+        "source": {
+          "type": "string"
+        },
+        "target": {
+          "type": "string"
+        },
+        "type": {
+          "const": "WORKS_FOR"
+        }
+      },
+      "required": [
+        "type",
+        "source",
+        "target",
+        "source_label",
+        "target_label"
+      ],
+      "title": "WORKS_FOR",
+      "type": "object",
+      "unevaluatedProperties": false,
+      "x-agrag-max-per-source": 1
+    }
+  },
+  "$id": "urn:agrag:schema:company:2",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "entities": {
+      "items": {
+        "oneOf": [
+          {
+            "$ref": "#/$defs/Company"
+          },
+          {
+            "$ref": "#/$defs/Organization"
+          },
+          {
+            "$ref": "#/$defs/Person"
+          }
+        ]
+      },
+      "type": "array"
+    },
+    "relations": {
+      "items": {
+        "oneOf": [
+          {
+            "$ref": "#/$defs/COLLEAGUE_OF"
+          },
+          {
+            "$ref": "#/$defs/WORKS_FOR"
+          }
+        ]
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "entities",
+    "relations"
+  ],
+  "title": "company",
+  "type": "object"
+}

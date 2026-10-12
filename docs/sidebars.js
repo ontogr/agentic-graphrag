@@ -75,7 +75,7 @@ const sidebars = {
     ]),
   ],
   referenceSidebar: [
-    section('Reference', ['reference/configuration', 'reference/schema-file-format', 'reference/trace-spans']),
+    section('Reference', ['reference/configuration', 'reference/schema-file-format', 'reference/schema-format-json-schema', 'reference/trace-spans']),
     {
       type: 'category',
       label: 'Python API',
