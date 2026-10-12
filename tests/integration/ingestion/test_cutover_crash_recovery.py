@@ -325,7 +325,8 @@ async def _grow_component(
     """
     store = build_graph_store("neo4j")
     await store.connect()
-    names = [f"{prefix} {uuid4().hex[:6]}" for _ in range(3)]
+    name_stem = uuid4().hex
+    names = [f"{prefix} {name_stem}{index}" for index in range(3)]
     keys = [
         f"crash://{prefix.split(maxsplit=1)[0].lower()}-{i}-{uuid4().hex}"
         for i in range(3)

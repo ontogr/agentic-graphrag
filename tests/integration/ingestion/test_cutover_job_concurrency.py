@@ -18,12 +18,12 @@ from agrag.common.data_models.cutover_job import CUTOVER_JOB_LABEL
 from agrag.cypher.cutover_job_read import find_incomplete_jobs_query
 from agrag.cypher.cutover_job_write import (
     acquire_lease_query,
+    begin_rollback_query,
     claim_pending_job_query,
     clear_pending_tag_query,
     commit_job_query,
     finish_cleaning_query,
     renew_lease_query,
-    rollback_claimed_job_query,
     rollback_job_query,
     start_cleaning_query,
 )
@@ -505,13 +505,25 @@ class TestClearPendingTagAndRollbackAgainstRealNeo4j:
         store = build_graph_store("neo4j")
         await store.connect()
         job_id = str(uuid4())
+        token = str(uuid4())
         try:
             await store.execute_write(
-                f"CREATE (job:{CUTOVER_JOB_LABEL} {{id: $job_id, document_key: $key}}) "
+                f"CREATE (job:{CUTOVER_JOB_LABEL} {{id: $job_id, document_key: $key, "
+                "status: 'pending', lease_token: $token}) "
                 "CREATE (a:TestCutoverPending {name: 'a', _pending_job_id: $job_id})",
-                {"job_id": job_id, "key": f"rollback-test-{job_id}"},
+                {
+                    "job_id": job_id,
+                    "key": f"rollback-test-{job_id}",
+                    "token": token,
+                },
             )
-            rows = await store.execute_write(rollback_job_query(), {"job_id": job_id})
+            begun = await store.execute_write(
+                begin_rollback_query(), {"job_id": job_id, "lease_token": token}
+            )
+            rows = await store.execute_write(
+                rollback_job_query(), {"job_id": job_id, "lease_token": token}
+            )
+            assert begun == [{"id": job_id}]
             assert rows == [{"deleted_nodes": 1, "deleted_relationships": 0}]
             job_left = await store.execute_read(
                 f"MATCH (job:{CUTOVER_JOB_LABEL} {{id: $job_id}}) RETURN job",
@@ -550,10 +562,13 @@ class TestClearPendingTagAndRollbackAgainstRealNeo4j:
                     ).isoformat(),
                 },
             )
-            rows = await store.execute_write(
-                rollback_claimed_job_query(),
-                {"job_id": job_id, "lease_token": token},
+            begun = await store.execute_write(
+                begin_rollback_query(), {"job_id": job_id, "lease_token": token}
             )
+            rows = await store.execute_write(
+                rollback_job_query(), {"job_id": job_id, "lease_token": token}
+            )
+            assert begun == [{"id": job_id}]
             assert rows == [{"deleted_nodes": 0, "deleted_relationships": 0}]
             job_left = await store.execute_read(
                 f"MATCH (job:{CUTOVER_JOB_LABEL} {{id: $job_id}}) RETURN job",
