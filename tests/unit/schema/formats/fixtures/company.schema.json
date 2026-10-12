@@ -1,6 +1,105 @@
 {
   "$defs": {
-    "COLLEAGUE_OF": {
+    "entity-Company": {
+      "additionalProperties": false,
+      "description": "A for-profit organization.",
+      "properties": {
+        "label": {
+          "const": "Company"
+        },
+        "properties": {
+          "additionalProperties": false,
+          "properties": {
+            "status": {
+              "enum": [
+                "active",
+                "dissolved"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "status"
+          ],
+          "type": "object"
+        },
+        "text": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "label",
+        "text",
+        "properties"
+      ],
+      "title": "Company",
+      "type": "object",
+      "x-agrag-parents": [
+        "Organization"
+      ]
+    },
+    "entity-Organization": {
+      "additionalProperties": false,
+      "description": "A company or institution.",
+      "properties": {
+        "label": {
+          "const": "Organization"
+        },
+        "properties": {
+          "additionalProperties": false,
+          "properties": {},
+          "type": "object"
+        },
+        "text": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "label",
+        "text",
+        "properties"
+      ],
+      "title": "Organization",
+      "type": "object"
+    },
+    "entity-Person": {
+      "additionalProperties": false,
+      "description": "A named individual.",
+      "properties": {
+        "label": {
+          "const": "Person"
+        },
+        "properties": {
+          "additionalProperties": false,
+          "properties": {
+            "born": {
+              "format": "date",
+              "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$",
+              "type": "string"
+            },
+            "email": {
+              "description": "Work email address.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "email"
+          ],
+          "type": "object"
+        },
+        "text": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "label",
+        "text",
+        "properties"
+      ],
+      "title": "Person",
+      "type": "object"
+    },
+    "relation-COLLEAGUE_OF": {
       "anyOf": [
         {
           "properties": {
@@ -39,99 +138,7 @@
       "unevaluatedProperties": false,
       "x-agrag-symmetric": true
     },
-    "Company": {
-      "additionalProperties": false,
-      "description": "A for-profit organization.",
-      "properties": {
-        "label": {
-          "const": "Company"
-        },
-        "properties": {
-          "additionalProperties": false,
-          "properties": {
-            "status": {
-              "enum": [
-                "active",
-                "dissolved"
-              ],
-              "type": "string"
-            }
-          },
-          "required": [
-            "status"
-          ],
-          "type": "object"
-        },
-        "text": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "label",
-        "text",
-        "properties"
-      ],
-      "title": "Company",
-      "type": "object",
-      "x-agrag-parents": [
-        "Organization"
-      ]
-    },
-    "Organization": {
-      "additionalProperties": false,
-      "description": "A company or institution.",
-      "properties": {
-        "label": {
-          "const": "Organization"
-        },
-        "text": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "label",
-        "text"
-      ],
-      "title": "Organization",
-      "type": "object"
-    },
-    "Person": {
-      "additionalProperties": false,
-      "description": "A named individual.",
-      "properties": {
-        "label": {
-          "const": "Person"
-        },
-        "properties": {
-          "additionalProperties": false,
-          "properties": {
-            "born": {
-              "format": "date",
-              "type": "string"
-            },
-            "email": {
-              "description": "Work email address.",
-              "type": "string"
-            }
-          },
-          "required": [
-            "email"
-          ],
-          "type": "object"
-        },
-        "text": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "label",
-        "text",
-        "properties"
-      ],
-      "title": "Person",
-      "type": "object"
-    },
-    "WORKS_FOR": {
+    "relation-WORKS_FOR": {
       "anyOf": [
         {
           "properties": {
@@ -180,13 +187,13 @@
       "items": {
         "oneOf": [
           {
-            "$ref": "#/$defs/Company"
+            "$ref": "#/$defs/entity-Company"
           },
           {
-            "$ref": "#/$defs/Organization"
+            "$ref": "#/$defs/entity-Organization"
           },
           {
-            "$ref": "#/$defs/Person"
+            "$ref": "#/$defs/entity-Person"
           }
         ]
       },
@@ -196,10 +203,10 @@
       "items": {
         "oneOf": [
           {
-            "$ref": "#/$defs/COLLEAGUE_OF"
+            "$ref": "#/$defs/relation-COLLEAGUE_OF"
           },
           {
-            "$ref": "#/$defs/WORKS_FOR"
+            "$ref": "#/$defs/relation-WORKS_FOR"
           }
         ]
       },
