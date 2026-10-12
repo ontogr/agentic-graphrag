@@ -16,6 +16,7 @@ Lifecycle phase of a Cutover Job.
 - [**DONE**](#agrag-common-data_models-cutover_job-CutoverJobStatus-DONE) –
 - [**PENDING**](#agrag-common-data_models-cutover_job-CutoverJobStatus-PENDING) –
 - [**ROLLED_BACK**](#agrag-common-data_models-cutover_job-CutoverJobStatus-ROLLED_BACK) –
+- [**ROLLING_BACK**](#agrag-common-data_models-cutover_job-CutoverJobStatus-ROLLING_BACK) –
 
 ## `CLEANING` \{#agrag-common-data_models-cutover_job-CutoverJobStatus-CLEANING}
 
@@ -45,4 +46,10 @@ PENDING = 'pending'
 
 ```python
 ROLLED_BACK = 'rolled_back'
+```
+
+## `ROLLING_BACK` \{#agrag-common-data_models-cutover_job-CutoverJobStatus-ROLLING_BACK}
+
+```python
+ROLLING_BACK = 'rolling_back'
 ```
