@@ -34,7 +34,7 @@ flowchart TD
 2. The local model (GLiNER 2.5) proposes entities. Each entity has a label, a text span, and a confidence score. It also proposes relations between the entities.
 3. The cascade examines the result. It escalates in two cases. The local model found no entities in a chunk of at least eight words. Or the mean confidence of the entities is below 0.5.
 4. When the cascade escalates, an LLM reads the same chunk. The schema is part of its prompt. The LLM result replaces the local result. The cascade never combines the two.
-5. Validation removes every entity whose label the schema does not declare. It removes every relation whose label, or whose pair of entity types, the schema does not declare. It removes every property that the schema does not declare.
+5. Validation removes every entity whose label the schema does not declare. It removes every relation whose label, or whose pair of entity types, the schema does not declare. A pattern that names a parent type also covers the child types of that type. It removes every property that the schema does not declare. Cardinality and symmetry declarations are not enforced on extracted edges.
 6. The result is a list of mentions. A mention is not a graph node yet. It keeps its chunk, label, text, character span, and confidence.
 
 The cascade is a choice that you make when you open a graph. If you give the graph only the local extractor, no chunk goes to an LLM.

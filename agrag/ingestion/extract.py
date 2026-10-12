@@ -100,21 +100,6 @@ def _resolve_span(
     return start, start + len(text)
 
 
-def _relation_patterns(schema: GraphSchema) -> dict[str, set[tuple[str, str]]]:
-    """Return each relation label's set of allowed (source, target) label pairs.
-
-    Args:
-        schema: The schema whose relations declare endpoint-label ``patterns``.
-
-    Returns:
-        A map from relation label to the union of its declared patterns.
-    """
-    allowed: dict[str, set[tuple[str, str]]] = {}
-    for relation_type in schema.relations:
-        allowed.setdefault(relation_type.label, set()).update(relation_type.patterns)
-    return allowed
-
-
 def _describe_entity_type(entity_type: EntityType) -> str:
     """Return prompt guidance for one entity type, its declared properties included.
 
@@ -146,29 +131,26 @@ def _resolve_relation_pair(
     relation: object,
     text_index: dict[str, list[int]],
     valid_raw_entities: list[tuple[Any, int, int]],
-    allowed_pairs: dict[str, set[tuple[str, str]]],
+    schema: GraphSchema,
 ) -> tuple[int, int] | None:
     """Return the single (source, target) index pair for one raw relation.
 
     BAML identifies endpoints only by surface text, so each endpoint text
     can match several entities. Walk candidate source and target indices in
-    order and return the first pair whose endpoint labels satisfy one of the
-    relation's declared ``patterns``. Return None when the relation label is
-    undeclared, an endpoint text matches no entity, or every pairing
+    order and return the first pair whose endpoint labels satisfy the schema,
+    including inherited labels and symmetry. Return None when the relation label
+    is undeclared, an endpoint text matches no entity, or every pairing
     self-references. Callers drop such relations rather than raise.
     """
     source_candidates = text_index.get(relation.source_text, [])  # ty: ignore[unresolved-attribute]
     target_candidates = text_index.get(relation.target_text, [])  # ty: ignore[unresolved-attribute]
-    patterns = allowed_pairs.get(relation.label)  # ty: ignore[unresolved-attribute]
-    if patterns is None:
-        return None
     for source_index in source_candidates:
         for target_index in target_candidates:
             if source_index == target_index:
                 continue
             source_label = valid_raw_entities[source_index][0].label
             target_label = valid_raw_entities[target_index][0].label
-            if (source_label, target_label) in patterns:
+            if schema.allows(relation.label, source_label, target_label):  # ty: ignore[unresolved-attribute]
                 return (source_index, target_index)
     return None
 
@@ -184,9 +166,9 @@ def _normalize_extraction_result(
     field, or a schema that dropped a property after the model was
     prompted), and compute_merge has no schema of its own to filter against
     later. A relation survives only when its label is a declared
-    RelationType and the resolved (source label, target label) pair,
-    checked against the surviving entities, is one of that type's
-    ``patterns``. A relation pointing at a dropped entity is dropped too.
+    RelationType and the resolved (source label, target label) pair, checked
+    against the schema's allowed endpoint pairs. A relation pointing at a
+    dropped entity is dropped too.
     Surviving relation indices are remapped to the filtered entity list.
 
     Args:
@@ -219,7 +201,6 @@ def _normalize_extraction_result(
                 valid_entity = entity.model_copy(update={"properties": declared})
         valid_entities.append(valid_entity)
 
-    allowed_pairs = _relation_patterns(schema)
     valid_relations: list[ExtractedRelation] = []
     for relation in result.relations:
         if (
@@ -229,8 +210,11 @@ def _normalize_extraction_result(
             continue
         new_source = index_remap[relation.source_index]
         new_target = index_remap[relation.target_index]
-        pair = (valid_entities[new_source].label, valid_entities[new_target].label)
-        if pair not in allowed_pairs.get(relation.label, set()):
+        if not schema.allows(
+            relation.label,
+            valid_entities[new_source].label,
+            valid_entities[new_target].label,
+        ):
             continue
         valid_relations.append(
             relation.model_copy(
@@ -617,11 +601,10 @@ class GlinerExtractor(Extractor):
                     )
                 )
 
-        allowed_pairs = _relation_patterns(schema)
+        relation_labels = {relation.label for relation in schema.relations}
         relations: list[ExtractedRelation] = []
         for label, pairs in raw_relations.items():
-            patterns = allowed_pairs.get(label)
-            if patterns is None:
+            if label not in relation_labels:
                 continue
             for pair in pairs:
                 head, tail = pair["head"], pair["tail"]
@@ -651,7 +634,7 @@ class GlinerExtractor(Extractor):
                         for si in source_candidates
                         for ti in target_candidates
                         if si != ti
-                        and (entities[si].label, entities[ti].label) in patterns
+                        and schema.allows(label, entities[si].label, entities[ti].label)
                     ),
                     None,
                 )
@@ -882,12 +865,11 @@ class BAMLExtractor(LLMExtractor):
         for index, (entity, _, _) in enumerate(valid_raw_entities):
             text_index.setdefault(entity.text, []).append(index)
 
-        allowed_pairs = _relation_patterns(schema)
         relations: list[ExtractedRelation] = []
         seen_pairs: set[tuple[int, int, str]] = set()
         for relation in raw.relations:  # ty: ignore[unresolved-attribute]
             chosen = _resolve_relation_pair(
-                relation, text_index, valid_raw_entities, allowed_pairs
+                relation, text_index, valid_raw_entities, schema
             )
             if chosen is None or (chosen[0], chosen[1], relation.label) in seen_pairs:
                 continue
