@@ -23,6 +23,10 @@ class ReevaluationReport(BaseModel):
             re-check, left active. The LLM request failed, the pair was over
             the per-label cap, no LLM settings were found, or the model
             answered uncertain.
+        failed_llm_requests: LLM verification requests that raised.
+        cap_truncated_pairs: Ambiguous pairs over the per-label cap.
+        llm_unavailable_pairs: Ambiguous pairs that never reached the LLM
+            because no LLM settings were found.
         unchanged_count: Input entities with no incident added or removed
             edge.
     """
@@ -31,4 +35,7 @@ class ReevaluationReport(BaseModel):
     matches_added: list[MatchDecision] = Field(default_factory=list)
     matches_removed: list[UUID] = Field(default_factory=list)
     matches_unverified: list[UUID] = Field(default_factory=list)
+    failed_llm_requests: int = 0
+    cap_truncated_pairs: int = 0
+    llm_unavailable_pairs: int = 0
     unchanged_count: int = 0

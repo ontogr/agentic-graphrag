@@ -10,37 +10,7 @@ from agrag.ingestion._clustering import average_linkage_clusters
 
 HARD_MERGE_THRESHOLD = 0.95
 DISCARD_THRESHOLD = 0.80
-FUZZY_FAST_PATH_THRESHOLD = 0.97
 MAX_LLM_PAIRS = 500
-
-
-def classify_zone(fuzzy_score: float, embedding_similarity: float | None) -> str:
-    """Assign a candidate pair to a resolution zone.
-
-    A near-identical fuzzy score merges without consulting the embedding.
-    Otherwise the embedding similarity decides: at or above the hard-merge
-    threshold the pair merges, inside the discard-to-hard-merge band it
-    needs LLM review, and below the discard threshold it is dropped. A
-    missing embedding with a below-fast-path fuzzy score also discards,
-    since no signal supports a merge.
-
-    Args:
-        fuzzy_score: Token-sort-ratio similarity in ``[0, 1]``.
-        embedding_similarity: Cosine similarity in ``[-1, 1]``, or ``None``
-            when no embedding is available.
-
-    Returns:
-        ``"hard_merge"``, ``"ambiguous"``, or ``"discard"``.
-    """
-    if fuzzy_score >= FUZZY_FAST_PATH_THRESHOLD:
-        return "hard_merge"
-    if embedding_similarity is None:
-        return "discard"
-    if embedding_similarity >= HARD_MERGE_THRESHOLD:
-        return "hard_merge"
-    if embedding_similarity >= DISCARD_THRESHOLD:
-        return "ambiguous"
-    return "discard"
 
 
 def select_llm_pairs(

@@ -299,6 +299,9 @@ class TestReevaluateIntegration:
             report = await graph.reevaluate([first.id, second.id])
 
             assert report.matches_added == []
+            assert report.failed_llm_requests == int(answer == "failure")
+            assert report.cap_truncated_pairs == int(max_pairs == 0)
+            assert report.llm_unavailable_pairs == 0
             if expected_active:
                 assert report.matches_removed == []
                 assert len(report.matches_unverified) == 1

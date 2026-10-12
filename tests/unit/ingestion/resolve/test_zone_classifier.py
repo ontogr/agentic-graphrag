@@ -1,7 +1,8 @@
-"""Tests for LLM pair selection and ambiguous-cluster preclustering.
+"""Tests for pair ranking and safe pre-clustering of ambiguous candidates.
 
-Covers select_llm_pairs ranking ambiguous candidates by similarity with a cap,
-and precluster_ambiguous auto-merging only tight sub-clusters.
+The ranking tests check the similarity cap and index tie-break. The clustering
+tests check that only tight groups auto-merge and that missing similarities do
+not create a group.
 """
 
 from uuid import uuid4

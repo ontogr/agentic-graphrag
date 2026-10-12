@@ -69,18 +69,24 @@ async def resolve_stage(
         error_policy=ctx.error_policy,
         job_id=ctx.job_id,
     )
-    # Groups over the combined list include synthetic singletons, so only groups
-    # holding a real mention count.
-    semantic_groups = batch.result.groups if batch.result is not None else []
+    result = batch.result
+    in_batch_groups = (
+        sum(
+            1
+            for group in result.groups
+            if sum(index < len(entities) for index in group.entity_indices) >= 2
+        )
+        if result is not None
+        else 0
+    )
     stats = ResolutionStats(
         exact_match_hits=len(batch.exact_matches),
-        in_batch_groups=sum(
-            1
-            for group in semantic_groups
-            if any(index < len(entities) for index in group.entity_indices)
-        ),
-        ambiguous_count=(
-            batch.result.ambiguous_count if batch.result is not None else 0
+        in_batch_groups=in_batch_groups,
+        ambiguous_count=result.ambiguous_count if result is not None else 0,
+        failed_llm_requests=result.failed_llm_requests if result is not None else 0,
+        cap_truncated_pairs=result.cap_truncated_pairs if result is not None else 0,
+        llm_unavailable_pairs=(
+            result.llm_unavailable_pairs if result is not None else 0
         ),
     )
     return ResolveStageResult(batch=batch, stats=stats)
