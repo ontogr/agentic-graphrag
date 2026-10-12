@@ -15,7 +15,10 @@ One kind of entity a schema recognizes.
 - [**description**](#agrag-common-data_models-graph_schema-EntityType-description) (<code>str</code>) – Guidance fed to the extractor prompt or schema builder.
 - [**parents**](#agrag-common-data_models-graph_schema-EntityType-parents) (<code>list\[str\]</code>) – Declared parent labels, nearest parent first.
 - [**properties**](#agrag-common-data_models-graph_schema-EntityType-properties) (<code>dict\[str, [PropertySpec](PropertySpec.md)\]</code>) – Property names mapped to their `PropertySpec`. Properties
-  are not inherited from parents.
+  are not inherited from parents. `label`, `text` and the keys
+  the graph writes itself (`id`, `name`, `merge_key`,
+  `merge_count`, `source_chunk_ids`, `created_at`,
+  `embedding`) are rejected as names.
 
 ## `description` \{#agrag-common-data_models-graph_schema-EntityType-description}
 
