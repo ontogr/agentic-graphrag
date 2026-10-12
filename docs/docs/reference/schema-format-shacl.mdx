@@ -1,0 +1,46 @@
+---
+title: SHACL export
+description: How a schema maps to SHACL, and what the export does not carry.
+---
+
+# SHACL export
+
+`to_shacl(schema)` writes SHACL shapes as Turtle text for one schema. Use it to check extraction results in a graph tool that reads SHACL, or to share the schema with a triple store or validation pipeline that speaks Turtle.
+
+```python notest
+from agrag.schema import load_schema
+from agrag.schema.formats import to_shacl
+
+schema = load_schema(["Person", "Company", "Person-WORKS_FOR->Company"])
+print(to_shacl(schema))
+```
+
+The result is a string, not a dict. Each entity type becomes a `sh:NodeShape` with a `sh:targetClass`, and each declared property becomes a `sh:property` shape on that node shape.
+
+## Mapping
+
+| Schema element | SHACL |
+| --- | --- |
+| Entity type | A `sh:NodeShape` with `sh:targetClass` naming the type |
+| Entity description | `rdfs:comment` on the node shape |
+| Property type `string`, `integer`, `float`, `boolean` | `sh:datatype` of `xsd:string`, `xsd:integer`, `xsd:double`, `xsd:boolean` |
+| Property type `date` | `sh:datatype` of `xsd:date` |
+| Property `required` | `sh:minCount 1` on the property shape |
+| Property `enum` | `sh:in` with the allowed values |
+| Property description | `rdfs:comment` on the property shape |
+| Entity parents | `rdfs:subClassOf` pointing at each parent class |
+| Relation type | An `rdf:Property` plus a `sh:property` shape on each endpoint's node shape naming the allowed target class |
+
+Relation cardinality and direction flags cannot be expressed as plain SHACL constraints, so they appear as `x-agrag-*` annotations alongside the relation property. A SHACL validator ignores them.
+
+| Schema element | Annotation |
+| --- | --- |
+| Relation `max_per_source` | `x-agrag-max-per-source` |
+| Relation `max_per_target` | `x-agrag-max-per-target` |
+| Relation `symmetric` | `x-agrag-symmetric` |
+
+## What the export does not carry
+
+SHACL checks one graph. It cannot count edges per source or target across documents, so the cardinality limits above stay annotations only. A symmetric relation is written once; the reverse direction is an annotation, not a second property.
+
+This page covers export only. You cannot load a schema from SHACL.

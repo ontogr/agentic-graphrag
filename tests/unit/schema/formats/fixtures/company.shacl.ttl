@@ -1,0 +1,37 @@
+@prefix ex: <urn:agrag:schema:company:> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix x-agrag: <urn:agrag:> .
+
+ex:Company a rdfs:Class, sh:NodeShape ;
+    sh:targetClass ex:Company ;
+    rdfs:label "Company" ;
+    rdfs:comment "A for-profit organization." ;
+    rdfs:subClassOf ex:Organization ;
+    sh:property [ sh:path ex:status ; sh:datatype xsd:string ; sh:minCount 1 ; sh:in ( "active"^^xsd:string "dissolved"^^xsd:string ) ] .
+
+ex:Organization a rdfs:Class, sh:NodeShape ;
+    sh:targetClass ex:Organization ;
+    rdfs:label "Organization" ;
+    rdfs:comment "A company or institution." ;
+    sh:property [ sh:path [ sh:inversePath ex:WORKS_FOR ] ; sh:class ex:Person ] .
+
+ex:Person a rdfs:Class, sh:NodeShape ;
+    sh:targetClass ex:Person ;
+    rdfs:label "Person" ;
+    rdfs:comment "A named individual." ;
+    sh:property [ sh:path ex:born ; sh:datatype xsd:date ; sh:minCount 0 ] ;
+    sh:property [ sh:path ex:email ; sh:datatype xsd:string ; sh:minCount 1 ; rdfs:comment "Work email address." ] ;
+    sh:property [ sh:path ex:COLLEAGUE_OF ; sh:class ex:Person ] ;
+    sh:property [ sh:path ex:WORKS_FOR ; sh:class ex:Organization ; sh:maxCount 1 ] ;
+    sh:property [ sh:path [ sh:inversePath ex:COLLEAGUE_OF ] ; sh:class ex:Person ] .
+
+ex:COLLEAGUE_OF a rdf:Property ;
+    x-agrag:pattern ( ex:Person ex:Person ) ;
+    x-agrag:symmetric true .
+
+ex:WORKS_FOR a rdf:Property ;
+    x-agrag:pattern ( ex:Person ex:Organization ) ;
+    x-agrag:maxPerSource 1 .

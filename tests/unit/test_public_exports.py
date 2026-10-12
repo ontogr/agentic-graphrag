@@ -24,6 +24,7 @@ PACKAGES = [
     "agrag.loaders",
     "agrag.retrieval",
     "agrag.schema",
+    "agrag.schema.formats",
     "agrag.vectordb",
 ]
 
