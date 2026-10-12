@@ -26,6 +26,7 @@ import agrag.ingestion._job_cleanup as job_cleanup_module
 import agrag.ingestion.extract as extract_module
 import agrag.ingestion.graph as graph_module
 from agrag.chunking import Chunker
+from agrag.common.data_models.candidate import CandidateRecord
 from agrag.common.data_models.chunk import Chunk
 from agrag.common.data_models.community import (
     COMMUNITY_LABEL,
@@ -147,6 +148,20 @@ class _MockGraphStore(CutoverJobLeaseFake, GraphStore):
         pending_job_id: UUID | None = None,
     ) -> UpsertResult:
         return UpsertResult(written=len(relations))
+
+    async def upsert_candidates(
+        self,
+        candidates: Sequence[CandidateRecord],
+        *,
+        batch_size: int = 256,
+        pending_job_id: UUID | None = None,
+    ) -> UpsertResult:
+        """Report every candidate written."""
+        return UpsertResult(written=len(candidates))
+
+    async def blocked_candidate_keys(self, keys: Sequence[str]) -> set[str]:
+        """Return no reviewed candidate keys."""
+        return set()
 
     async def ensure_vector_index(
         self, *, label: str, vector_property: str, dimensions: int, distance: Distance

@@ -7,6 +7,7 @@ identifier-validation contract shared by every Cypher builder.
 from collections.abc import Sequence
 from typing import Any, Literal
 
+from agrag.common.data_models.candidate import CANDIDATE_EDGE_TYPES
 from agrag.common.data_models.structure import (
     FIGURE_LABEL,
     HAS_CHILD,
@@ -36,7 +37,7 @@ def _cypher_string_list(values: Sequence[str]) -> str:
 
 
 _NON_ENTITY_RELATIONS = _cypher_string_list(
-    ("MENTIONED_IN", "MEMBER_OF", *_STRUCTURE_RELATIONS)
+    ("MENTIONED_IN", "MEMBER_OF", *_STRUCTURE_RELATIONS, *sorted(CANDIDATE_EDGE_TYPES))
 )
 
 _DEFAULT_TRAVERSAL_EXCLUSIONS = _cypher_string_list(_STRUCTURE_RELATIONS)
@@ -49,6 +50,13 @@ _DIRECTION_ARROW: dict[TraversalDirection, tuple[str, str]] = {
     "incoming": ("<-", "-"),
     "both": ("-", "-"),
 }
+
+
+def _identity_path_clause(path_alias: str) -> str:
+    """Return a filter requiring every node in a path to be an entity."""
+    return (
+        f"ALL(path_node IN nodes({path_alias}) WHERE path_node:{NODE_IDENTITY_LABEL})"
+    )
 
 
 def close_has_part_query() -> str:
@@ -115,7 +123,8 @@ def bfs_expand_query(
     Result nodes are restricted to entities that carry the identity label
     (``NODE_IDENTITY_LABEL``) and are **not** ``Chunk`` nodes: chunks are
     intermediate path nodes only, never returned as BFS results. Section,
-    Table, Figure and Source nodes are never returned either.
+    Table, Figure and Source nodes are never returned either. Every path node
+    must carry the identity label, so paths cannot cross candidates.
 
     Args:
         depth: The maximum BFS hops. Clamped to [1, 10].
@@ -164,6 +173,7 @@ def bfs_expand_query(
         "AND NOT neighbor.id IN $seed_ids "
         f"AND {_STRUCTURE_LABEL_EXCLUSIONS} "
         f"AND {pending_filter_clause('neighbor', 'job_id')} "
+        f"AND {_identity_path_clause('path')} "
         f"AND ALL(r IN relationships(path) WHERE {path_guard})"
     )
     document_suffix = (
@@ -263,7 +273,8 @@ def relationship_types_from_query(
         f"UNWIND $seed_ids AS seed_id "
         f"MATCH (seed:{NODE_IDENTITY_LABEL} {{id: seed_id}}) "
         f"MATCH (seed){left_arrow}[r{type_pattern}]{right_arrow}(neighbor) "
-        f"WHERE NOT neighbor:Chunk AND NOT neighbor:Community "
+        f"WHERE neighbor:{NODE_IDENTITY_LABEL} "
+        f"AND NOT neighbor:Chunk AND NOT neighbor:Community "
         f"AND NOT type(r) IN {_NON_ENTITY_RELATIONS} "
         f"AND {pending_filter_clause('r', 'job_id')} "
         f"RETURN DISTINCT type(r) AS rel_type"
@@ -427,6 +438,9 @@ def upsert_relation_query(rel_type: str) -> str:
     value here, inside the same MERGE, keeps the union correct regardless of
     which caller's read was stale.
 
+    Both endpoints must carry the identity label. Candidate edge types are
+    reserved for the candidate store and cannot be written here.
+
     The Cutover Job tag is applied only when the ``MERGE`` creates the
     relationship, so the tag means "this job created this edge". A job
     that only writes over an existing edge leaves it untagged: it stays
@@ -443,13 +457,19 @@ def upsert_relation_query(rel_type: str) -> str:
         ``source_chunk_ids``; other keys are applied as-is. The query returns
         one row with ``id`` for every record whose endpoints matched and was
         processed.
+
+    Raises:
+        ValueError: ``rel_type`` is unsafe or reserved for candidate edges.
     """
     safe_type = validate_identifier(rel_type)
+    if safe_type in CANDIDATE_EDGE_TYPES:
+        raise ValueError(f"{safe_type!r} is reserved for the candidate store")
     return (
         f"UNWIND $records AS record "
-        f"MATCH (a {{id: record.start_id}}) "
-        f"MATCH (b {{id: record.end_id}}) "
-        f"OPTIONAL MATCH (x)-[stale:{safe_type} {{id: record.id}}]->(y) "
+        f"MATCH (a:{NODE_IDENTITY_LABEL} {{id: record.start_id}}) "
+        f"MATCH (b:{NODE_IDENTITY_LABEL} {{id: record.end_id}}) "
+        f"OPTIONAL MATCH (x:{NODE_IDENTITY_LABEL})"
+        f"-[stale:{safe_type} {{id: record.id}}]->(y:{NODE_IDENTITY_LABEL}) "
         f"WHERE (x.id <> record.start_id OR y.id <> record.end_id) "
         f"AND (record.pending_job_id IS NULL "
         f"OR stale._pending_job_id IS NULL "
@@ -492,5 +512,6 @@ def shortest_path_distance_query() -> str:
         f"(seed:{NODE_IDENTITY_LABEL} {{id: seed_id}})"
         f"-[*]-(target:{NODE_IDENTITY_LABEL} {{id: target_id}})"
         f") WHERE {pending_path_filter_clause('path')} "
+        f"AND {_identity_path_clause('path')} "
         "RETURN length(path) AS dist"
     )

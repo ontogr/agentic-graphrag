@@ -12,9 +12,12 @@ write keyword used as a property name is still conservatively rejected.
 import pytest
 
 from agrag.cypher.safety import (
+    MissingIdentityGuardError,
     MissingPendingGuardError,
     UnsafeCypherError,
+    find_candidate_exposure,
     reject_write_cypher,
+    require_identity_guard,
     require_pending_guard,
 )
 
@@ -145,3 +148,81 @@ class TestRequirePendingGuard:
         """A missing, unnamed or only-quoted guard is rejected."""
         with pytest.raises(MissingPendingGuardError):
             require_pending_guard(query)
+
+
+class TestRequireIdentityGuard:
+    """require_identity_guard blocks queries that can reach candidates."""
+
+    @pytest.mark.parametrize(
+        "query",
+        [
+            "MATCH (n:Person) RETURN n",
+            "MATCH (n) WHERE n:Person AND n._pending_job_id IS NULL RETURN n",
+            "MATCH (n:Person)-[r:KNOWS*1..3]-(m:Person) RETURN m",
+            "MATCH p = (n:Person)-[r*1..2]-(m:Person) "
+            "WHERE ALL(x IN nodes(p) WHERE x:Person) RETURN m",
+            "RETURN 1",
+        ],
+    )
+    def test_accepts_queries_constrained_to_the_entity_graph(self, query: str) -> None:
+        """A non-candidate label or complete path guard prevents exposure."""
+        require_identity_guard(query)
+        assert find_candidate_exposure(query) is None
+
+    @pytest.mark.parametrize(
+        "query",
+        [
+            "MATCH (n) RETURN n",
+            "MATCH (n:Candidate) RETURN n",
+            "MATCH (n) WHERE NOT n:Chunk RETURN n",
+            "MATCH (n) WHERE NOT (n:Person) RETURN n",
+            "MATCH (n) RETURN n, n:Person AS is_person",
+            "MATCH p = (a:Person)-[r*1..3]-(b:Person) "
+            "WHERE NOT (ALL(x IN nodes(p) WHERE x:Person)) RETURN p",
+            "MATCH p = (a:Person)-[r*1..3]-(b:Person) "
+            "RETURN p, ALL(x IN nodes(p) WHERE x:Person)",
+            "MATCH (n) WHERE n:Person OR n:Org RETURN n",
+            "MATCH (a:Person)-[:EVIDENCED_BY*1..3]-(b:Person) RETURN b",
+        ],
+    )
+    def test_rejects_queries_that_can_reach_a_candidate(self, query: str) -> None:
+        """An open node, candidate label or candidate edge path is rejected."""
+        with pytest.raises(MissingIdentityGuardError):
+            require_identity_guard(query)
+
+    @staticmethod
+    def test_label_text_in_string_does_not_guard_an_unlabelled_node() -> None:
+        """A string literal cannot constrain the matched node label."""
+        query = "MATCH (n) WHERE n.note = 'n:Person' RETURN n"
+
+        reason = find_candidate_exposure(query)
+
+        assert reason is not None
+        with pytest.raises(MissingIdentityGuardError):
+            require_identity_guard(query)
+
+    @staticmethod
+    @pytest.mark.parametrize(
+        "query",
+        [
+            # A pattern comprehension after RETURN binds an unlabelled node.
+            "MATCH (n:Person) RETURN [(n)-->(m) | m] AS x",
+            # A later UNION branch reuses a name whose label test is elsewhere.
+            "MATCH (n) WHERE n:Person RETURN n UNION MATCH (n) RETURN n",
+            # A quantified relationship can repeat through an unlabelled node.
+            "MATCH (a:Person)-[r]-{1,2}(b:Person) RETURN a",
+            # A path guard on a different path variable does not guard this path.
+            "MATCH p = (a:Person)-[*1..3]-(b:Person) "
+            "WHERE ALL(x IN nodes(q) WHERE x:Person) RETURN p",
+            # WITH can rebind a labelled name to an unlabelled node.
+            "MATCH (a:Person) WITH a MATCH (a) RETURN a",
+            # A variable-length path whose nodes are guarded only after WITH.
+            "MATCH (a:Person) WITH a MATCH p = (a)-[*1..3]-(b:Person) "
+            "WHERE ALL(x IN nodes(p) WHERE x:Person) RETURN b",
+        ],
+    )
+    def test_rejects_bypasses_of_the_identity_guard(query: str) -> None:
+        """Each construct the text check could not follow is rejected."""
+        assert find_candidate_exposure(query) is not None
+        with pytest.raises(MissingIdentityGuardError):
+            require_identity_guard(query)

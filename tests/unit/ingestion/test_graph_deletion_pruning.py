@@ -9,6 +9,7 @@ from contextlib import AbstractAsyncContextManager
 from typing import Any
 from uuid import UUID, uuid4
 
+from agrag.common.data_models.candidate import CandidateRecord
 from agrag.common.data_models.graph_record import (
     NodeRecord,
     RelationRecord,
@@ -121,6 +122,20 @@ class _ScriptedStore(GraphStore):
     ) -> UpsertResult:
         """Report every relation written."""
         return UpsertResult(written=len(relations))
+
+    async def upsert_candidates(
+        self,
+        candidates: Sequence[CandidateRecord],
+        *,
+        batch_size: int = 256,
+        pending_job_id: UUID | None = None,
+    ) -> UpsertResult:
+        """Report every candidate written."""
+        return UpsertResult(written=len(candidates))
+
+    async def blocked_candidate_keys(self, keys: Sequence[str]) -> set[str]:
+        """Return no reviewed candidate keys."""
+        return set()
 
     async def ensure_vector_index(
         self, *, label: str, vector_property: str, dimensions: int, distance: Distance

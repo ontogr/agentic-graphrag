@@ -8,6 +8,7 @@ import re
 from collections.abc import Sequence
 from typing import Any
 
+from agrag.common.data_models.candidate import CANDIDATE_LABEL
 from agrag.common.data_models.graph_record import PENDING_JOB_ID_PROPERTY
 from agrag.common.data_models.structure import HAS_PART
 from agrag.cypher._pending_filter import pending_filter_clause
@@ -41,10 +42,12 @@ def validate_identifier(value: str) -> str:
         ``value`` unchanged, once validated.
 
     Raises:
-        ValueError: ``value`` is not a safe identifier.
+        ValueError: ``value`` is not a safe identifier or is reserved.
     """
     if not _IDENTIFIER.match(value):
         raise ValueError(f"{value!r} is not a valid Cypher identifier")
+    if value == CANDIDATE_LABEL:
+        raise ValueError(f"{value!r} is reserved for the candidate store")
     return value
 
 
@@ -61,7 +64,7 @@ def is_safe_identifier(value: str) -> bool:
     Returns:
         ``True`` if ``value`` is a safe identifier.
     """
-    return _IDENTIFIER.match(value) is not None
+    return _IDENTIFIER.match(value) is not None and value != CANDIDATE_LABEL
 
 
 def upsert_node_query(labels: Sequence[str]) -> str:
@@ -341,7 +344,8 @@ def fetch_relations_between_query(rel_type: str, *, job_id: str | None = None) -
     pending = pending_filter_clause("r", job_id)
     return (
         f"UNWIND $pairs AS pair "
-        f"MATCH (a {{id: pair.source_id}})-[r:{safe_type}]->(b {{id: pair.target_id}}) "
+        f"MATCH (a:{NODE_IDENTITY_LABEL} {{id: pair.source_id}})"
+        f"-[r:{safe_type}]->(b:{NODE_IDENTITY_LABEL} {{id: pair.target_id}}) "
         f"WHERE {pending} "
         f"RETURN pair.source_id AS source_id, pair.target_id AS target_id, "
         f"r.id AS id, r.source_chunk_ids AS source_chunk_ids"

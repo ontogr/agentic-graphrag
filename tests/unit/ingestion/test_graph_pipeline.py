@@ -11,6 +11,7 @@ from uuid import UUID, uuid4
 import pytest
 
 import agrag.ingestion._resolution_maintenance as maintenance_module
+from agrag.common.data_models.candidate import CandidateRecord
 from agrag.common.data_models.chunk import CHUNK_LABEL
 from agrag.common.data_models.chunk import Chunk as ChunkModel
 from agrag.common.data_models.default_schema import DEFAULT_SCHEMA
@@ -153,6 +154,20 @@ class MockStore(CutoverJobLeaseFake, GraphStore):
         """Record a relation upsert."""
         self.upsert_relations_calls.append(list(relations))
         return UpsertResult(written=len(relations))
+
+    async def upsert_candidates(
+        self,
+        candidates: Sequence[CandidateRecord],
+        *,
+        batch_size: int = 256,
+        pending_job_id: UUID | None = None,
+    ) -> UpsertResult:
+        """Report every candidate written."""
+        return UpsertResult(written=len(candidates))
+
+    async def blocked_candidate_keys(self, keys: Sequence[str]) -> set[str]:
+        """Return no reviewed candidate keys."""
+        return set()
 
     async def ensure_vector_index(self, **kw: Any) -> None:
         """No-op vector index creation."""
