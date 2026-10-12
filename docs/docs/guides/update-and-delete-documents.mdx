@@ -35,7 +35,7 @@ import asyncio
 import hashlib
 
 from agrag.common.data_models.document import Document, DocumentFamily, SourceFormat
-from agrag.common.data_models.graph_schema import GENERIC
+from agrag.common.data_models import DEFAULT_SCHEMA
 from agrag.embedding import build_embedder
 from agrag.graphdb import build_graph_store
 from agrag.ingestion import Graph
@@ -47,7 +47,7 @@ TEXT = "NASA ran the Apollo program. Neil Armstrong commanded Apollo 11."
 async def main() -> None:
     graph_store = build_graph_store("neo4j")
     graph = await Graph.open(
-        schema=GENERIC,
+        schema=DEFAULT_SCHEMA,
         graph_store=graph_store,
         embedder=build_embedder("ibm-granite/granite-embedding-small-english-r2"),
         extractor=GlinerExtractor(),

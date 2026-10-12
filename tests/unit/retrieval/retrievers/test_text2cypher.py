@@ -32,7 +32,7 @@ from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
 )
 
 from agrag.common.data_models.chunk import Chunk
-from agrag.common.data_models.graph_schema import GENERIC
+from agrag.common.data_models.default_schema import DEFAULT_SCHEMA
 from agrag.common.data_models.relation import Relation
 from agrag.cypher.entities import load_entities_by_id_query
 from agrag.cypher.safety import MissingPendingGuardError, UnsafeCypherError
@@ -51,7 +51,7 @@ class TestText2CypherRetriever:
     async def test_raises_on_generation_failure(self) -> None:
         """A failed Cypher generation raises, so it is not read as no results."""
         gs = AsyncMock()
-        retriever = Text2CypherRetriever(graph_store=gs, schema=GENERIC)
+        retriever = Text2CypherRetriever(graph_store=gs, schema=DEFAULT_SCHEMA)
 
         with (
             patch.object(retriever, "_generate_cypher", side_effect=Exception("fail")),
@@ -62,7 +62,7 @@ class TestText2CypherRetriever:
     async def test_raises_without_baml_client(self) -> None:
         """A missing BAML client raises and runs no query."""
         gs = AsyncMock()
-        retriever = Text2CypherRetriever(graph_store=gs, schema=GENERIC)
+        retriever = Text2CypherRetriever(graph_store=gs, schema=DEFAULT_SCHEMA)
 
         with (
             patch.dict(sys.modules, {"agrag.llm.baml_client": None}),
@@ -75,7 +75,7 @@ class TestText2CypherRetriever:
     async def test_rejects_write_cypher(self) -> None:
         """Generated Cypher with write clauses raises and never runs."""
         gs = AsyncMock()
-        retriever = Text2CypherRetriever(graph_store=gs, schema=GENERIC)
+        retriever = Text2CypherRetriever(graph_store=gs, schema=DEFAULT_SCHEMA)
 
         with (
             patch.object(
@@ -93,7 +93,7 @@ class TestText2CypherRetriever:
         """A query that ran and matched nothing returns an empty list."""
         gs = AsyncMock()
         gs.execute_read.return_value = []
-        retriever = Text2CypherRetriever(graph_store=gs, schema=GENERIC)
+        retriever = Text2CypherRetriever(graph_store=gs, schema=DEFAULT_SCHEMA)
 
         with patch.object(retriever, "_generate_cypher", return_value=GUARDED):
             results = await retriever.retrieve("who is Alice?")
@@ -104,7 +104,7 @@ class TestText2CypherRetriever:
         """An unavailable database raises and skips the repair attempt."""
         gs = AsyncMock()
         gs.execute_read.side_effect = ConnectionError("database down")
-        retriever = Text2CypherRetriever(graph_store=gs, schema=GENERIC)
+        retriever = Text2CypherRetriever(graph_store=gs, schema=DEFAULT_SCHEMA)
         generate = AsyncMock(return_value=GUARDED)
 
         with (
@@ -126,7 +126,7 @@ class TestText2CypherBounds:
         """Count and property rows are returned instead of reported empty."""
         gs = AsyncMock()
         gs.execute_read.return_value = [{"count": 3}]
-        retriever = Text2CypherRetriever(graph_store=gs, schema=GENERIC)
+        retriever = Text2CypherRetriever(graph_store=gs, schema=DEFAULT_SCHEMA)
 
         with patch.object(
             retriever,
@@ -147,7 +147,7 @@ class TestText2CypherBounds:
         value = uuid4()
         gs = AsyncMock()
         gs.execute_read.return_value = [{"id": str(value)}]
-        retriever = Text2CypherRetriever(graph_store=gs, schema=GENERIC)
+        retriever = Text2CypherRetriever(graph_store=gs, schema=DEFAULT_SCHEMA)
 
         with patch.object(retriever, "_generate_cypher", return_value="RETURN id"):
             results = await retriever.retrieve("return the id")
@@ -158,7 +158,7 @@ class TestText2CypherBounds:
         """A generated query that already declares LIMIT is left alone."""
         gs = AsyncMock()
         gs.execute_read.return_value = []
-        retriever = Text2CypherRetriever(graph_store=gs, schema=GENERIC)
+        retriever = Text2CypherRetriever(graph_store=gs, schema=DEFAULT_SCHEMA)
 
         with patch.object(
             retriever,
@@ -179,7 +179,7 @@ class TestText2CypherBounds:
         """A quoted LIMIT in a predicate does not count as a row bound."""
         gs = AsyncMock()
         gs.execute_read.return_value = []
-        retriever = Text2CypherRetriever(graph_store=gs, schema=GENERIC)
+        retriever = Text2CypherRetriever(graph_store=gs, schema=DEFAULT_SCHEMA)
 
         with patch.object(
             retriever,
@@ -211,7 +211,7 @@ class TestText2CypherRowShapes:
 
         gs = AsyncMock()
         gs.execute_read.side_effect = read
-        retriever = Text2CypherRetriever(graph_store=gs, schema=GENERIC)
+        retriever = Text2CypherRetriever(graph_store=gs, schema=DEFAULT_SCHEMA)
 
         with patch.object(
             retriever,
@@ -249,7 +249,7 @@ class TestText2CypherRowShapes:
 
         gs = AsyncMock()
         gs.execute_read.side_effect = read
-        retriever = Text2CypherRetriever(graph_store=gs, schema=GENERIC)
+        retriever = Text2CypherRetriever(graph_store=gs, schema=DEFAULT_SCHEMA)
 
         with (
             patch.object(
@@ -277,7 +277,7 @@ class TestText2CypherRowShapes:
             "source_chunk_ids": [],
         }
         gs.execute_read.return_value = [{"r": rel}]
-        retriever = Text2CypherRetriever(graph_store=gs, schema=GENERIC)
+        retriever = Text2CypherRetriever(graph_store=gs, schema=DEFAULT_SCHEMA)
 
         with patch.object(
             retriever,
@@ -318,7 +318,7 @@ class TestText2CypherRowShapes:
             "content_kind": "text",
         }
         gs.execute_read.return_value = [{"c": chunk}]
-        retriever = Text2CypherRetriever(graph_store=gs, schema=GENERIC)
+        retriever = Text2CypherRetriever(graph_store=gs, schema=DEFAULT_SCHEMA)
 
         with patch.object(
             retriever,
@@ -347,7 +347,7 @@ class TestText2CypherRowShapes:
             "end": {"id": str(tgt_id)},
         }
         gs.execute_read.return_value = [{"r": rel}]
-        retriever = Text2CypherRetriever(graph_store=gs, schema=GENERIC)
+        retriever = Text2CypherRetriever(graph_store=gs, schema=DEFAULT_SCHEMA)
 
         with patch.object(
             retriever,
@@ -389,7 +389,7 @@ class TestText2CypherRowAliases:
                 }
             }
         ]
-        retriever = Text2CypherRetriever(graph_store=gs, schema=GENERIC)
+        retriever = Text2CypherRetriever(graph_store=gs, schema=DEFAULT_SCHEMA)
 
         with patch.object(
             retriever,
@@ -427,7 +427,7 @@ class TestText2CypherRowAliases:
                 }
             }
         ]
-        retriever = Text2CypherRetriever(graph_store=gs, schema=GENERIC)
+        retriever = Text2CypherRetriever(graph_store=gs, schema=DEFAULT_SCHEMA)
 
         with patch.object(
             retriever,
@@ -458,7 +458,7 @@ class TestText2CypherChunkDetection:
     async def _retrieve(rows: list[dict]) -> list:
         gs = AsyncMock()
         gs.execute_read.return_value = rows
-        retriever = Text2CypherRetriever(graph_store=gs, schema=GENERIC)
+        retriever = Text2CypherRetriever(graph_store=gs, schema=DEFAULT_SCHEMA)
 
         with patch.object(
             retriever,
@@ -536,7 +536,7 @@ class TestText2CypherRetry:
         """A fenced answer is executed as plain Cypher, not rejected."""
         gs = AsyncMock()
         gs.execute_read.return_value = []
-        retriever = Text2CypherRetriever(graph_store=gs, schema=GENERIC)
+        retriever = Text2CypherRetriever(graph_store=gs, schema=DEFAULT_SCHEMA)
         generate = AsyncMock(
             return_value=(
                 "```cypher\nMATCH (n:Person) "
@@ -569,7 +569,7 @@ class TestText2CypherRetry:
             [],
             [],
         ]
-        retriever = Text2CypherRetriever(graph_store=gs, schema=GENERIC)
+        retriever = Text2CypherRetriever(graph_store=gs, schema=DEFAULT_SCHEMA)
         generate = AsyncMock(
             return_value="MATCH (n:Person) WHERE n._pending_job_id IS NULL RETURN n"
         )
@@ -591,7 +591,7 @@ class TestText2CypherRetry:
         """A query that can return pending rows never runs; the repair does."""
         gs = AsyncMock()
         gs.execute_read.return_value = []
-        retriever = Text2CypherRetriever(graph_store=gs, schema=GENERIC)
+        retriever = Text2CypherRetriever(graph_store=gs, schema=DEFAULT_SCHEMA)
         generate = AsyncMock(
             side_effect=[
                 "MATCH (n:Person) RETURN n",
@@ -614,7 +614,7 @@ class TestText2CypherRetry:
     async def test_query_that_never_gets_a_guard_raises(self) -> None:
         """Two unguarded queries raise and run nothing."""
         gs = AsyncMock()
-        retriever = Text2CypherRetriever(graph_store=gs, schema=GENERIC)
+        retriever = Text2CypherRetriever(graph_store=gs, schema=DEFAULT_SCHEMA)
         generate = AsyncMock(return_value="MATCH (n:Person) RETURN n")
 
         with (
@@ -632,7 +632,7 @@ class TestText2CypherRetry:
         """A regenerated write query raises and is not retried a third time."""
         gs = AsyncMock()
         gs.execute_read.side_effect = Exception("plan failed")
-        retriever = Text2CypherRetriever(graph_store=gs, schema=GENERIC)
+        retriever = Text2CypherRetriever(graph_store=gs, schema=DEFAULT_SCHEMA)
         generate = AsyncMock(
             side_effect=[
                 "MATCH (n:Person) WHERE n._pending_job_id IS NULL RETURN n",
@@ -671,7 +671,7 @@ class TestText2CypherTracing:
             [],
         ]
         retriever = Text2CypherRetriever(
-            graph_store=gs, schema=GENERIC, tracer=provider.get_tracer("test")
+            graph_store=gs, schema=DEFAULT_SCHEMA, tracer=provider.get_tracer("test")
         )
         generate = AsyncMock(
             return_value="MATCH (n:Person) WHERE n._pending_job_id IS NULL RETURN n"

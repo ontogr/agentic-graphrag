@@ -12,6 +12,7 @@ the extra installed the tests expect a reachable Neo4j at the default
 ``NEO4J_URI``.
 """
 
+import asyncio
 import hashlib
 import importlib.util
 import unicodedata
@@ -26,9 +27,10 @@ import agrag.ingestion._ingest as ingest_module
 import agrag.ingestion._job_cleanup as job_cleanup_module
 import agrag.ingestion.graph as graph_module
 from agrag.common.data_models.chunk import Chunk
+from agrag.common.data_models.default_schema import DEFAULT_SCHEMA
 from agrag.common.data_models.document import Document, DocumentFamily, SourceFormat
 from agrag.common.data_models.extraction import ExtractedEntity, ExtractionResult
-from agrag.common.data_models.graph_schema import GENERIC, GraphSchema
+from agrag.common.data_models.graph_schema import GraphSchema
 from agrag.embedding.base import Embedder
 from agrag.graphdb import build_graph_store
 from agrag.graphdb.base import GraphStore
@@ -119,7 +121,7 @@ async def _open_graph(
 ) -> Graph:
     """Open a graph on an already-connected store."""
     return await Graph.open(
-        schema=GENERIC,
+        schema=DEFAULT_SCHEMA,
         graph_store=store,
         embedder=_FixedEmbedder(),
         extractor=extractor,
@@ -211,6 +213,17 @@ async def _tagged_rows(store: GraphStore, job_id: str) -> tuple[int, int]:
         {"job_id": job_id},
     )
     return int(nodes[0]["n"]), int(relations[0]["n"])
+
+
+async def _wait_for_pending_rollback(store: GraphStore, key: str, job_id: str) -> None:
+    """Wait until an opener that owns recovery finishes a pending rollback."""
+    async with asyncio.timeout(10):
+        while True:
+            status = await _job_status(store, key)
+            tagged_rows = await _tagged_rows(store, job_id)
+            if status is None and tagged_rows == (0, 0):
+                return
+            await asyncio.sleep(0.05)
 
 
 async def _job_status(store: GraphStore, key: str) -> str | None:
@@ -347,7 +360,7 @@ async def _grow_component(
             await recovered.connect()
             try:
                 await Graph.open(
-                    schema=GENERIC,
+                    schema=DEFAULT_SCHEMA,
                     graph_store=recovered,
                     embedder=_FixedEmbedder(),
                     extractor=_KeywordExtractor(names[2]),
@@ -416,12 +429,15 @@ class TestCrashBeforeCommit:
             await recovered_store.connect()
             try:
                 await Graph.open(
-                    schema=GENERIC,
+                    schema=DEFAULT_SCHEMA,
                     graph_store=recovered_store,
                     embedder=_FixedEmbedder(),
                     extractor=_NoopExtractor(),
                 )
 
+                await _wait_for_pending_rollback(
+                    store, crashed_key, str(job_id[0]["id"])
+                )
                 assert await _tagged_rows(store, str(job_id[0]["id"])) == (0, 0)
                 assert await _job_status(store, crashed_key) is None
                 assert await _graph_state(store, existing_key) == before
@@ -474,7 +490,7 @@ class TestCrashBeforeCommit:
             await recovered_store.connect()
             try:
                 await Graph.open(
-                    schema=GENERIC,
+                    schema=DEFAULT_SCHEMA,
                     graph_store=recovered_store,
                     embedder=_FixedEmbedder(),
                     extractor=_KeywordExtractor(probe_name),
@@ -526,7 +542,7 @@ class TestCrashBeforeCommit:
             await recovered_store.connect()
             try:
                 await Graph.open(
-                    schema=GENERIC,
+                    schema=DEFAULT_SCHEMA,
                     graph_store=recovered_store,
                     embedder=_FixedEmbedder(),
                     extractor=_NoopExtractor(),
@@ -595,7 +611,7 @@ class TestCrashAfterCommit:
             await recovered_store.connect()
             try:
                 await Graph.open(
-                    schema=GENERIC,
+                    schema=DEFAULT_SCHEMA,
                     graph_store=recovered_store,
                     embedder=_FixedEmbedder(),
                     extractor=_KeywordExtractor(crashed_probe),
@@ -660,7 +676,7 @@ class TestRecoveryIsIdempotent:
             await first_store.connect()
             try:
                 await Graph.open(
-                    schema=GENERIC,
+                    schema=DEFAULT_SCHEMA,
                     graph_store=first_store,
                     embedder=_FixedEmbedder(),
                     extractor=_NoopExtractor(),
@@ -673,7 +689,7 @@ class TestRecoveryIsIdempotent:
             await second_store.connect()
             try:
                 await Graph.open(
-                    schema=GENERIC,
+                    schema=DEFAULT_SCHEMA,
                     graph_store=second_store,
                     embedder=_FixedEmbedder(),
                     extractor=_NoopExtractor(),

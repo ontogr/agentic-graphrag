@@ -116,7 +116,11 @@ Value error, Relation 'TREATS' pattern target 'Condition' is not a declared enti
 ```
 
 ```text
-Value error, Entity type 'Drug' declares reserved property name(s) ['text']; ['label', 'text'] are vector payload keys used for retrieval filtering and keyword search. Rename or remove those property names in the schema.
+Value error, Entity type 'Drug' declares reserved property name(s) ['text']; ['_pending_job_id', 'created_at', 'embedding', 'id', 'label', 'merge_count', 'merge_key', 'name', 'source_chunk_ids', 'text'] are keys that the graph or the vector store writes itself. Rename or remove those property names in the schema.
+```
+
+```text
+Value error, Relation type 'MEMBER_OF' uses a reserved relationship type; the graph writes its own edges with ['EVIDENCED_BY', 'HAS_CHILD', 'HAS_DOCUMENT', 'HAS_PART', 'MATCHES', 'MEMBER_OF', 'MENTIONED_IN', 'NEXT_CHUNK', 'RESOLVED_AS', 'SOURCE', 'TARGET']. Rename the relation type, for example 'BELONGS_TO' for 'MEMBER_OF'.
 ```
 
 ```text
@@ -131,7 +135,7 @@ Value error, Entity type parents form a cycle: A -> B -> A. Remove one parent li
 Value error, enum value(s) ['many'] are not valid for type 'integer'. An integer value looks like 12 or -3.
 ```
 
-Every relation pattern must name entity types that the schema declares. An entity property cannot be named `label` or `text`. Each `enum` value of a property must match the property type. Every parent must be a declared entity type, and the parents must not form a cycle. A label can be declared only once, for entity types and for relation types.
+Every relation pattern must name entity types that the schema declares. An entity property cannot be named `label`, `text`, `id`, `name`, `merge_key`, `merge_count`, `source_chunk_ids`, `created_at` or `embedding`, because the graph writes those keys itself. A relation type cannot use the name of an edge that the graph writes itself, such as `MEMBER_OF`, `MENTIONED_IN` or `NEXT_CHUNK`. Each `enum` value of a property must match the property type. Every parent must be a declared entity type, and the parents must not form a cycle. A label can be declared only once, for entity types and for relation types.
 
 Declare each entity type, then write the pattern. This schema passes:
 
@@ -160,12 +164,12 @@ print(schema.name, [entity.label for entity in schema.entities])
 
 A search that finds nothing raises no error in most cases. These are the causes, from most to least common.
 
-The engine uses a different schema than the graph. `SearchEngine` searches the entity indexes of one schema. Without `graph_schema`, it uses the generic schema. A graph opened with another schema then returns no entities. Pass the same schema to `Graph.open` and to `SearchEngine`:
+The engine uses a different schema than the graph. `SearchEngine` searches the entity indexes of one schema. Without `graph_schema`, it uses `DEFAULT_SCHEMA`. A graph opened with another schema then returns no entities. Pass the same schema to `Graph.open` and to `SearchEngine`:
 
 ```python fixture:clean_neo4j
 import asyncio
 
-from agrag.common.data_models import GENERIC
+from agrag.common.data_models import DEFAULT_SCHEMA
 from agrag.embedding import build_embedder
 from agrag.graphdb import build_graph_store
 from agrag.ingestion import GlinerExtractor, Graph
@@ -176,14 +180,14 @@ async def main() -> None:
     embedder = build_embedder("ibm-granite/granite-embedding-small-english-r2")
     graph_store = build_graph_store("neo4j")
     graph = await Graph.open(
-        schema=GENERIC,
+        schema=DEFAULT_SCHEMA,
         graph_store=graph_store,
         embedder=embedder,
         extractor=GlinerExtractor(),
     )
     await graph.add(text="Grace Hopper worked at Harvard on the Mark I computer.")
     engine = SearchEngine(
-        graph_store=graph_store, embedder=embedder, graph_schema=GENERIC
+        graph_store=graph_store, embedder=embedder, graph_schema=DEFAULT_SCHEMA
     )
     results = await engine.search("Grace Hopper", ENTITY)
     print(len(results))
