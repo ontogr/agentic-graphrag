@@ -3,7 +3,8 @@
 The resume hook closes the loop the Cutover Job runner leaves open when a
 process dies mid-call. A job whose worker died before its commit flip is
 rolled back — its tagged writes are deleted, and the live graph never saw
-them. A job that died after committing is rolled forward: its cleanup
+them. A job that died while rolling back is finished the same way. A job
+that died after committing is rolled forward: its cleanup
 phase runs against the snapshot the job recorded, its pending vector
 payloads flip to committed, and the job reaches its terminal state. Every
 outcome converges to as-if-never-happened or as-if-completed.
@@ -27,7 +28,7 @@ from agrag.cypher.cutover_job_write import (
     claim_job_query,
     claim_pending_job_query,
     finish_cleaning_query,
-    rollback_claimed_job_query,
+    rollback_job_query,
 )
 from agrag.graphdb.base import GraphStore
 from agrag.ingestion._cutover import (
@@ -93,7 +94,10 @@ async def resume_incomplete_jobs(
                 continue
             job_id = str(row["id"])
             status = str(row.get("status") or "")
-            if status == CutoverJobStatus.PENDING:
+            if status in (
+                CutoverJobStatus.PENDING,
+                CutoverJobStatus.ROLLING_BACK,
+            ):
                 if row.get("lease_token") is None:
                     continue
                 if await _roll_back(
@@ -196,7 +200,7 @@ async def _roll_back(
             job_id=job_uuid,
         )
         rolled_back = await graph_store.execute_write(
-            rollback_claimed_job_query(),
+            rollback_job_query(),
             {"job_id": job_id, "lease_token": token},
         )
     except Exception as exc:  # noqa: BLE001
