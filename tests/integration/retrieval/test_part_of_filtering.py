@@ -167,7 +167,7 @@ class TestPartOfFiltering:
             )
         if merge_keys:
             await store.execute_write(
-                "MATCH (a:_AgragMergeAlias) WHERE a.merge_key IN $merge_keys "
+                "MATCH (a:_MergeAlias) WHERE a.merge_key IN $merge_keys "
                 "DETACH DELETE a",
                 {"merge_keys": merge_keys},
             )

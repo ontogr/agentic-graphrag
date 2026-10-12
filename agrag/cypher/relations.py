@@ -66,7 +66,7 @@ def close_part_of_query() -> str:
         closed.
     """
     return (
-        "MATCH (d:_AgragNode:Document {id: $document_node_id})"
+        f"MATCH (d:{NODE_IDENTITY_LABEL}:Document {{id: $document_node_id}})"
         "-[r:PART_OF]->(c) "
         f"WHERE r.invalid_at IS NULL AND {pending_filter_clause('r')} "
         "AND NOT c.id IN $keep_node_ids "
@@ -112,10 +112,10 @@ def bfs_expand_query(
     traversals. The clamp is applied here, closest to the Cypher
     interpolation, so every caller benefits.
 
-    Result nodes are restricted to ``_AgragNode`` entities that are
-    **not** ``Chunk`` nodes: chunks are intermediate path nodes only,
-    never returned as BFS results. Section, Table, Figure and Source nodes are
-    never returned either.
+    Result nodes are restricted to entities that carry the identity label
+    (``NODE_IDENTITY_LABEL``) and are **not** ``Chunk`` nodes: chunks are
+    intermediate path nodes only, never returned as BFS results. Section,
+    Table, Figure and Source nodes are never returned either.
 
     Args:
         depth: The maximum BFS hops. Clamped to [1, 10].
@@ -160,14 +160,16 @@ def bfs_expand_query(
     if not relation_types:
         path_guard += f" AND NOT type(r) IN {_DEFAULT_TRAVERSAL_EXCLUSIONS}"
     base_where = (
-        "neighbor:_AgragNode AND NOT neighbor:Chunk AND NOT neighbor.id IN $seed_ids "
+        f"neighbor:{NODE_IDENTITY_LABEL} AND NOT neighbor:Chunk "
+        "AND NOT neighbor.id IN $seed_ids "
         f"AND {_STRUCTURE_LABEL_EXCLUSIONS} "
         f"AND {pending_filter_clause('neighbor', 'job_id')} "
         f"AND ALL(r IN relationships(path) WHERE {path_guard})"
     )
     document_suffix = (
         " AND EXISTS { "
-        "MATCH (neighbor)<-[:MENTIONED_IN]-(scoped_chunk:_AgragNode:Chunk) "
+        "MATCH (neighbor)<-[:MENTIONED_IN]-"
+        f"(scoped_chunk:{NODE_IDENTITY_LABEL}:Chunk) "
         "WHERE scoped_chunk.document_id IN $document_ids }"
         if document_ids
         else ""
@@ -184,7 +186,7 @@ def bfs_expand_query(
     left_arrow, right_arrow = _DIRECTION_ARROW[direction]
     query = (
         f"UNWIND $seed_ids AS seed_id "
-        f"MATCH (start:_AgragNode {{id: seed_id}}) "
+        f"MATCH (start:{NODE_IDENTITY_LABEL} {{id: seed_id}}) "
         f"MATCH path = (start){left_arrow}[{type_pattern}*1..{safe_depth}]"
         f"{right_arrow}(neighbor) "
         f"WHERE {where} "
@@ -207,10 +209,11 @@ def entities_in_documents_query() -> str:
         job).
     """
     return (
-        "MATCH (chunk:_AgragNode:Chunk)-[mention:MENTIONED_IN]->"
-        "(entity:_AgragNode) "
+        f"MATCH (chunk:{NODE_IDENTITY_LABEL}:Chunk)-[mention:MENTIONED_IN]->"
+        f"(entity:{NODE_IDENTITY_LABEL}) "
         "WHERE EXISTS { "
-        "MATCH (document:_AgragNode:Document)-[part:PART_OF]->(chunk) "
+        f"MATCH (document:{NODE_IDENTITY_LABEL}:Document)"
+        "-[part:PART_OF]->(chunk) "
         "WHERE document.id IN $document_ids AND part.invalid_at IS NULL "
         f"AND {pending_filter_clause('document', 'job_id')} "
         f"AND {pending_filter_clause('part', 'job_id')} }} "
@@ -258,7 +261,7 @@ def relationship_types_from_query(
     left_arrow, right_arrow = _DIRECTION_ARROW[direction]
     return (
         f"UNWIND $seed_ids AS seed_id "
-        f"MATCH (seed:_AgragNode {{id: seed_id}}) "
+        f"MATCH (seed:{NODE_IDENTITY_LABEL} {{id: seed_id}}) "
         f"MATCH (seed){left_arrow}[r{type_pattern}]{right_arrow}(neighbor) "
         f"WHERE NOT neighbor:Chunk AND NOT neighbor:Community "
         f"AND NOT type(r) IN {_NON_ENTITY_RELATIONS} "
@@ -299,8 +302,8 @@ def chunks_mentioning_entities_query() -> str:
     """
     return (
         "UNWIND $entity_ids AS entity_id "
-        "MATCH (c:_AgragNode:Chunk)-[:MENTIONED_IN]-> "
-        "(e:_AgragNode {id: entity_id}) "
+        f"MATCH (c:{NODE_IDENTITY_LABEL}:Chunk)-[:MENTIONED_IN]-> "
+        f"(e:{NODE_IDENTITY_LABEL} {{id: entity_id}}) "
         f"WHERE {pending_filter_clause('c', 'job_id')} "
         "RETURN DISTINCT c, c.id AS id"
     )
@@ -320,8 +323,8 @@ def entities_mentioned_in_chunks_query() -> str:
     """
     return (
         "UNWIND $chunk_ids AS chunk_id "
-        "MATCH (c:_AgragNode:Chunk {id: chunk_id})"
-        "-[:MENTIONED_IN]->(e:_AgragNode) "
+        f"MATCH (c:{NODE_IDENTITY_LABEL}:Chunk {{id: chunk_id}})"
+        f"-[:MENTIONED_IN]->(e:{NODE_IDENTITY_LABEL}) "
         f"WHERE {pending_filter_clause('e', 'job_id')} "
         "RETURN DISTINCT e, e.id AS id"
     )

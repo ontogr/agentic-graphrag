@@ -46,7 +46,7 @@ async def _create(store: GraphStore, tag: str, query: str, **params: object) -> 
 async def _drop(store: GraphStore, tag: str) -> None:
     """Delete every node one test created."""
     await store.execute_write(
-        "MATCH (n:_AgragNode {probe: $tag}) DETACH DELETE n", {"tag": tag}
+        "MATCH (n:_Node {probe: $tag}) DETACH DELETE n", {"tag": tag}
     )
 
 
@@ -62,8 +62,8 @@ class TestPendingVisibility:
             await _create(
                 store,
                 tag,
-                f"CREATE (:_AgragNode:{label} {{id: $a, probe: $tag}}) "
-                f"CREATE (:_AgragNode:{label} "
+                f"CREATE (:_Node:{label} {{id: $a, probe: $tag}}) "
+                f"CREATE (:_Node:{label} "
                 "{id: $b, probe: $tag, _pending_job_id: $job})",
                 a=committed,
                 b=pending,
@@ -88,10 +88,10 @@ class TestPendingVisibility:
             await _create(
                 store,
                 tag,
-                "CREATE (s:_AgragNode {id: $seed, probe: $tag, name: 'seed'}) "
-                "CREATE (k:_AgragNode {id: $kept, probe: $tag, name: 'kept'}) "
-                "CREATE (e:_AgragNode {id: $edge, probe: $tag, name: 'edge'}) "
-                "CREATE (p:_AgragNode "
+                "CREATE (s:_Node {id: $seed, probe: $tag, name: 'seed'}) "
+                "CREATE (k:_Node {id: $kept, probe: $tag, name: 'kept'}) "
+                "CREATE (e:_Node {id: $edge, probe: $tag, name: 'edge'}) "
+                "CREATE (p:_Node "
                 "{id: $node, probe: $tag, name: 'node', _pending_job_id: $job}) "
                 "CREATE (s)-[:KNOWS]->(k) "
                 "CREATE (s)-[:KNOWS {_pending_job_id: $job}]->(e) "
@@ -122,10 +122,10 @@ class TestPendingVisibility:
             await _create(
                 store,
                 tag,
-                "CREATE (a:_AgragNode {id: $a, probe: $tag}) "
-                "CREATE (m:_AgragNode {id: $m, probe: $tag}) "
-                "CREATE (b:_AgragNode {id: $b, probe: $tag}) "
-                "CREATE (c:_AgragNode {id: $c, probe: $tag}) "
+                "CREATE (a:_Node {id: $a, probe: $tag}) "
+                "CREATE (m:_Node {id: $m, probe: $tag}) "
+                "CREATE (b:_Node {id: $b, probe: $tag}) "
+                "CREATE (c:_Node {id: $c, probe: $tag}) "
                 "CREATE (a)-[:KNOWS]->(m)-[:KNOWS]->(b) "
                 "CREATE (a)-[:KNOWS {_pending_job_id: $job}]->(b) "
                 "CREATE (a)-[:KNOWS {_pending_job_id: $job}]->(c)",
@@ -157,8 +157,8 @@ class TestPendingVisibility:
             await _create(
                 store,
                 tag,
-                "CREATE (:_AgragNode:Community {id: $a, probe: $tag}) "
-                "CREATE (:_AgragNode:Community "
+                "CREATE (:_Node:Community {id: $a, probe: $tag}) "
+                "CREATE (:_Node:Community "
                 "{id: $b, probe: $tag, _pending_job_id: $job})",
                 a=committed,
                 b=pending,
@@ -183,9 +183,9 @@ class TestPendingVisibility:
             await _create(
                 store,
                 tag,
-                "CREATE (d:_AgragNode:Document {id: $doc, probe: $tag, "
+                "CREATE (d:_Node:Document {id: $doc, probe: $tag, "
                 "document_key: $key, current_content_hash: 'h'}) "
-                "CREATE (c:_AgragNode:Chunk {id: $chunk, probe: $tag, "
+                "CREATE (c:_Node:Chunk {id: $chunk, probe: $tag, "
                 "chunker_hash: 'staged', _pending_job_id: $job}) "
                 "CREATE (d)-[:PART_OF {_pending_job_id: $job}]->(c)",
                 doc=str(uuid4()),
@@ -211,7 +211,7 @@ class TestPendingVisibility:
             await _create(
                 store,
                 tag,
-                "CREATE (:_AgragNode:Document {id: $doc, probe: $tag, "
+                "CREATE (:_Node:Document {id: $doc, probe: $tag, "
                 "document_key: $key, current_content_hash: 'staged', "
                 "_pending_job_id: $job})",
                 doc=str(uuid4()),

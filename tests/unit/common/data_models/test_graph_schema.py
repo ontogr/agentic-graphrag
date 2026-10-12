@@ -8,12 +8,24 @@ descriptions, properties, and patterns, including explicit empty markers.
 import pytest
 from pydantic import ValidationError
 
+from agrag.common.data_models.chunk import CHUNK_LABEL
+from agrag.common.data_models.community import COMMUNITY_LABEL
+from agrag.common.data_models.cutover_job import CUTOVER_JOB_LABEL
+from agrag.common.data_models.document import DOCUMENT_LABEL
 from agrag.common.data_models.graph_schema import (
     RESERVED_ENTITY_LABELS,
     EntityType,
     GraphSchema,
     RelationType,
 )
+from agrag.common.data_models.resolved_entity import RESOLVED_ENTITY_LABEL
+from agrag.common.data_models.structure import (
+    FIGURE_LABEL,
+    SECTION_LABEL,
+    SOURCE_LABEL,
+    TABLE_LABEL,
+)
+from agrag.cypher.entities import MERGE_ALIAS_LABEL, NODE_IDENTITY_LABEL
 
 
 # A schema exercising every serialized field: two entity types, declared
@@ -89,6 +101,22 @@ class TestEntityTypeReservedLabels:
         """A subtype label is a node label too."""
         with pytest.raises(ValidationError, match="reserved label"):
             EntityType(label="Clause", description="x", subtypes=["Section"])
+
+    def test_reserved_identity_labels_match_graph_write_labels(self) -> None:
+        """The reserved set matches the labels used by graph writes."""
+        assert {
+            DOCUMENT_LABEL,
+            CHUNK_LABEL,
+            SECTION_LABEL,
+            TABLE_LABEL,
+            FIGURE_LABEL,
+            SOURCE_LABEL,
+            COMMUNITY_LABEL,
+            RESOLVED_ENTITY_LABEL,
+            CUTOVER_JOB_LABEL,
+            NODE_IDENTITY_LABEL,
+            MERGE_ALIAS_LABEL,
+        } == RESERVED_ENTITY_LABELS
 
 
 class TestPromptSerialization:

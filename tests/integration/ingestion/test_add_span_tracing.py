@@ -119,7 +119,7 @@ async def _cleanup(store: Any, uris: Sequence[str], suffix: str) -> None:
         {"suffix": suffix},
     )
     await store.execute_write(
-        "MATCH (a:_AgragMergeAlias) WHERE a.merge_key CONTAINS $key DETACH DELETE a",
+        "MATCH (a:_MergeAlias) WHERE a.merge_key CONTAINS $key DETACH DELETE a",
         {"key": suffix.lower()},
     )
 

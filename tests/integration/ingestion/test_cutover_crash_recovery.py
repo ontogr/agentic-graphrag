@@ -267,7 +267,7 @@ async def _cleanup(store: GraphStore, key: str, probe_name: str | None) -> None:
             {"name": probe_name},
         )
         await store.execute_write(
-            "MATCH (a:_AgragMergeAlias {merge_key: $merge_key}) DETACH DELETE a",
+            "MATCH (a:_MergeAlias {merge_key: $merge_key}) DETACH DELETE a",
             {"merge_key": f"Person:{probe_name.strip().casefold()}"},
         )
 
