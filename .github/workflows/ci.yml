@@ -28,7 +28,7 @@ jobs:
   lint:
     name: Lint & Format Check
     needs: [changes]
-    if: always()
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
@@ -57,7 +57,9 @@ jobs:
         run: make lint-check
       - name: Typos check
         if: needs.changes.outputs.typos == 'true'
-        run: uvx --from typos typos
+        run: |
+          typos_version=$(uv run --no-project python -c 'import tomllib; print(next(package["version"] for package in tomllib.load(open("uv.lock", "rb"))["package"] if package["name"] == "typos"))')
+          uvx --from "typos==${typos_version}" typos
       - name: Audit workflows
         if: needs.changes.outputs.workflow_audit == 'true'
         run: make lint-actions
@@ -78,7 +80,10 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
-      - run: python .github/scripts/ci_changes.py --self-test
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          enable-cache: false
+      - run: uv run --no-project python .github/scripts/ci_changes.py --self-test
 
   secret-scan:
     name: Secret Scanning

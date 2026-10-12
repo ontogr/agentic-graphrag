@@ -27,7 +27,7 @@ OUTPUTS = (
 )
 
 ALL = dict.fromkeys(OUTPUTS, True)
-SHARED_PYTHON_INPUTS = {"pyproject.toml", "uv.lock", "Makefile"}
+SHARED_PYTHON_INPUTS = {"pyproject.toml", "uv.lock", "Makefile", ".python-version"}
 POLICY_PATHS = {
     "AGENTS.md",
     "CLAUDE.md",
@@ -239,14 +239,7 @@ def _select_docs_checks(path: str, selected: dict[str, bool]) -> None:
         selected["api_docs"] = True
     if path == ".github/scripts/docs_api_links.py":
         selected.update(unit=True, api_docs=True, docs_build=True)
-    if path == ".github/scripts/update_precommit_docs_pins.py":
-        selected.update(unit=True, docs_pins=True)
-    if path == ".pre-commit-config.yaml":
-        selected["docs_pins"] = True
-    if (
-        path.startswith(("docs/docs/get-started/", "docs/docs/guides/"))
-        or path == "docs/conftest.py"
-    ):
+    if path.startswith(("docs/docs/get-started/", "docs/docs/guides/")):
         selected["snippets"] = True
 
 

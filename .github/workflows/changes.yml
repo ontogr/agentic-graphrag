@@ -51,13 +51,64 @@ jobs:
       bandit: ${{ steps.select.outputs.bandit }}
       dependency_audit: ${{ steps.select.outputs.dependency_audit }}
     steps:
+      # Pull requests use the base revision so PR code cannot change selection.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.sha }}
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          enable-cache: false
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
       - name: Select affected workloads
         id: select
-        run: python .github/scripts/ci_changes.py
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          force_all=false
+          if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
+            pr_head="refs/pull/${PR_NUMBER}/head"
+            if ! git fetch --no-tags origin "$pr_head"; then
+              echo "Unable to fetch PR history; selecting all workloads."
+              force_all=true
+            elif ! git cat-file -e "$PR_HEAD_SHA^{commit}"; then
+              echo "PR event commit is unavailable; selecting all workloads."
+              force_all=true
+            elif ! merge_base=$(git merge-base "$PR_BASE_SHA" "$PR_HEAD_SHA"); then
+              echo "Unable to find PR merge base; selecting all workloads."
+              force_all=true
+            else
+              changed_paths=$(mktemp)
+              trap 'rm -f "$changed_paths"' EXIT
+              if ! git diff --no-renames --name-only -z "$merge_base" "$PR_HEAD_SHA" > "$changed_paths"; then
+                echo "Unable to inspect PR paths; selecting all workloads."
+                force_all=true
+              fi
+              while IFS= read -r -d '' path; do
+                case "$path" in
+                  .github/scripts/ci_changes.py|\
+                  .github/workflows/changes.yml|\
+                  .github/workflows/ci.yml|\
+                  .github/workflows/integration.yml|\
+                  .github/workflows/docs-snippets.yml)
+                    force_all=true
+                    break
+                    ;;
+                esac
+              done < "$changed_paths"
+            fi
+          fi
+
+          if [ "$force_all" = true ] || [ ! -f .github/scripts/ci_changes.py ]; then
+            echo "CI policy changed or selector/history is unavailable; selecting all workloads."
+            for output in python_lint typing unit backend_tests wheel api_docs docs_pins docs_build snippets typos workflow_audit bandit dependency_audit; do
+              echo "$output=true" >> "$GITHUB_OUTPUT"
+            done
+          else
+            uv run --no-project python .github/scripts/ci_changes.py
+          fi

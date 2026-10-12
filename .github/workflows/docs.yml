@@ -4,6 +4,18 @@ on:
   push:
     branches:
       - main
+    paths:
+      - "docs/**"
+      - "agrag/**"
+      - "CHANGELOG.md"
+      - "pyproject.toml"
+      - "uv.lock"
+      - "Makefile"
+      - ".python-version"
+      - ".github/scripts/ci_changes.py"
+      - ".github/scripts/docs_api_links.py"
+      - ".github/workflows/changes.yml"
+      - ".github/workflows/docs.yml"
   workflow_dispatch:
 
 permissions:

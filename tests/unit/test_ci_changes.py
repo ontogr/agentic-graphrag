@@ -44,7 +44,12 @@ _SPEC.loader.exec_module(ci_changes)
         ),
         (
             [".github/scripts/docs_api_links.py"],
-            {"unit": True, "api_docs": True, "docs_build": True},
+            {
+                "python_lint": True,
+                "unit": True,
+                "api_docs": True,
+                "docs_build": True,
+            },
         ),
         (
             ["docs/docs/api/generated.md"],
@@ -62,6 +67,7 @@ _SPEC.loader.exec_module(ci_changes)
         (["LICENSE"], {"wheel": True, "typos": True}),
         (["README.md"], {"wheel": True, "typos": True}),
         (["CHANGELOG.md"], {"docs_build": True}),
+        ([".python-version"], dict.fromkeys(ci_changes.OUTPUTS, True)),
         ([".github/scripts/new_helper.py"], dict.fromkeys(ci_changes.OUTPUTS, True)),
         (["docker/backend-config.yml"], dict.fromkeys(ci_changes.OUTPUTS, True)),
         (["examples/helper.py"], dict.fromkeys(ci_changes.OUTPUTS, True)),
