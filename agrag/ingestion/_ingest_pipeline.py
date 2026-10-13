@@ -343,8 +343,13 @@ async def ingest_chunks(
     embed_heading_path: bool = True,
     max_llm_pairs: int = MAX_LLM_PAIRS,
     deferred: DeferredWrites | None = None,
+    reuse_chunks: bool = False,
 ) -> BatchResult:
     """Resolve, merge, write and embed one batch of extracted chunks.
+
+    With ``reuse_chunks`` the chunks already exist in the graph and stay as
+    they are. Only the Document node, entities, relations and MENTIONED_IN
+    edges are written, and the chunks are not embedded again.
 
     Args:
         chunks: The chunks of this batch.
@@ -370,6 +375,9 @@ async def ingest_chunks(
         deferred: Receives the writes over committed rows that a job must not
             apply itself. Required when ``job_id`` is set; the caller replays
             it in the job's commit transaction.
+        reuse_chunks: Whether the chunks already exist in the graph and keep
+            their current nodes. The chunk and structure nodes are not written
+            and the chunks are not embedded.
 
     Returns:
         The stats of every stage, the chunks when ``return_chunks`` is set, and
@@ -403,15 +411,20 @@ async def ingest_chunks(
             rebuilt_components=rebuilt_components,
             max_llm_pairs=max_llm_pairs,
         )
-        nodes = await write_nodes_stage(chunks, documents, placements, ctx)
-        chunk_embeds = await embed_chunks_stage(
-            chunks,
-            nodes.chunk_ids,
-            nodes.chunk_writes,
-            ctx,
-            vector_collection=retrieval_settings.chunk_collection,
-            embed_heading_path=embed_heading_path,
+        nodes = await write_nodes_stage(
+            chunks, documents, placements, ctx, document_only=reuse_chunks
         )
+        if reuse_chunks:
+            chunk_embeds = EmbedStageResult(failures=[])
+        else:
+            chunk_embeds = await embed_chunks_stage(
+                chunks,
+                nodes.chunk_ids,
+                nodes.chunk_writes,
+                ctx,
+                vector_collection=retrieval_settings.chunk_collection,
+                embed_heading_path=embed_heading_path,
+            )
         relation_writes = await write_relations_stage(
             [*merge.relation_records, *nodes.structure_relation_records],
             merge.mentioned_in_records,

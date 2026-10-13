@@ -87,6 +87,30 @@ def close_has_part_query() -> str:
     )
 
 
+def delete_document_mentions_query() -> str:
+    """Build Cypher deleting the committed evidence of a document's open chunks.
+
+    An in-place re-extract keeps its chunks, so the old ``MENTIONED_IN`` edges
+    would still count as evidence and the prune would keep every entity of the
+    old run. The commit transaction runs this after the flip and before the
+    deferred writes are replayed. An edge the new run writes again is a write
+    over a committed edge, so it is deferred and replayed after this delete.
+    Edges the job itself created still carry its tag and are kept.
+
+    Returns:
+        Parameterized Cypher expecting ``$document_node_id``. Returns the number
+        of edges deleted.
+    """
+    return (
+        f"MATCH (d:{NODE_IDENTITY_LABEL}:Document {{id: $document_node_id}})"
+        f"-[p:{HAS_PART}]->(c:{NODE_IDENTITY_LABEL}:Chunk)"
+        "-[m:MENTIONED_IN]->() "
+        f"WHERE p.invalid_at IS NULL AND {pending_filter_clause('p')} "
+        f"AND {pending_filter_clause('c')} AND {pending_filter_clause('m')} "
+        "DELETE m RETURN count(m) AS removed"
+    )
+
+
 def bfs_expand_query(
     *,
     depth: int = 2,

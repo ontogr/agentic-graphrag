@@ -26,7 +26,7 @@ by `open()` when missing.
 - [**detect_communities**](#agrag-ingestion-graph-Graph-detect_communities) – Detect entity communities via hierarchical Leiden.
 - [**open**](#agrag-ingestion-graph-Graph-open) – Open a graph, connecting and fully provisioning graph_store.
 - [**reevaluate**](#agrag-ingestion-graph-Graph-reevaluate) – Reevaluate matches among the given entities.
-- [**update**](#agrag-ingestion-graph-Graph-update) – Replace one document version, closing its former HAS_PART edges.
+- [**update**](#agrag-ingestion-graph-Graph-update) – Replace one document version, or re-extract it in place.
 
 **Attributes:**
 
@@ -87,6 +87,10 @@ add(source:SourcesType | None = None, *, text:str | None = None, documents:Seque
 Add content to the graph.
 
 Give exactly one of `source`, `text`, and `documents`.
+
+`add` does not compare hashes. Adding a key that already exists
+writes a second open version of the document; use `update` to
+replace a document.
 
 **Parameters:**
 
@@ -411,22 +415,30 @@ highest-similarity pairs are verified first.
 update(document_key:str, *, text:str | None = None, source:SourcesType | None = None, loader:Loader | None = None, error_policy:ErrorPolicy = ErrorPolicy.RAISE, read_options:ReadOptions | None = None) -> UpdateResult
 ```
 
-Replace one document version, closing its former HAS_PART edges.
+Replace one document version, or re-extract it in place.
 
-Looks up the persisted `Document` node by `document_key`. An
-unchanged content hash is a no-op returning before any chunking,
-extraction, or writes, unless the graph's configured chunker settings
-changed since the document was chunked. A chunker with new settings
-re-chunks the document as a content change
-does. Chunks written before chunkers were recorded count as unchanged.
-Otherwise the fresh content ingests under a Cutover Job holding this
-document's lease, and the commit flips the job, closes the document's
-open `HAS_PART` edges, and clears every pending tag in one
-transaction — so a crash either leaves
-the old version untouched or completes the replacement including
-cleanup. Entities that lose their last evidence are pruned after
-the commit, so replacement mentions count as evidence. A source
-must resolve to exactly one document.
+Looks up the persisted `Document` node by `document_key`. The update
+is a no-op, returning before any chunking, extraction, or writes, only
+when the document has an open chunk and the content hash, the chunker
+fingerprint, the schema fingerprint, and the extraction fingerprint all
+equal the stored ones. If only the extraction fingerprint differs (a
+description, a threshold, or the model name), the document is extracted
+again in place. Its chunks stay and are not embedded again. The old
+evidence of the document is removed at the commit, and entities that
+only the old run produced are removed. If the content, the chunker, or
+the schema structure differs, the new version is written. The old
+version closes at the commit, and entities that only the old version
+produced are removed. Chunks written before the fingerprints were
+recorded count as changed. A document closed by `delete_document` has
+no open chunk, so the same text is added again.
+
+The new version ingests under a Cutover Job holding this document's
+lease. The commit flips the job, closes the document's open
+`HAS_PART` edges, and clears every pending tag in one transaction, so
+a crash either leaves the old version untouched or completes the
+replacement including cleanup. Entities that lose their last evidence
+are pruned after the commit, so replacement mentions count as evidence.
+A source must resolve to exactly one document.
 
 **Parameters:**
 

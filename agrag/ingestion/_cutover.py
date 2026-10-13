@@ -6,6 +6,7 @@ every dependency explicitly rather than reaching into ``Graph``.
 
 import asyncio
 from collections.abc import Awaitable, Callable, Sequence
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Literal, TypeVar
 from uuid import UUID, uuid4
@@ -25,6 +26,8 @@ from agrag.cypher.cutover_job_write import (
     start_cleaning_query,
     steal_terminal_job_query,
 )
+from agrag.cypher.documents import set_chunk_extraction_fingerprint_query
+from agrag.cypher.relations import delete_document_mentions_query
 from agrag.graphdb.base import GraphStore, GraphStoreTransaction
 from agrag.ingestion._deferred import replay_deferred
 from agrag.ingestion._document_lifecycle import close_open_has_part_edges
@@ -37,6 +40,15 @@ from agrag.vectordb.base import VectorStore
 
 class CutoverJobLeaseError(Exception):
     """Another live Cutover Job holds the document's lease."""
+
+
+@dataclass(frozen=True, slots=True)
+class InPlaceRefresh:
+    """What the commit transaction changes for a re-extract that keeps its chunks."""
+
+    document_node_id: UUID
+    chunk_ids: Sequence[UUID]
+    extraction_fingerprint: str
 
 
 T = TypeVar("T")
@@ -363,11 +375,15 @@ async def _commit_pending_writes(
     keep_node_ids: Sequence[UUID],
     component_seed_ids: Sequence[UUID],
     deferred: DeferredWrites,
+    in_place: InPlaceRefresh | None,
 ) -> int:
     """Atomically expose pending graph writes and close superseded edges.
 
     The deferred writes over committed rows run right after the flip, so a
     replay that hits a row another job owns rolls the whole commit back.
+    When ``in_place`` is set, the document's committed MENTIONED_IN edges are
+    dropped before the replay and the kept chunks are stamped with the new
+    extraction fingerprint after it.
     """
     job_arg = str(job_id)
     token_arg = str(token)
@@ -383,7 +399,23 @@ async def _commit_pending_writes(
         )
         if not committed:
             raise CutoverJobLeaseError(f"Job {job_arg} lost its lease before commit.")
+        # The delete must precede the replay: the replay re-creates the edges
+        # the new run found again. It only matches committed edges, so the
+        # job's own new edges, still tagged, survive.
+        if in_place is not None:
+            await txn.execute_write(
+                delete_document_mentions_query(),
+                {"document_node_id": str(in_place.document_node_id)},
+            )
         await replay_deferred(txn, deferred)
+        if in_place is not None:
+            await txn.execute_write(
+                set_chunk_extraction_fingerprint_query(),
+                {
+                    "chunk_ids": [str(chunk_id) for chunk_id in in_place.chunk_ids],
+                    "extraction_fingerprint": in_place.extraction_fingerprint,
+                },
+            )
         # The close runs before the tag clear so it can tell the
         # superseded version's edges from the ones this job just
         # wrote; both land in the same transaction as the flip.
@@ -419,9 +451,41 @@ async def run_cutover_job(
     deferred: DeferredWrites,
     components: Sequence[MatchComponent] = (),
     close_document_node_id: UUID | None = None,
+    in_place: InPlaceRefresh | None = None,
     keep_node_ids: Sequence[UUID] = (),
     tracer: Tracer | None = None,
 ) -> tuple[T, S, int]:
+    """Run one cutover job under a lease, from pending writes to cleanup.
+
+    Args:
+        verb: The document mutation the job performs.
+        document_key: The key of the document the job holds the lease for.
+        affected_entity_ids: The entities the job touches, for cleanup.
+        graph_store: The store the job commits to.
+        vector_store: Optional vector index whose pending rows are cleared.
+        vector_collections: The vector collections the job may have written.
+        settings: Lease and renewal timing for the job.
+        pending_write: Writes the job's pending rows. Receives the job id.
+        cleanup: Removes superseded rows. Receives the affected entity ids and
+            the component seed ids.
+        deferred: The writes over committed rows that the commit replays.
+        components: The resolver components the job rebuilt.
+        close_document_node_id: The document whose open HAS_PART edges are
+            closed by the commit, if any.
+        in_place: The refresh of a document that keeps its chunks, if any. Its
+            MENTIONED_IN edges are replaced and its chunks are re-stamped in the
+            commit transaction.
+        keep_node_ids: Structure nodes that stay open when the old version is
+            closed.
+        tracer: Opens the job span. None disables it.
+
+    Returns:
+        The pending write result, the cleanup result, and the number of
+        HAS_PART edges closed.
+
+    Raises:
+        CutoverJobLeaseError: The job lost its lease before commit or cleanup.
+    """
     resolved_tracer = get_tracer(tracer)
     with resolved_tracer.start_as_current_span(
         "agrag.ingestion.cutover_job",
@@ -461,6 +525,7 @@ async def run_cutover_job(
                 affected_entity_ids=affected_entity_ids,
                 components=components,
                 close_document_node_id=close_document_node_id,
+                in_place=in_place,
                 keep_node_ids=keep_node_ids,
                 deferred=deferred,
                 stop_renewal=stop_renewal,
@@ -499,6 +564,7 @@ async def _run_leased(
     affected_entity_ids: list[UUID],
     components: Sequence[MatchComponent],
     close_document_node_id: UUID | None,
+    in_place: InPlaceRefresh | None,
     keep_node_ids: Sequence[UUID],
     deferred: DeferredWrites,
     stop_renewal: asyncio.Event,
@@ -526,6 +592,7 @@ async def _run_leased(
             keep_node_ids=keep_node_ids,
             component_seed_ids=component_seed_ids,
             deferred=deferred,
+            in_place=in_place,
         )
     )
     try:

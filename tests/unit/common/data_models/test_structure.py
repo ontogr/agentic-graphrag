@@ -103,6 +103,31 @@ class TestIds:
 
         assert first != second
 
+    def test_version_id_changes_with_the_schema_fingerprint(self) -> None:
+        """A change of schema structure gives a new version."""
+        base = sectioned_document([], content_hash="a")
+        schema_changed = base.model_copy(update={"schema_fingerprint": "s" * 16})
+
+        assert version_id(base) != version_id(schema_changed)
+
+    def test_version_id_ignores_the_extraction_fingerprint(self) -> None:
+        """A change of extraction setup keeps the version and its chunk ids."""
+        base = sectioned_document([], content_hash="a")
+        extraction_changed = base.model_copy(
+            update={"extraction_fingerprint": "e" * 16}
+        )
+
+        assert version_id(base) == version_id(extraction_changed)
+
+    def test_version_id_is_equal_for_equal_inputs(self) -> None:
+        """The id follows the content hash and schema fingerprint, not the title."""
+        first = sectioned_document([], content_hash="a").model_copy(
+            update={"schema_fingerprint": "s" * 16, "extraction_fingerprint": "e" * 16}
+        )
+        second = first.model_copy(update={"title": "other title"})
+
+        assert version_id(first) == version_id(second)
+
     def test_chunk_id_follows_every_input(self) -> None:
         """Chunk id follows every input."""
         document_id = node_id(section_keys(sectioned_document(_tree()))[0], "v1")

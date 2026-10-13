@@ -205,6 +205,7 @@ class TestPendingVisibility:
 
             assert found is not None
             assert found.current_chunker_hash is None
+            assert found.has_open_chunks is False
         finally:
             await _drop(store, tag)
 
