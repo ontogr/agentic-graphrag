@@ -36,4 +36,5 @@ The ingestion package.
 - [**Graph**](graph/Graph-ref.md) – A knowledge graph that a caller can open and add content to.
 - [**LLMExtractor**](extract/LLMExtractor.md) – LLM role that may receive entities found by an earlier extractor.
 - [**ReevaluationReport**](reports/reevaluation_report/ReevaluationReport.md) – Report from Graph.reevaluate().
+- [**UnparsableExtractionError**](extract/UnparsableExtractionError.md) – The LLM replied, but the reply holds no JSON answer.
 - [**UpdateResult**](reports/update_result/UpdateResult.md) – Summary of an update or soft deletion.

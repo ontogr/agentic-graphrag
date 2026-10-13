@@ -51,9 +51,18 @@ class TestDocumentLookupDecide:
 
         assert decision is UpdateDecision.NO_OP
 
-    def test_in_place_when_only_the_extraction_setup_differs(self) -> None:
-        """A changed extraction setup re-extracts and keeps the same chunks."""
-        lookup = _lookup(current_extraction_fingerprint="x" * 16)
+    @pytest.mark.parametrize(
+        "stored_extraction_fingerprint",
+        [
+            pytest.param("x" * 16, id="extraction-changed"),
+            pytest.param(None, id="extraction-unrecorded"),
+        ],
+    )
+    def test_in_place_when_the_extraction_stamp_differs_or_is_missing(
+        self, stored_extraction_fingerprint: str | None
+    ) -> None:
+        """An extraction stamp that is not current re-extracts the same chunks."""
+        lookup = _lookup(current_extraction_fingerprint=stored_extraction_fingerprint)
 
         decision = lookup.decide(content_hash="h", chunker_hash="c", run=_RUN)
 
@@ -67,13 +76,10 @@ class TestDocumentLookupDecide:
             pytest.param({"current_chunker_hash": None}, id="chunker-unrecorded"),
             pytest.param({"current_schema_fingerprint": "x" * 16}, id="schema-changed"),
             pytest.param({"current_schema_fingerprint": None}, id="schema-unrecorded"),
-            pytest.param(
-                {"current_extraction_fingerprint": None}, id="extraction-unrecorded"
-            ),
             pytest.param({"has_open_chunks": False}, id="no-open-chunk"),
         ],
     )
-    def test_new_version_when_content_chunking_schema_or_stamps_are_missing(
+    def test_new_version_when_content_chunking_or_schema_differs(
         self, overrides: dict[str, Any]
     ) -> None:
         """A changed or unrecorded input rewrites the document as a new version."""

@@ -88,50 +88,56 @@ def close_has_part_query() -> str:
 
 
 def delete_document_mentions_query() -> str:
-    """Build Cypher deleting the committed evidence of a document's open chunks.
+    """Build Cypher deleting the committed evidence of some open chunks.
 
     An in-place re-extract keeps its chunks, so the old ``MENTIONED_IN`` edges
-    would still count as evidence and the prune would keep every entity of the
-    old run. The commit transaction runs this after the flip and before the
-    deferred writes are replayed. An edge the new run writes again is a write
-    over a committed edge, so it is deferred and replayed after this delete.
-    Edges the job itself created still carry its tag and are kept.
+    of the re-extracted chunks would still count as evidence and the prune
+    would keep every entity of the old run. Chunks whose extraction failed are
+    left out, so they keep the evidence of the last good run. The commit
+    transaction runs this after the flip and before the deferred writes are
+    replayed. An edge the new run writes again is a write over a committed
+    edge, so it is deferred and replayed after this delete. Edges the job itself
+    created still carry its tag and are kept.
 
     Returns:
-        Parameterized Cypher expecting ``$document_node_id``. Returns the number
-        of edges deleted.
+        Parameterized Cypher expecting ``$document_node_id`` and ``$chunk_ids``
+        (a list of id strings). Returns the number of edges deleted.
     """
     return (
         f"MATCH (d:{NODE_IDENTITY_LABEL}:Document {{id: $document_node_id}})"
         f"-[p:{HAS_PART}]->(c:{NODE_IDENTITY_LABEL}:Chunk)"
         "-[m:MENTIONED_IN]->() "
-        f"WHERE p.invalid_at IS NULL AND {pending_filter_clause('p')} "
+        f"WHERE c.id IN $chunk_ids AND p.invalid_at IS NULL "
+        f"AND {pending_filter_clause('p')} "
         f"AND {pending_filter_clause('c')} AND {pending_filter_clause('m')} "
         "DELETE m RETURN count(m) AS removed"
     )
 
 
 def retract_document_relation_evidence_query() -> str:
-    """Build Cypher removing a document's committed evidence from relations.
+    """Build Cypher removing some chunks' committed evidence from relations.
 
     A relation records the chunks that evidence it in ``source_chunk_ids``. An
     in-place re-extract keeps its chunks, so a relation that only the old run
-    produced would keep the document's chunk ids and stay visible. This takes
-    the document's open chunks and the entities they mention, removes those
-    chunk ids from every committed outgoing relation of those entities, and
-    deletes each relation left without evidence. Relations the job created
-    still carry its tag and are kept. The commit transaction runs this before
-    the MENTIONED_IN edges are deleted, since it reads them.
+    produced would keep the re-extracted chunk ids and stay visible. This takes
+    the given open chunks of the document and the entities they mention, removes
+    those chunk ids from every committed outgoing relation of those entities, and
+    deletes each relation left without evidence. Evidence from chunks that are
+    not given is kept. Relations the job created still carry its tag and are
+    kept. The commit transaction runs this before the MENTIONED_IN edges are
+    deleted, since it reads them.
 
     Returns:
-        Parameterized Cypher expecting ``$document_node_id``. Returns ``retracted``,
-        the relations that lost evidence, and ``deleted``, the relations removed.
+        Parameterized Cypher expecting ``$document_node_id`` and ``$chunk_ids``
+        (a list of id strings). Returns ``retracted``, the relations that lost
+        evidence, and ``deleted``, the relations removed.
     """
     return (
         f"MATCH (d:{NODE_IDENTITY_LABEL}:Document {{id: $document_node_id}})"
         f"-[p:{HAS_PART}]->(c:{NODE_IDENTITY_LABEL}:Chunk)"
         f"-[m:MENTIONED_IN]->(entity:{NODE_IDENTITY_LABEL}) "
-        f"WHERE p.invalid_at IS NULL AND {pending_filter_clause('p')} "
+        f"WHERE c.id IN $chunk_ids AND p.invalid_at IS NULL "
+        f"AND {pending_filter_clause('p')} "
         f"AND {pending_filter_clause('c')} AND {pending_filter_clause('m')} "
         "WITH collect(DISTINCT c.id) AS chunk_ids, "
         "collect(DISTINCT entity) AS entities "

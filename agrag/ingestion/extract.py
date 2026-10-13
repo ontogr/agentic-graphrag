@@ -2,13 +2,15 @@
 
 import asyncio
 import contextvars
+import json
 import logging
 import os
 from abc import ABC, abstractmethod
-from collections.abc import Sequence
+from collections.abc import Awaitable, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from functools import partial
-from typing import Any, Literal
+from typing import Any, Literal, TypedDict
+from uuid import UUID
 
 from dotenv import load_dotenv
 from opentelemetry.trace import Tracer
@@ -21,11 +23,13 @@ from agrag.common.data_models.extraction import (
     ExtractedRelation,
     ExtractionResult,
 )
-from agrag.common.data_models.graph_schema import EntityType, GraphSchema
+from agrag.common.data_models.graph_schema import GraphSchema, PropertySpec
 from agrag.ingestion._gliner_decode import decode_gliner
+from agrag.ingestion._mentions import endpoint_key, locate_mentions
 from agrag.ingestion.settings import ExtractionSettings
 from agrag.llm.client_config import LLMClientConfig, RetryConfig
 from agrag.llm.retry import NO_RETRY, call_with_retry
+from agrag.llm.tracing import new_collector
 from agrag.loaders.errors import IngestionError
 from agrag.observability import get_tracer
 
@@ -33,99 +37,111 @@ from agrag.observability import get_tracer
 logger = logging.getLogger(__name__)
 
 
-def _resolve_span(
-    text: str,
-    chunk_text: str,
-    hint_start: int,
-    hint_end: int,
-    occurrences_by_text: dict[str, list[int]] | None = None,
-) -> tuple[int, int] | None:
-    """Return a (start, end) span for text within chunk_text, or None.
+class _CandidateSpec(TypedDict):
+    """One entity an earlier extractor kept, as the prompt lists it."""
 
-    Trusts (hint_start, hint_end) only when it already points at an exact
-    occurrence of text. Extractors can report an approximately right but
-    off-by-a-few span. This includes GLiNER's own boundary predictions and
-    an LLM counting characters by hand. Rather than drop a real mention
-    over that, this searches chunk_text for every occurrence of text. When
-    text is unique in the chunk, it returns the one closest to hint_start.
-    A near-miss offset gets corrected instead of discarding real
-    provenance. When text repeats in the chunk, an off-by-few hint nearer
-    the wrong duplicate will relocate there and text-only relation
-    resolution can bind the relation to that wrong occurrence before the
-    genuine schema-compatible one, so repeated text requires an exact span.
-    A malformed hint is treated as unrecoverable.
+    label: str
+    text: str
+
+
+def _candidate_specs(
+    candidates: Sequence[ExtractedEntity] | None,
+) -> list[_CandidateSpec] | None:
+    """Return the candidate entries for the prompt, or None when there are none."""
+    if not candidates:
+        return None
+    return [{"label": entity.label, "text": entity.text} for entity in candidates]
+
+
+def _describe_property(name: str, spec: PropertySpec) -> str:
+    """Return one declared property with its type, requiredness and guidance."""
+    details = [spec.type]
+    if spec.required:
+        details.append("required")
+    if spec.enum:
+        details.append(f"one of {', '.join(spec.enum)}")
+    text = f"{name} ({'; '.join(details)})"
+    return f"{text}: {spec.description}" if spec.description else text
+
+
+def _describe_properties(schema: GraphSchema) -> str | None:
+    """Return the guidance for the entity ``properties`` field, or None.
+
+    The field exists only when at least one entity type declares properties.
+    A BAML class field is static, while declared properties vary by label, so
+    the declared names travel in this description, one line per type.
 
     Args:
-        text: The mention text to locate.
-        chunk_text: The chunk to search.
-        hint_start: The extractor-reported start offset.
-        hint_end: The extractor-reported end offset.
-        occurrences_by_text: A cache of every occurrence of text already found
-            in chunk_text, keyed by text. Callers resolving many spans against
-            the same chunk should pass one dict and reuse it across calls, so
-            repeated text is scanned once instead of once per mention.
+        schema: The schema whose entity types declare properties.
 
     Returns:
-        None when text is empty, does not occur in chunk_text at all, or
-        occurs more than once but hint does not exactly match one occurrence
-        — the caller should treat that as a fabricated or unrecoverable
-        mention.
+        The field description, or ``None`` when no entity type declares a
+        property and the model should not be asked for any.
     """
-    if not text:
+    lines: list[str] = []
+    for entity_type in schema.entities:
+        if not entity_type.properties:
+            continue
+        declared = ", ".join(
+            _describe_property(name, spec)
+            for name, spec in entity_type.properties.items()
+        )
+        lines.append(f"{entity_type.label}: {declared}")
+    if not lines:
         return None
-    if (
-        0 <= hint_start < hint_end <= len(chunk_text)
-        and chunk_text[hint_start:hint_end] == text
-    ):
-        return hint_start, hint_end
-    if occurrences_by_text is not None and text in occurrences_by_text:
-        occurrences = occurrences_by_text[text]
-    else:
-        occurrences = []
-        search_from = 0
-        while (found := chunk_text.find(text, search_from)) != -1:
-            occurrences.append(found)
-            search_from = found + 1
-        if occurrences_by_text is not None:
-            occurrences_by_text[text] = occurrences
-    if not occurrences:
-        return None
-    if len(occurrences) > 1:
-        # ponytail: repeated surface text is ambiguous — an off-by-few hint
-        # nearer the wrong duplicate would be relocated there and text-only
-        # relation resolution can then bind the relation to that fabricated
-        # occurrence before the genuine one. Require an exact span for
-        # repeats; a malformed hint is dropped as unrecoverable.
-        return None
-    start = min(occurrences, key=lambda candidate: abs(candidate - hint_start))
-    return start, start + len(text)
+    return (
+        "Property values this entity's type declares, keyed by property name, "
+        "taken only from what the text states. Leave out any property the text "
+        "does not state. Do not invent property names or values. Declared "
+        "properties by type: " + "; ".join(lines)
+    )
 
 
-def _describe_entity_type(entity_type: EntityType) -> str:
-    """Return prompt guidance for one entity type, its declared properties included.
+def _raw_properties(entity: object) -> dict[str, object]:
+    """Return the ``properties`` the model attached to one raw entity.
 
-    ``BAMLExtractedEntity.properties`` has no per-label schema of its own.
-    A BAML class field is static, while ``EntityType.properties`` varies by
-    label. The declared property names travel to the model through this
-    description instead, the same extension point already carrying
-    ``entity_type.description``.
+    The field is added to the BAML class at call time, so the generated type
+    holds it as an extra field (``model_extra``). It is absent when the schema
+    declares no properties or the model left it out.
+    """
+    extra = getattr(entity, "model_extra", None) or {}
+    value = extra.get("properties")
+    return dict(value) if isinstance(value, dict) else {}
+
+
+def _log_missing_required_properties(
+    chunk_id: UUID, entities: Sequence[ExtractedEntity], schema: GraphSchema
+) -> None:
+    """Log one warning for each entity that omits a required property.
+
+    The entities are kept; the warning only reports the gap. Only properties
+    declared on the entity's own label count. The message holds the label,
+    the chunk id and the property names, never the chunk text.
 
     Args:
-        entity_type: The entity type to describe.
-
-    Returns:
-        The type's description, property names, types, required flags and
-        allowed values, with property-specific guidance when it declares any.
+        chunk_id: The id of the chunk the entities were found in.
+        entities: The entities located in the chunk.
+        schema: The schema whose entity types declare the properties.
     """
-    if not entity_type.properties:
-        return entity_type.description
-    lines = [entity_type.description, "Properties to extract when stated:"]
-    for name, spec in entity_type.properties.items():
-        line = f"- {spec.describe(name)}"
-        if spec.description:
-            line += f": {spec.description}"
-        lines.append(line)
-    return "\n".join(lines)
+    required_by_label = {
+        entity_type.label: [
+            name for name, spec in entity_type.properties.items() if spec.required
+        ]
+        for entity_type in schema.entities
+    }
+    for entity in entities:
+        missing = [
+            name
+            for name in required_by_label.get(entity.label, [])
+            if name not in entity.properties
+        ]
+        if missing:
+            logger.warning(
+                "Entity of label %s in chunk %s is missing required properties: %s",
+                entity.label,
+                chunk_id,
+                ", ".join(missing),
+            )
 
 
 def _resolve_relation_pair(
@@ -136,15 +152,26 @@ def _resolve_relation_pair(
 ) -> tuple[int, int] | None:
     """Return the single (source, target) index pair for one raw relation.
 
-    BAML identifies endpoints only by surface text, so each endpoint text
-    can match several entities. Walk candidate source and target indices in
-    order and return the first pair whose endpoint labels satisfy the schema,
-    including inherited labels and symmetry. Return None when the relation label
-    is undeclared, an endpoint text matches no entity, or every pairing
+    BAML identifies endpoints only by surface text (compared by
+    ``endpoint_key``, so case and whitespace differences do not matter), so
+    each endpoint text can match several entities. Entities whose text equals
+    the endpoint exactly come first, so a normalized match never outranks the
+    mention the model named. Walk candidate source and target indices in order
+    and return the first pair whose endpoint labels satisfy the schema,
+    including inherited labels and symmetry. Return None when the relation
+    label is undeclared, an endpoint text matches no entity, or every pairing
     self-references. Callers drop such relations rather than raise.
     """
-    source_candidates = text_index.get(relation.source_text, [])  # ty: ignore[unresolved-attribute]
-    target_candidates = text_index.get(relation.target_text, [])  # ty: ignore[unresolved-attribute]
+    source_text = relation.source_text  # ty: ignore[unresolved-attribute]
+    target_text = relation.target_text  # ty: ignore[unresolved-attribute]
+    source_candidates = sorted(
+        text_index.get(endpoint_key(source_text), []),
+        key=lambda index: valid_raw_entities[index][0].text != source_text,
+    )
+    target_candidates = sorted(
+        text_index.get(endpoint_key(target_text), []),
+        key=lambda index: valid_raw_entities[index][0].text != target_text,
+    )
     for source_index in source_candidates:
         for target_index in target_candidates:
             if source_index == target_index:
@@ -309,6 +336,59 @@ class ExtractorMissingExtraError(IngestionError):
         )
         self.component = component
         self.extra = extra
+
+
+class UnparsableExtractionError(IngestionError):
+    """The LLM replied, but the reply holds no JSON answer.
+
+    BAML turns a reply it cannot read into an empty result instead of raising.
+    This error tells that case apart from a model that answered "nothing found".
+
+    Attributes:
+        chunk_id: The chunk whose extraction failed.
+    """
+
+    def __init__(self, chunk_id: UUID) -> None:
+        """Bind the chunk id to the error."""
+        super().__init__(f"The LLM reply for chunk {chunk_id} holds no JSON answer.")
+        self.chunk_id = chunk_id
+
+
+_JSON_DECODER = json.JSONDecoder()
+
+
+def _reply_holds_answer(reply: str) -> bool:
+    """Return whether reply holds a JSON answer, even an empty one.
+
+    A JSON object with an ``entities`` key counts, even inside prose. An empty
+    list counts only when it is the whole reply, optionally in a code fence,
+    because an empty list inside prose or a cut-off object is not an answer.
+    """
+    body = reply.strip().removeprefix("```json").removeprefix("```")
+    if body.removesuffix("```").strip() == "[]":
+        return True
+    # Prose can surround the JSON, so every opening brace is tried.
+    for start, char in enumerate(reply):
+        if char != "{":
+            continue
+        try:
+            value, _ = _JSON_DECODER.raw_decode(reply, start)
+        except ValueError:
+            continue
+        if isinstance(value, dict) and "entities" in value:
+            return True
+    return False
+
+
+def _last_reply(collector: object | None) -> str | None:
+    """Return the raw text of the last reply a BAML collector recorded."""
+    log = getattr(collector, "last", None)
+    return getattr(log, "raw_llm_response", None)
+
+
+def _has_relations(raw: object, schema: GraphSchema) -> bool:
+    """Return whether the parsed reply holds any raw relation."""
+    return bool(schema.relations and raw.relations)  # ty: ignore[unresolved-attribute]
 
 
 class Extractor(ABC):
@@ -645,9 +725,14 @@ class BAMLExtractor(LLMExtractor):
 
     The extractor calls ``ExtractEntitiesAndRelations`` on the clients in
     ``ExtractionLLMSettings`` and retries failed calls with the backoff from
-    its configuration. The response type comes from the graph schema, so the
-    model can return only declared labels and property keys, and it can fill
-    entity properties. Needs the ``llm`` extra and a reachable LLM endpoint.
+    its configuration. The model sees each label with its description through
+    the enum values. The model answers with labels and names only. The
+    extractor finds each name in the chunk text and drops a name that is not
+    there. The response type comes from the graph schema, so the model can
+    return only declared labels. When an entity type declares properties, the
+    model also fills a ``properties`` value for each entity. A reply that holds
+    no JSON answer raises ``UnparsableExtractionError``. Needs the ``llm``
+    extra and a reachable LLM endpoint.
 
     Args:
         settings: LLM client configuration. Defaults to ``ExtractionLLMSettings()``,
@@ -659,7 +744,8 @@ class BAMLExtractor(LLMExtractor):
         tracer: Opens ``agrag.extraction.baml`` and ``agrag.llm.call`` spans.
             ``None`` opens no recorded span.
         include_heading_path: Whether to pass the chunk's heading path as a
-            separate ``section`` line. Offsets still index ``chunk.text``; only
+            separate ``section`` line. The heading is never searched for
+            mentions, so an entity found only in the heading is dropped; only
             this extractor uses heading context.
     """
 
@@ -693,18 +779,24 @@ class BAMLExtractor(LLMExtractor):
         Args:
             chunk: The chunk to read. Only ``chunk.text`` and ``chunk.id`` are used.
             schema: The entity and relation types to extract.
-            candidates: Earlier entity results. BAML currently ignores them.
+            candidates: Entities an earlier extractor found. They are listed in
+                the prompt for the model to check. None or empty gives the
+                prompt without that list.
 
         Returns:
-            The normalized entities and relations found in the chunk.
+            The entities and relations found in the chunk. An empty result means
+            the model answered with no entities or relations.
 
         Raises:
             ExtractorMissingExtraError: The ``llm`` package extra is not
                 installed.
+            UnparsableExtractionError: The reply holds no JSON answer, such as
+                prose or a cut-off object.
             ValueError: ``chunk.id`` is ``None``.
         """
         if chunk.id is None:
             raise ValueError("Chunk must have an id for extraction.")
+        chunk_id = chunk.id
         with get_tracer(self._tracer).start_as_current_span(
             "agrag.extraction.baml",
             attributes={"agrag.chunk_id": str(chunk.id)},
@@ -731,18 +823,39 @@ class BAMLExtractor(LLMExtractor):
             call_options: dict = {**baml_options}
             if type_builder is not None:
                 call_options["tb"] = type_builder
+            candidate_specs = _candidate_specs(candidates)
+            # The collector keeps the raw reply, which BAML does not return
+            # when it parses the reply to an empty result. It is added even when
+            # tracing is off, because the unparsable check depends on it.
+            reply_log = new_collector()
+
+            def attempt(options: dict) -> Awaitable[object]:
+                """Run one call, adding a collector that keeps the raw reply."""
+                if reply_log is not None:
+                    existing = options.get("collector")
+                    collectors = [] if existing is None else [existing]
+                    options = {**options, "collector": [*collectors, reply_log]}
+                return client.ExtractEntitiesAndRelations(  # ty: ignore[unresolved-attribute]
+                    chunk.text, section, candidate_specs, options
+                )
+
             # ponytail: retries every exception except the BAML error types
             # call_with_retry recognizes as permanently unretryable (an invalid
             # argument or a non-429 4xx); narrow further if that proves noisy.
             raw = await call_with_retry(
-                lambda options: client.ExtractEntitiesAndRelations(  # ty: ignore[unresolved-attribute]
-                    chunk.text, section, options
-                ),
+                attempt,
                 retry,
                 options=call_options,
                 tracer=self._tracer,
                 function="ExtractEntitiesAndRelations",
             )
+            reply = _last_reply(reply_log)
+            # The parsed object decides, not the located entities: a reply whose
+            # names the chunk does not hold is still an answer.
+            nothing_parsed = not raw.entities and not _has_relations(raw, schema)  # ty: ignore[unresolved-attribute]
+            if nothing_parsed and reply is not None and not _reply_holds_answer(reply):
+                span.set_attribute("agrag.extraction.unparsable", True)
+                raise UnparsableExtractionError(chunk_id)
             result = validate_extraction(self._to_result(raw, chunk, schema), schema)
             span.set_attribute("agrag.entities_extracted", len(result.entities))
             span.set_attribute("agrag.relations_extracted", len(result.relations))
@@ -757,13 +870,15 @@ class BAMLExtractor(LLMExtractor):
         return b
 
     def _type_builder_for(self, schema: GraphSchema) -> object | None:
-        """Return a TypeBuilder populated with schema's labels and guidance.
+        """Return a TypeBuilder populated with the schema's labels.
 
-        Each value's ``description`` is attached to its enum value, so it
-        reaches the model as extraction guidance instead of being dropped.
-        An entity type's declared property names travel the same way, via
-        ``_describe_entity_type``: ``BAMLExtractedEntity.properties`` has no
-        per-label schema of its own to carry them.
+        The enums make the BAML parser drop any entity or relation whose label
+        is not in the schema, before agrag sees it. Each enum value carries its
+        label and its type's description, and BAML prints them once in the
+        output format. No type pairs are sent; the pattern check runs after
+        extraction. The ``relations`` field is added only when the schema
+        declares relation types, and the ``properties`` field only when an
+        entity type declares properties.
 
         Returns ``None`` when the ``llm`` extra is not installed and an
         injected client is being used, so callers can skip the ``tb`` option.
@@ -778,88 +893,87 @@ class BAMLExtractor(LLMExtractor):
         builder = TypeBuilder()
         for entity_type in schema.entities:
             builder.ExtractedEntityLabel.add_value(entity_type.label).description(
-                _describe_entity_type(entity_type)
+                entity_type.description
             )
-        for relation_type in schema.relations:
-            builder.ExtractedRelationLabel.add_value(relation_type.label).description(
-                relation_type.description
+        if schema.relations:
+            for relation_type in schema.relations:
+                builder.ExtractedRelationLabel.add_value(
+                    relation_type.label
+                ).description(relation_type.description)
+            builder.BAMLExtractionResult.add_property(
+                "relations", builder.list(builder.BAMLExtractedRelation.type())
             )
+        properties = _describe_properties(schema)
+        if properties is not None:
+            builder.BAMLExtractedEntity.add_property(
+                "properties", builder.map(builder.string(), builder.string()).optional()
+            ).description(properties)
         return builder
 
     def _to_result(
         self, raw: object, chunk: Chunk, schema: GraphSchema
     ) -> ExtractionResult:
-        """Return an ExtractionResult, matching relation text back to entities.
+        """Return an ExtractionResult, finding each mention in the chunk text.
+
+        The model reports labels and names, not offsets. ``locate_mentions``
+        finds the span of each name in ``chunk.text``. A name the chunk does
+        not hold, including one that only the heading holds, is dropped
+        together with any relation that names it. The n-th listing of the same
+        label and name maps to the n-th occurrence. One name under two labels
+        keeps both labels on one span, so a relation that needs the second
+        label still resolves.
 
         BAML returns each relation's endpoints as text, not an index into
         ``raw.entities``, so duplicate surface text is inherently ambiguous:
-        every entity sharing an endpoint's text is a candidate for that
-        endpoint. Each raw relation yields at most one (source, target)
-        pair: the first candidate pairing whose endpoint labels satisfy one
-        of the relation's declared ``patterns``. Candidate pairings are
-        walked in index order, so a pairing whose labels the schema forbids
-        is skipped in favor of a later matching one — but once a
-        schema-valid pairing is found, the search for that relation stops
-        instead of emitting every compatible combination. An undeclared
-        relation label, an endpoint whose text matches no entity, or a
-        relation that collapses to a single entity (self-reference) yields
-        no pair and is dropped, not raised, so one bad relation does not
-        fail the whole chunk.
-
-        Every entity's span is verified against chunk.text via
-        ``_resolve_span``: an LLM-invented span (its text doesn't occur in
-        chunk.text at all) is dropped, along with any relation referencing it
-        by text; a merely miscounted span is corrected instead of dropped.
-        A second entity with the same label, text, and resolved span is
-        dropped as a true duplicate. Two entities with different labels on
-        the same span (e.g. "Apple" as both Product and Organization) are
-        both kept, so relations that need the second label survive.
+        every mention sharing an endpoint's text is a candidate for that
+        endpoint. Each raw relation yields at most one (source, target) pair:
+        the first candidate pairing the schema allows. An undeclared relation
+        label, an endpoint whose text matches no mention, or a relation that
+        collapses to a single mention (self-reference) is dropped, not raised,
+        so one bad relation does not fail the whole chunk.
 
         Each entity's ``properties`` pass through as reported; schema
         validation of the property keys happens later, in
-        ``validate_extraction``.
+        ``validate_extraction``. Entities carry no confidence.
         """
         if chunk.id is None:
             raise ValueError("Chunk must have an id for extraction.")
         chunk_id = chunk.id
-        occurrences_by_text: dict[str, list[int]] = {}
-        seen_spans: set[tuple[str, str, int, int]] = set()
-        valid_raw_entities: list[tuple[Any, int, int]] = []
-        for entity in raw.entities:  # ty: ignore[unresolved-attribute]
-            span = _resolve_span(
-                entity.text,
-                chunk.text,
-                entity.char_start,
-                entity.char_end,
-                occurrences_by_text,
-            )
-            if span is None:
-                continue
-            dedup_key = (entity.label, entity.text, span[0], span[1])
-            if dedup_key not in seen_spans:
-                seen_spans.add(dedup_key)
-                valid_raw_entities.append((entity, *span))
+        raw_entities = list(raw.entities)  # ty: ignore[unresolved-attribute]
+        spans = locate_mentions(
+            [(entity.label, entity.text) for entity in raw_entities], chunk.text
+        )
+        located: list[tuple[Any, int, int]] = [
+            (entity, span[0], span[1])
+            for entity, span in zip(raw_entities, spans, strict=True)
+            if span is not None
+        ]
         entities = [
             ExtractedEntity(
                 chunk_id=chunk_id,
                 label=entity.label,
-                text=entity.text,
+                text=chunk.text[start:end],
                 char_start=start,
                 char_end=end,
-                properties=dict(entity.properties),
+                confidence=None,
+                properties=_raw_properties(entity),
             )
-            for entity, start, end in valid_raw_entities
+            for entity, start, end in located
         ]
+        # A missing required property is reported rather than enforced, so the
+        # entity stays in the result and the gap is visible in the logs.
+        _log_missing_required_properties(chunk_id, entities, schema)
         text_index: dict[str, list[int]] = {}
-        for index, (entity, _, _) in enumerate(valid_raw_entities):
-            text_index.setdefault(entity.text, []).append(index)
+        for index, (entity, _, _) in enumerate(located):
+            text_index.setdefault(endpoint_key(entity.text), []).append(index)
 
+        raw_relations = (
+            raw.relations if schema.relations else []  # ty: ignore[unresolved-attribute]
+        )
         relations: list[ExtractedRelation] = []
         seen_pairs: set[tuple[int, int, str]] = set()
-        for relation in raw.relations:  # ty: ignore[unresolved-attribute]
-            chosen = _resolve_relation_pair(
-                relation, text_index, valid_raw_entities, schema
-            )
+        for relation in raw_relations:
+            chosen = _resolve_relation_pair(relation, text_index, located, schema)
             if chosen is None or (chosen[0], chosen[1], relation.label) in seen_pairs:
                 continue
             seen_pairs.add((chosen[0], chosen[1], relation.label))

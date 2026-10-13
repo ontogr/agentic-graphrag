@@ -7,6 +7,7 @@ from agrag.ingestion.extract import (
     ExtractorMissingExtraError,
     GlinerExtractor,
     LLMExtractor,
+    UnparsableExtractionError,
 )
 from agrag.ingestion.graph import Graph
 from agrag.ingestion.reports import (
@@ -34,5 +35,6 @@ __all__ = [
     "Graph",
     "LLMExtractor",
     "ReevaluationReport",
+    "UnparsableExtractionError",
     "UpdateResult",
 ]

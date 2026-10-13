@@ -20,7 +20,7 @@ from .globals import DO_NOT_USE_DIRECTLY_UNLESS_YOU_KNOW_WHAT_YOURE_DOING_RUNTIM
 class TypeBuilder(type_builder.TypeBuilder):
     def __init__(self):
         super().__init__(classes=set(
-          ["BAMLExtractedEntity","BAMLExtractedRelation","BAMLExtractionResult","CommunityInput","CommunityReport","EntityPairInput","MatchVerdict",]
+          ["BAMLExtractedEntity","BAMLExtractedRelation","BAMLExtractionResult","CandidateEntity","CommunityInput","CommunityReport","EntityPairInput","MatchVerdict",]
         ), enums=set(
           ["ExtractedEntityLabel","ExtractedRelationLabel",]
         ), runtime=DO_NOT_USE_DIRECTLY_UNLESS_YOU_KNOW_WHAT_YOURE_DOING_RUNTIME)
@@ -39,20 +39,24 @@ class TypeBuilder(type_builder.TypeBuilder):
 
 
     # #########################################################################
-    # Generated classes 7
+    # Generated classes 8
     # #########################################################################
 
     @property
-    def BAMLExtractedEntity(self) -> "BAMLExtractedEntityViewer":
-        return BAMLExtractedEntityViewer(self)
+    def BAMLExtractedEntity(self) -> "BAMLExtractedEntityBuilder":
+        return BAMLExtractedEntityBuilder(self)
 
     @property
     def BAMLExtractedRelation(self) -> "BAMLExtractedRelationViewer":
         return BAMLExtractedRelationViewer(self)
 
     @property
-    def BAMLExtractionResult(self) -> "BAMLExtractionResultViewer":
-        return BAMLExtractionResultViewer(self)
+    def BAMLExtractionResult(self) -> "BAMLExtractionResultBuilder":
+        return BAMLExtractionResultBuilder(self)
+
+    @property
+    def CandidateEntity(self) -> "CandidateEntityViewer":
+        return CandidateEntityViewer(self)
 
     @property
     def CommunityInput(self) -> "CommunityInputViewer":
@@ -174,14 +178,14 @@ class ExtractedRelationLabelValues:
 
 
 # #########################################################################
-# Generated classes 7
+# Generated classes 8
 # #########################################################################
 
 class BAMLExtractedEntityAst:
     def __init__(self, tb: type_builder.TypeBuilder):
         _tb = tb._tb # type: ignore (we know how to use this private attribute)
         self._bldr = _tb.class_("BAMLExtractedEntity")
-        self._properties: typing.Set[str] = set([  "label",  "text",  "char_start",  "char_end",  "properties",  ])
+        self._properties: typing.Set[str] = set([  "label",  "text",  ])
         self._props = BAMLExtractedEntityProperties(self._bldr, self._properties)
 
     def type(self) -> baml_py.FieldType:
@@ -192,13 +196,25 @@ class BAMLExtractedEntityAst:
         return self._props
 
 
-class BAMLExtractedEntityViewer(BAMLExtractedEntityAst):
+class BAMLExtractedEntityBuilder(BAMLExtractedEntityAst):
     def __init__(self, tb: type_builder.TypeBuilder):
         super().__init__(tb)
 
     
-    def list_properties(self) -> typing.List[typing.Tuple[str, type_builder.ClassPropertyViewer]]:
-        return [(name, type_builder.ClassPropertyViewer(self._bldr.property(name))) for name in self._properties]
+    def add_property(self, name: str, type: baml_py.FieldType) -> baml_py.ClassPropertyBuilder:
+        if name in self._properties:
+            raise ValueError(f"Property {name} already exists.")
+        return self._bldr.property(name).type(type)
+
+    def list_properties(self) -> typing.List[typing.Tuple[str, baml_py.ClassPropertyBuilder]]:
+        return self._bldr.list_properties()
+
+    def remove_property(self, name: str) -> None:
+        self._bldr.remove_property(name)
+
+    def reset(self) -> None:
+        self._bldr.reset()
+
     
 
 
@@ -208,26 +224,19 @@ class BAMLExtractedEntityProperties:
         self.__properties = properties # type: ignore (we know how to use this private attribute) # noqa: F821
 
     
+    def __getattr__(self, name: str) -> baml_py.ClassPropertyBuilder:
+        if name not in self.__properties:
+            raise AttributeError(f"Property {name} not found.")
+        return self.__bldr.property(name)
+
     
     @property
-    def label(self) -> type_builder.ClassPropertyViewer:
-        return type_builder.ClassPropertyViewer(self.__bldr.property("label"))
+    def label(self) -> baml_py.ClassPropertyBuilder:
+        return self.__bldr.property("label")
     
     @property
-    def text(self) -> type_builder.ClassPropertyViewer:
-        return type_builder.ClassPropertyViewer(self.__bldr.property("text"))
-    
-    @property
-    def char_start(self) -> type_builder.ClassPropertyViewer:
-        return type_builder.ClassPropertyViewer(self.__bldr.property("char_start"))
-    
-    @property
-    def char_end(self) -> type_builder.ClassPropertyViewer:
-        return type_builder.ClassPropertyViewer(self.__bldr.property("char_end"))
-    
-    @property
-    def properties(self) -> type_builder.ClassPropertyViewer:
-        return type_builder.ClassPropertyViewer(self.__bldr.property("properties"))
+    def text(self) -> baml_py.ClassPropertyBuilder:
+        return self.__bldr.property("text")
     
     
 
@@ -283,7 +292,7 @@ class BAMLExtractionResultAst:
     def __init__(self, tb: type_builder.TypeBuilder):
         _tb = tb._tb # type: ignore (we know how to use this private attribute)
         self._bldr = _tb.class_("BAMLExtractionResult")
-        self._properties: typing.Set[str] = set([  "entities",  "relations",  ])
+        self._properties: typing.Set[str] = set([  "entities",  ])
         self._props = BAMLExtractionResultProperties(self._bldr, self._properties)
 
     def type(self) -> baml_py.FieldType:
@@ -294,13 +303,25 @@ class BAMLExtractionResultAst:
         return self._props
 
 
-class BAMLExtractionResultViewer(BAMLExtractionResultAst):
+class BAMLExtractionResultBuilder(BAMLExtractionResultAst):
     def __init__(self, tb: type_builder.TypeBuilder):
         super().__init__(tb)
 
     
-    def list_properties(self) -> typing.List[typing.Tuple[str, type_builder.ClassPropertyViewer]]:
-        return [(name, type_builder.ClassPropertyViewer(self._bldr.property(name))) for name in self._properties]
+    def add_property(self, name: str, type: baml_py.FieldType) -> baml_py.ClassPropertyBuilder:
+        if name in self._properties:
+            raise ValueError(f"Property {name} already exists.")
+        return self._bldr.property(name).type(type)
+
+    def list_properties(self) -> typing.List[typing.Tuple[str, baml_py.ClassPropertyBuilder]]:
+        return self._bldr.list_properties()
+
+    def remove_property(self, name: str) -> None:
+        self._bldr.remove_property(name)
+
+    def reset(self) -> None:
+        self._bldr.reset()
+
     
 
 
@@ -310,14 +331,58 @@ class BAMLExtractionResultProperties:
         self.__properties = properties # type: ignore (we know how to use this private attribute) # noqa: F821
 
     
+    def __getattr__(self, name: str) -> baml_py.ClassPropertyBuilder:
+        if name not in self.__properties:
+            raise AttributeError(f"Property {name} not found.")
+        return self.__bldr.property(name)
+
     
     @property
-    def entities(self) -> type_builder.ClassPropertyViewer:
-        return type_builder.ClassPropertyViewer(self.__bldr.property("entities"))
+    def entities(self) -> baml_py.ClassPropertyBuilder:
+        return self.__bldr.property("entities")
+    
+    
+
+
+class CandidateEntityAst:
+    def __init__(self, tb: type_builder.TypeBuilder):
+        _tb = tb._tb # type: ignore (we know how to use this private attribute)
+        self._bldr = _tb.class_("CandidateEntity")
+        self._properties: typing.Set[str] = set([  "label",  "text",  ])
+        self._props = CandidateEntityProperties(self._bldr, self._properties)
+
+    def type(self) -> baml_py.FieldType:
+        return self._bldr.field()
+
+    @property
+    def props(self) -> "CandidateEntityProperties":
+        return self._props
+
+
+class CandidateEntityViewer(CandidateEntityAst):
+    def __init__(self, tb: type_builder.TypeBuilder):
+        super().__init__(tb)
+
+    
+    def list_properties(self) -> typing.List[typing.Tuple[str, type_builder.ClassPropertyViewer]]:
+        return [(name, type_builder.ClassPropertyViewer(self._bldr.property(name))) for name in self._properties]
+    
+
+
+class CandidateEntityProperties:
+    def __init__(self, bldr: baml_py.ClassBuilder, properties: typing.Set[str]):
+        self.__bldr = bldr
+        self.__properties = properties # type: ignore (we know how to use this private attribute) # noqa: F821
+
+    
     
     @property
-    def relations(self) -> type_builder.ClassPropertyViewer:
-        return type_builder.ClassPropertyViewer(self.__bldr.property("relations"))
+    def label(self) -> type_builder.ClassPropertyViewer:
+        return type_builder.ClassPropertyViewer(self.__bldr.property("label"))
+    
+    @property
+    def text(self) -> type_builder.ClassPropertyViewer:
+        return type_builder.ClassPropertyViewer(self.__bldr.property("text"))
     
     
 

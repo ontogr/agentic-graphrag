@@ -116,9 +116,11 @@ Class: `ExtractionLLMSettings`. Prefix: `EXTRACTION_LLM_`.
 | --- | --- | --- |
 | `EXTRACTION_LLM_CLIENTS` | required | A JSON list of client objects (see below). |
 | `EXTRACTION_LLM_STRATEGY` | `single` | `single`, `fallback`, or `round_robin`. Ignored with one client. |
-| `EXTRACTION_LLM_RETRY` | see below | A JSON object with `max_retries` (`3`), `delay_ms` (`200`), `multiplier` (`1.5`), `max_delay_ms` (`10000`), and `timeout_ms` (`0`, no deadline). |
+| `EXTRACTION_LLM_RETRY` | see below | A JSON object with `max_retries` (`3`), `delay_ms` (`200`), `multiplier` (`1.5`), `max_delay_ms` (`10000`), and `timeout_ms` (`0`, no deadline). `timeout_ms` stops new attempts after the deadline; it does not stop a request that is already running. |
 
 `ExtractionLLMSettings.from_openai_compatible_env()` builds one `openai-generic` client from `LLM_BASE_URL`, `LLM_API_KEY`, and `LLM_MODEL_ID`. It raises `RuntimeError` when `LLM_BASE_URL` or `LLM_MODEL_ID` is missing.
+
+`ExtractionLLMSettings` also configures the LLM calls that summarize merged descriptions, verify entity matches, write community reports, and generate Cypher. All of them read the same clients, strategy and retry values.
 
 ### Agent
 

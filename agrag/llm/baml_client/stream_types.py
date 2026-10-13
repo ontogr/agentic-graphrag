@@ -23,15 +23,13 @@ class StreamState(BaseModel, typing.Generic[StreamStateValueT]):
     value: StreamStateValueT
     state: typing_extensions.Literal["Pending", "Incomplete", "Complete"]
 # #########################################################################
-# Generated classes (7)
+# Generated classes (8)
 # #########################################################################
 
 class BAMLExtractedEntity(BaseModel):
+    model_config = ConfigDict(extra='allow')
     label: typing.Optional[typing.Union[types.ExtractedEntityLabel, str]] = None
     text: typing.Optional[str] = None
-    char_start: typing.Optional[int] = None
-    char_end: typing.Optional[int] = None
-    properties: typing.Dict[str, str] = Field(description='Schema-declared property values this entity\'s type defines, keyed by\nproperty name, drawn only from what the text states. Empty object when\nnone apply. Do not invent property names or values.')
 
 class BAMLExtractedRelation(BaseModel):
     label: typing.Optional[typing.Union[types.ExtractedRelationLabel, str]] = None
@@ -39,8 +37,12 @@ class BAMLExtractedRelation(BaseModel):
     target_text: typing.Optional[str] = None
 
 class BAMLExtractionResult(BaseModel):
+    model_config = ConfigDict(extra='allow')
     entities: typing.List["BAMLExtractedEntity"]
-    relations: typing.List["BAMLExtractedRelation"]
+
+class CandidateEntity(BaseModel):
+    label: typing.Optional[str] = None
+    text: typing.Optional[str] = None
 
 class CommunityInput(BaseModel):
     entity_summaries: typing.List[str]
@@ -74,7 +76,7 @@ class MatchVerdict(BaseModel):
 
 
 # #########################################################################
-# Model rebuilds (7)
+# Model rebuilds (8)
 # #########################################################################
 # Resolve string forward references now that every model above is defined so
 # class declaration order never breaks Pydantic construction (issue #793).
@@ -83,6 +85,7 @@ class MatchVerdict(BaseModel):
 BAMLExtractedEntity.model_rebuild()
 BAMLExtractedRelation.model_rebuild()
 BAMLExtractionResult.model_rebuild()
+CandidateEntity.model_rebuild()
 CommunityInput.model_rebuild()
 CommunityReport.model_rebuild()
 EntityPairInput.model_rebuild()

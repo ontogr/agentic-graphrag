@@ -47,15 +47,13 @@ class ExtractedRelationLabel(str, Enum):
     PLACEHOLDER = "PLACEHOLDER"
 
 # #########################################################################
-# Generated classes (7)
+# Generated classes (8)
 # #########################################################################
 
 class BAMLExtractedEntity(BaseModel):
+    model_config = ConfigDict(extra='allow')
     label: typing.Union[ExtractedEntityLabel, str]
     text: str
-    char_start: int
-    char_end: int
-    properties: typing.Dict[str, str] = Field(description='Schema-declared property values this entity\'s type defines, keyed by\nproperty name, drawn only from what the text states. Empty object when\nnone apply. Do not invent property names or values.')
 
 class BAMLExtractedRelation(BaseModel):
     label: typing.Union[ExtractedRelationLabel, str]
@@ -63,8 +61,12 @@ class BAMLExtractedRelation(BaseModel):
     target_text: str
 
 class BAMLExtractionResult(BaseModel):
+    model_config = ConfigDict(extra='allow')
     entities: typing.List["BAMLExtractedEntity"]
-    relations: typing.List["BAMLExtractedRelation"]
+
+class CandidateEntity(BaseModel):
+    label: str
+    text: str
 
 class CommunityInput(BaseModel):
     entity_summaries: typing.List[str]
@@ -98,7 +100,7 @@ class MatchVerdict(BaseModel):
 
 
 # #########################################################################
-# Model rebuilds (7)
+# Model rebuilds (8)
 # #########################################################################
 # Resolve string forward references now that every model above is defined so
 # class declaration order never breaks Pydantic construction (issue #793).
@@ -107,6 +109,7 @@ class MatchVerdict(BaseModel):
 BAMLExtractedEntity.model_rebuild()
 BAMLExtractedRelation.model_rebuild()
 BAMLExtractionResult.model_rebuild()
+CandidateEntity.model_rebuild()
 CommunityInput.model_rebuild()
 CommunityReport.model_rebuild()
 EntityPairInput.model_rebuild()

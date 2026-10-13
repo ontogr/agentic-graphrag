@@ -91,6 +91,10 @@ Give exactly one of `source`, `text`, and `documents`.
 writes a second open version of the document; use `update` to
 replace a document.
 
+If an extraction fails for a chunk, the document and its chunks are
+written without the extraction stamp, so the next `update` extracts
+them again instead of returning a no-op.
+
 **Parameters:**
 
 - **source** (<code>SourcesType | None</code>) – A file path, a directory, a glob, or a list of these.
@@ -430,9 +434,12 @@ evidence of the document is removed at the commit, and entities that
 only the old run produced are removed. If the content, the chunker, or
 the schema structure differs, the new version is written. The old
 version closes at the commit, and entities that only the old version
-produced are removed. Chunks written before the fingerprints were
-recorded count as changed. A document closed by `delete_document` has
-no open chunk, so the same text is added again.
+produced are removed. If an extraction fails for a chunk, the document is
+not stamped current, so the next update extracts it again. An in-place
+update keeps the previous evidence of the failed chunk. Chunks written
+before the fingerprints were recorded are extracted in place when their
+content, chunker, and schema match. A document closed by
+`delete_document` has no open chunk, so the same text is added again.
 
 The new version ingests under a Cutover Job holding this document's
 lease. The commit flips the job, closes the document's open
