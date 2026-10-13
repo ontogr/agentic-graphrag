@@ -509,7 +509,7 @@ class TestJobsSharingARelation:
                 f"-[r:{rel_type}]->"
                 f"(b:{NODE_IDENTITY_LABEL} {{id: $tgt}}) "
                 "RETURN r.id AS id, r.source_chunk_ids AS chunks, "
-                "r.canonical_id AS canonical_id, r._pending_job_id AS tag",
+                "r._canonical_id AS canonical_id, r._pending_job_id AS tag",
                 {"src": str(src.id), "tgt": str(tgt.id)},
             )
             assert len(rows) == 1

@@ -402,7 +402,7 @@ async def _domain_relation_records(
         )
         record = relation_obj.to_relation_record()
         if canonical_id is not None and pending_job_id is not None:
-            record.properties["canonical_id"] = str(canonical_id)
+            record.properties["_canonical_id"] = str(canonical_id)
         relation_records.append(record)
     return relation_records
 

@@ -263,8 +263,8 @@ class TestMergeStage:
         assert first_record.id != canonical_id
         assert second_record.id != canonical_id
         assert first_record.id != second_record.id
-        assert first_record.properties["canonical_id"] == str(canonical_id)
-        assert second_record.properties["canonical_id"] == str(canonical_id)
+        assert first_record.properties["_canonical_id"] == str(canonical_id)
+        assert second_record.properties["_canonical_id"] == str(canonical_id)
 
     async def test_stored_relation_keeps_its_id_under_a_job(self) -> None:
         """A relation already in the graph keeps its stored id under a job."""
@@ -297,7 +297,7 @@ class TestMergeStage:
 
         [record] = result.relation_records
         assert record.id == relation_id
-        assert "canonical_id" not in record.properties
+        assert "_canonical_id" not in record.properties
 
     async def test_relation_without_a_job_uses_the_canonical_id(self) -> None:
         """Outside a job a new relation takes the canonical id and no pointer."""
@@ -315,7 +315,7 @@ class TestMergeStage:
 
         [record] = result.relation_records
         assert record.id == domain_relation_id(alice.id, acme.id, "WORKS_AT")
-        assert "canonical_id" not in record.properties
+        assert "_canonical_id" not in record.properties
 
     async def test_raises_failed_relation_lookup_under_raise(self) -> None:
         """Under ErrorPolicy.RAISE a failed relation read propagates."""
