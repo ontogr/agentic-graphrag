@@ -11,7 +11,10 @@ Extraction-stage results.
 
 **Attributes:**
 
-- [**chunks_processed**](#agrag-ingestion-stats-extraction-ExtractionStats-chunks_processed) (<code>int</code>) – Chunks the stage ran the extractor on.
+- [**chunks_processed**](#agrag-ingestion-stats-extraction-ExtractionStats-chunks_processed) (<code>int</code>) – Chunks the stage read. In `llm` mode this counts
+  every chunk, including chunks skipped for having fewer than
+  `min_escalation_words` words. `EscalationReport.skipped_short`
+  gives that skipped count.
 - [**entities_extracted**](#agrag-ingestion-stats-extraction-ExtractionStats-entities_extracted) (<code>int</code>) – Entities the extractor returned.
 - [**relations_extracted**](#agrag-ingestion-stats-extraction-ExtractionStats-relations_extracted) (<code>int</code>) – Relations the extractor returned.
 - [**failures**](#agrag-ingestion-stats-extraction-ExtractionStats-failures) (<code>list\[[StageFailure](../../../common/data_models/stage_failure/StageFailure.md)\]</code>) – Per-item failures, capped per call.
