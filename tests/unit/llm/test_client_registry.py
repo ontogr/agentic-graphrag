@@ -81,3 +81,14 @@ class TestBuildClientRegistry:
         monkeypatch.setattr("baml_py.ClientRegistry", MockClientRegistry)
         with pytest.raises(ValueError):
             build_client_registry([])
+
+    @staticmethod
+    def test_duplicate_client_names_raise_before_registration(monkeypatch) -> None:
+        """Duplicate names are rejected without adding either client."""
+        mock = MockClientRegistry()
+        monkeypatch.setattr("baml_py.ClientRegistry", lambda: mock)
+
+        with pytest.raises(ValueError, match="primary"):
+            build_client_registry([_client("primary"), _client("primary")])
+
+        assert mock.added == []

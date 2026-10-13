@@ -114,7 +114,7 @@ Without the `agents` extra, `build_agent` raises no error. It returns a simple a
 
 ## An LLM call takes a very long time or retries many times
 
-`EXTRACTION_LLM_RETRY` sets how many times a failed call repeats and how long to wait between attempts. Its `timeout_ms` value is a deadline for starting new attempts. It does not stop a request that is already running. A slow local model can take more than a minute for one chunk. To bound the total time, lower `max_retries` and set `timeout_ms` to a value larger than one request needs. A failed chunk follows the error policy you gave to `Graph.add`. See [Configuration](../reference/configuration.mdx).
+`EXTRACTION_LLM_RETRY` sets how many times a failed call repeats and how long to wait between attempts. Its `timeout_ms` value is a deadline for starting new attempts. It does not stop a request that is already running. `request_timeout_ms` cancels an attempt after five minutes by default; `0` turns this limit off. A timed-out attempt can retry. To limit the total wait, lower `max_retries` and set both timeouts to values that allow one normal request to finish. A slow local model can take more than a minute for one chunk. A failed chunk follows the error policy you gave to `Graph.add`. See [Configuration](../reference/configuration.mdx).
 
 ## Resolution reports unavailable LLM pairs
 

@@ -8,7 +8,11 @@ boundary is mocked.
 """
 
 import json
+import select
+import socket
 import threading
+import time
+from contextlib import suppress
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
@@ -24,6 +28,7 @@ COMPLETION_TOKENS = 7
 # How many requests the "flaky" mode fails before it serves, so a test can
 # drive a real BAML retry over real HTTP.
 _FLAKY_FAILURES = 2
+_SLOW_FIRST_SECONDS = 0.3
 
 
 def _reply_for(mode: str) -> str:
@@ -35,6 +40,8 @@ def _reply_for(mode: str) -> str:
     return {
         "html": "<html>Bad Gateway</html>",
         "extract": "[]",
+        "slow-first": "[]",
+        "408-first": "[]",
         "verify": "[]",
         "cypher": "MATCH (n) RETURN n",
         "flaky": "[]",
@@ -56,6 +63,24 @@ class _Handler(BaseHTTPRequestHandler):
         body = json.loads(self.rfile.read(length) or b"{}")
         self.server.received.append(body)  # type: ignore[attr-defined]
         attempts = len(self.server.received)  # type: ignore[attr-defined]
+        if mode == "slow-first" and attempts == 1:
+            time.sleep(_SLOW_FIRST_SECONDS)
+            readable, _, _ = select.select([self.connection], [], [], 0)
+            closed = bool(
+                readable
+                and self.connection.recv(1, socket.MSG_PEEK | socket.MSG_DONTWAIT)
+                == b""
+            )
+            self.server.closed_connections.append(closed)  # type: ignore[attr-defined]
+            self.server.probe_complete.set()  # type: ignore[attr-defined]
+        if mode == "408-first" and attempts == 1:
+            payload = json.dumps({"error": {"message": "request timeout"}}).encode()
+            self.send_response(408)
+            self.send_header("content-type", "application/json")
+            self.send_header("content-length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
+            return
         if mode == "500":
             payload = json.dumps({"error": {"message": "boom"}}).encode()
             self.send_response(500)
@@ -91,7 +116,8 @@ class _Handler(BaseHTTPRequestHandler):
         self.send_header("content-type", "application/json")
         self.send_header("content-length", str(len(payload)))
         self.end_headers()
-        self.wfile.write(payload)
+        with suppress(BrokenPipeError):
+            self.wfile.write(payload)
 
 
 class LocalLLM:
@@ -101,6 +127,8 @@ class LocalLLM:
         """Start the server on an ephemeral port."""
         self._server = ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
         self._server.received = []  # type: ignore[attr-defined]
+        self._server.closed_connections = []  # type: ignore[attr-defined]
+        self._server.probe_complete = threading.Event()  # type: ignore[attr-defined]
         self.port = self._server.server_address[1]
         self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
         self._thread.start()
@@ -118,6 +146,15 @@ class LocalLLM:
     def received(self) -> list[dict[str, Any]]:
         """Return every request body the server saw, in order."""
         return self._server.received  # type: ignore[attr-defined]
+
+    @property
+    def closed_connections(self) -> list[bool]:
+        """Return whether the client closed each probed slow request socket."""
+        return self._server.closed_connections  # type: ignore[attr-defined]
+
+    def wait_for_connection_probe(self, timeout: float) -> bool:
+        """Wait until the slow request's client socket has been probed."""
+        return self._server.probe_complete.wait(timeout)  # type: ignore[attr-defined]
 
     def close(self) -> None:
         """Stop the server and release its port."""

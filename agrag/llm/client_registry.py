@@ -27,7 +27,7 @@ def build_client_registry(
         ``baml-py`` is an optional dependency (the ``llm`` extra).
 
     Raises:
-        ValueError: ``clients`` is empty.
+        ValueError: ``clients`` is empty or contains duplicate names.
         ExtractorMissingExtraError: The ``llm`` package extra is not installed.
     """
     try:
@@ -39,6 +39,13 @@ def build_client_registry(
 
     if not clients:
         raise ValueError("build_client_registry needs at least one client.")
+
+    names = [client.name for client in clients]
+    duplicates = sorted({name for name in names if names.count(name) > 1})
+    if duplicates:
+        raise ValueError(
+            f"build_client_registry needs unique client names; repeated: {duplicates}."
+        )
 
     registry = ClientRegistry()
     for client in clients:
