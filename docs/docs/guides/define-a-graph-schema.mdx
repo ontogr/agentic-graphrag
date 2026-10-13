@@ -76,7 +76,7 @@ When you change the types or the patterns, raise `version`.
 
 ### Group types with parents
 
-A type can name parent types. A relation pattern that names a parent also covers every child. `ancestors(label)` returns the ancestors from nearest to farthest. `node_labels(label)` returns the type label first, followed by those ancestors. These helpers describe schema labels. Stored nodes currently carry only their leaf label.
+A type can name parent types. A relation pattern that names a parent also covers every child. `ancestors(label)` returns the ancestors from nearest to farthest. `node_labels(label)` returns the type label first, followed by those ancestors. The graph stores each entity node with the same labels, as the example below shows.
 
 ```python
 from agrag.common.data_models import EntityType, GraphSchema, RelationType
@@ -114,6 +114,8 @@ The output:
 ['Vendor', 'Organization']
 True
 ```
+
+The graph stores a `Vendor` node with the labels `Vendor` and `Organization`. A query on `Organization` also finds it, and the vector index of `Organization` includes it. A graph that you wrote before you added parents keeps its old labels until you ingest the documents again.
 
 A child type does not inherit its parent's properties. Declare those properties again on the child.
 
