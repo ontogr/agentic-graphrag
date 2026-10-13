@@ -1,6 +1,6 @@
 """The Document model: one unit of source text, before chunking."""
 
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from enum import StrEnum
 from uuid import NAMESPACE_OID, UUID, uuid5
 
@@ -211,6 +211,8 @@ class Document(DataPoint):
             Markdown export. The chunker does not read it for a docling source: the
             chunks come from ``sections``.
         title: The document title.
+        published_at: The date the source says it was published, or ``None``.
+        content_date: The date the content describes, or ``None``.
         uri: The location of the source. This value is not part of the document id.
         source_format: The format the loader used to read this document.
         family: The shape of the source: one document per file, or one document per
@@ -253,6 +255,8 @@ class Document(DataPoint):
     id: UUID | None = None
     text: str
     title: str
+    published_at: date | None = None
+    content_date: date | None = None
 
     uri: str
     source_format: SourceFormat
@@ -447,6 +451,12 @@ class Document(DataPoint):
             "current_content_hash": self.content_hash,
             "title": self.title,
             "updated_at": datetime.now(UTC).isoformat(),
+            "published_at": (
+                self.published_at.isoformat() if self.published_at else None
+            ),
+            "content_date": (
+                self.content_date.isoformat() if self.content_date else None
+            ),
         }
         if self.schema_name is not None:
             properties["schema_name"] = self.schema_name

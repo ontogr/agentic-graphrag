@@ -26,12 +26,14 @@ from agrag.common.data_models.extraction import ExtractedEntity, ExtractedRelati
 from agrag.common.data_models.graph_record import DeferredWrites
 from agrag.common.data_models.graph_schema import GraphSchema
 from agrag.common.data_models.stage_failure import StageFailure, cap_failures
+from agrag.common.data_models.update_decision import UpdateDecision
 from agrag.common.schema_fingerprint import RunRecord
+from agrag.cypher.documents import update_document_dates_query
 from agrag.cypher.relations import entities_in_documents_query
 from agrag.embedding.base import Embedder
-from agrag.graphdb.base import GraphStore
+from agrag.graphdb.base import GraphStore, GraphStoreTransaction
 from agrag.ingestion._cutover import InPlaceRefresh, run_cutover_job
-from agrag.ingestion._document_lifecycle import UpdateDecision, find_document
+from agrag.ingestion._document_lifecycle import find_document
 from agrag.ingestion._ingest_pipeline import (
     ExtractionBatch,
     extract_chunks,
@@ -722,6 +724,7 @@ async def update_document(  # noqa: PLR0913
     loader: Loader | None,
     error_policy: ErrorPolicy,
     read_options: ReadOptions | None,
+    force: bool,
     schema: GraphSchema,
     run: RunRecord,
     graph_store: GraphStore,
@@ -787,6 +790,9 @@ async def update_document(  # noqa: PLR0913
                 content_hash=document.content_hash,
                 chunker_hash=chunker.fingerprint,
                 run=run,
+                force=force,
+                published_at=document.published_at,
+                content_date=document.content_date,
             )
         )
         if found is not None and decision is UpdateDecision.NO_OP:
@@ -795,6 +801,35 @@ async def update_document(  # noqa: PLR0913
                 no_op=True,
                 previous_content_hash=found.current_content_hash,
                 new_content_hash=document.content_hash,
+                decision=decision,
+            )
+        if found is not None and decision is UpdateDecision.METADATA_ONLY:
+
+            async def write_dates(transaction: GraphStoreTransaction) -> None:
+                await transaction.execute_write(
+                    update_document_dates_query(),
+                    {
+                        "document_node_id": str(found.document_node_id),
+                        "published_at": (
+                            document.published_at.isoformat()
+                            if document.published_at is not None
+                            else None
+                        ),
+                        "content_date": (
+                            document.content_date.isoformat()
+                            if document.content_date is not None
+                            else None
+                        ),
+                    },
+                )
+
+            await graph_store.run_in_transaction(write_dates)
+            return UpdateResult(
+                document_key=document_key,
+                no_op=False,
+                previous_content_hash=found.current_content_hash,
+                new_content_hash=document.content_hash,
+                decision=decision,
             )
         in_place = decision is UpdateDecision.IN_PLACE
 
@@ -905,6 +940,7 @@ async def update_document(  # noqa: PLR0913
             previous_content_hash=(found.current_content_hash if found else None),
             new_content_hash=document.content_hash,
             parts_closed=parts_closed,
+            decision=decision,
             add_result=_with_cleanup_failures(add_result, cleanup_failures).model_copy(
                 update={
                     "chunking": ChunkingStats.from_documents([document], chunks),

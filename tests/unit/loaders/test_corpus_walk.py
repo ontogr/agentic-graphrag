@@ -73,9 +73,18 @@ class TestCorpusWalk:
         assert len(non_empty) == 3
         assert all(len(batch) <= 1 for batch in batches)
 
-    async def test_resume_cursor_from_partial_batch_does_not_duplicate(self) -> None:
+    @pytest.mark.parametrize("policy", list(ErrorPolicy))
+    async def test_resume_cursor_from_partial_batch_does_not_duplicate(
+        self, policy: ErrorPolicy
+    ) -> None:
         """A cursor taken mid-source resumes after the last emitted record."""
-        walk = _CorpusWalk([_CSV], registry=registry, opts=ReadOptions(), batch_size=1)
+        walk = _CorpusWalk(
+            [_CSV],
+            registry=registry,
+            opts=ReadOptions(),
+            batch_size=1,
+            error_policy=policy,
+        )
         cursors = [cursor async for _b, cursor, _s in walk.iter_batches()]
         resumed = await _collect(
             _CorpusWalk([_CSV], registry=registry, opts=ReadOptions()),
@@ -209,10 +218,38 @@ class _OverflowsBatchThenFailsLoader(Loader):
 class TestCorpusWalkPartialSourceFailure:
     """A source that fails partway through leaks neither documents nor counts."""
 
+    @pytest.mark.parametrize("policy", [ErrorPolicy.SKIP, ErrorPolicy.QUARANTINE])
+    async def test_late_invalid_date_discards_the_whole_source(
+        self, tmp_path: Path, policy: ErrorPolicy
+    ) -> None:
+        """A bad date after a batch boundary must not leave earlier rows visible."""
+        source = tmp_path / "dates.csv"
+        source.write_text(
+            "body,published\nfirst,2024-05-01\nsecond,2024-05-02\nthird,last week\n"
+        )
+        walk = _CorpusWalk(
+            [source],
+            registry=registry,
+            opts=ReadOptions(text_column="body", published_at_column="published"),
+            error_policy=policy,
+            batch_size=2,
+        )
+        documents = []
+        final_stats = None
+        async for batch, _cursor, stats in walk.iter_batches():
+            documents.extend(batch)
+            final_stats = stats
+        assert documents == []
+        assert final_stats is not None
+        assert final_stats.documents == 0
+        assert final_stats.sources == 0
+        assert final_stats.skipped == int(policy is ErrorPolicy.SKIP)
+        assert final_stats.quarantined == int(policy is ErrorPolicy.QUARANTINE)
+
     async def test_document_count_matches_flushed_batches_when_a_source_fails_mid_batch(
         self, tmp_path: Path
     ) -> None:
-        """A source that fails after a flush still reports only what was flushed."""
+        """A skipped source contributes no rows or document count."""
         bad = tmp_path / "bad.txt"
         bad.write_text("x")
         walk = _CorpusWalk(
@@ -228,7 +265,7 @@ class TestCorpusWalkPartialSourceFailure:
         async for batch, _cursor, stats in walk.iter_batches():
             docs.extend(batch)
             final_stats = stats
-        assert len(docs) == 2
+        assert docs == []
         assert final_stats is not None
         assert final_stats.documents == len(docs)
         assert final_stats.skipped == 1

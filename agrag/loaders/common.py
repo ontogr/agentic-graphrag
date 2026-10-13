@@ -2,6 +2,7 @@
 
 import hashlib
 import re
+from datetime import date, datetime
 from pathlib import PurePosixPath
 from typing import BinaryIO
 
@@ -274,6 +275,34 @@ def _resolve_title(record: dict, title_column: str | None, fallback: str) -> str
     return str(value) if value is not None else fallback
 
 
+def _resolve_date(record: dict, column: str | None, source: SourceRef) -> date | None:
+    """Read an ISO date or date-time from a record column.
+
+    Args:
+        record: The parsed record data.
+        column: The column to read, when configured.
+        source: The source of the record, for the error message.
+
+    Returns:
+        The date, or ``None`` when the column is unset or its value is missing
+        or blank. A date-time keeps its date part.
+
+    Raises:
+        MalformedRecordError: The value is not an ISO date or date-time.
+    """
+    if column is None:
+        return None
+    value = record.get(column)
+    if value is None or not str(value).strip():
+        return None
+    try:
+        return datetime.fromisoformat(str(value).strip()).date()
+    except ValueError as exc:
+        raise MalformedRecordError(
+            f"{column!r} is not an ISO date in a record from {source.uri}"
+        ) from exc
+
+
 def build_record_document(
     *,
     source: SourceRef,
@@ -293,7 +322,7 @@ def build_record_document(
         decoded: The decoded text and its metadata.
         source_format: The format the loader used.
         loader_name: The name to record for the loader.
-        opts: The read options, used for the id, title, and text columns.
+        opts: The read options, used for the id, title, date, and text columns.
         record_index: The 0-based row number.
         record: The parsed record data.
         source_hash: The hash of the whole source file.
@@ -305,7 +334,8 @@ def build_record_document(
 
     Raises:
         MalformedRecordError: ``opts.id_column`` is configured but missing, null, or
-            blank in this record.
+            blank in this record, or a configured date value is not an ISO date
+            or date-time.
     """
     text_column = resolve_text_column(list(record.keys()), opts.text_column)
     raw_value = record.get(text_column)
@@ -329,4 +359,6 @@ def build_record_document(
         record_id=record_id,
         raw_record=raw_record,
         normalization=opts.normalization,
+        published_at=_resolve_date(record, opts.published_at_column, source),
+        content_date=_resolve_date(record, opts.content_date_column, source),
     )

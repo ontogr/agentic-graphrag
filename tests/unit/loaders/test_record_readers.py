@@ -10,7 +10,10 @@ raising MalformedRecordError (missing/empty text or id column, unterminated CSV
 quoting).
 """
 
+from datetime import date
 from io import BytesIO
+
+import pytest
 
 from agrag.common.data_models.document import DocumentFamily
 from agrag.loaders.errors import MalformedRecordError
@@ -98,6 +101,72 @@ class TestCsvLoader:
         docs = _docs(CsvLoader(), "sample.csv", ".csv", ReadOptions(title_column="id"))
         assert [d.title for d in docs] == ["1", "2", "3"]
 
+    def test_date_columns_set_independent_dates(self) -> None:
+        """Date columns parse ISO dates and date-times into their date parts."""
+        ref = SourceRef(uri="x.csv", extension=".csv", byte_size=None)
+        source = b"body,published,about\ntext,2024-05-01,2023-12-31T08:00:00\n"
+
+        [document] = list(
+            CsvLoader().load(
+                ref,
+                BytesIO(source),
+                ReadOptions(
+                    text_column="body",
+                    published_at_column="published",
+                    content_date_column="about",
+                ),
+            )
+        )
+
+        assert document.published_at == date(2024, 5, 1)
+        assert document.content_date == date(2023, 12, 31)
+
+    @pytest.mark.parametrize(
+        "source",
+        [b"body,published\ntext,\n", b"body,published\ntext,   \n"],
+    )
+    def test_blank_date_values_give_none(self, source: bytes) -> None:
+        """Blank date cells produce no date."""
+        ref = SourceRef(uri="x.csv", extension=".csv", byte_size=None)
+
+        [document] = list(
+            CsvLoader().load(
+                ref,
+                BytesIO(source),
+                ReadOptions(published_at_column="published"),
+            )
+        )
+
+        assert document.published_at is None
+
+    def test_missing_date_column_gives_none(self) -> None:
+        """An absent optional date column produces no date."""
+        ref = SourceRef(uri="x.csv", extension=".csv", byte_size=None)
+
+        [document] = list(
+            CsvLoader().load(
+                ref,
+                BytesIO(b"body\ntext\n"),
+                ReadOptions(published_at_column="published"),
+            )
+        )
+
+        assert document.published_at is None
+
+    def test_invalid_date_names_column_and_source(self) -> None:
+        """Malformed date values identify the configured column and source."""
+        ref = SourceRef(uri="x.csv", extension=".csv", byte_size=None)
+        options = ReadOptions(published_at_column="published")
+
+        with pytest.raises(MalformedRecordError, match="published.*x\\.csv"):
+            list(
+                CsvLoader().load(
+                    ref,
+                    BytesIO(b"body,published\ntext,last week\n"),
+                    options,
+                )
+            )
+
     def test_missing_id_column_value_raises(self) -> None:
         """Missing id column value raises."""
         ref = SourceRef(uri="x.csv", extension=".csv", byte_size=None)
@@ -144,6 +213,20 @@ class TestJsonlLoader:
         docs = list(JsonlLoader().load(ref, BytesIO(source), ReadOptions(), start_at=1))
         assert [d.record_index for d in docs] == [1, 2]
         assert docs[0].text == "two"
+
+    def test_null_date_value_gives_none(self) -> None:
+        """A JSON null date value produces no date."""
+        ref = SourceRef(uri="x.jsonl", extension=".jsonl", byte_size=None)
+
+        [document] = list(
+            JsonlLoader().load(
+                ref,
+                BytesIO(b'{"body": "text", "published": null}\n'),
+                ReadOptions(published_at_column="published"),
+            )
+        )
+
+        assert document.published_at is None
 
 
 class TestJsonLoader:
