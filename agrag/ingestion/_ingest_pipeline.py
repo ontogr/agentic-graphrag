@@ -763,6 +763,8 @@ async def ingest_chunks(
         )
 
     extraction_failures_capped = cap_failures(list(extraction_failures))
+    # In llm mode this counts every chunk read, including chunks skipped for
+    # having fewer than min_escalation_words words (see EscalationReport.skipped_short).
     extraction = ExtractionStats(
         chunks_processed=len(chunks),
         entities_extracted=len(entities),

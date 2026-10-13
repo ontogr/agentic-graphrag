@@ -35,7 +35,7 @@ flowchart TD
 3. The extractor keeps an entity when its score is 0.5 or more. It keeps a relation when its score is 0.7 or more and the pair of entity types is one that the schema allows. When a type has a parent type, the model sees both. If it returns the same words under both, the extractor keeps the label with the higher score. On a tie it keeps the child.
 4. The extractor does not throw away what it does not keep. It reports each dropped relation and each weak entity as a candidate, with the reason. You can turn this off.
 5. After the local model has read every chunk of a batch, the graph ranks the chunks. A chunk is eligible when one of its entities scores below 0.75, when it has no entities and at least eight words, or when one of its entities has a type that declares properties. The weakest eligible chunks come first.
-6. An LLM reads the eligible chunks in that order, until the budget is used. The budget is 20% of the chunks in a batch by default. The schema is part of the prompt. The LLM also receives the entities that the local model found. Its entities and the local entities combine into one result. An LLM entity with the name of a local entity keeps the local span and score. A local entity that the LLM did not return stays in the result. If the LLM call fails or gives no usable answer, the chunk keeps the local result.
+6. An LLM reads the eligible chunks in that order, until the budget is used. The budget is 20% of the chunks in a batch by default. The schema is part of the prompt. Its entities and the local entities combine into one result. An LLM entity with the name of a local entity keeps the local span and score. A local entity that the LLM did not return stays in the result. If the LLM call fails or gives no usable answer, the chunk keeps the local result.
 7. The pipeline validates the result of every extractor, including an extractor that you write. Validation removes every entity whose label the schema does not declare. It removes every relation whose label, or whose pair of entity types, the schema does not declare. A pattern that names a parent type also covers the child types of that type. It removes every property that the schema does not declare. Cardinality and symmetry declarations are not enforced on extracted edges. The pipeline logs how many entities and relations it dropped.
 8. The result is a list of mentions. A mention is not a graph node yet. It keeps its chunk, label, text, character span, and confidence.
 
@@ -59,7 +59,7 @@ The two sentences give six mentions. After resolution, they are four entities, b
 <details>
 <summary>Design choices</summary>
 
-Why does the LLM see the local entities? A model that checks and completes a list does better than one that starts from nothing. The graph keeps the local span and score for an entity that both results find.
+Why keep the local span and score for an entity that both results find? The local model reports a span and a score for every entity, so the graph uses them when the LLM returns the same entity.
 
 Why keep the local entities that the LLM did not return? The local model finds some entities that the LLM misses. Dropping them would lower recall, so the union keeps both.
 

@@ -22,7 +22,7 @@ Set the mode with `EXTRACTION_MODE`, or with `ExtractionSettings(mode=...)`. The
 | Mode | Local model | LLM | What the LLM reads |
 | --- | --- | --- | --- |
 | `gliner` | Reads every chunk | Not used | Nothing |
-| `hybrid` | Reads every chunk | Reads the weak chunks, up to the budget | The text, with the local entities as candidates |
+| `hybrid` | Reads every chunk | Reads the weak chunks, up to the budget | The text of each weak chunk |
 | `llm` | Not used | Reads every chunk with at least `EXTRACTION_MIN_ESCALATION_WORDS` words | The text only |
 
 The threshold and the budget apply only in `hybrid`. The `llm` mode uses only the word minimum.
@@ -72,7 +72,7 @@ The budget is a share of all chunks in a batch, not a share of the eligible chun
 
 ## How the LLM result combines with the local result
 
-The LLM reads the chunk together with the entities that the local model found. Its answer and the local result combine as a union:
+The escalation step reads the weak chunk with the LLM. Its answer and the first result combine as a union:
 
 1. The LLM entities come first. An LLM entity with the same name as a local entity takes the local span and score. The LLM label wins when the two labels differ.
 2. Local entities that the LLM did not return are added back, with their local span and score.
