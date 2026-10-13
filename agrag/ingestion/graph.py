@@ -6,13 +6,16 @@ import functools
 import logging
 from collections.abc import Callable, Sequence
 from importlib.util import find_spec
+from pathlib import Path
 from typing import Literal
 from uuid import UUID
 
 from opentelemetry.trace import Tracer
 from pydantic import ValidationError
 
+from agrag.candidates.patch import read_patch
 from agrag.chunking import Chunker
+from agrag.common.data_models.candidate_review import SchemaPatch
 from agrag.common.data_models.chunk import CHUNK_LABEL
 from agrag.common.data_models.community import COMMUNITY_LABEL
 from agrag.common.data_models.document import DOCUMENT_LABEL, Document
@@ -34,6 +37,7 @@ from agrag.common.schema_fingerprint import (
 )
 from agrag.embedding.base import Embedder
 from agrag.graphdb.base import GraphStore
+from agrag.ingestion._candidate_conversion import convert_candidates
 from agrag.ingestion._escalation import format_escalation
 from agrag.ingestion._ingest import (
     CleanupStep,
@@ -62,6 +66,7 @@ from agrag.ingestion.reports import (
     AddResult,
     CommunityDetectionReport,
     ConsolidationReport,
+    ConversionReport,
     EscalationReport,
     ReevaluationReport,
     UpdateResult,
@@ -869,6 +874,42 @@ class Graph:
             retrieval_settings=self._retrieval_settings,
             tracer=self._tracer,
             max_llm_pairs=self._max_llm_pairs,
+        )
+
+    async def convert_candidates(
+        self,
+        patch: SchemaPatch | Path,
+        *,
+        error_policy: ErrorPolicy = ErrorPolicy.RAISE,
+    ) -> ConversionReport:
+        """Turn approved candidates into graph data after applying their patch.
+
+        The graph must use the updated schema. Entity candidates become entity
+        nodes in place or fold into an exact-name owner. Relation and property
+        candidates become graph data. Graph writes are atomic; repeated calls
+        skip candidates already converted.
+
+        Args:
+            patch: The schema patch, or its JSON file path.
+            error_policy: How to report vector mirror and description embedding
+                failures that occur after the graph transaction commits.
+
+        Returns:
+            Counts of converted data and reasons for skipped candidates.
+
+        Raises:
+            PatchNotAppliedError: The active schema does not include the patch.
+        """
+        resolved = read_patch(patch) if isinstance(patch, Path) else patch
+        return await convert_candidates(
+            resolved,
+            graph_store=self._graph_store,
+            schema=self._schema,
+            embedder=self._embedder,
+            vector_store=self._vector_store,
+            retrieval_settings=self._retrieval_settings,
+            error_policy=error_policy,
+            tracer=self._tracer,
         )
 
     async def reevaluate(self, entity_ids: list[UUID]) -> ReevaluationReport:

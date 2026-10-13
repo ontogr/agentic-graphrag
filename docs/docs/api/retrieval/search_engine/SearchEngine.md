@@ -26,6 +26,7 @@ nest under these retrieval spans.
 - [**find_entity**](#agrag-retrieval-search_engine-SearchEngine-find_entity) – Resolve a named entity to its top search hit, or None.
 - [**list_relationship_types**](#agrag-retrieval-search_engine-SearchEngine-list_relationship_types) – List the relationship types directly attached to an entity.
 - [**search**](#agrag-retrieval-search_engine-SearchEngine-search) – Run recipe's methods, fuse, expand, and optionally rerank.
+- [**search_candidates**](#agrag-retrieval-search_engine-SearchEngine-search_candidates) – Search candidates the extractor kept out of the graph.
 - [**traverse**](#agrag-retrieval-search_engine-SearchEngine-traverse) – Expand one resolved entity into its neighbours.
 
 **Attributes:**
@@ -162,6 +163,27 @@ reranking.
   misspelled method name is a configuration error. It
   is reported instead of silently returning no
   results.
+
+## `search_candidates` \{#agrag-retrieval-search_engine-SearchEngine-search_candidates}
+
+```python
+search_candidates(query:str, *, kind:CandidateKind | None = None, limit:int = 10) -> list[CandidateRecord]
+```
+
+Search candidates the extractor kept out of the graph.
+
+Candidates are unreviewed and have no citation key. This search has
+no scope filter, so scoped callers must not expose it.
+
+**Parameters:**
+
+- **query** (<code>str</code>) – The words to look for.
+- **kind** (<code>[CandidateKind](../../common/data_models/candidate/CandidateKind.md) | None</code>) – Only this kind. None searches every kind.
+- **limit** (<code>int</code>) – The most candidates to return.
+
+**Returns:**
+
+- <code>list\[[CandidateRecord](../../common/data_models/candidate/CandidateRecord.md)\]</code> – Matching pending and approved candidates, best match first.
 
 ## `traverse` \{#agrag-retrieval-search_engine-SearchEngine-traverse}
 

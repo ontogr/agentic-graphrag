@@ -33,6 +33,8 @@ so one question's retry budget does not spend another's.
   LangGraph `recursion_limit` in the invoke config, and
   `max_research_attempts` bounds how many times the
   planner may re-research after an INSUFFICIENT verdict.
+  Set `search_candidates` to give the researcher the
+  unreviewed-candidate search.
 - **filters** (<code>[SearchFilters](../../retrieval/filters/SearchFilters.md) | None</code>) – Retrieval scope applied to every tool search,
   e.g. document or tenant constraints. None searches
   unfiltered. A non-empty scope also removes the

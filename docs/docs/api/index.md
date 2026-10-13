@@ -43,6 +43,7 @@ Environment variables for every settings class are in the [Configuration referen
 
 ## Other packages
 
+- [agrag.candidates](candidates/index.md): list, approve, reject, and prune extraction candidates, and write schema patches.
 - [agrag.chunking](chunking/index.md): the chunkers, `Chunking` rules, and the default preset.
 - [agrag.eval](eval/index.md): metrics that score answers, retrieval, and agent runs. Needs the `eval` extra.
 

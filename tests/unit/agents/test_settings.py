@@ -13,7 +13,20 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from agrag.agents.settings import AgentLLMSettings
+from agrag.agents.settings import AgentLLMSettings, AgentSettings
+
+
+class TestAgentSettings:
+    """AgentSettings keeps candidate search off unless enabled in the environment."""
+
+    def test_candidate_search_reads_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Candidate search defaults off and AGENT_SEARCH_CANDIDATES enables it."""
+        monkeypatch.delenv("AGENT_SEARCH_CANDIDATES", raising=False)
+        assert AgentSettings(_env_file=None).search_candidates is False
+
+        monkeypatch.setenv("AGENT_SEARCH_CANDIDATES", "true")
+
+        assert AgentSettings(_env_file=None).search_candidates is True
 
 
 class TestAgentLLMSettings:

@@ -1,23 +1,36 @@
 ---
 title: Candidates
-description: Discarded extraction items stored for later schema review.
+description: Extraction items that do not fit the current schema.
 ---
 
 # Candidates
 
-Extraction can find an entity below the entity threshold, a relation below its threshold, a relation outside the schema's patterns, or a relation whose endpoint has no kept entity. The LLM can also return an undeclared property. The graph stores these discarded items as `Candidate` nodes, separate from the entity graph. Candidates do not appear in entity search or traversal.
+Candidates are extraction items that the current schema or confidence thresholds keep out of the entity graph. They include weak entity spans, relations below the confidence cut, relations outside the schema's allowed patterns, relations with unresolved endpoints, and undeclared properties returned by the LLM extractor. The graph stores candidates as `Candidate` nodes. Entity search and graph traversal do not return them.
 
-Each candidate records its kind, label, confidence and rejection reason. An `EVIDENCED_BY` edge points to one example chunk. Relation candidates link to their final entities through `SOURCE` and `TARGET` when those entities can be found. Property candidates link to their holder through `SOURCE`. An unresolved endpoint keeps its text.
+Each candidate records its kind, label, confidence, rejection reason, and source chunk. An `EVIDENCED_BY` edge links it to the source chunk. Relation candidates link to resolved endpoints through `SOURCE` and `TARGET`. Property candidates link to their entity through `SOURCE`. An unresolved endpoint retains its text without an entity link.
 
-Equal candidates within one document run become one record. Its count records the number of occurrences, and its confidence is the highest score seen. Only the first example chunk is retained. Candidate node IDs change with each job; the content key identifies equal candidates across runs.
+Equal candidates in one document run become one record. Its `count` records the number of sightings in that run, and its confidence is the highest score. The record retains one source chunk. Candidate IDs change when a document is re-extracted. The content `key` groups equal candidates across runs.
+
+Candidate lists group records by content key and review state. The displayed count sums each grouped record's fixed count. Review does not increment a candidate's count.
 
 ## Document changes
 
-An add or update replaces the document's old pending candidates when its job commits. A failed job leaves the previous candidates unchanged. Deleting a document removes its pending candidates. Approved and rejected candidates remain, and their keys prevent later runs from creating the same candidate again.
+An add or update replaces the document's old pending candidates when its job commits. A failed job leaves its previous candidates unchanged. Deleting a document removes its pending candidates. Approved and rejected candidates remain, and their keys prevent later runs from creating the same candidate again.
 
-Candidates have no automatic expiry. Changing the schema does not itself remove them; updating a document replaces its pending candidates with the new extraction result.
+Candidates do not expire automatically. A schema change does not remove them. Updating a document replaces its pending candidates with the latest extraction result. When a caller passes a schema to `list_candidates`, the list hides pending candidates that the schema already covers. Callers can request covered candidates. The coverage check does not change candidate state.
+
+## Review and conversion
+
+Review functions list, approve, reject, and prune candidates. Approval returns a patch that describes required schema changes and names the approved candidate IDs. Pass an output path to write the patch to a file. The review API does not edit the schema file. Apply the patch changes to your schema and raise its version, then open the graph with that schema and convert the approved candidates. Conversion turns entity candidates into entity nodes, relation candidates into edges, and property candidates into entity properties. Converted records stop being candidates.
+
+See [Review candidates and grow your schema](../guides/review-candidates.mdx) for the workflow and the [Candidates reference](../reference/candidates.mdx) for API details.
+
+## Agent search
+
+Ordinary retrieval and generated Cypher exclude candidates. The optional `search_unreviewed_candidates` agent tool searches their text without embeddings. It is off by default, marks results as unreviewed, and cannot cite them as evidence. Scoped agents never receive the tool because candidate search cannot enforce their scope.
 
 ## Related
 
+- Explanation: [Extraction](./extraction.mdx).
 - How-to: [Turn candidates off](../guides/turn-off-candidates.mdx).
 - Reference: [Run statistics](../reference/run-stats.mdx).

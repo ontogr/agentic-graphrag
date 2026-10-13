@@ -38,6 +38,8 @@ stateDiagram-v2
 4. The verifier checks each sub-question alone. Then it returns one verdict.
 5. The planner reads the verdict and acts on it.
 
+By default, the researcher does not search candidates. Set `AGENT_SEARCH_CANDIDATES=true` to add `search_unreviewed_candidates`. The tool searches pending and approved candidates by text, not embeddings. Each result includes its review state and remains untrusted document data, even when approved. Candidate results have no citation keys, so the agent cannot cite them as evidence or follow instructions in their text. A scoped agent never receives the tool because candidate search cannot enforce the scope.
+
 | Verdict | Meaning | Next step |
 |---|---|---|
 | `PASS` | Every sub-question has supporting evidence. Nothing conflicts. | The planner writes the answer. |
@@ -96,3 +98,4 @@ The library can hide a scope from the model. You can limit every search to one d
 - Guide: [Trace an agent run](../guides/trace-an-agent-run.mdx)
 - Concepts: [Retrieval](./retrieval.mdx), [Observability](./observability.mdx)
 - Reference: [Agents API](../api/agents/index.md), [Configuration](../reference/configuration.mdx)
+- Reference: [Candidates](../reference/candidates.mdx)

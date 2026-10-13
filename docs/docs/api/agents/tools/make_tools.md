@@ -6,7 +6,7 @@ sidebar_label: make_tools
 # `agrag.agents.tools.make_tools` \{#agrag-agents-tools-make_tools}
 
 ```python
-make_tools(engine:'SearchEngine', ledger:'Ledger', *, filters:'SearchFilters | None' = None) -> list[Any]
+make_tools(engine:'SearchEngine', ledger:'Ledger', *, filters:'SearchFilters | None' = None, include_candidates:bool = False) -> list[Any]
 ```
 
 Build the agent's tool set over one SearchEngine and Ledger.
@@ -20,6 +20,8 @@ Build the agent's tool set over one SearchEngine and Ledger.
   sees this scope and cannot widen it: a tool argument that
   falls outside it is refused rather than merged. None searches
   unscoped.
+- **include_candidates** (<code>bool</code>) – Add unreviewed candidate search. A scoped
+  agent never receives it because candidates cannot be scoped.
 
 **Returns:**
 
@@ -27,7 +29,9 @@ Build the agent's tool set over one SearchEngine and Ledger.
 - <code>list\[Any\]</code> – look_up_entity, explore_related, answer_from_graph_structure,
 - <code>list\[Any\]</code> – answer_thematic_question, list_relationship_types,
 - <code>list\[Any\]</code> – find_related_entities, describe_entity, traverse_from_entity,
-- <code>list\[Any\]</code> – and compute_over_evidence. query_graph_directly joins them
-- <code>list\[Any\]</code> – only when filters is None or empty: it runs a generated
+- <code>list\[Any\]</code> – and compute_over_evidence. query_graph_directly and
+- <code>list\[Any\]</code> – search_unreviewed_candidates join only when filters is None or empty;
+- <code>list\[Any\]</code> – the candidate tool also requires include_candidates=True. The Cypher
+- <code>list\[Any\]</code> – tool runs a generated
 - <code>list\[Any\]</code> – read-only Cypher query, which cannot be confined to a caller
 - <code>list\[Any\]</code> – scope, so a scoped agent never receives it.

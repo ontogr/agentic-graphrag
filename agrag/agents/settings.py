@@ -97,6 +97,10 @@ class AgentSettings(BaseSettings):
             not bounded by this field; the LangGraph recursion
             limit remains the backstop for that pass.
             Env: ``AGENT_MAX_RESEARCH_ATTEMPTS``.
+        search_candidates: Whether the researcher gets a tool that searches
+            items the extractor kept out of the graph. Its answers are marked
+            unreviewed. A scoped agent never gets it.
+            Env: ``AGENT_SEARCH_CANDIDATES``.
 
     Env prefix: ``AGENT_``.
     """
@@ -107,3 +111,4 @@ class AgentSettings(BaseSettings):
 
     recursion_limit: int = 50
     max_research_attempts: int = 3
+    search_candidates: bool = False

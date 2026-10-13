@@ -21,6 +21,10 @@ Configuration for the agent loop itself.
   not bounded by this field; the LangGraph recursion
   limit remains the backstop for that pass.
   Env: `AGENT_MAX_RESEARCH_ATTEMPTS`.
+- [**search_candidates**](#agrag-agents-settings-AgentSettings-search_candidates) (<code>bool</code>) – Whether the researcher gets a tool that searches
+  items the extractor kept out of the graph. Its answers are marked
+  unreviewed. A scoped agent never gets it.
+  Env: `AGENT_SEARCH_CANDIDATES`.
 
 Env prefix: `AGENT_`.
 
@@ -40,4 +44,10 @@ model_config = SettingsConfigDict(env_prefix='AGENT_', env_file='.env', extra='i
 
 ```python
 recursion_limit: int = 50
+```
+
+## `search_candidates` \{#agrag-agents-settings-AgentSettings-search_candidates}
+
+```python
+search_candidates: bool = False
 ```

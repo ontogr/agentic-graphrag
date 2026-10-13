@@ -12,9 +12,9 @@ title: Run statistics
 
 | Field | Meaning |
 | --- | --- |
-| `dropped` | `DroppedCount` entries for items extraction discarded. Each entry has `kind`, `label`, `reason` and `count`. The list is filled whether or not candidates are written. |
-| `candidates_written` | Number of candidate records written to the graph. |
-| `candidates_skipped` | Number of discarded items not written because a reviewer already approved or rejected the same candidate, or because a relation's ends became one entity. |
+| `dropped` | `DroppedCount` entries for items extraction discarded. Each entry has `kind`, `label`, `reason` and `count`. The list is filled whether or not candidates are written. These are run counts, not counts of candidate records currently stored. |
+| `candidates_written` | Candidate records written to the graph by this run. |
+| `candidates_skipped` | Discarded items not written because a reviewer already approved or rejected the same content, or because a relation's ends became one entity. |
 
 ## Merge statistics
 
@@ -54,4 +54,5 @@ An `off_pattern` candidate in `llm` mode has confidence `0.0`, because the model
 ## Related
 
 - How-to: [Turn candidates off](../guides/turn-off-candidates.mdx).
+- How-to: [Review candidates and grow your schema](../guides/review-candidates.mdx).
 - Explanation: [Candidates](../concepts/candidates.mdx).

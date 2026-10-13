@@ -10,6 +10,7 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import TYPE_CHECKING, Any
 
+from agrag.agents.tools.candidates import make_search_candidates_tool
 from agrag.agents.tools.search import (
     make_answer_from_graph_structure_tool,
     make_answer_thematic_question_tool,
@@ -40,6 +41,7 @@ def make_tools(
     ledger: "Ledger",
     *,
     filters: "SearchFilters | None" = None,
+    include_candidates: bool = False,
 ) -> list[Any]:
     """Build the agent's tool set over one SearchEngine and Ledger.
 
@@ -51,14 +53,18 @@ def make_tools(
             sees this scope and cannot widen it: a tool argument that
             falls outside it is refused rather than merged. None searches
             unscoped.
+        include_candidates: Add unreviewed candidate search. A scoped
+            agent never receives it because candidates cannot be scoped.
 
     Returns:
         A list of LangChain tool instances: search_source_text,
         look_up_entity, explore_related, answer_from_graph_structure,
         answer_thematic_question, list_relationship_types,
         find_related_entities, describe_entity, traverse_from_entity,
-        and compute_over_evidence. query_graph_directly joins them
-        only when filters is None or empty: it runs a generated
+        and compute_over_evidence. query_graph_directly and
+        search_unreviewed_candidates join only when filters is None or empty;
+        the candidate tool also requires include_candidates=True. The Cypher
+        tool runs a generated
         read-only Cypher query, which cannot be confined to a caller
         scope, so a scoped agent never receives it.
     """
@@ -88,4 +94,6 @@ def make_tools(
         tools.append(
             make_query_graph_directly_tool(engine, ledger, filters=bound_filters)
         )
+        if include_candidates:
+            tools.append(make_search_candidates_tool(engine))
     return tools

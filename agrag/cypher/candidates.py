@@ -46,7 +46,8 @@ def upsert_candidates_query() -> str:
 
     A record writes nothing unless its chunk and every non-null endpoint
     resolve to committed rows or rows of its own job. A record that does
-    not resolve returns no row, so the store reports it as a failure.
+    not resolve returns no row, so the store reports it as a failure. A
+    reviewed same-key candidate suppresses the write after its lock is held.
     """
     return (
         "UNWIND $records AS record "
@@ -62,13 +63,31 @@ def upsert_candidates_query() -> str:
         "WITH record, chunk, source, target "
         "WHERE (record.source_entity_id IS NULL OR source IS NOT NULL) "
         "AND (record.target_entity_id IS NULL OR target IS NOT NULL) "
+        f"OPTIONAL MATCH (same_key:{CANDIDATE_LABEL} "
+        "{key: record.properties.key}) "
+        "WITH record, chunk, source, target, same_key "
+        "ORDER BY same_key.id "
+        "WITH record, chunk, source, target, "
+        "collect(same_key) AS same_key_candidates "
+        "FOREACH (candidate IN same_key_candidates | "
+        "SET candidate.id = candidate.id) "
+        "WITH record, chunk, source, target, same_key_candidates "
+        "CALL (same_key_candidates) { "
+        "UNWIND same_key_candidates AS candidate "
+        "WITH candidate.id AS id "
+        f"MATCH (reviewed:{CANDIDATE_LABEL} {{id: id}}) "
+        "RETURN count(CASE WHEN reviewed.state IN ['approved', 'rejected'] "
+        f"AND reviewed.{PENDING_JOB_ID_PROPERTY} IS NULL "
+        "THEN 1 END) > 0 AS blocked } "
+        "WITH record, chunk, source, target, blocked "
+        "FOREACH (_ IN CASE WHEN blocked THEN [] ELSE [1] END | "
         f"MERGE (c:{CANDIDATE_LABEL} {{id: record.candidate_id}}) "
         f"ON CREATE SET c += record.properties, {_created_tag('c')} "
         f"MERGE (c)-[evidence:{EVIDENCED_BY} {{id: record.id}}]->(chunk) "
         f"ON CREATE SET {_created_tag('evidence')} "
-        "WITH c, record, source, target "
         f"{_link('source', SOURCE, 'source_edge_id')}"
         f"{_link('target', TARGET, 'target_edge_id')}"
+        ") "
         "RETURN record.id AS id"
     )
 
