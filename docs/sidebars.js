@@ -44,10 +44,12 @@ const sidebars = {
       'concepts/chunking',
       'guides/configure-chunking',
       'concepts/extraction',
+      'concepts/candidates',
       'guides/extract-and-resolve',
       'guides/control-llm-cost-during-extraction',
       'guides/update-and-delete-documents',
       'guides/turn-off-candidates',
+      'guides/review-candidates',
     ]),
     section('Resolve and enrich', [
       'concepts/resolution',
@@ -90,6 +92,7 @@ const sidebars = {
       'reference/trace-spans',
       'reference/run-stats',
       'reference/default-schema',
+      'reference/candidates',
     ]),
     {
       type: 'category',

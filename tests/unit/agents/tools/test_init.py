@@ -50,6 +50,27 @@ class TestMakeTools:
             "query_graph_directly",
         }
 
+    def test_candidate_search_requires_opt_in_and_is_excluded_for_scopes(self) -> None:
+        """Only unscoped callers that opt in receive candidate search."""
+        default_names = {tool.name for tool in make_tools(MagicMock(), Ledger())}
+        enabled_names = {
+            tool.name
+            for tool in make_tools(MagicMock(), Ledger(), include_candidates=True)
+        }
+        scoped_names = {
+            tool.name
+            for tool in make_tools(
+                MagicMock(),
+                Ledger(),
+                filters=SearchFilters(labels=["Drug"]),
+                include_candidates=True,
+            )
+        }
+
+        assert "search_unreviewed_candidates" not in default_names
+        assert "search_unreviewed_candidates" in enabled_names
+        assert "search_unreviewed_candidates" not in scoped_names
+
     def test_tools_package_importable_without_langchain_installed(self) -> None:
         """Importing the package must not import langchain_core.
 

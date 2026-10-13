@@ -21,6 +21,7 @@ by `open()` when missing.
 
 - [**add**](#agrag-ingestion-graph-Graph-add) – Add content to the graph.
 - [**consolidate**](#agrag-ingestion-graph-Graph-consolidate) – Run non-destructive resolution against every persisted raw entity.
+- [**convert_candidates**](#agrag-ingestion-graph-Graph-convert_candidates) – Turn approved candidates into graph data after applying their patch.
 - [**deactivate_match**](#agrag-ingestion-graph-Graph-deactivate_match) – Deactivate a semantic match and synchronize replacement retrieval vectors.
 - [**delete_document**](#agrag-ingestion-graph-Graph-delete_document) – Soft-delete a document by closing its current HAS_PART edges.
 - [**detect_communities**](#agrag-ingestion-graph-Graph-detect_communities) – Detect entity communities via hierarchical Leiden.
@@ -190,6 +191,33 @@ entity is not compared in this call and the report lists the failure.
   plus the count of uncertain LLM verdicts, failed LLM requests,
   pairs over the per-label cap, pairs skipped because LLM
   settings were missing, and every other failure.
+
+## `convert_candidates` \{#agrag-ingestion-graph-Graph-convert_candidates}
+
+```python
+convert_candidates(patch:SchemaPatch | Path, *, error_policy:ErrorPolicy = ErrorPolicy.RAISE) -> ConversionReport
+```
+
+Turn approved candidates into graph data after applying their patch.
+
+The graph must use the updated schema. Entity candidates become entity
+nodes in place or fold into an exact-name owner. Relation and property
+candidates become graph data. Graph writes are atomic; repeated calls
+skip candidates already converted.
+
+**Parameters:**
+
+- **patch** (<code>[SchemaPatch](../../common/data_models/candidate_review/SchemaPatch.md) | Path</code>) – The schema patch, or its JSON file path.
+- **error_policy** (<code>[ErrorPolicy](../../loaders/types/ErrorPolicy.md)</code>) – How to report vector mirror and description embedding
+  failures that occur after the graph transaction commits.
+
+**Returns:**
+
+- <code>[ConversionReport](../reports/conversion_report/ConversionReport.md)</code> – Counts of converted data and reasons for skipped candidates.
+
+**Raises:**
+
+- <code>PatchNotAppliedError</code> – The active schema does not include the patch.
 
 ## `deactivate_match` \{#agrag-ingestion-graph-Graph-deactivate_match}
 

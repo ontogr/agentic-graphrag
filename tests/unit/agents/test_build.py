@@ -364,6 +364,24 @@ class TestBuildAgent:
         assert kwargs["filters"] == filters
         assert kwargs["filters"] is not filters
 
+    async def test_run_scoped_agent_adds_candidate_tool_only_when_enabled(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The setting controls whether the researcher receives candidate search."""
+        captured: dict = {}
+        _capture_deepagents(monkeypatch, captured)
+
+        for enabled in (False, True):
+            agent = _RunScopedAgent(
+                engine=_engine(),
+                model=MagicMock(),
+                settings=AgentSettings(search_candidates=enabled),
+            )
+            await agent.ainvoke({"messages": [{"role": "user", "content": "q"}]})
+            tool_names = {tool.name for tool in captured["subagents"][0]["tools"]}
+
+            assert ("search_unreviewed_candidates" in tool_names) is enabled
+
     async def test_run_scoped_agent_passes_a_tracing_callback_per_run(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:

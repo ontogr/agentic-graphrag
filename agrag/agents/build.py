@@ -53,6 +53,8 @@ def build_agent(
             LangGraph ``recursion_limit`` in the invoke config, and
             ``max_research_attempts`` bounds how many times the
             planner may re-research after an INSUFFICIENT verdict.
+            Set ``search_candidates`` to give the researcher the
+            unreviewed-candidate search.
         filters: Retrieval scope applied to every tool search,
             e.g. document or tenant constraints. None searches
             unfiltered. A non-empty scope also removes the
@@ -167,7 +169,12 @@ class _RunScopedAgent:
 
         ensure_harness_profile(self._model_provider)
         ledger = Ledger()
-        tools = make_tools(self._engine, ledger, filters=self._filters)
+        tools = make_tools(
+            self._engine,
+            ledger,
+            filters=self._filters,
+            include_candidates=self._settings.search_candidates,
+        )
         researcher = make_researcher_spec(tools, self._middleware, self._graph_schema)
         verifier = make_verifier_spec(self._middleware)
         limiter = ResearchAttemptLimiter(self._settings.max_research_attempts)

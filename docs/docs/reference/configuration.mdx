@@ -171,6 +171,7 @@ Class: `AgentSettings`. Prefix: `AGENT_`.
 | --- | --- | --- |
 | `AGENT_RECURSION_LIMIT` | `50` | The maximum LangGraph steps before the loop stops. |
 | `AGENT_MAX_RESEARCH_ATTEMPTS` | `3` | How many times the planner can send the researcher back after an `INSUFFICIENT` verdict. |
+| `AGENT_SEARCH_CANDIDATES` | `false` | Give the researcher a lexical search tool for pending and approved candidates. Results are marked unreviewed and cannot be cited. A scoped agent never receives the tool. |
 
 ## Retrieval
 

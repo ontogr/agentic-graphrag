@@ -7,6 +7,8 @@ from typing import Any
 
 from opentelemetry.trace import Tracer
 
+from agrag.candidates.search import search_candidates as _search_candidates
+from agrag.common.data_models.candidate import CandidateKind, CandidateRecord
 from agrag.common.data_models.community import Community
 from agrag.common.data_models.default_schema import DEFAULT_SCHEMA
 from agrag.common.data_models.graph_schema import GraphSchema
@@ -263,6 +265,26 @@ class SearchEngine:
             direction=direction,
             filters=filters,
             tracer=self._tracer,
+        )
+
+    async def search_candidates(
+        self, query: str, *, kind: CandidateKind | None = None, limit: int = 10
+    ) -> list[CandidateRecord]:
+        """Search candidates the extractor kept out of the graph.
+
+        Candidates are unreviewed and have no citation key. This search has
+        no scope filter, so scoped callers must not expose it.
+
+        Args:
+            query: The words to look for.
+            kind: Only this kind. None searches every kind.
+            limit: The most candidates to return.
+
+        Returns:
+            Matching pending and approved candidates, best match first.
+        """
+        return await _search_candidates(
+            self._graph_store, query, kind=kind, limit=limit
         )
 
     async def search(  # noqa: PLR0912, PLR0915

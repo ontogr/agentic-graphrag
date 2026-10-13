@@ -14,6 +14,7 @@ retrieval method they use.
 **Modules:**
 
 - [**aggregate**](aggregate/index.md) – Deterministic arithmetic over numbers the agent has already gathered.
+- [**candidates**](candidates/index.md) – The tool that searches candidates the extractor kept out of the graph.
 - [**search**](search/index.md) – Discovery tools: fixed-Recipe searches over SearchEngine.
 - [**traversal**](traversal/index.md) – Entity-graph tools: resolve a named entity, then walk its relationships.
 
