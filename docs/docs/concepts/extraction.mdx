@@ -42,7 +42,7 @@ flowchart TD
 You choose the LLM tier when you open a graph. If you pass no `llm_extractor`, no chunk goes to an LLM.
 
 :::note
-The local model reports spans and labels. It does not fill property values. When a kept entity has a type that declares properties, the result says so, so that an LLM extractor can read the chunk. Graph logs a warning when it is built in gliner mode and an entity type declares properties.
+The local model reports spans and labels. It does not fill property values. When a kept entity has a type that declares properties, the result says so, so that an LLM extractor can read the chunk. Graph logs a warning when it is built in gliner mode and an entity type declares properties. The LLM reports labels and names only; the extractor finds the spans in the text.
 :::
 
 ## Example

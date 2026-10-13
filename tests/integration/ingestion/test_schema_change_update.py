@@ -42,6 +42,7 @@ from agrag.graphdb.base import GraphStore
 from agrag.ingestion.extract import Extractor
 from agrag.ingestion.graph import Graph
 from agrag.ingestion.settings import ExtractionSettings
+from agrag.loaders.types import ErrorPolicy
 from agrag.retrieval.recipes import Recipe
 from agrag.retrieval.search_engine import SearchEngine
 from agrag.retrieval.settings import RetrievalSettings
@@ -699,4 +700,153 @@ class TestSchemaChangeUpdate:
             "entities_after_retry": await _entity_names(env.store, env.person),
         }
         written = write_artifact("schema_change_failed_update", artifact)
+        assert written == artifact
+
+    async def test_failed_in_place_refresh_keeps_prior_evidence_until_retried(
+        self, env: _Env
+    ) -> None:
+        """A chunk whose refresh fails keeps its evidence and is extracted again."""
+        key = env.key("doc")
+        text = env.text(_BODY)
+        first = await _open(
+            env,
+            _schema(env, with_relations=True),
+            _KeywordExtractor(_full(env), [_knows(env), _mentors(env)]),
+            _RecordingEmbedder(),
+        )
+        await first.add(documents=[_document(key, text)])
+        before_rows = await _open_chunks(env.store, key)
+        chunk_ids = _chunk_ids(before_rows)
+        stamp = before_rows[0]["extraction_fingerprint"]
+        knows_before = await _relations(env.store, env.knows)
+        mentors_before = await _relations(env.store, env.mentors)
+
+        changed_schema = _schema(
+            env, person_description="A human being.", with_relations=True
+        )
+        failing = _KeywordExtractor(_full(env), [_knows(env), _mentors(env)])
+        failing.fail_marker = env.run
+        failed_graph = await _open(env, changed_schema, failing, _RecordingEmbedder())
+        failed = await failed_graph.update(
+            key, text=text, error_policy=ErrorPolicy.SKIP
+        )
+
+        assert failed.no_op is False
+        assert _chunk_ids(await _open_chunks(env.store, key)) == chunk_ids
+        after_failure = await _mentioned_names(env.store, chunk_ids)
+        assert after_failure == ["Ada", "Bob", "Paris"]
+        assert await _relations(env.store, env.knows) == knows_before
+        assert await _relations(env.store, env.mentors) == mentors_before
+        failed_stamps = await _open_chunks(env.store, key)
+        assert {row["extraction_fingerprint"] for row in failed_stamps} == {stamp}
+
+        healthy = _KeywordExtractor(_people(env), [_knows(env)])
+        retry_graph = await _open(env, changed_schema, healthy, _RecordingEmbedder())
+        retried = await retry_graph.update(
+            key, text=text, error_policy=ErrorPolicy.SKIP
+        )
+
+        assert retried.no_op is False
+        retried_rows = await _open_chunks(env.store, key)
+        retried_stamps = {row["extraction_fingerprint"] for row in retried_rows}
+        assert len(retried_stamps) == 1
+        assert retried_stamps != {stamp}
+        assert await _mentioned_names(env.store, chunk_ids) == ["Ada", "Bob"]
+        assert await _entity_names(env.store, env.place) == []
+        assert await _relations(env.store, env.mentors) == []
+
+        again = await retry_graph.update(key, text=text, error_policy=ErrorPolicy.SKIP)
+
+        assert again.no_op is True
+        artifact = {
+            "failed_no_op": failed.no_op,
+            "entities_after_failure": after_failure,
+            "retried_no_op": retried.no_op,
+            "entities_after_retry": await _mentioned_names(env.store, chunk_ids),
+            "repeat_no_op": again.no_op,
+        }
+        written = write_artifact("schema_change_failed_refresh", artifact)
+        assert written == artifact
+
+    async def test_failed_new_version_is_extracted_again_on_next_update(
+        self, env: _Env
+    ) -> None:
+        """A new version whose extraction failed is not treated as current."""
+        key = env.key("doc")
+        first_text = env.text(_BODY)
+        second_text = env.text("Bob met Ada.")
+        graph = await _open(
+            env, _schema(env), _KeywordExtractor(_full(env)), _RecordingEmbedder()
+        )
+        await graph.add(documents=[_document(key, first_text)])
+
+        failing = _KeywordExtractor(_full(env))
+        failing.fail_marker = env.run
+        failing_graph = await _open(env, _schema(env), failing, _RecordingEmbedder())
+        failed = await failing_graph.update(
+            key, text=second_text, error_policy=ErrorPolicy.SKIP
+        )
+
+        assert failed.no_op is False
+        failed_rows = await _open_chunks(env.store, key)
+        assert {row["extraction_fingerprint"] for row in failed_rows} == {None}
+
+        retried = await graph.update(key, text=second_text)
+
+        assert retried.no_op is False
+        retried_ids = _chunk_ids(await _open_chunks(env.store, key))
+        assert await _mentioned_names(env.store, retried_ids) == ["Ada", "Bob"]
+
+        again = await graph.update(key, text=second_text)
+
+        assert again.no_op is True
+        artifact = {
+            "failed_no_op": failed.no_op,
+            "retried_no_op": retried.no_op,
+            "entities_after_retry": await _mentioned_names(env.store, retried_ids),
+            "repeat_no_op": again.no_op,
+        }
+        written = write_artifact("schema_change_failed_new_version", artifact)
+        assert written == artifact
+
+    async def test_failed_first_add_is_extracted_again_on_next_update(
+        self, env: _Env
+    ) -> None:
+        """A first add whose extraction failed is not treated as current."""
+        key = env.key("doc")
+        text = env.text(_BODY)
+        failing = _KeywordExtractor(_full(env))
+        failing.fail_marker = env.run
+        failing_graph = await _open(env, _schema(env), failing, _RecordingEmbedder())
+        added = await failing_graph.add(
+            documents=[_document(key, text)], error_policy=ErrorPolicy.SKIP
+        )
+
+        assert len(added.extraction.failures) == 1
+        added_rows = await _open_chunks(env.store, key)
+        assert {row["extraction_fingerprint"] for row in added_rows} == {None}
+
+        graph = await _open(
+            env, _schema(env), _KeywordExtractor(_full(env)), _RecordingEmbedder()
+        )
+        retried = await graph.update(key, text=text)
+
+        assert retried.no_op is False
+        retried_ids = _chunk_ids(await _open_chunks(env.store, key))
+        assert await _mentioned_names(env.store, retried_ids) == [
+            "Ada",
+            "Bob",
+            "Paris",
+        ]
+
+        again = await graph.update(key, text=text)
+
+        assert again.no_op is True
+        artifact = {
+            "added_failures": len(added.extraction.failures),
+            "retried_no_op": retried.no_op,
+            "entities_after_retry": await _mentioned_names(env.store, retried_ids),
+            "repeat_no_op": again.no_op,
+        }
+        written = write_artifact("schema_change_failed_first_add", artifact)
         assert written == artifact

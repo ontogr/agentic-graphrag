@@ -10,6 +10,7 @@ import contextlib
 import hashlib
 import logging
 from collections.abc import Awaitable, Callable, Iterable, Sequence
+from functools import partial as bind
 from uuid import UUID
 
 from opentelemetry.trace import Tracer
@@ -31,7 +32,11 @@ from agrag.embedding.base import Embedder
 from agrag.graphdb.base import GraphStore
 from agrag.ingestion._cutover import InPlaceRefresh, run_cutover_job
 from agrag.ingestion._document_lifecycle import UpdateDecision, find_document
-from agrag.ingestion._ingest_pipeline import extract_chunks, ingest_chunks
+from agrag.ingestion._ingest_pipeline import (
+    ExtractionBatch,
+    extract_chunks,
+    ingest_chunks,
+)
 from agrag.ingestion._structure import placement_map
 from agrag.ingestion._walk import SourcesType, chunk_documents, iter_document_batches
 from agrag.ingestion.extract import Extractor, LLMExtractor
@@ -57,7 +62,9 @@ from agrag.vectordb.base import VectorStore
 
 logger = logging.getLogger(__name__)
 
-CleanupStep = Callable[[list[UUID], list[UUID]], Awaitable[list[StageFailure]]]
+CleanupStep = Callable[
+    [list[UUID], list[UUID], list[UUID]], Awaitable[list[StageFailure]]
+]
 
 
 def _vector_collections(retrieval_settings: RetrievalSettings) -> tuple[str, str, str]:
@@ -108,6 +115,31 @@ def _with_cleanup_failures(
         }
     )
     return result.model_copy(update={"storage": storage})
+
+
+def _without_extraction_stamps(
+    chunks: list[Chunk], documents: list[Document]
+) -> tuple[list[Chunk], list[Document]]:
+    """Copy chunks and documents with the extraction stamp cleared.
+
+    A version with a failed extraction must not read as current. Without the
+    stamp, the next update sees a missing fingerprint and extracts the document
+    again.
+
+    Args:
+        chunks: The chunks of the version whose extraction failed.
+        documents: The documents of the same version.
+
+    Returns:
+        Copies of the chunks and the documents with no extraction fingerprint.
+    """
+    return (
+        [chunk.model_copy(update={"extraction_fingerprint": None}) for chunk in chunks],
+        [
+            document.model_copy(update={"extraction_fingerprint": None})
+            for document in documents
+        ],
+    )
 
 
 def _group_by_document(
@@ -378,6 +410,146 @@ async def document_entity_candidates(
     return candidates
 
 
+async def _commit_batch(  # noqa: PLR0913
+    flat_batch: list[Chunk],
+    batch: list[Document],
+    extracted: ExtractionBatch,
+    *,
+    graph_store: GraphStore,
+    embedder: Embedder,
+    vector_store: VectorStore | None,
+    schema: GraphSchema,
+    retrieval_settings: RetrievalSettings,
+    cutover_settings: CutoverJobSettings,
+    error_policy: ErrorPolicy,
+    return_chunks: bool,
+    placements_by_id: dict[UUID, ChunkPlacement],
+    tracer: Tracer,
+    embed_heading_path: bool,
+    max_llm_pairs: int,
+    cleanup: CleanupStep,
+) -> list[AddResult]:
+    """Write one extracted walk batch as one Cutover Job per document.
+
+    Args:
+        flat_batch: The chunks of the walk batch.
+        batch: The stamped documents of the walk batch.
+        extracted: The extraction output for ``flat_batch``. Its relation
+            indices are positions within its own entity list.
+        graph_store: The store that receives the graph writes.
+        embedder: The embedder for chunk and entity vectors.
+        vector_store: The vector store, or ``None`` when vectors are off.
+        schema: The graph schema the entities are written against.
+        retrieval_settings: The collection names and retrieval settings.
+        cutover_settings: The settings for each Cutover Job.
+        error_policy: How a failed write or embedding is treated.
+        return_chunks: Whether each result carries its chunks.
+        placements_by_id: The chunk placements, keyed by chunk id.
+        tracer: The tracer for the write spans.
+        embed_heading_path: Whether chunk vectors include the heading path.
+        max_llm_pairs: The cap on LLM-judged entity pairs per document.
+        cleanup: The post-commit cleanup step of each Cutover Job.
+
+    Returns:
+        One AddResult per document, in document order.
+    """
+    vector_collections = _vector_collections(retrieval_settings)
+    partials: list[AddResult] = []
+    for (
+        document_key,
+        doc_chunks,
+        doc_documents,
+        doc_entities,
+        doc_relations,
+        doc_failures,
+    ) in _group_by_document(
+        flat_batch,
+        batch,
+        extracted.entities,
+        extracted.relations,
+        extracted.failures,
+    ):
+        written_chunks, written_documents = (
+            _without_extraction_stamps(doc_chunks, doc_documents)
+            if doc_failures
+            else (doc_chunks, doc_documents)
+        )
+        components: list[MatchComponent] = []
+        deferred = DeferredWrites()
+        created_entity_ids: list[UUID] = []
+
+        async def _pending(
+            job_id: UUID,
+            *,
+            created_ids: list[UUID],
+            _components: list[MatchComponent] = components,
+            _deferred: DeferredWrites = deferred,
+            _slice: tuple[
+                list[Chunk],
+                list[Document],
+                list[ExtractedEntity],
+                list[ExtractedRelation],
+                list[StageFailure],
+            ] = (
+                written_chunks,
+                written_documents,
+                doc_entities,
+                doc_relations,
+                doc_failures,
+            ),
+        ) -> AddResult:
+            (
+                slice_chunks,
+                slice_documents,
+                slice_entities,
+                slice_relations,
+                slice_failures,
+            ) = _slice
+            ingested = await ingest_chunks(
+                slice_chunks,
+                slice_documents,
+                slice_entities,
+                slice_relations,
+                slice_failures,
+                graph_store=graph_store,
+                embedder=embedder,
+                vector_store=vector_store,
+                graph_schema=schema,
+                retrieval_settings=retrieval_settings,
+                error_policy=error_policy,
+                ingestion=IngestStats(documents=1),
+                return_chunks=return_chunks,
+                job_id=job_id,
+                rebuilt_components=_components,
+                placements=placements_by_id,
+                tracer=tracer,
+                embed_heading_path=embed_heading_path,
+                max_llm_pairs=max_llm_pairs,
+                deferred=_deferred,
+            )
+            created_ids.extend(ingested.created_entity_ids)
+            return ingested.add_result
+
+        pending_write = bind(_pending, created_ids=created_entity_ids)
+        partial, cleanup_failures, _ = await run_cutover_job(
+            verb="add",
+            document_key=document_key,
+            affected_entity_ids=[],
+            graph_store=graph_store,
+            vector_store=vector_store,
+            vector_collections=vector_collections,
+            settings=cutover_settings,
+            pending_write=pending_write,
+            cleanup=cleanup,
+            components=components,
+            deferred=deferred,
+            created_entity_ids=created_entity_ids,
+            tracer=tracer,
+        )
+        partials.append(_with_cleanup_failures(partial, cleanup_failures))
+    return partials
+
+
 async def add_documents(  # noqa: PLR0912,PLR0915,PLR0913
     source: SourcesType | None,
     *,
@@ -423,10 +595,8 @@ async def add_documents(  # noqa: PLR0912,PLR0915,PLR0913
         documents_seen: list[Document] = []
         placements_by_id: dict[UUID, ChunkPlacement] = {}
         document_keys_seen: set[str] = set()
-        entities: list[ExtractedEntity] = []
-        relations: list[ExtractedRelation] = []
-        extraction_failures: list[StageFailure] = []
         escalation_reports: list[EscalationReport] = []
+        partials: list[AddResult] = []
 
         def _record_document_keys(batch: Sequence[Document]) -> None:
             for document in batch:
@@ -450,23 +620,10 @@ async def add_documents(  # noqa: PLR0912,PLR0915,PLR0913
                 quarantined=final_stats.quarantined,
                 quarantined_items=list(final_stats.quarantined_items),
             )
-            extraction_failures_capped = cap_failures(list(extraction_failures))
-            extraction = ExtractionStats(
-                chunks_processed=len(chunks),
-                entities_extracted=len(entities),
-                relations_extracted=len(relations),
-                failures=extraction_failures_capped.items,
-                failures_total=extraction_failures_capped.total,
-                failures_truncated=extraction_failures_capped.truncated,
-            )
-            return AddResult(
+            return _merge_add_results(
+                partials,
                 ingestion=ingest,
                 chunking=ChunkingStats.from_documents(documents_seen, chunks),
-                extraction=extraction,
-                resolution=ResolutionStats(),
-                merge=MergeStats(),
-                storage=StorageStats(),
-                chunks=list(chunks) if return_chunks else [],
                 escalation=EscalationReport.merge(escalation_reports),
             )
 
@@ -497,7 +654,7 @@ async def add_documents(  # noqa: PLR0912,PLR0915,PLR0913
             documents_seen.extend(batch)
             extracted = await extract_chunks(
                 flat_batch,
-                start_index=len(entities),
+                start_index=0,
                 extractor=extractor,
                 schema=schema,
                 error_policy=error_policy,
@@ -505,20 +662,37 @@ async def add_documents(  # noqa: PLR0912,PLR0915,PLR0913
                 llm_extractor=llm_extractor,
                 tracer=tracer,
             )
-            entities.extend(extracted.entities)
-            relations.extend(extracted.relations)
-            extraction_failures.extend(extracted.failures)
             escalation_reports.append(extracted.report)
+            # Each walk batch commits before the next one is extracted, so a
+            # failure late in a large call keeps the work already written. Each
+            # document's slice is its own Cutover Job with its own lease; a lease
+            # failure aborts the documents still queued while committed documents
+            # stay committed.
+            partials.extend(
+                await _commit_batch(
+                    flat_batch,
+                    batch,
+                    extracted,
+                    graph_store=graph_store,
+                    embedder=embedder,
+                    vector_store=vector_store,
+                    schema=schema,
+                    retrieval_settings=retrieval_settings,
+                    cutover_settings=cutover_settings,
+                    error_policy=error_policy,
+                    return_chunks=return_chunks,
+                    placements_by_id=placements_by_id,
+                    tracer=tracer,
+                    embed_heading_path=embed_heading_path,
+                    max_llm_pairs=max_llm_pairs,
+                    cleanup=cleanup,
+                )
+            )
             if on_progress is not None:
                 with contextlib.suppress(Exception):
                     on_progress(_build_partial_add_result())
 
-        # Assemble the ingestion summary from this call's own walk, then run
-        # each document's slice as its own Cutover Job through the shared
-        # pipeline core. A job holds only its own document's lease and
-        # commits only its own slice; a lease failure aborts the documents
-        # still queued while documents that already committed stay
-        # committed.
+        # Assemble the ingestion summary from this call's own walk.
         ingestion = IngestStats(
             documents=final_stats.documents,
             sources=final_stats.sources,
@@ -526,85 +700,6 @@ async def add_documents(  # noqa: PLR0912,PLR0915,PLR0913
             quarantined=final_stats.quarantined,
             quarantined_items=list(final_stats.quarantined_items),
         )
-        vector_collections = _vector_collections(retrieval_settings)
-        partials: list[AddResult] = []
-        for (
-            document_key,
-            doc_chunks,
-            doc_documents,
-            doc_entities,
-            doc_relations,
-            doc_failures,
-        ) in _group_by_document(
-            chunks, documents_seen, entities, relations, extraction_failures
-        ):
-            components: list[MatchComponent] = []
-            deferred = DeferredWrites()
-
-            async def _pending(
-                job_id: UUID,
-                _components: list[MatchComponent] = components,
-                _deferred: DeferredWrites = deferred,
-                _slice: tuple[
-                    list[Chunk],
-                    list[Document],
-                    list[ExtractedEntity],
-                    list[ExtractedRelation],
-                    list[StageFailure],
-                ] = (
-                    doc_chunks,
-                    doc_documents,
-                    doc_entities,
-                    doc_relations,
-                    doc_failures,
-                ),
-            ) -> AddResult:
-                (
-                    slice_chunks,
-                    slice_documents,
-                    slice_entities,
-                    slice_relations,
-                    slice_failures,
-                ) = _slice
-                batch = await ingest_chunks(
-                    slice_chunks,
-                    slice_documents,
-                    slice_entities,
-                    slice_relations,
-                    slice_failures,
-                    graph_store=graph_store,
-                    embedder=embedder,
-                    vector_store=vector_store,
-                    graph_schema=schema,
-                    retrieval_settings=retrieval_settings,
-                    error_policy=error_policy,
-                    ingestion=IngestStats(documents=1),
-                    return_chunks=return_chunks,
-                    job_id=job_id,
-                    rebuilt_components=_components,
-                    placements=placements_by_id,
-                    tracer=tracer,
-                    embed_heading_path=embed_heading_path,
-                    max_llm_pairs=max_llm_pairs,
-                    deferred=_deferred,
-                )
-                return batch.add_result
-
-            partial, cleanup_failures, _ = await run_cutover_job(
-                verb="add",
-                document_key=document_key,
-                affected_entity_ids=[],
-                graph_store=graph_store,
-                vector_store=vector_store,
-                vector_collections=vector_collections,
-                settings=cutover_settings,
-                pending_write=_pending,
-                cleanup=cleanup,
-                components=components,
-                deferred=deferred,
-                tracer=tracer,
-            )
-            partials.append(_with_cleanup_failures(partial, cleanup_failures))
         result = _merge_add_results(
             partials,
             ingestion=ingestion,
@@ -726,6 +821,12 @@ async def update_document(  # noqa: PLR0913
         entities = extracted.entities
         relations = extracted.relations
         extraction_failures = extracted.failures
+        # A version with a failed chunk must not read as current. Dropping the
+        # stamps makes the next update extract the document again instead of
+        # returning a no-op.
+        failed_chunk_ids = {failure.item_id for failure in extraction_failures}
+        if failed_chunk_ids:
+            chunks, [document] = _without_extraction_stamps(chunks, [document])
 
         components: list[MatchComponent] = []
         deferred = DeferredWrites()
@@ -784,8 +885,15 @@ async def update_document(  # noqa: PLR0913
             in_place=(
                 InPlaceRefresh(
                     document_node_id=found.document_node_id,
-                    chunk_ids=[chunk.id for chunk in chunks if chunk.id is not None],
-                    extraction_fingerprint=run.extraction_fingerprint,
+                    chunk_ids=[
+                        chunk.id
+                        for chunk in chunks
+                        if chunk.id is not None
+                        and str(chunk.id) not in failed_chunk_ids
+                    ],
+                    extraction_fingerprint=(
+                        run.extraction_fingerprint if not failed_chunk_ids else None
+                    ),
                 )
                 if in_place and found is not None
                 else None

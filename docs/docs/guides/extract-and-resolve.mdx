@@ -12,7 +12,7 @@ The extraction examples use a chunk of text. The resolution examples use a graph
 
 ## Extract with the default schema
 
-`BAMLExtractor` sends the chunk to an LLM and returns typed entities and relations. It needs the `llm` extra:
+`BAMLExtractor` sends the chunk to an LLM and returns typed entities and relations. The model sees each entity and relation label with its description. The allowed entity-type pairs for each relation are checked after extraction. The model answers with labels and names. `BAMLExtractor` then finds each name in the chunk text and sets the offsets itself. It needs the `llm` extra:
 
 ```bash
 uv pip install "agentic-graphrag[llm]"
@@ -51,11 +51,20 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
+### What the extractor does with the model answer
+
+- A name must appear in the chunk text, with the same case and on word boundaries. A name that does not appear is dropped, and so is every relation that uses it.
+- A name can span a line break in the chunk. The model does not need to copy the break.
+- When a name appears more than once, the extractor uses the first occurrence for the first time the model lists it, the second occurrence for the second listing, and so on. A listing with no occurrence left is dropped.
+- A label that the schema does not declare is dropped before it reaches the graph.
+- When an entity type declares properties, the model also returns a value for each property that the text states. When no entity type declares properties, the model is not asked for any.
+- The extractor sets no confidence score on LLM entities or relations.
+
 To record what the extractor does, pass a `tracer` to it. See [Trace an agent run](./trace-an-agent-run.mdx).
 
 ## Give the model the section heading
 
-When a chunk has a heading path, `BAMLExtractor` sends it as a separate `section` line above the text block, for example `Guide > Setup`. The prompt says that the line is context only. Character offsets still index the chunk text, because the heading is not part of it. Set `include_heading_path=False` to turn this off:
+When a chunk has a heading path, `BAMLExtractor` sends it as a separate `section` line above the text block, for example `Guide > Setup`. The prompt says that the line is context only. `BAMLExtractor` looks for each name in the chunk text only. It drops a name that appears only in the heading. Set `include_heading_path=False` to turn this off:
 
 {/* pmd-metadata: fixture:llm_env */}
 

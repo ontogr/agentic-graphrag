@@ -28,12 +28,17 @@ import agrag.ingestion.extract as extract_module
 import agrag.ingestion.graph as graph_module
 from agrag.chunking import Chunker
 from agrag.common.data_models.candidate import CandidateRecord
-from agrag.common.data_models.chunk import Chunk
+from agrag.common.data_models.chunk import CHUNK_LABEL, Chunk
 from agrag.common.data_models.community import (
     COMMUNITY_LABEL,
 )
 from agrag.common.data_models.default_schema import DEFAULT_SCHEMA
-from agrag.common.data_models.document import Document, DocumentFamily, SourceFormat
+from agrag.common.data_models.document import (
+    DOCUMENT_LABEL,
+    Document,
+    DocumentFamily,
+    SourceFormat,
+)
 from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.extraction import (
     ExtractedEntity,
@@ -215,6 +220,13 @@ class _MockExtractor(Extractor):
 
     async def extract(self, chunk: Chunk, schema) -> ExtractionResult:  # type: ignore[no-untyped-def]
         return ExtractionResult(entities=[], relations=[], extractor_name="fake")
+
+
+class _FailingExtractor(Extractor):
+    """A fake extractor whose every extraction raises."""
+
+    async def extract(self, chunk: Chunk, schema: GraphSchema) -> ExtractionResult:
+        raise RuntimeError("extraction unavailable")
 
 
 class _SchemaRecordingExtractor(Extractor):
@@ -861,6 +873,161 @@ class TestGraphAdd:
         assert result.ingestion.sources == 1
 
 
+class _RecordingExtractor(Extractor):
+    """Logs each extraction and fails on chunks whose first word is fail_on."""
+
+    def __init__(self, events: list[str], fail_on: str | None = None) -> None:
+        """Create the extractor that appends to events."""
+        self.events = events
+        self.fail_on = fail_on
+
+    async def extract(self, chunk: Chunk, schema: GraphSchema) -> ExtractionResult:
+        first_word = chunk.text.split()[0]
+        self.events.append(f"extract {first_word}")
+        if first_word == self.fail_on:
+            raise RuntimeError("extractor down")
+        return ExtractionResult(entities=[], relations=[], extractor_name="rec")
+
+
+def _named_documents(*names: str) -> list[Document]:
+    """Return one short prose document per name, each starting with the name."""
+    documents: list[Document] = []
+    for name in names:
+        text = f"{name} wrote some notes."
+        documents.append(
+            Document(
+                text=text,
+                title=name,
+                uri=f"memory://{name}",
+                document_key=f"memory://{name}",
+                source_format=SourceFormat.TXT,
+                family=DocumentFamily.PROSE,
+                content_hash=name,
+                loader_name="text",
+                char_count=len(text),
+                line_count=1,
+            )
+        )
+    return documents
+
+
+class TestGraphAddWritesEachBatch:
+    """Graph.add writes each walk batch before it extracts the next batch."""
+
+    async def test_first_batch_is_written_before_the_second_is_extracted(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Each document is written right after its own batch is extracted."""
+        events: list[str] = []
+        graph = await Graph.open(
+            schema=DEFAULT_SCHEMA,
+            graph_store=_MockGraphStore(),
+            embedder=_MockEmbedder(),
+            extractor=_RecordingExtractor(events),
+        )
+        docs = _named_documents("alpha", "beta")
+        real_ingest = ingest_module.ingest_chunks
+
+        async def _recording_ingest(*args: object, **kwargs: Any) -> Any:
+            result = await real_ingest(*args, **kwargs)
+            events.append("write")
+            return result
+
+        monkeypatch.setattr(ingest_module, "ingest_chunks", _recording_ingest)
+        monkeypatch.setattr(
+            ingest_module, "iter_document_batches", _one_document_per_batch(docs)
+        )
+
+        result = await graph.add(documents=docs)
+
+        assert events == ["extract alpha", "write", "extract beta", "write"]
+        assert result.extraction.chunks_processed == 2
+        assert result.ingestion.documents == 2
+
+    async def test_a_failure_in_the_second_batch_keeps_the_first_batch(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A later batch that fails leaves the earlier batches written."""
+        events: list[str] = []
+        graph = await Graph.open(
+            schema=DEFAULT_SCHEMA,
+            graph_store=_MockGraphStore(),
+            embedder=_MockEmbedder(),
+            extractor=_RecordingExtractor(events, fail_on="beta"),
+        )
+        docs = _named_documents("alpha", "beta")
+        real_ingest = ingest_module.ingest_chunks
+
+        async def _recording_ingest(*args: object, **kwargs: Any) -> Any:
+            result = await real_ingest(*args, **kwargs)
+            events.append("write")
+            return result
+
+        monkeypatch.setattr(ingest_module, "ingest_chunks", _recording_ingest)
+        monkeypatch.setattr(
+            ingest_module, "iter_document_batches", _one_document_per_batch(docs)
+        )
+
+        with pytest.raises(RuntimeError, match="extractor down"):
+            await graph.add(documents=docs)
+
+        assert events == ["extract alpha", "write", "extract beta"]
+
+    async def test_large_list_writes_first_batch_before_later_failure(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Pre-built documents are written in batches of 100 before the next one."""
+        events: list[str] = []
+        graph = await Graph.open(
+            schema=DEFAULT_SCHEMA,
+            graph_store=_MockGraphStore(),
+            embedder=_MockEmbedder(),
+            extractor=_RecordingExtractor(events, fail_on="doc100"),
+        )
+        docs = _named_documents(*(f"doc{index:03d}" for index in range(101)))
+        real_ingest = ingest_module.ingest_chunks
+
+        async def _recording_ingest(*args: object, **kwargs: Any) -> Any:
+            result = await real_ingest(*args, **kwargs)
+            events.append("write")
+            return result
+
+        monkeypatch.setattr(ingest_module, "ingest_chunks", _recording_ingest)
+
+        with pytest.raises(RuntimeError, match="extractor down"):
+            await graph.add(documents=docs)
+
+        assert events == [
+            *(f"extract doc{index:03d}" for index in range(100)),
+            *["write"] * 100,
+            "extract doc100",
+        ]
+
+    async def test_progress_counts_writes_from_batches_already_committed(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Each progress result counts the writes of the batches committed so far."""
+        graph = await Graph.open(
+            schema=DEFAULT_SCHEMA,
+            graph_store=_MockGraphStore(),
+            embedder=_MockEmbedder(),
+            extractor=_RecordingExtractor([]),
+        )
+        docs = _named_documents("alpha", "beta")
+        monkeypatch.setattr(
+            ingest_module, "iter_document_batches", _one_document_per_batch(docs)
+        )
+        progress: list[Any] = []
+
+        await graph.add(documents=docs, on_progress=progress.append)
+
+        after_first, after_second = progress[0], progress[1]
+        assert after_first.storage.nodes_written == 2
+        assert after_first.storage.relationships_written == 2
+        assert after_second.storage.nodes_written == 4
+        assert after_second.storage.relationships_written == 4
+
+
 class TestGraphUpdate:
     """An update replaces one document version or deletes the document."""
 
@@ -968,6 +1135,71 @@ class TestGraphFailurePolicies:
         assert result.storage.failures_total == 1
         assert result.storage.failures[0].item_id == str(member.id)
         assert result.storage.failures[0].error_message == "database unavailable"
+
+    async def test_first_add_with_failed_chunk_is_extracted_by_next_update(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A first add with a failed chunk writes no stamp, so update re-extracts."""
+        note = "A short note."
+        key = "memory://failed-first-add"
+        document = Document(
+            text=note,
+            title="note",
+            uri=key,
+            document_key=key,
+            source_format=SourceFormat.TXT,
+            family=DocumentFamily.PROSE,
+            content_hash=hashlib.sha256(note.encode("utf-8")).hexdigest(),
+            loader_name="inline",
+            char_count=len(note),
+            line_count=1,
+        )
+        store = _MockGraphStore()
+        failing_graph = await Graph.open(
+            schema=DEFAULT_SCHEMA,
+            graph_store=store,
+            embedder=_MockEmbedder(),
+            extractor=_FailingExtractor(),
+        )
+        upserts = AsyncMock(wraps=store.upsert_nodes)
+        monkeypatch.setattr(store, "upsert_nodes", upserts)
+
+        added = await failing_graph.add(
+            documents=[document], error_policy=ErrorPolicy.SKIP
+        )
+
+        assert len(added.extraction.failures) == 1
+        written = [
+            node.properties
+            for call in upserts.call_args_list
+            if call.args[0] in {DOCUMENT_LABEL, CHUNK_LABEL}
+            for node in call.args[1]
+        ]
+        assert written
+        assert all("extraction_fingerprint" not in props for props in written)
+
+        healthy = _SchemaRecordingExtractor()
+        retry_graph = await Graph.open(
+            schema=DEFAULT_SCHEMA,
+            graph_store=store,
+            embedder=_MockEmbedder(),
+            extractor=healthy,
+        )
+        stored_row = {
+            "id": str(uuid4()),
+            "current_content_hash": document.content_hash,
+        }
+        chunk_row = {**_matching_chunk_row(retry_graph), "extraction_fingerprint": None}
+        monkeypatch.setattr(
+            store,
+            "execute_read",
+            _stored_version_reader(stored_row, [chunk_row]),
+        )
+
+        updated = await retry_graph.update(key, text=note)
+
+        assert updated.no_op is False
+        assert healthy.received_schemas
 
 
 class TestGraphOpen:

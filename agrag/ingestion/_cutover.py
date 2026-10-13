@@ -54,13 +54,21 @@ class CutoverJobLeaseError(Exception):
 class InPlaceRefresh:
     """What the commit transaction changes for a re-extract that keeps its chunks.
 
-    The commit removes the document's old entity mentions and its evidence from
-    relations, then stamps the kept chunks with the new extraction fingerprint.
+    The commit removes the old entity mentions and evidence of the refreshed
+    chunks, then stamps them with the new extraction fingerprint. Chunks that
+    were left out of ``chunk_ids`` because their extraction failed keep their
+    evidence and their stamps.
+
+    Attributes:
+        document_node_id: The id of the Document node that owns the chunks.
+        chunk_ids: The open chunks whose old evidence the commit replaces.
+        extraction_fingerprint: The stamp for ``chunk_ids``, or ``None`` when
+            the commit must leave the stamps as they are.
     """
 
     document_node_id: UUID
     chunk_ids: Sequence[UUID]
-    extraction_fingerprint: str
+    extraction_fingerprint: str | None
 
 
 T = TypeVar("T")
@@ -388,6 +396,7 @@ async def _commit_pending_writes(
     close_document_node_id: UUID | None,
     keep_node_ids: Sequence[UUID],
     component_seed_ids: Sequence[UUID],
+    created_entity_ids: Sequence[UUID],
     deferred: DeferredWrites,
     in_place: InPlaceRefresh | None,
 ) -> int:
@@ -395,13 +404,13 @@ async def _commit_pending_writes(
 
     The deferred writes over committed rows run right after the flip, so a
     replay that hits a row another job owns rolls the whole commit back.
-    When ``in_place`` is set, the document's committed evidence is retracted
-    before the replay: its chunk ids leave the relations they evidence, relations
-    left with no evidence are deleted, and its committed MENTIONED_IN edges are
-    dropped. The kept chunks are then stamped with the new extraction
-    fingerprint. The job's new relations are folded into their canonical ids in
-    the same transaction, and the commit is retried when two jobs promote one
-    relation at the same moment.
+    When ``in_place`` is set, the committed evidence of its chunk ids is
+    retracted before the replay: those chunk ids leave the relations they
+    evidence, relations left with no evidence are deleted, and their committed
+    MENTIONED_IN edges are dropped. The refreshed chunks are then stamped with
+    the new extraction fingerprint, unless it is ``None``. The job's new
+    relations are folded into their canonical ids in the same transaction, and
+    the commit is retried when two jobs promote one relation at the same moment.
     """
     job_arg = str(job_id)
     token_arg = str(token)
@@ -413,6 +422,9 @@ async def _commit_pending_writes(
                 "job_id": job_arg,
                 "lease_token": token_arg,
                 "component_seed_ids": [str(seed_id) for seed_id in component_seed_ids],
+                "created_entity_ids": [
+                    str(entity_id) for entity_id in created_entity_ids
+                ],
             },
         )
         if not committed:
@@ -425,14 +437,17 @@ async def _commit_pending_writes(
         # the relations it does not find stay gone. The retraction reads the
         # MENTIONED_IN edges, so it runs before they are deleted.
         if in_place is not None:
-            document_params = {"document_node_id": str(in_place.document_node_id)}
+            refresh_params = {
+                "document_node_id": str(in_place.document_node_id),
+                "chunk_ids": [str(chunk_id) for chunk_id in in_place.chunk_ids],
+            }
             await txn.execute_write(
-                retract_document_relation_evidence_query(), document_params
+                retract_document_relation_evidence_query(), refresh_params
             )
-            await txn.execute_write(delete_document_mentions_query(), document_params)
+            await txn.execute_write(delete_document_mentions_query(), refresh_params)
         await replay_deferred(txn, deferred)
         await fold_job_relations(txn, job_id=job_id)
-        if in_place is not None:
+        if in_place is not None and in_place.extraction_fingerprint is not None:
             await txn.execute_write(
                 set_chunk_extraction_fingerprint_query(),
                 {
@@ -479,12 +494,13 @@ async def run_cutover_job(
     vector_collections: Sequence[str],
     settings: CutoverJobSettings,
     pending_write: Callable[[UUID], Awaitable[T]],
-    cleanup: Callable[[list[UUID], list[UUID]], Awaitable[S]],
+    cleanup: Callable[[list[UUID], list[UUID], list[UUID]], Awaitable[S]],
     deferred: DeferredWrites,
     components: Sequence[MatchComponent] = (),
     close_document_node_id: UUID | None = None,
     in_place: InPlaceRefresh | None = None,
     keep_node_ids: Sequence[UUID] = (),
+    created_entity_ids: Sequence[UUID] = (),
     tracer: Tracer | None = None,
 ) -> tuple[T, S, int]:
     """Run one cutover job under a lease, from pending writes to cleanup.
@@ -498,8 +514,8 @@ async def run_cutover_job(
         vector_collections: The vector collections the job may have written.
         settings: Lease and renewal timing for the job.
         pending_write: Writes the job's pending rows. Receives the job id.
-        cleanup: Removes superseded rows. Receives the affected entity ids and
-            the component seed ids.
+        cleanup: Removes superseded rows. Receives the affected entity ids, the
+            component seed ids and the created entity ids.
         deferred: The writes over committed rows that the commit replays.
         components: The resolver components the job rebuilt.
         close_document_node_id: The document whose open HAS_PART edges are
@@ -509,6 +525,9 @@ async def run_cutover_job(
             re-stamped in the commit transaction.
         keep_node_ids: Structure nodes that stay open when the old version is
             closed.
+        created_entity_ids: The entities the job created. The pending write
+            fills this list, so it is read after that write, like
+            ``keep_node_ids``.
         tracer: Opens the job span. None disables it.
 
     Returns:
@@ -559,6 +578,7 @@ async def run_cutover_job(
                 close_document_node_id=close_document_node_id,
                 in_place=in_place,
                 keep_node_ids=keep_node_ids,
+                created_entity_ids=created_entity_ids,
                 deferred=deferred,
                 stop_renewal=stop_renewal,
                 renewal_stopped=renewal_stopped,
@@ -592,12 +612,13 @@ async def _run_leased(
     vector_store: VectorStore | None,
     vector_collections: Sequence[str],
     pending_write: Callable[[UUID], Awaitable[T]],
-    cleanup: Callable[[list[UUID], list[UUID]], Awaitable[S]],
+    cleanup: Callable[[list[UUID], list[UUID], list[UUID]], Awaitable[S]],
     affected_entity_ids: list[UUID],
     components: Sequence[MatchComponent],
     close_document_node_id: UUID | None,
     in_place: InPlaceRefresh | None,
     keep_node_ids: Sequence[UUID],
+    created_entity_ids: Sequence[UUID],
     deferred: DeferredWrites,
     stop_renewal: asyncio.Event,
     renewal_stopped: asyncio.Event,
@@ -615,6 +636,7 @@ async def _run_leased(
         )
         raise
     component_seed_ids = _component_seed_ids(components)
+    created = list(created_entity_ids)
     commit_task = asyncio.create_task(
         _commit_pending_writes(
             job_id=job_id,
@@ -623,6 +645,7 @@ async def _run_leased(
             close_document_node_id=close_document_node_id,
             keep_node_ids=keep_node_ids,
             component_seed_ids=component_seed_ids,
+            created_entity_ids=created,
             deferred=deferred,
             in_place=in_place,
         )
@@ -659,7 +682,7 @@ async def _run_leased(
     )
     if not started:
         raise CutoverJobLeaseError(f"Job {job_arg} lost its lease before cleanup.")
-    cleanup_result = await cleanup(affected_entity_ids, component_seed_ids)
+    cleanup_result = await cleanup(affected_entity_ids, component_seed_ids, created)
     await clear_pending_vectors(
         vector_store=vector_store, collections=vector_collections, job_id=job_id
     )

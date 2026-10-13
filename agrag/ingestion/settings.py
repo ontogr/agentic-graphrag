@@ -106,7 +106,7 @@ class ExtractionSettings(BaseSettings):
 
 
 # The prompt id is included in extraction fingerprints; prompt edits must bump it.
-EXTRACTION_PROMPT_ID = "llm-prompt-1"
+EXTRACTION_PROMPT_ID = "llm-prompt-2"
 
 
 def effective_mode(

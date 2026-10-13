@@ -101,6 +101,21 @@ A source with a missing loader extra follows your error policy. With `SKIP`, Age
 Without the `agents` extra, `build_agent` raises no error. It returns a simple agent that runs one search and writes one answer. Install `agents` to get the planner, researcher, and verifier.
 :::
 
+## The LLM extractor returns fewer entities than expected
+
+`BAMLExtractor` keeps an entity only when its name appears in the chunk text. Check these causes in order:
+
+1. The model changed the spelling. The match is case-sensitive and uses whole words. "ada lovelace" does not match "Ada Lovelace". Use a stronger model, or add the exact spelling rule to your entity-type descriptions.
+2. The name appears only in the heading. The heading is context. The extractor does not search it.
+3. The label is not in the schema. The parser removes the entity before the extractor sees it. Check the entity-type labels and descriptions.
+4. The chunk is long and the model stopped early. Use a smaller `chunk_size` or a model with a larger context window.
+
+`UnparsableExtractionError`: the model answered in prose or in broken JSON. BAML cannot read the reply, and `BAMLExtractor` reports the chunk as failed. In `hybrid` mode the chunk keeps the local result. In `llm` mode the run follows its error policy for that chunk. Use a larger model, or lower the chunk size.
+
+## An LLM call takes a very long time or retries many times
+
+`EXTRACTION_LLM_RETRY` sets how many times a failed call repeats and how long to wait between attempts. Its `timeout_ms` value is a deadline for starting new attempts. It does not stop a request that is already running. A slow local model can take more than a minute for one chunk. To bound the total time, lower `max_retries` and set `timeout_ms` to a value larger than one request needs. A failed chunk follows the error policy you gave to `Graph.add`. See [Configuration](../reference/configuration.mdx).
+
 ## Resolution reports unavailable LLM pairs
 
 `llm_unavailable_pairs` is above zero in a resolution result or report. The resolver found ambiguous pairs but could not send them to the LLM because no LLM settings were configured.
