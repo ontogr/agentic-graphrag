@@ -135,8 +135,9 @@ class TestCallWithRetry:
 class TestDefaultBackoff:
     """The default retry schedule waits several seconds in total."""
 
+    @staticmethod
     async def test_default_retries_wait_at_least_three_and_a_half_seconds(
-        self, monkeypatch
+        monkeypatch,
     ) -> None:
         """Three default waits total at least 3.5 seconds with minimum jitter."""
         sleeps: list[float] = []
@@ -212,7 +213,8 @@ class TestPermanentBamlFailures:
         assert result == "ok"
         assert calls == 2
 
-    async def test_http_408_is_still_retried(self, monkeypatch) -> None:
+    @staticmethod
+    async def test_http_408_is_still_retried(monkeypatch) -> None:
         """A request-timeout response can succeed on the next try."""
         from baml_py.errors import BamlClientHttpError  # noqa: PLC0415
 
@@ -394,13 +396,14 @@ class TestRequestTimeout:
 
         assert await call_with_retry(call, RetryConfig(request_timeout_ms=0)) == "ok"
 
-    async def test_external_cancellation_propagates(self, monkeypatch) -> None:
+    @staticmethod
+    async def test_external_cancellation_propagates(monkeypatch) -> None:
         """Cancellation of the whole call is not treated as a retryable failure."""
         monkeypatch.setattr("agrag.llm.retry.sleep", _no_sleep)
         started = asyncio.Event()
         cancelled = asyncio.Event()
 
-        async def call(options) -> str:
+        async def call(options) -> None:
             started.set()
             try:
                 await asyncio.Event().wait()

@@ -209,7 +209,8 @@ class TestRetries:
         assert requests[2].status.status_code.name == "UNSET"
         write_span_tree(span_tree_path("nesting_retries.json"), spans)
 
-    async def test_http_408_retries_over_real_baml_http(self, local: LocalLLM) -> None:
+    @staticmethod
+    async def test_http_408_retries_over_real_baml_http(local: LocalLLM) -> None:
         """A first-attempt HTTP 408 is retried and the next response succeeds."""
         exporter = InMemorySpanExporter()
         provider = TracerProvider()
@@ -241,8 +242,9 @@ class TestRetries:
         assert requests[1].status.status_code.name == "UNSET"
         write_span_tree(span_tree_path("nesting_http_408_retry.json"), spans)
 
+    @staticmethod
     async def test_request_timeout_retries_successfully_and_records_socket_close(
-        self, local: LocalLLM
+        local: LocalLLM,
     ) -> None:
         """A timed-out real BAML HTTP call retries; record peer-close evidence."""
         exporter = InMemorySpanExporter()
@@ -276,8 +278,9 @@ class TestRetries:
         assert local.closed_connections == [True]
         write_span_tree(span_tree_path("nesting_request_timeout_retry.json"), spans)
 
+    @staticmethod
     async def test_request_timeout_does_not_retry_when_retry_budget_is_zero(
-        self, local: LocalLLM
+        local: LocalLLM,
     ) -> None:
         """A timed-out real BAML HTTP call fails without another request."""
         exporter = InMemorySpanExporter()
