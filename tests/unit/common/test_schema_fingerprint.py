@@ -20,6 +20,7 @@ from agrag.common.data_models.document import (
 )
 from agrag.common.data_models.graph_schema import EntityType, GraphSchema
 from agrag.common.schema_fingerprint import (
+    LLMOutputSettings,
     extraction_fingerprint,
     run_record,
     schema_fingerprint,
@@ -124,6 +125,7 @@ def _fingerprint(
     mode: EffectiveMode,
     llm_model: str | None = "model-a",
     prompt_id: str | None = "prompt-a",
+    llm_output: LLMOutputSettings | None = None,
 ) -> str:
     return extraction_fingerprint(
         schema if schema is not None else _schema(),
@@ -131,6 +133,7 @@ def _fingerprint(
         effective_mode=mode,
         llm_model=llm_model,
         prompt_id=prompt_id,
+        llm_output=llm_output,
     )
 
 
@@ -330,6 +333,26 @@ class TestExtractionFingerprint:
 
         assert (other_model != baseline) is expected_changed
         assert (other_prompt != baseline) is expected_changed
+
+    @pytest.mark.parametrize(
+        ("mode", "expected_changed"),
+        [
+            pytest.param("gliner", False, id="gliner"),
+            pytest.param("hybrid", True, id="hybrid"),
+            pytest.param("llm", True, id="llm"),
+        ],
+    )
+    def test_heading_path_option_matters_only_when_an_llm_runs(
+        self, mode: EffectiveMode, expected_changed: bool
+    ) -> None:
+        """The heading-path option only affects runs that call the LLM."""
+        baseline = _fingerprint(mode=mode, llm_output={"include_heading_path": True})
+
+        without_heading = _fingerprint(
+            mode=mode, llm_output={"include_heading_path": False}
+        )
+
+        assert (without_heading != baseline) is expected_changed
 
     @pytest.mark.parametrize(
         ("first", "second"),

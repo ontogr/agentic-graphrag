@@ -9,7 +9,7 @@ chunk it writes, and ``update()`` compares them.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Literal, TypedDict
 
 from agrag.common.data_models.document import Document
 from agrag.common.data_models.graph_schema import (
@@ -82,6 +82,17 @@ def schema_fingerprint(schema: GraphSchema) -> str:
     return fingerprint_of({"entities": entities, "relations": relations})
 
 
+class LLMOutputSettings(TypedDict):
+    """Extractor options that change LLM output besides the model and prompt.
+
+    Attributes:
+        include_heading_path: Whether the chunk's heading path is sent to the
+            model as context.
+    """
+
+    include_heading_path: bool
+
+
 def extraction_fingerprint(
     schema: GraphSchema,
     settings: ExtractionSettings,
@@ -89,15 +100,16 @@ def extraction_fingerprint(
     effective_mode: Literal["gliner", "hybrid", "llm"],
     llm_model: str | None,
     prompt_id: str | None,
+    llm_output: LLMOutputSettings | None = None,
 ) -> str:
     """Return the hash of everything the extractor reads besides structure.
 
     The hash covers the entity, relation and property descriptions, the
     ``ExtractionSettings`` fields except ``escalation_budget`` and ``mode``, and
     the effective mode. ``escalation_threshold`` is hashed only for ``hybrid``.
-    The LLM model name and prompt identity are hashed only when the effective
-    mode is ``hybrid`` or ``llm``. A new settings field is included until it is
-    added to the exclude list.
+    The LLM model name, prompt identity and LLM output options are hashed only
+    when the effective mode is ``hybrid`` or ``llm``. A new settings field is
+    included until it is added to the exclude list.
 
     Args:
         schema: The schema whose descriptions the extractor reads.
@@ -105,6 +117,8 @@ def extraction_fingerprint(
         effective_mode: The mode the run uses after the degrade rule.
         llm_model: The model name of the LLM slot, or None without an LLM.
         prompt_id: The prompt identity of the LLM tier, or None without an LLM.
+        llm_output: The output options of the LLM slot, or None when the slot
+            has none to report.
 
     Returns:
         The first 16 hex characters of the SHA-256 of the canonical data.
@@ -127,9 +141,9 @@ def extraction_fingerprint(
     if effective_mode != "hybrid":
         excluded |= _HYBRID_ONLY_SETTINGS
     tracked = settings.model_dump(mode="json", exclude=excluded)
-    llm: dict[str, str | None] | None = None
+    llm: dict[str, object] | None = None
     if effective_mode != "gliner":
-        llm = {"model": llm_model, "prompt": prompt_id}
+        llm = {"model": llm_model, "prompt": prompt_id, "output": llm_output}
     return fingerprint_of(
         {
             "descriptions": descriptions,
@@ -183,6 +197,7 @@ def run_record(
     effective_mode: Literal["gliner", "hybrid", "llm"],
     llm_model: str | None,
     prompt_id: str | None,
+    llm_output: LLMOutputSettings | None = None,
 ) -> RunRecord:
     """Build the run record of a schema and a set of extraction settings.
 
@@ -192,6 +207,8 @@ def run_record(
         effective_mode: The mode the run uses after the degrade rule.
         llm_model: The model name of the LLM slot, or None without an LLM.
         prompt_id: The prompt identity of the LLM tier, or None without an LLM.
+        llm_output: The output options of the LLM slot, or None when the slot
+            has none to report.
 
     Returns:
         The record with name, version and both fingerprints.
@@ -206,5 +223,6 @@ def run_record(
             effective_mode=effective_mode,
             llm_model=llm_model,
             prompt_id=prompt_id,
+            llm_output=llm_output,
         ),
     )

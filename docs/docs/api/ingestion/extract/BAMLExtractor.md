@@ -39,6 +39,7 @@ entity properties. Needs the `llm` extra and a reachable LLM endpoint.
 
 **Attributes:**
 
+- [**include_heading_path**](#agrag-ingestion-extract-BAMLExtractor-include_heading_path) (<code>bool</code>) – Whether the chunk's heading path is sent to the model as context.
 - [**max_concurrency**](#agrag-ingestion-extract-BAMLExtractor-max_concurrency) (<code>int | None</code>) –
 - [**settings**](#agrag-ingestion-extract-BAMLExtractor-settings) –
 
@@ -65,6 +66,14 @@ Extract with an LLM call through the configured ClientRegistry.
 - <code>[ExtractorMissingExtraError](ExtractorMissingExtraError.md)</code> – The `llm` package extra is not
   installed.
 - <code>ValueError</code> – `chunk.id` is `None`.
+
+## `include_heading_path` \{#agrag-ingestion-extract-BAMLExtractor-include_heading_path}
+
+```python
+include_heading_path: bool
+```
+
+Whether the chunk's heading path is sent to the model as context.
 
 ## `max_concurrency` \{#agrag-ingestion-extract-BAMLExtractor-max_concurrency}
 

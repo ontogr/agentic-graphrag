@@ -14,6 +14,7 @@ chunk it writes, and `update()` compares them.
 
 **Classes:**
 
+- [**LLMOutputSettings**](LLMOutputSettings.md) – Extractor options that change LLM output besides the model and prompt.
 - [**RunRecord**](RunRecord.md) – What a document and its chunks record about the run that wrote them.
 
 **Functions:**

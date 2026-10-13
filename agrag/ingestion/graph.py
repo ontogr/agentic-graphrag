@@ -27,7 +27,11 @@ from agrag.common.data_models.structure import (
     SOURCE_LABEL,
     TABLE_LABEL,
 )
-from agrag.common.schema_fingerprint import RunRecord, run_record
+from agrag.common.schema_fingerprint import (
+    LLMOutputSettings,
+    RunRecord,
+    run_record,
+)
 from agrag.embedding.base import Embedder
 from agrag.graphdb.base import GraphStore
 from agrag.ingestion._ingest import (
@@ -740,12 +744,18 @@ class Graph:
 
     def _run_record(self) -> RunRecord:
         """Describe the current extraction setup for stamping a document."""
+        llm_output: LLMOutputSettings | None = None
+        if isinstance(self._llm_extractor, BAMLExtractor):
+            llm_output = {
+                "include_heading_path": self._llm_extractor.include_heading_path
+            }
         return run_record(
             self._schema,
             self.extraction_settings,
             effective_mode=self.effective_mode,
             llm_model=self.llm_model_name,
             prompt_id=EXTRACTION_PROMPT_ID,
+            llm_output=llm_output,
         )
 
     def _cleanup(self, error_policy: ErrorPolicy = ErrorPolicy.RAISE) -> CleanupStep:

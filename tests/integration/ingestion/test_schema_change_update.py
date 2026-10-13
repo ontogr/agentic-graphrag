@@ -436,10 +436,15 @@ class TestSchemaChangeUpdate:
         before = await _document_row(env.store, key)
 
         second_embedder = _RecordingEmbedder()
+        without_paris = {
+            keyword: mention
+            for keyword, mention in _full(env).items()
+            if keyword != "paris"
+        }
         second = await _open(
             env,
             schema,
-            _KeywordExtractor(_full(env)),
+            _KeywordExtractor(without_paris),
             second_embedder,
             extraction_settings=ExtractionSettings(mode="gliner", entity_threshold=0.9),
         )
@@ -451,6 +456,8 @@ class TestSchemaChangeUpdate:
         chunks_embedded = any(_BODY in recorded for recorded in second_embedder.texts)
         assert _chunk_ids(after_rows) == _chunk_ids(before_rows)
         assert not chunks_embedded
+        assert await _entity_names(env.store, env.place) == []
+        assert await _entity_names(env.store, env.person) == ["Ada", "Bob"]
         assert after["schema_fingerprint"] == before["schema_fingerprint"]
         assert after["extraction_fingerprint"] != before["extraction_fingerprint"]
         stamped = {row["extraction_fingerprint"] for row in after_rows}
