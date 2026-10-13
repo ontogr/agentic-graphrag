@@ -28,6 +28,8 @@ set. Pass `id` only when rebuilding a document from stored data.
   Markdown export. The chunker does not read it for a docling source: the
   chunks come from `sections`.
 - [**title**](#agrag-common-data_models-document-Document-title) (<code>str</code>) – The document title.
+- [**published_at**](#agrag-common-data_models-document-Document-published_at) (<code>date | None</code>) – The date the source says it was published, or `None`.
+- [**content_date**](#agrag-common-data_models-document-Document-content_date) (<code>date | None</code>) – The date the content describes, or `None`.
 - [**uri**](#agrag-common-data_models-document-Document-uri) (<code>str</code>) – The location of the source. This value is not part of the document id.
 - [**source_format**](#agrag-common-data_models-document-Document-source_format) (<code>[SourceFormat](SourceFormat.md)</code>) – The format the loader used to read this document.
 - [**family**](#agrag-common-data_models-document-Document-family) (<code>[DocumentFamily](DocumentFamily.md)</code>) – The shape of the source: one document per file, or one document per
@@ -76,6 +78,12 @@ set. Pass `id` only when rebuilding a document from stored data.
 
 ```python
 char_count: int
+```
+
+## `content_date` \{#agrag-common-data_models-document-Document-content_date}
+
+```python
+content_date: date | None = None
 ```
 
 ## `content_hash` \{#agrag-common-data_models-document-Document-content_hash}
@@ -199,6 +207,12 @@ changing content hash.
 
 ```python
 normalization: Normalization | None = None
+```
+
+## `published_at` \{#agrag-common-data_models-document-Document-published_at}
+
+```python
+published_at: date | None = None
 ```
 
 ## `raw_record` \{#agrag-common-data_models-document-Document-raw_record}

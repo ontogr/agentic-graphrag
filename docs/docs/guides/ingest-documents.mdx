@@ -375,6 +375,10 @@ asyncio.run(main())
 
 Loaders are chosen by file extension. See [Loading documents](../concepts/loading.mdx#supported-formats) for the formats and the extra each one needs.
 
+CSV, TSV, JSON Lines, and JSON record loaders accept `published_at_column` and `content_date_column` in `ReadOptions`. Set each option to the column that holds the date the source was published or the date the content describes. Values must use an ISO date such as `2024-05-01` or an ISO date-time. Blank, null, or missing values produce `None`. A malformed value raises `MalformedRecordError` with the column name and source.
+
+For other sources, set `published_at` and `content_date` to `datetime.date` values on a `Document` that you pass to `Graph.add(documents=...)`. The graph stores each date as an ISO string, such as `2024-05-01`. An update that changes only a date remains a no-op because dates do not change extraction input. Change the document text, or delete and add the document, to apply a date correction.
+
 ## Next steps
 
 - See the [API Reference](../api/index.md) for every parameter.
