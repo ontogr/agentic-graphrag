@@ -894,6 +894,50 @@ class TestValidateExtraction:
             caplog.text
         )
 
+    def test_validation_drops_are_carried_separately_from_candidates(self) -> None:
+        """Schema drops have counts without becoming candidate proposals."""
+        chunk_id = uuid4()
+        result = ExtractionResult(
+            entities=[
+                ExtractedEntity(
+                    chunk_id=chunk_id,
+                    label="Ghost",
+                    text="Nobody",
+                    char_start=0,
+                    char_end=6,
+                ),
+                ExtractedEntity(
+                    chunk_id=chunk_id,
+                    label="Person",
+                    text="Ada",
+                    char_start=7,
+                    char_end=10,
+                ),
+            ],
+            relations=[
+                ExtractedRelation(
+                    chunk_id=chunk_id,
+                    label="UNKNOWN",
+                    source_index=0,
+                    target_index=1,
+                )
+            ],
+            extractor_name="custom",
+        )
+
+        validated = validate_extraction(result, _ONE_PAIR_SCHEMA)
+
+        assert [entity.label for entity in validated.entities] == ["Person"]
+        assert validated.relations == []
+        assert validated.candidates == []
+        assert [
+            (item.kind, item.label, item.reason, item.count)
+            for item in validated.dropped
+        ] == [
+            ("entity", "Ghost", "schema_validation", 1),
+            ("relation", "UNKNOWN", "schema_validation", 1),
+        ]
+
     def test_logs_dropped_properties_when_no_entity_is_dropped(
         self, caplog: pytest.LogCaptureFixture
     ) -> None:
@@ -1115,6 +1159,45 @@ class TestBAMLExtractor:
             _PROPERTY_SCHEMA,
         )
 
+        assert result.entities[0].properties == {"role": "engineer"}
+
+    async def test_extract_reports_an_undeclared_property_as_a_candidate(self) -> None:
+        """A stripped property key returns as a candidate with its holder text."""
+        chunk = _chunk("Ada is an engineer.")
+        result = await BAMLExtractor(
+            client=_ParsingClient(
+                _reply(
+                    entities=[("Person", "Ada")],
+                    properties={"Ada": {"role": "engineer", "shoe_size": "9"}},
+                )
+            )
+        ).extract(chunk, _PROPERTY_SCHEMA)
+
+        [candidate] = result.candidates
+        assert (candidate.kind, candidate.label, candidate.reason) == (
+            "property",
+            "shoe_size",
+            "property",
+        )
+        assert (candidate.text, candidate.source_text) == ("9", "Ada")
+        assert candidate.confidence == 0.0
+        assert candidate.chunk_id == chunk.id
+        assert result.entities[0].properties == {"role": "engineer"}
+
+    async def test_extract_does_not_report_declared_properties_as_candidates(
+        self,
+    ) -> None:
+        """A declared property stays on its entity without a candidate."""
+        result = await _extract(
+            _reply(
+                entities=[("Person", "Ada")],
+                properties={"Ada": {"role": "engineer"}},
+            ),
+            "Ada is an engineer.",
+            _PROPERTY_SCHEMA,
+        )
+
+        assert result.candidates == []
         assert result.entities[0].properties == {"role": "engineer"}
 
     @staticmethod

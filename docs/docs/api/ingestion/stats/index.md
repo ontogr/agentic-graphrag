@@ -16,6 +16,7 @@ outside the ingestion pipeline too -- and are not re-exported here.
 **Modules:**
 
 - [**chunking**](chunking/index.md) – Chunking-stage stats.
+- [**dropped**](dropped/index.md) – Ingestion imports for shared dropped-count models and aggregation.
 - [**extraction**](extraction/index.md) – Extraction-stage stats.
 - [**ingest**](ingest/index.md) – Ingestion-stage stats.
 - [**merge**](merge/index.md) – Merge-stage stats.
@@ -25,6 +26,7 @@ outside the ingestion pipeline too -- and are not re-exported here.
 **Classes:**
 
 - [**ChunkingStats**](chunking/ChunkingStats.md) – Chunking-stage results.
+- [**DroppedCount**](DroppedCount.md) – Count items removed by one rule for one label.
 - [**ExtractionStats**](extraction/ExtractionStats.md) – Extraction-stage results.
 - [**IngestStats**](ingest/IngestStats.md) – Ingestion-stage results.
 - [**MergeStats**](merge/MergeStats.md) – Merge-stage results.

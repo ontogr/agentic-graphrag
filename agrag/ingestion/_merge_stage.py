@@ -5,7 +5,7 @@ Relations and MENTIONED_IN edges are then mapped onto those survivors and
 deduplicated against the edges the graph already holds.
 """
 
-from collections import defaultdict
+from collections import Counter, defaultdict
 from dataclasses import dataclass
 from datetime import datetime
 from uuid import UUID
@@ -34,6 +34,7 @@ from agrag.ingestion.resolved_entities import (
     write_matches_and_rebuild,
 )
 from agrag.ingestion.stats import MergeStats
+from agrag.ingestion.stats.dropped import DroppedCount
 from agrag.loaders.types import ErrorPolicy
 from agrag.observability import record_stage_failure
 
@@ -52,6 +53,7 @@ class MergeStageResult:
             with the relations the graph already holds.
         mentioned_in_records: MENTIONED_IN edges from each real mention's chunk
             to the survivor it resolved to.
+        mention_to_entity: The final entity id for each mention index.
     """
 
     stats: MergeStats
@@ -60,6 +62,7 @@ class MergeStageResult:
     resolved_vector_failures: list[StageFailure]
     relation_records: list[RelationRecord]
     mentioned_in_records: list[RelationRecord]
+    mention_to_entity: dict[int, UUID]
 
 
 async def merge_stage(
@@ -90,7 +93,7 @@ async def merge_stage(
             its decisions and members.
 
     Returns:
-        The survivors, the relation records and the merge counts.
+        The survivors, relation records, merge counts and mention-to-entity map.
 
     Raises:
         Exception: The first failed merge or rebuild, when ``error_policy`` is
@@ -123,7 +126,7 @@ async def merge_stage(
         pending_job_id=pending_job_id,
         rebuilt_components=rebuilt_components,
     )
-    relation_records = await _domain_relation_records(
+    relation_records, relations_dropped = await _domain_relation_records(
         relations,
         mention_to_entity,
         graph_store=ctx.graph_store,
@@ -143,6 +146,7 @@ async def merge_stage(
         nodes_created=nodes_created,
         nodes_updated=nodes_updated,
         conflicts_resolved=conflicts_resolved,
+        dropped=relations_dropped,
         failures=merge_failures_capped.items,
         failures_total=merge_failures_capped.total,
         failures_truncated=merge_failures_capped.truncated,
@@ -154,6 +158,7 @@ async def merge_stage(
         resolved_vector_failures=resolved_vector_failures,
         relation_records=relation_records,
         mentioned_in_records=mentioned_in_records,
+        mention_to_entity=mention_to_entity,
     )
 
 
@@ -356,19 +361,29 @@ async def _domain_relation_records(
     pending_job_id: str | None,
     error_policy: ErrorPolicy,
     failures: list[StageFailure],
-) -> list[RelationRecord]:
+) -> tuple[list[RelationRecord], list[DroppedCount]]:
     """Map relations onto survivors and merge them with stored relations.
 
     A failed lookup is appended to ``failures`` and its triples are treated as
     having no stored relation, unless ``error_policy`` is ``RAISE``.
+
+    Returns:
+        Relation records and counts of relations with missing endpoints or
+        endpoints that became one entity.
     """
     # Domain relation triples: (src_id, tgt_id, label) with the chunks that
     # asserted them, unioned within this call.
     triple_to_chunk_ids: dict[tuple[UUID, UUID, str], list[UUID]] = {}
+    unmapped: Counter[str] = Counter()
+    self_loops: Counter[str] = Counter()
     for rel in relations:
         src_id = mention_to_entity.get(rel.source_index)
         tgt_id = mention_to_entity.get(rel.target_index)
-        if src_id is None or tgt_id is None or src_id == tgt_id:
+        if src_id is None or tgt_id is None:
+            unmapped[rel.label] += 1
+            continue
+        if src_id == tgt_id:
+            self_loops[rel.label] += 1
             continue
         key = (src_id, tgt_id, rel.label)
         lst = triple_to_chunk_ids.setdefault(key, [])
@@ -413,7 +428,21 @@ async def _domain_relation_records(
         if canonical_id is not None and pending_job_id is not None:
             record.properties["_canonical_id"] = str(canonical_id)
         relation_records.append(record)
-    return relation_records
+    dropped = [
+        *(
+            DroppedCount(
+                kind="relation", label=label, reason="unmapped_endpoint", count=count
+            )
+            for label, count in sorted(unmapped.items())
+        ),
+        *(
+            DroppedCount(
+                kind="relation", label=label, reason="merged_self_loop", count=count
+            )
+            for label, count in sorted(self_loops.items())
+        ),
+    ]
+    return relation_records, dropped
 
 
 async def _mentioned_in_records(

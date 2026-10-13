@@ -14,6 +14,10 @@ from uuid import UUID, uuid4
 from opentelemetry.trace import Tracer
 
 from agrag.common.data_models.graph_record import DeferredWrites
+from agrag.cypher.candidates import (
+    delete_reviewed_job_candidates_query,
+    delete_stale_candidates_query,
+)
 from agrag.cypher.cutover_job_write import (
     acquire_lease_query,
     begin_rollback_query,
@@ -394,13 +398,14 @@ async def _commit_pending_writes(
     token: UUID,
     graph_store: GraphStore,
     close_document_node_id: UUID | None,
+    candidate_document_node_id: UUID | None,
     keep_node_ids: Sequence[UUID],
     component_seed_ids: Sequence[UUID],
     created_entity_ids: Sequence[UUID],
     deferred: DeferredWrites,
     in_place: InPlaceRefresh | None,
 ) -> int:
-    """Atomically expose pending graph writes and close superseded edges.
+    """Expose pending writes, close old edges and replace pending candidates.
 
     The deferred writes over committed rows run right after the flip, so a
     replay that hits a row another job owns rolls the whole commit back.
@@ -466,6 +471,16 @@ async def _commit_pending_writes(
                 job_id=job_id,
                 keep_node_ids=keep_node_ids,
             )
+        if candidate_document_node_id is not None:
+            # A review can settle a key after extraction's early lookup.
+            # Recheck while the new candidates are still invisible to readers.
+            await txn.execute_write(
+                delete_reviewed_job_candidates_query(), {"job_id": job_arg}
+            )
+            await txn.execute_write(
+                delete_stale_candidates_query(),
+                {"document_node_id": str(candidate_document_node_id)},
+            )
         await txn.execute_write(
             record_parts_closed_query(),
             {"job_id": job_arg, "parts_closed": parts_closed},
@@ -500,6 +515,7 @@ async def run_cutover_job(
     close_document_node_id: UUID | None = None,
     in_place: InPlaceRefresh | None = None,
     keep_node_ids: Sequence[UUID] = (),
+    candidate_document_node_id: UUID | None = None,
     created_entity_ids: Sequence[UUID] = (),
     tracer: Tracer | None = None,
 ) -> tuple[T, S, int]:
@@ -520,6 +536,8 @@ async def run_cutover_job(
         components: The resolver components the job rebuilt.
         close_document_node_id: The document whose open HAS_PART edges are
             closed by the commit, if any.
+        candidate_document_node_id: The document whose old pending candidates
+            the commit replaces, if any.
         in_place: The refresh of a document that keeps its chunks, if any. Its
             entity and relation evidence is replaced and its chunks are
             re-stamped in the commit transaction.
@@ -576,6 +594,7 @@ async def run_cutover_job(
                 affected_entity_ids=affected_entity_ids,
                 components=components,
                 close_document_node_id=close_document_node_id,
+                candidate_document_node_id=candidate_document_node_id,
                 in_place=in_place,
                 keep_node_ids=keep_node_ids,
                 created_entity_ids=created_entity_ids,
@@ -616,6 +635,7 @@ async def _run_leased(
     affected_entity_ids: list[UUID],
     components: Sequence[MatchComponent],
     close_document_node_id: UUID | None,
+    candidate_document_node_id: UUID | None,
     in_place: InPlaceRefresh | None,
     keep_node_ids: Sequence[UUID],
     created_entity_ids: Sequence[UUID],
@@ -643,6 +663,7 @@ async def _run_leased(
             token=token,
             graph_store=graph_store,
             close_document_node_id=close_document_node_id,
+            candidate_document_node_id=candidate_document_node_id,
             keep_node_ids=keep_node_ids,
             component_seed_ids=component_seed_ids,
             created_entity_ids=created,

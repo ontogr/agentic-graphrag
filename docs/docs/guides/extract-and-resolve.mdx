@@ -58,6 +58,7 @@ asyncio.run(main())
 - When a name appears more than once, the extractor uses the first occurrence for the first time the model lists it, the second occurrence for the second listing, and so on. A listing with no occurrence left is dropped.
 - A label that the schema does not declare is dropped before it reaches the graph.
 - When an entity type declares properties, the model also returns a value for each property that the text states. When no entity type declares properties, the model is not asked for any.
+- A property key that the entity type does not declare is removed from the entity and returned as a property candidate. This happens only for schemas with properties and chunks that the LLM reads.
 - The extractor sets no confidence score on LLM entities or relations.
 
 To record what the extractor does, pass a `tracer` to it. See [Trace an agent run](./trace-an-agent-run.mdx).
@@ -161,7 +162,7 @@ asyncio.run(main())
 
 Each kept entity and relation has a `confidence`. The extractor keeps an entity at 0.5 or more and a relation at 0.7 or more. Set `EXTRACTION_ENTITY_THRESHOLD` and `EXTRACTION_RELATION_THRESHOLD` to change them. A relation must also match a pattern of the schema. The pattern accepts the child types of its labels.
 
-`result.candidates` lists what the extractor dropped, with the reason: `below_relation_cut`, `unresolved_endpoint`, `off_pattern` or `entity_band`. Set `EXTRACTION_CANDIDATES_ENABLED=false` to turn this off. With candidates off, the extractor makes one model call for each chunk. With candidates on, it makes two.
+`result.candidates` lists proposed candidate records. GLiNER reports relation drops in extraction statistics whether candidate writing is enabled or not. Set `EXTRACTION_CANDIDATES_ENABLED=false` to stop writing candidate records; GLiNER still makes one model call for each chunk and skips the entity-band candidate pass. With candidates on, it makes two calls.
 
 The default chunk size fits the model in one pass. See [Configure chunking](./configure-chunking.mdx) before you set a much larger size.
 

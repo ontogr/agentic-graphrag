@@ -22,11 +22,18 @@ The entities and relations one Extractor call found in one Chunk.
 - [**needs_properties**](#agrag-common-data_models-extraction-ExtractionResult-needs_properties) (<code>bool</code>) – Whether a kept entity has a type that declares
   properties. An extractor that cannot fill property values sets it
   so that a stronger extractor can read the chunk again.
+- [**dropped**](#agrag-common-data_models-extraction-ExtractionResult-dropped) (<code>list\[[DroppedCount](../dropped/DroppedCount.md)\]</code>) – Items removed without becoming candidate proposals.
 
 ## `candidates` \{#agrag-common-data_models-extraction-ExtractionResult-candidates}
 
 ```python
 candidates: list[CandidateRecord] = Field(default_factory=list)
+```
+
+## `dropped` \{#agrag-common-data_models-extraction-ExtractionResult-dropped}
+
+```python
+dropped: list[DroppedCount] = Field(default_factory=list)
 ```
 
 ## `entities` \{#agrag-common-data_models-extraction-ExtractionResult-entities}

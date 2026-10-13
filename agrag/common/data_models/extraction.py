@@ -5,6 +5,7 @@ from uuid import UUID
 from pydantic import BaseModel, Field, model_validator
 
 from agrag.common.data_models.candidate import CandidateRecord
+from agrag.common.data_models.dropped import DroppedCount
 
 
 class ExtractedEntity(BaseModel):
@@ -92,12 +93,14 @@ class ExtractionResult(BaseModel):
         needs_properties: Whether a kept entity has a type that declares
             properties. An extractor that cannot fill property values sets it
             so that a stronger extractor can read the chunk again.
+        dropped: Items removed without becoming candidate proposals.
     """
 
     entities: list[ExtractedEntity]
     relations: list[ExtractedRelation]
     extractor_name: str
     candidates: list[CandidateRecord] = Field(default_factory=list)
+    dropped: list[DroppedCount] = Field(default_factory=list)
     needs_properties: bool = False
 
     @model_validator(mode="after")

@@ -16,6 +16,7 @@ Shared data models used by agrag components.
 - [**data_point**](data_point/index.md) – The base class for a graph node.
 - [**default_schema**](default_schema/index.md) – The default schema: nine entity types and eight typed relations.
 - [**document**](document/index.md) – The Document model: one unit of source text, before chunking.
+- [**dropped**](dropped/index.md) – Counts of items discarded during extraction or merge.
 - [**entity**](entity/index.md) – A permanent mention-level graph node, accumulated by exact-name matching.
 - [**extraction**](extraction/index.md) – Pre-resolution entity and relation mentions produced by an Extractor.
 - [**graph_record**](graph_record/index.md) – Graph storage record shapes for GraphStore.

@@ -1,0 +1,23 @@
+---
+title: Candidates
+description: Discarded extraction items stored for later schema review.
+---
+
+# Candidates
+
+Extraction can find an entity below the entity threshold, a relation below its threshold, a relation outside the schema's patterns, or a relation whose endpoint has no kept entity. The LLM can also return an undeclared property. The graph stores these discarded items as `Candidate` nodes, separate from the entity graph. Candidates do not appear in entity search or traversal.
+
+Each candidate records its kind, label, confidence and rejection reason. An `EVIDENCED_BY` edge points to one example chunk. Relation candidates link to their final entities through `SOURCE` and `TARGET` when those entities can be found. Property candidates link to their holder through `SOURCE`. An unresolved endpoint keeps its text.
+
+Equal candidates within one document run become one record. Its count records the number of occurrences, and its confidence is the highest score seen. Only the first example chunk is retained. Candidate node IDs change with each job; the content key identifies equal candidates across runs.
+
+## Document changes
+
+An add or update replaces the document's old pending candidates when its job commits. A failed job leaves the previous candidates unchanged. Deleting a document removes its pending candidates. Approved and rejected candidates remain, and their keys prevent later runs from creating the same candidate again.
+
+Candidates have no automatic expiry. Changing the schema does not itself remove them; updating a document replaces its pending candidates with the new extraction result.
+
+## Related
+
+- How-to: [Turn candidates off](../guides/turn-off-candidates.mdx).
+- Reference: [Run statistics](../reference/run-stats.mdx).

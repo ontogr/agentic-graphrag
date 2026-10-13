@@ -210,6 +210,21 @@ class TestDecodeGliner:
         )
         assert candidate.confidence == 0.55
 
+    def test_relation_drop_is_counted_when_candidate_writing_is_disabled(self) -> None:
+        """Relation discards remain visible when candidate records are off."""
+        ada, acme = _hit("Ada Lovelace", 0.9), _hit("Acme Corp", 0.9)
+        raw = {
+            "entities": {"Person": [ada], "Organization": [acme]},
+            "relation_extraction": {"WORKS_AT": [_edge(acme, ada, 0.9)]},
+        }
+
+        result = _decode(raw, settings=ExtractionSettings(candidates_enabled=False))
+
+        assert result.candidates == []
+        assert [
+            (item.kind, item.label, item.reason, item.count) for item in result.dropped
+        ] == [("relation", "WORKS_AT", "off_pattern", 1)]
+
     def test_endpoint_without_a_kept_span_becomes_a_candidate(self) -> None:
         """A relation whose tail is not a kept entity keeps its endpoint text."""
         ada, bolt = _hit("Ada Lovelace", 0.9), _hit("Bolt Ltd", 0.9)

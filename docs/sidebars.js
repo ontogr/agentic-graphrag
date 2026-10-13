@@ -47,6 +47,7 @@ const sidebars = {
       'guides/extract-and-resolve',
       'guides/control-llm-cost-during-extraction',
       'guides/update-and-delete-documents',
+      'guides/turn-off-candidates',
     ]),
     section('Resolve and enrich', [
       'concepts/resolution',
@@ -87,6 +88,7 @@ const sidebars = {
       'reference/schema-format-shacl',
       'reference/owl-import',
       'reference/trace-spans',
+      'reference/run-stats',
       'reference/default-schema',
     ]),
     {

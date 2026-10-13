@@ -181,6 +181,10 @@ What happens to entities:
 
 A re-extraction that keeps the chunks works the same way for entities and relations. The document keeps its version, entities that only the old run produced are removed, and entities that the new run also finds stay. A relation loses this document's evidence from the old run, and it is removed when no evidence is left.
 
+## Candidates
+
+`Graph.update` replaces the document's pending candidates with candidates from the new run. `Graph.delete_document` removes its pending candidates. Approved and rejected candidates stay. A failed update leaves the candidates unchanged.
+
 ## If a call stops halfway
 
 `Graph.update` and `Graph.delete_document` are safe to interrupt. Open the graph again and Agentic GraphRAG finishes or undoes the unfinished call. See [Ingestion pipeline](../concepts/ingestion.mdx#crash-safety).

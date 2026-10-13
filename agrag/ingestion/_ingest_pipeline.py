@@ -17,11 +17,13 @@ from dataclasses import dataclass
 from uuid import UUID
 
 from opentelemetry.trace import Tracer
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from agrag.chunking.chunker import ChunkPlacement
+from agrag.common.data_models.candidate import CandidateRecord
 from agrag.common.data_models.chunk import CHUNK_LABEL, Chunk
 from agrag.common.data_models.document import Document
+from agrag.common.data_models.dropped import DroppedCount, sum_dropped
 from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.extraction import (
     ExtractedEntity,
@@ -33,6 +35,7 @@ from agrag.common.data_models.graph_schema import GraphSchema
 from agrag.common.data_models.stage_failure import StageFailure, cap_failures
 from agrag.common.data_models.vector_record import VectorRecord
 from agrag.common.graph_rows import node_properties, row_node
+from agrag.common.schema_fingerprint import schema_fingerprint
 from agrag.cypher.entities import (
     clear_chunk_embedding_query,
     clear_property_query,
@@ -42,6 +45,7 @@ from agrag.cypher.entities import (
 )
 from agrag.embedding.base import Embedder
 from agrag.graphdb.base import GraphStore
+from agrag.ingestion._candidate_stage import candidate_stage
 from agrag.ingestion._deferred import write_or_defer
 from agrag.ingestion._escalation import (
     accept_escalated,
@@ -71,6 +75,7 @@ from agrag.ingestion.stats import (
     ResolutionStats,
     StorageStats,
 )
+from agrag.ingestion.stats.dropped import count_candidates
 from agrag.loaders.types import ErrorPolicy
 from agrag.observability import (
     get_tracer,
@@ -146,6 +151,7 @@ async def _run_extractor(
                     )
                 span.set_attribute("agrag.entities_extracted", len(result.entities))
                 span.set_attribute("agrag.relations_extracted", len(result.relations))
+                span.set_attribute("agrag.candidates_extracted", len(result.candidates))
                 return result
 
     tasks = [
@@ -320,6 +326,8 @@ class ExtractionBatch(BaseModel):
         failures: One StageFailure per chunk, escalation call or relation that
             failed. The first extractor's failures come first.
         report: How the escalation tier treated the batch.
+        candidates: The items the extractors discarded, in chunk order.
+        dropped: Discards kept for statistics without candidate proposals.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -328,6 +336,8 @@ class ExtractionBatch(BaseModel):
     relations: list[ExtractedRelation]
     failures: list[StageFailure]
     report: EscalationReport
+    candidates: list[CandidateRecord] = Field(default_factory=list)
+    dropped: list[DroppedCount] = Field(default_factory=list)
 
 
 async def extract_chunks(
@@ -421,12 +431,16 @@ async def extract_chunks(
     entities: list[ExtractedEntity] = []
     relations: list[ExtractedRelation] = []
     failures: list[StageFailure] = []
+    candidates: list[CandidateRecord] = []
+    dropped: list[DroppedCount] = []
     for chunk, outcome in zip(chunks, outcomes, strict=True):
         if isinstance(outcome, StageFailure):
             failures.append(outcome)
             continue
         offset = start_index + len(entities)
         entities.extend(outcome.entities)
+        candidates.extend(outcome.candidates)
+        dropped.extend(outcome.dropped)
         for rel in outcome.relations:
             try:
                 new_rel = ExtractedRelation(
@@ -461,6 +475,8 @@ async def extract_chunks(
         relations=relations,
         failures=failures,
         report=report,
+        candidates=candidates,
+        dropped=dropped,
     )
 
 
@@ -612,6 +628,7 @@ async def _resolve_and_merge(
             resolved_vector_failures=[],
             relation_records=[],
             mentioned_in_records=[],
+            mention_to_entity={},
         )
     resolution = await resolve_stage(
         entities,
@@ -655,6 +672,9 @@ async def ingest_chunks(
     tracer: Tracer | None = None,
     embed_heading_path: bool = True,
     max_llm_pairs: int = MAX_LLM_PAIRS,
+    candidates: Sequence[CandidateRecord] = (),
+    dropped: Sequence[DroppedCount] = (),
+    write_candidates: bool = True,
     deferred: DeferredWrites | None = None,
     reuse_chunks: bool = False,
 ) -> BatchResult:
@@ -669,6 +689,10 @@ async def ingest_chunks(
         documents: The documents the chunks belong to.
         entities: The mentions extracted from the chunks.
         relations: The relations extracted from the chunks.
+        candidates: Items the extractor discarded in these chunks.
+        dropped: Discards that did not become candidate proposals.
+        write_candidates: Whether to write candidates. Dropped counts are
+            filled either way.
         extraction_failures: Failures recorded before this stage.
         graph_store: The store every stage reads and writes.
         embedder: Embeds chunks, mentions and survivors.
@@ -743,6 +767,14 @@ async def ingest_chunks(
             merge.mentioned_in_records,
             ctx,
         )
+        candidate_writes = await candidate_stage(
+            candidates,
+            entities,
+            merge.mention_to_entity,
+            ctx,
+            schema_fingerprint=schema_fingerprint(graph_schema),
+            enabled=write_candidates,
+        )
         survivor_embeds = await embed_survivors_stage(
             merge.survivors,
             ctx,
@@ -755,6 +787,7 @@ async def ingest_chunks(
                 *nodes.node_failures,
                 *chunk_embeds.failures,
                 *relation_writes.failures,
+                *candidate_writes.failures,
                 *survivor_embeds.failures,
             ]
         )
@@ -767,12 +800,33 @@ async def ingest_chunks(
         )
 
     extraction_failures_capped = cap_failures(list(extraction_failures))
+    dropped_candidate_keys = {
+        (item.kind, item.label, item.reason, item.chunk_id) for item in dropped
+    }
     # In llm mode this counts every chunk read, including chunks skipped for
     # having fewer than min_escalation_words words (see EscalationReport.skipped_short).
     extraction = ExtractionStats(
         chunks_processed=len(chunks),
         entities_extracted=len(entities),
         relations_extracted=len(relations),
+        dropped=sum_dropped(
+            [
+                count_candidates(
+                    candidate
+                    for candidate in candidates
+                    if (
+                        candidate.kind,
+                        candidate.label,
+                        candidate.reason,
+                        candidate.chunk_id,
+                    )
+                    not in dropped_candidate_keys
+                ),
+                dropped,
+            ]
+        ),
+        candidates_written=candidate_writes.written,
+        candidates_skipped=candidate_writes.skipped,
         failures=extraction_failures_capped.items,
         failures_total=extraction_failures_capped.total,
         failures_truncated=extraction_failures_capped.truncated,
