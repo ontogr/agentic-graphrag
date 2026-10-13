@@ -991,6 +991,30 @@ class TestGraphAddWritesEachBatch:
             "extract doc100",
         ]
 
+    async def test_progress_counts_writes_from_batches_already_committed(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Each progress result counts the writes of the batches committed so far."""
+        graph = await Graph.open(
+            schema=DEFAULT_SCHEMA,
+            graph_store=_MockGraphStore(),
+            embedder=_MockEmbedder(),
+            extractor=_RecordingExtractor([]),
+        )
+        docs = _named_documents("alpha", "beta")
+        monkeypatch.setattr(
+            ingest_module, "iter_document_batches", _one_document_per_batch(docs)
+        )
+        progress: list[Any] = []
+
+        await graph.add(documents=docs, on_progress=progress.append)
+
+        after_first, after_second = progress[0], progress[1]
+        assert after_first.storage.nodes_written == 2
+        assert after_first.storage.relationships_written == 2
+        assert after_second.storage.nodes_written == 4
+        assert after_second.storage.relationships_written == 4
+
 
 class TestGraphUpdate:
     """An update replaces one document version or deletes the document."""

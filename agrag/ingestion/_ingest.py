@@ -556,9 +556,6 @@ async def add_documents(  # noqa: PLR0912,PLR0915,PLR0913
         documents_seen: list[Document] = []
         placements_by_id: dict[UUID, ChunkPlacement] = {}
         document_keys_seen: set[str] = set()
-        entity_count = 0
-        relation_count = 0
-        extraction_failures: list[StageFailure] = []
         escalation_reports: list[EscalationReport] = []
         partials: list[AddResult] = []
 
@@ -584,23 +581,10 @@ async def add_documents(  # noqa: PLR0912,PLR0915,PLR0913
                 quarantined=final_stats.quarantined,
                 quarantined_items=list(final_stats.quarantined_items),
             )
-            extraction_failures_capped = cap_failures(list(extraction_failures))
-            extraction = ExtractionStats(
-                chunks_processed=len(chunks),
-                entities_extracted=entity_count,
-                relations_extracted=relation_count,
-                failures=extraction_failures_capped.items,
-                failures_total=extraction_failures_capped.total,
-                failures_truncated=extraction_failures_capped.truncated,
-            )
-            return AddResult(
+            return _merge_add_results(
+                partials,
                 ingestion=ingest,
                 chunking=ChunkingStats.from_documents(documents_seen, chunks),
-                extraction=extraction,
-                resolution=ResolutionStats(),
-                merge=MergeStats(),
-                storage=StorageStats(),
-                chunks=list(chunks) if return_chunks else [],
                 escalation=EscalationReport.merge(escalation_reports),
             )
 
@@ -639,9 +623,6 @@ async def add_documents(  # noqa: PLR0912,PLR0915,PLR0913
                 llm_extractor=llm_extractor,
                 tracer=tracer,
             )
-            entity_count += len(extracted.entities)
-            relation_count += len(extracted.relations)
-            extraction_failures.extend(extracted.failures)
             escalation_reports.append(extracted.report)
             # Each walk batch commits before the next one is extracted, so a
             # failure late in a large call keeps the work already written. Each
