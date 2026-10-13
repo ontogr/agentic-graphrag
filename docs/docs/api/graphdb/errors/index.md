@@ -13,3 +13,4 @@ Errors that the graph-store layer raises.
 - [**GraphStoreConstraintViolationError**](GraphStoreConstraintViolationError.md) – A write violated a uniqueness constraint the backend enforces.
 - [**GraphStoreError**](GraphStoreError.md) – The base class for every graph-store error.
 - [**GraphStoreMissingExtraError**](GraphStoreMissingExtraError.md) – A graph store exists, but its package extra is not installed.
+- [**GraphStoreWriteConflictError**](GraphStoreWriteConflictError.md) – A write reached a row that an in-flight job owns and no job can defer it.

@@ -9,46 +9,43 @@ from agrag.common.data_models.resolved_entity import (
 )
 from agrag.common.data_models.structure import HAS_PART
 from agrag.cypher._pending_filter import pending_filter_clause
-from agrag.cypher.entities import MERGE_ALIAS_LABEL, NODE_IDENTITY_LABEL
+from agrag.cypher.entities import (
+    MERGE_ALIAS_LABEL,
+    NODE_IDENTITY_LABEL,
+    own_row_expression,
+)
 
 
 def upsert_matches_query() -> str:
     """Build Cypher that idempotently records a confirmed entity match.
 
-    A match written by an in-flight Cutover Job carries that job's id, so
-    component reads (which filter pending matches) never traverse
-    uncommitted edges. A null ``$pending_job_id`` sets no property,
-    preserving today's behavior for callers outside a job. Re-confirming
-    an already-committed edge under a job re-tags it until that job
-    commits, which is correct: the edge is under active revision.
+    A match the job creates carries that job's id, so component reads
+    (which filter pending matches) never traverse uncommitted edges. A
+    null ``$pending_job_id`` sets no property and applies to committed
+    edges, as it did before jobs existed.
+
+    Re-confirming a committed edge under a job is not applied: the row
+    reports ``written`` false, and the store defers the update to the
+    job's commit transaction. The edge stays inactive until then, so a
+    reader never sees a job's decision before the job commits.
 
     Returns:
         Parameterized Cypher expecting $entity_a_id, $entity_b_id,
         $match_id, $comparator, $score, $reasoning, $decided_at, and
         $pending_job_id (the in-flight job's id, or null outside a job).
+        It returns ``id`` and ``written`` for the matched edge.
     """
+    own = own_row_expression("r", "$pending_job_id")
     return (
         f"MATCH (a:{NODE_IDENTITY_LABEL} {{id: $entity_a_id}}), "
         f"(b:{NODE_IDENTITY_LABEL} {{id: $entity_b_id}}) "
         f"MERGE (a)-[r:{MATCHES_RELATION} {{id: $match_id}}]->(b) "
-        "ON CREATE SET r.active = true, r._pending_created = "
-        "$pending_job_id IS NOT NULL, r.comparator = $comparator, "
-        "r.score = $score, r.reasoning = $reasoning, "
-        "r.decided_at = $decided_at, "
-        f"r.{PENDING_JOB_ID_PROPERTY} = $pending_job_id "
-        "ON MATCH SET r._pending_previous_active = CASE "
-        "WHEN $pending_job_id IS NULL THEN r._pending_previous_active "
-        "ELSE r.active END, "
-        "r.active = true, "
-        "r.comparator = CASE WHEN $pending_job_id IS NULL "
-        "THEN $comparator ELSE r.comparator END, "
-        "r.score = CASE WHEN $pending_job_id IS NULL "
-        "THEN $score ELSE r.score END, "
-        "r.reasoning = CASE WHEN $pending_job_id IS NULL "
-        "THEN $reasoning ELSE r.reasoning END, "
-        "r.decided_at = CASE WHEN $pending_job_id IS NULL "
-        "THEN $decided_at ELSE r.decided_at END "
-        "RETURN r"
+        f"ON CREATE SET r.{PENDING_JOB_ID_PROPERTY} = $pending_job_id "
+        f"WITH r, {own} AS own "
+        "FOREACH (_ IN CASE WHEN own THEN [1] ELSE [] END | "
+        "SET r.active = true, r.comparator = $comparator, r.score = $score, "
+        "r.reasoning = $reasoning, r.decided_at = $decided_at) "
+        "RETURN r.id AS id, own AS written"
     )
 
 

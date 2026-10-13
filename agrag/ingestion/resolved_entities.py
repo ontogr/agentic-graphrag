@@ -8,7 +8,11 @@ from opentelemetry.trace import Tracer
 from pydantic import BaseModel
 
 from agrag.common.data_models.entity import Entity
-from agrag.common.data_models.graph_record import RelationRecord, UpsertResult
+from agrag.common.data_models.graph_record import (
+    DeferredWrites,
+    RelationRecord,
+    UpsertResult,
+)
 from agrag.common.data_models.graph_schema import GraphSchema
 from agrag.common.data_models.resolved_entity import (
     RESOLVED_AS_RELATION,
@@ -33,6 +37,7 @@ from agrag.cypher.resolution_write import (
 from agrag.graphdb.base import GraphStore, GraphStoreTransaction
 from agrag.graphdb.entities import load_entities
 from agrag.graphdb.serialize import parse_entity_node
+from agrag.ingestion._deferred import run_staged_transaction
 from agrag.ingestion.merge import compute_merge
 from agrag.ingestion.resolve.resolver import ResolvedMatch
 
@@ -200,6 +205,7 @@ async def write_matches_and_rebuild(
     schema: GraphSchema,
     members: list[Entity],
     pending_job_id: str | None = None,
+    deferred: DeferredWrites | None = None,
     tracer: Tracer | None = None,
 ) -> RebuildResult:
     """Persist matches and rebuild their supplied connected component.
@@ -215,14 +221,19 @@ async def write_matches_and_rebuild(
         pending_job_id: The in-flight Cutover Job's id, tagging the match
             edges and resolved entity nodes until that job commits. None
             writes untagged, for callers outside a job.
+        deferred: Receives the writes over committed rows, such as a match
+            edge that already exists. Required when ``pending_job_id`` is set.
         tracer: Passed to description summarization.
 
     Raises:
-        ValueError: No decisions are supplied, or a decision references a
-            member outside the supplied component.
+        ValueError: No decisions are supplied, a decision references a
+            member outside the supplied component, or ``pending_job_id`` is
+            set and ``deferred`` is None.
     """
     if not decisions:
         raise ValueError("At least one match decision is required")
+    if pending_job_id is not None and deferred is None:
+        raise ValueError("deferred is required when pending_job_id is set")
     members = sorted(members, key=lambda member: str(member.id))
     member_ids = {member.id for member in members}
     if any(
@@ -233,27 +244,34 @@ async def write_matches_and_rebuild(
             "Every match decision must reference a supplied component member"
         )
 
-    async def write(transaction: GraphStoreTransaction) -> RebuildResult:
+    async def write(
+        transaction: GraphStoreTransaction, staged: DeferredWrites | None
+    ) -> RebuildResult:
         component_members = members
         for decision in decisions:
             first_id, second_id = sorted(
                 (decision.entity_a_id, decision.entity_b_id), key=str
             )
+            match_params = {
+                "entity_a_id": str(first_id),
+                "entity_b_id": str(second_id),
+                "match_id": str(matches_id(first_id, second_id)),
+                "comparator": decision.comparator,
+                "score": decision.score,
+                "reasoning": decision.reasoning,
+                "decided_at": decision.decided_at.isoformat(),
+                "pending_job_id": pending_job_id,
+            }
             match_rows = await transaction.execute_write(
-                upsert_matches_query(),
-                {
-                    "entity_a_id": str(first_id),
-                    "entity_b_id": str(second_id),
-                    "match_id": str(matches_id(first_id, second_id)),
-                    "comparator": decision.comparator,
-                    "score": decision.score,
-                    "reasoning": decision.reasoning,
-                    "decided_at": decision.decided_at.isoformat(),
-                    "pending_job_id": pending_job_id,
-                },
+                upsert_matches_query(), match_params
             )
             if not match_rows:
                 raise ValueError("Cannot rebuild a match whose entities do not exist")
+            if staged is not None and match_rows[0].get("written") is False:
+                staged.add(
+                    upsert_matches_query(),
+                    {**match_params, "pending_job_id": None},
+                )
         component_rows = await transaction.execute_read(
             fetch_active_component_members_query(),
             {
@@ -277,10 +295,11 @@ async def write_matches_and_rebuild(
             schema=schema,
             pending_job_id=pending_job_id,
             decided_at=max(decision.decided_at for decision in decisions),
+            deferred=staged,
             tracer=tracer,
         )
 
-    return await graph_store.run_in_transaction(write)
+    return await run_staged_transaction(graph_store, write, deferred=deferred)
 
 
 async def rebuild_resolved_entities(
@@ -368,6 +387,7 @@ async def _replace_resolved_entity(
     schema: GraphSchema,
     pending_job_id: str | None,
     decided_at: datetime | None,
+    deferred: DeferredWrites | None = None,
     tracer: Tracer | None,
 ) -> RebuildResult:
     """Replace the resolved entity of one component inside an open transaction.
@@ -379,6 +399,8 @@ async def _replace_resolved_entity(
         pending_job_id: The in-flight Cutover Job's id, or None outside a job.
         decided_at: When the newest match was decided, stored on each
             membership edge. None stores no timestamp.
+        deferred: Receives the writes over committed rows. Required when
+            ``pending_job_id`` is set.
         tracer: Passed to description summarization.
 
     Returns:
@@ -404,6 +426,7 @@ async def _replace_resolved_entity(
             RESOLVED_ENTITY_LABEL,
             [resolved.to_node_record()],
             pending_job_id=job_uuid,
+            deferred=deferred,
         )
     )
     _raise_for_write_failure(
@@ -423,6 +446,7 @@ async def _replace_resolved_entity(
                 for member in members
             ],
             pending_job_id=job_uuid,
+            deferred=deferred,
         )
     )
     return RebuildResult(

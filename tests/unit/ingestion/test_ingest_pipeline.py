@@ -770,6 +770,7 @@ class TestEmbedChunksStage:
                 error_policy=ErrorPolicy.SKIP,
                 tracer=get_tracer(None),
                 job_id=None,
+                deferred=None,
             ),
             vector_collection="chunks",
             embed_heading_path=False,
@@ -815,6 +816,7 @@ class TestEmbedChunksStage:
             error_policy=error_policy,
             tracer=get_tracer(None),
             job_id=None,
+            deferred=None,
         )
 
     async def test_failed_chunk_lookup_skips_embedding_under_skip(self) -> None:

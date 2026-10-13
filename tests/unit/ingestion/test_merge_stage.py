@@ -84,6 +84,7 @@ async def _merge(
         error_policy=error_policy,
         tracer=get_tracer(None),
         job_id=None,
+        deferred=None,
     )
     return await merge_stage(
         entities,

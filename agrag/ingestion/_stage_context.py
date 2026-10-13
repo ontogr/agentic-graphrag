@@ -5,6 +5,7 @@ from uuid import UUID
 
 from opentelemetry.trace import Tracer
 
+from agrag.common.data_models.graph_record import DeferredWrites
 from agrag.embedding.base import Embedder
 from agrag.graphdb.base import GraphStore
 from agrag.loaders.types import ErrorPolicy
@@ -22,6 +23,7 @@ class StageContext:
         error_policy: How a failed record, write or embed is reported.
         tracer: Opens the spans of the stages. Never None.
         job_id: The in-flight cutover job, or None outside a job.
+        deferred: Receives writes over committed rows; replayed at commit.
     """
 
     graph_store: GraphStore
@@ -30,3 +32,4 @@ class StageContext:
     error_policy: ErrorPolicy
     tracer: Tracer
     job_id: UUID | None
+    deferred: DeferredWrites | None

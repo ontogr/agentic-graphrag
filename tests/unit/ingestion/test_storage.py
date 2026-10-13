@@ -74,6 +74,7 @@ async def _write(store: AsyncMock, error_policy: ErrorPolicy) -> Any:
         document_records=[_node(DOCUMENT_LABEL)],
         error_policy=error_policy,
         pending_job_id=None,
+        deferred=None,
         tracer=get_tracer(None),
     )
 
@@ -136,6 +137,7 @@ class TestWriteStructureLabels:
             document_records=[],
             error_policy=error_policy,
             pending_job_id=None,
+            deferred=None,
             tracer=get_tracer(None),
         )
 
@@ -181,6 +183,7 @@ class TestWriteRelations:
             span_name="agrag.storage.upsert_mentioned_in",
             error_policy=ErrorPolicy.SKIP,
             pending_job_id=None,
+            deferred=None,
             tracer=get_tracer(None),
         )
 
@@ -199,6 +202,7 @@ class TestWriteRelations:
                 span_name="agrag.storage.upsert_relations",
                 error_policy=ErrorPolicy.RAISE,
                 pending_job_id=None,
+                deferred=None,
                 tracer=get_tracer(None),
             )
 

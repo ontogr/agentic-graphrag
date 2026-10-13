@@ -224,6 +224,7 @@ async def _merge_mention_groups(
                     graph_store=ctx.graph_store,
                     schema=graph_schema,
                     pending_job_id=pending_job_id,
+                    deferred=ctx.deferred,
                 )
             except Exception as exc:  # noqa: BLE001
                 if ctx.error_policy is ErrorPolicy.RAISE:
@@ -299,6 +300,7 @@ async def _rebuild_components(
                     schema=graph_schema,
                     members=members,
                     pending_job_id=pending_job_id,
+                    deferred=ctx.deferred,
                     tracer=ctx.tracer,
                 )
             except Exception as exc:  # noqa: BLE001
@@ -330,6 +332,7 @@ async def _rebuild_components(
                     vector_collection=resolved_entity_collection,
                     error_policy=ctx.error_policy,
                     pending_job_id=ctx.job_id,
+                    deferred=ctx.deferred,
                 )
             )
     return resolved_vector_failures

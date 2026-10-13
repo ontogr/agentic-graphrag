@@ -39,6 +39,7 @@ from agrag.common.data_models.extraction import (
     ExtractionResult,
 )
 from agrag.common.data_models.graph_record import (
+    DeferredWrites,
     NodeRecord,
     RelationRecord,
     UpsertResult,
@@ -141,6 +142,7 @@ class _MockGraphStore(CutoverJobLeaseFake, GraphStore):
         *,
         batch_size: int = 256,
         pending_job_id: UUID | None = None,
+        deferred: DeferredWrites | None = None,
     ) -> UpsertResult:
         return UpsertResult(written=len(nodes))
 
@@ -150,6 +152,7 @@ class _MockGraphStore(CutoverJobLeaseFake, GraphStore):
         *,
         batch_size: int = 256,
         pending_job_id: UUID | None = None,
+        deferred: DeferredWrites | None = None,
     ) -> UpsertResult:
         return UpsertResult(written=len(relations))
 

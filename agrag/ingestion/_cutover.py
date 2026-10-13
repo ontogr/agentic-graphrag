@@ -12,6 +12,7 @@ from uuid import UUID, uuid4
 
 from opentelemetry.trace import Tracer
 
+from agrag.common.data_models.graph_record import DeferredWrites
 from agrag.cypher.cutover_job_write import (
     acquire_lease_query,
     begin_rollback_query,
@@ -25,6 +26,7 @@ from agrag.cypher.cutover_job_write import (
     steal_terminal_job_query,
 )
 from agrag.graphdb.base import GraphStore, GraphStoreTransaction
+from agrag.ingestion._deferred import replay_deferred
 from agrag.ingestion._document_lifecycle import close_open_has_part_edges
 from agrag.ingestion._pending_rows import clear_job_tags, rollback_job_rows
 from agrag.ingestion.resolved_entities import MatchComponent
@@ -360,8 +362,13 @@ async def _commit_pending_writes(
     close_document_node_id: UUID | None,
     keep_node_ids: Sequence[UUID],
     component_seed_ids: Sequence[UUID],
+    deferred: DeferredWrites,
 ) -> int:
-    """Atomically expose pending graph writes and close superseded edges."""
+    """Atomically expose pending graph writes and close superseded edges.
+
+    The deferred writes over committed rows run right after the flip, so a
+    replay that hits a row another job owns rolls the whole commit back.
+    """
     job_arg = str(job_id)
     token_arg = str(token)
 
@@ -376,6 +383,7 @@ async def _commit_pending_writes(
         )
         if not committed:
             raise CutoverJobLeaseError(f"Job {job_arg} lost its lease before commit.")
+        await replay_deferred(txn, deferred)
         # The close runs before the tag clear so it can tell the
         # superseded version's edges from the ones this job just
         # wrote; both land in the same transaction as the flip.
@@ -408,6 +416,7 @@ async def run_cutover_job(
     settings: CutoverJobSettings,
     pending_write: Callable[[UUID], Awaitable[T]],
     cleanup: Callable[[list[UUID], list[UUID]], Awaitable[S]],
+    deferred: DeferredWrites,
     components: Sequence[MatchComponent] = (),
     close_document_node_id: UUID | None = None,
     keep_node_ids: Sequence[UUID] = (),
@@ -453,6 +462,7 @@ async def run_cutover_job(
                 components=components,
                 close_document_node_id=close_document_node_id,
                 keep_node_ids=keep_node_ids,
+                deferred=deferred,
                 stop_renewal=stop_renewal,
                 renewal_stopped=renewal_stopped,
             )
@@ -490,6 +500,7 @@ async def _run_leased(
     components: Sequence[MatchComponent],
     close_document_node_id: UUID | None,
     keep_node_ids: Sequence[UUID],
+    deferred: DeferredWrites,
     stop_renewal: asyncio.Event,
     renewal_stopped: asyncio.Event,
 ) -> tuple[T, S, int]:
@@ -514,6 +525,7 @@ async def _run_leased(
             close_document_node_id=close_document_node_id,
             keep_node_ids=keep_node_ids,
             component_seed_ids=component_seed_ids,
+            deferred=deferred,
         )
     )
     try:

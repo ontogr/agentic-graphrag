@@ -59,6 +59,7 @@ class TestResolveStage:
                 error_policy=ErrorPolicy.RAISE,
                 tracer=get_tracer(None),
                 job_id=None,
+                deferred=None,
             )
             stage = await resolve_stage(
                 entities,

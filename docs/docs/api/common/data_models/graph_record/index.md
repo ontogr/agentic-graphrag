@@ -11,23 +11,25 @@ These are a temporary, minimal stopgap, not the canonical Entity and Relation
 domain model that resolution will eventually produce. See the future
 storage and merge-mechanics work this decouples from.
 
-Pending-visibility convention: a node or edge created by an in-flight
-Cutover Job carries `_pending_job_id` (the job id) in its properties.
-Committed data never carries this key. `GraphStore` writes the tag when
-the caller passes `pending_job_id` to an upsert, so records never carry
-it and the validators below reject it. Retrieval query builders exclude
-tagged rows with `pending_filter_clause`. Vector stores keep a job's
-records under staging ids with a `_pending` flag and the job id in the
-payload, and promote them to their real ids at commit.
+Pending-visibility convention: a Cutover Job tags each node and edge it
+creates with `_pending_job_id` (the job id). A job writes only rows it
+created. A write that reaches a committed row is not applied: the store
+reports that record as unwritten and holds it in a `DeferredWrites` list.
+The commit transaction replays the list after the job flips to committed, so
+a committed row changes only together with the commit. `GraphStore` writes
+the tag when the caller passes `pending_job_id` to an upsert, so records
+never carry it and the validators below reject it. Retrieval query builders
+exclude tagged rows with `pending_filter_clause`. Vector stores keep a
+job's records under staging ids with a `_pending` flag and the job id in
+the payload, and promote them to their real ids at commit.
 
-The tag is written with `ON CREATE SET`, so a job that writes over a
-row that already exists leaves it untagged. Such a row was already
-visible before the job started and stays visible. The job rollback,
-which deletes tagged rows, therefore cannot delete data that a caller
-committed earlier.
+Rollback deletes the rows a job tagged. Committed rows are never tagged by a
+job, so rollback cannot delete data committed earlier and leaves those rows
+as they were.
 
 **Classes:**
 
+- [**DeferredWrites**](DeferredWrites.md) – Writes over committed rows, held until the job's commit transaction.
 - [**NodeRecord**](NodeRecord.md) – One graph node, ready to write.
 - [**RelationRecord**](RelationRecord.md) – One graph relationship, ready to write.
 - [**UpsertFailure**](UpsertFailure.md) – One record that failed to write within a bulk upsert call.

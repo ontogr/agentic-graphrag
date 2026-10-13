@@ -16,6 +16,7 @@ from agrag.chunking.chunker import ChunkPlacement
 from agrag.common.data_models.chunk import CHUNK_LABEL, Chunk
 from agrag.common.data_models.document import DOCUMENT_LABEL, Document
 from agrag.common.data_models.graph_record import (
+    DeferredWrites,
     NodeRecord,
     RelationRecord,
     UpsertResult,
@@ -108,6 +109,7 @@ async def write_nodes(
     document_records: list[NodeRecord],
     error_policy: ErrorPolicy,
     pending_job_id: UUID | None,
+    deferred: DeferredWrites | None,
     tracer: Tracer,
 ) -> NodeWrites:
     """Write the chunk, structure and document nodes of one batch.
@@ -124,6 +126,8 @@ async def write_nodes(
         document_records: The Document node records.
         error_policy: How a failed write is reported.
         pending_job_id: The cutover job the writes belong to, if any.
+        deferred: Receives the writes the job may not apply to committed rows.
+            Required when ``pending_job_id`` is set.
         tracer: Opens one span for each write.
 
     Returns:
@@ -133,11 +137,20 @@ async def write_nodes(
         Exception: The first failed write, when ``error_policy`` is ``RAISE``.
     """
     chunks, structure_outcome, documents = await asyncio.gather(
-        _write_chunk_nodes(graph_store, chunk_records, pending_job_id, tracer),
-        _write_structure_nodes(
-            graph_store, structure, pending_job_id, error_policy, tracer
+        _write_chunk_nodes(
+            graph_store, chunk_records, pending_job_id, deferred, tracer
         ),
-        _write_document_nodes(graph_store, document_records, pending_job_id, tracer),
+        _write_structure_nodes(
+            graph_store,
+            structure,
+            pending_job_id,
+            error_policy,
+            tracer,
+            deferred=deferred,
+        ),
+        _write_document_nodes(
+            graph_store, document_records, pending_job_id, deferred, tracer
+        ),
         return_exceptions=True,
     )
     return NodeWrites(
@@ -155,6 +168,7 @@ async def write_relations(
     span_name: str,
     error_policy: ErrorPolicy,
     pending_job_id: UUID | None,
+    deferred: DeferredWrites | None,
     tracer: Tracer,
 ) -> WriteOutcome:
     """Write one batch of relation records under the error policy.
@@ -166,6 +180,8 @@ async def write_relations(
         span_name: The name of the span that covers this write.
         error_policy: How a failed write is reported.
         pending_job_id: The cutover job the write belongs to, if any.
+        deferred: Receives the writes the job may not apply to committed rows.
+            Required when ``pending_job_id`` is set.
         tracer: Opens the span.
 
     Returns:
@@ -181,7 +197,7 @@ async def write_relations(
             if not records:
                 return WriteOutcome()
             write_result = await graph_store.upsert_relations(
-                records, pending_job_id=pending_job_id
+                records, pending_job_id=pending_job_id, deferred=deferred
             )
             span.set_attribute("agrag.relationships_written", write_result.written)
             return WriteOutcome(
@@ -270,6 +286,7 @@ async def write_nodes_stage(
         document_records=document_records,
         error_policy=ctx.error_policy,
         pending_job_id=ctx.job_id,
+        deferred=ctx.deferred,
         tracer=ctx.tracer,
     )
     return NodeStageResult(
@@ -308,6 +325,7 @@ async def write_relations_stage(
         span_name="agrag.storage.upsert_relations",
         error_policy=ctx.error_policy,
         pending_job_id=ctx.job_id,
+        deferred=ctx.deferred,
         tracer=ctx.tracer,
     )
     mentioned_outcome = await write_relations(
@@ -317,6 +335,7 @@ async def write_relations_stage(
         span_name="agrag.storage.upsert_mentioned_in",
         error_policy=ctx.error_policy,
         pending_job_id=ctx.job_id,
+        deferred=ctx.deferred,
         tracer=ctx.tracer,
     )
     return WriteOutcome(
@@ -352,6 +371,7 @@ async def _write_chunk_nodes(
     graph_store: GraphStore,
     chunk_records: list[NodeRecord],
     pending_job_id: UUID | None,
+    deferred: DeferredWrites | None,
     tracer: Tracer,
 ) -> WriteOutcome:
     with tracer.start_as_current_span(
@@ -361,7 +381,10 @@ async def _write_chunk_nodes(
         if not chunk_records:
             return WriteOutcome()
         write_result = await graph_store.upsert_nodes(
-            CHUNK_LABEL, chunk_records, pending_job_id=pending_job_id
+            CHUNK_LABEL,
+            chunk_records,
+            pending_job_id=pending_job_id,
+            deferred=deferred,
         )
         failed_ids: set[UUID] = set()
         for failure in write_result.failures:
@@ -384,6 +407,8 @@ async def _write_structure_nodes(
     pending_job_id: UUID | None,
     error_policy: ErrorPolicy,
     tracer: Tracer,
+    *,
+    deferred: DeferredWrites | None,
 ) -> WriteOutcome:
     with tracer.start_as_current_span(
         "agrag.storage.upsert_structure",
@@ -392,7 +417,7 @@ async def _write_structure_nodes(
         label_outcomes = [
             _settle(label, outcome, error_policy)
             for label, outcome in await _write_structure_labels(
-                graph_store, structure, pending_job_id
+                graph_store, structure, pending_job_id, deferred
             )
         ]
         written = sum(outcome.written for outcome in label_outcomes)
@@ -407,6 +432,7 @@ async def _write_document_nodes(
     graph_store: GraphStore,
     document_records: list[NodeRecord],
     pending_job_id: UUID | None,
+    deferred: DeferredWrites | None,
     tracer: Tracer,
 ) -> WriteOutcome:
     with tracer.start_as_current_span(
@@ -416,7 +442,10 @@ async def _write_document_nodes(
         if not document_records:
             return WriteOutcome()
         result = await graph_store.upsert_nodes(
-            DOCUMENT_LABEL, document_records, pending_job_id=pending_job_id
+            DOCUMENT_LABEL,
+            document_records,
+            pending_job_id=pending_job_id,
+            deferred=deferred,
         )
         span.set_attribute("agrag.nodes_written", result.written)
         return WriteOutcome(
@@ -428,6 +457,7 @@ async def _write_structure_labels(
     graph_store: GraphStore,
     structure: StructureRecords,
     pending_job_id: UUID | None,
+    deferred: DeferredWrites | None,
 ) -> list[tuple[str, WriteOutcome | BaseException]]:
     """Write the structure nodes of each label, one write per label.
 
@@ -446,7 +476,7 @@ async def _write_structure_labels(
     ]
     outcomes = await asyncio.gather(
         *(
-            _write_label(graph_store, label, records, pending_job_id)
+            _write_label(graph_store, label, records, pending_job_id, deferred)
             for label, records in pending
         ),
         return_exceptions=True,
@@ -461,8 +491,9 @@ async def _write_label(
     label: str,
     records: list[NodeRecord],
     pending_job_id: UUID | None,
+    deferred: DeferredWrites | None,
 ) -> WriteOutcome:
     result = await graph_store.upsert_nodes(
-        label, records, pending_job_id=pending_job_id
+        label, records, pending_job_id=pending_job_id, deferred=deferred
     )
     return WriteOutcome(written=result.written, failures=upsert_stage_failures(result))

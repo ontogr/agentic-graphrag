@@ -22,6 +22,7 @@ from agrag.common.data_models.document import (
     SourceFormat,
 )
 from agrag.common.data_models.extraction import ExtractedEntity, ExtractedRelation
+from agrag.common.data_models.graph_record import DeferredWrites
 from agrag.common.data_models.graph_schema import GraphSchema
 from agrag.common.data_models.stage_failure import StageFailure, cap_failures
 from agrag.cypher.relations import entities_in_documents_query
@@ -518,10 +519,12 @@ async def add_documents(  # noqa: PLR0912,PLR0915,PLR0913
             chunks, documents_seen, entities, relations, extraction_failures
         ):
             components: list[MatchComponent] = []
+            deferred = DeferredWrites()
 
             async def _pending(
                 job_id: UUID,
                 _components: list[MatchComponent] = components,
+                _deferred: DeferredWrites = deferred,
                 _slice: tuple[
                     list[Chunk],
                     list[Document],
@@ -563,6 +566,7 @@ async def add_documents(  # noqa: PLR0912,PLR0915,PLR0913
                     tracer=tracer,
                     embed_heading_path=embed_heading_path,
                     max_llm_pairs=max_llm_pairs,
+                    deferred=_deferred,
                 )
                 return batch.add_result
 
@@ -577,6 +581,7 @@ async def add_documents(  # noqa: PLR0912,PLR0915,PLR0913
                 pending_write=_pending,
                 cleanup=cleanup,
                 components=components,
+                deferred=deferred,
                 tracer=tracer,
             )
             partials.append(_with_cleanup_failures(partial, cleanup_failures))
@@ -687,6 +692,7 @@ async def update_document(  # noqa: PLR0913
         )
 
         components: list[MatchComponent] = []
+        deferred = DeferredWrites()
         # The pending write fills the structure ids, and run_cutover_job reads
         # them only after that write, so the list is shared rather than copied.
         keep_node_ids: list[UUID] = [
@@ -714,6 +720,7 @@ async def update_document(  # noqa: PLR0913
                 tracer=tracer,
                 embed_heading_path=embed_heading_path,
                 max_llm_pairs=max_llm_pairs,
+                deferred=deferred,
             )
             keep_node_ids.extend(batch.structure_node_ids)
             return batch.add_result
@@ -729,6 +736,7 @@ async def update_document(  # noqa: PLR0913
             pending_write=_pending,
             cleanup=cleanup,
             components=components,
+            deferred=deferred,
             close_document_node_id=(
                 found.document_node_id if found is not None else None
             ),
@@ -776,6 +784,7 @@ async def delete_document(  # noqa: PLR0913
             settings=cutover_settings,
             pending_write=_no_pending_write,
             cleanup=cleanup,
+            deferred=DeferredWrites(),
             close_document_node_id=found.document_node_id,
             tracer=tracer,
         )

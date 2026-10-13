@@ -228,12 +228,9 @@ def clear_pending_node_tags_query(label: str) -> str:
 
 
 def clear_pending_relation_tags_query(rel_type: str) -> str:
-    """Build Cypher clearing the pending bookkeeping off a job's relationships.
+    """Build Cypher clearing the pending tag off a job's relationships.
 
-    Removes the job tag together with the creation flag and the previous
-    ``active`` value, since a relationship that survives commit no longer
-    needs any of them. Runs in the same commit transaction as
-    ``clear_pending_node_tags_query``.
+    Runs in the same commit transaction as ``clear_pending_node_tags_query``.
 
     Args:
         rel_type: The relationship type. Must be a safe identifier.
@@ -248,17 +245,16 @@ def clear_pending_relation_tags_query(rel_type: str) -> str:
     safe_type = validate_identifier(rel_type)
     return (
         f"MATCH ()-[r:{safe_type}]->() WHERE r.{PENDING_JOB_ID_PROPERTY} = $job_id "
-        f"REMOVE r.{PENDING_JOB_ID_PROPERTY}, r._pending_created, "
-        "r._pending_previous_active "
+        f"REMOVE r.{PENDING_JOB_ID_PROPERTY} "
         "RETURN count(r) AS cleared"
     )
 
 
 def delete_pending_relations_query(rel_type: str) -> str:
-    """Build Cypher deleting the relationships a job created.
+    """Build Cypher deleting the relationships a job tagged.
 
-    Only relationships the job created are deleted; a relationship it merely
-    updated is left for ``restore_pending_relations_query`` to revert.
+    A job writes only relationships it created, so every relationship
+    carrying its tag is one it created and is deleted.
 
     Args:
         rel_type: The relationship type. Must be a safe identifier.
@@ -273,34 +269,8 @@ def delete_pending_relations_query(rel_type: str) -> str:
     safe_type = validate_identifier(rel_type)
     return (
         f"MATCH ()-[r:{safe_type}]->() "
-        f"WHERE r.{PENDING_JOB_ID_PROPERTY} = $job_id AND r._pending_created = true "
+        f"WHERE r.{PENDING_JOB_ID_PROPERTY} = $job_id "
         "DELETE r RETURN count(r) AS deleted"
-    )
-
-
-def restore_pending_relations_query(rel_type: str) -> str:
-    """Build Cypher reverting a job's updates to pre-existing relationships.
-
-    Sets ``active`` back to the value saved before the job touched the
-    relationship, then removes the pending bookkeeping. A relationship with
-    no saved value keeps its current ``active``.
-
-    Args:
-        rel_type: The relationship type. Must be a safe identifier.
-
-    Returns:
-        Parameterized Cypher expecting $job_id. Returns no rows; the caller
-        needs only the side effect.
-
-    Raises:
-        ValueError: ``rel_type`` is not a safe identifier.
-    """
-    safe_type = validate_identifier(rel_type)
-    return (
-        f"MATCH ()-[r:{safe_type}]->() WHERE r.{PENDING_JOB_ID_PROPERTY} = $job_id "
-        "SET r.active = coalesce(r._pending_previous_active, r.active) "
-        f"REMOVE r.{PENDING_JOB_ID_PROPERTY}, r._pending_created, "
-        "r._pending_previous_active"
     )
 
 

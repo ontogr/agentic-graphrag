@@ -22,6 +22,7 @@ from agrag.common.data_models.extraction import (
     ExtractionResult,
 )
 from agrag.common.data_models.graph_record import (
+    DeferredWrites,
     NodeRecord,
     RelationRecord,
     UpsertFailure,
@@ -139,6 +140,7 @@ class MockStore(CutoverJobLeaseFake, GraphStore):
         *,
         batch_size: int = 256,
         pending_job_id: UUID | None = None,
+        deferred: DeferredWrites | None = None,
     ) -> UpsertResult:
         """Record a node upsert."""
         self.upsert_nodes_calls.append((label, list(nodes)))
@@ -150,6 +152,7 @@ class MockStore(CutoverJobLeaseFake, GraphStore):
         *,
         batch_size: int = 256,
         pending_job_id: UUID | None = None,
+        deferred: DeferredWrites | None = None,
     ) -> UpsertResult:
         """Record a relation upsert."""
         self.upsert_relations_calls.append(list(relations))
@@ -959,6 +962,7 @@ class TestGraphAddPipeline:
                 *,
                 batch_size: int = 256,
                 pending_job_id: UUID | None = None,
+                deferred: DeferredWrites | None = None,
             ) -> UpsertResult:
                 result = await super().upsert_nodes(
                     label, nodes, batch_size=batch_size, pending_job_id=pending_job_id
@@ -1003,6 +1007,7 @@ class TestGraphAddPipeline:
                 *,
                 batch_size: int = 256,
                 pending_job_id: UUID | None = None,
+                deferred: DeferredWrites | None = None,
             ) -> UpsertResult:
                 result = await super().upsert_nodes(
                     label, nodes, batch_size=batch_size, pending_job_id=pending_job_id

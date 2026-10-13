@@ -11,6 +11,7 @@ from uuid import UUID, uuid4
 
 from agrag.common.data_models.candidate import CandidateRecord
 from agrag.common.data_models.graph_record import (
+    DeferredWrites,
     NodeRecord,
     RelationRecord,
     UpsertResult,
@@ -109,6 +110,7 @@ class _ScriptedStore(GraphStore):
         *,
         batch_size: int = 256,
         pending_job_id: UUID | None = None,
+        deferred: DeferredWrites | None = None,
     ) -> UpsertResult:
         """Report every node written."""
         return UpsertResult(written=len(nodes))
@@ -119,6 +121,7 @@ class _ScriptedStore(GraphStore):
         *,
         batch_size: int = 256,
         pending_job_id: UUID | None = None,
+        deferred: DeferredWrites | None = None,
     ) -> UpsertResult:
         """Report every relation written."""
         return UpsertResult(written=len(relations))

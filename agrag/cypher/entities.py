@@ -91,6 +91,24 @@ def is_safe_identifier(value: str) -> bool:
     return _IDENTIFIER.match(value) is not None and value != CANDIDATE_LABEL
 
 
+def own_row_expression(row: str, job: str) -> str:
+    """Build Cypher that is true when a row belongs to the writing job.
+
+    A row belongs to a writer when its pending tag equals the writer's job
+    id. A committed row has no tag, so it belongs only to a writer with no
+    job. ``coalesce`` makes two missing values equal.
+
+    Args:
+        row: The Cypher alias of the node or relationship.
+        job: The Cypher expression for the writer's job id, such as a
+            parameter or a record field.
+
+    Returns:
+        A Cypher boolean expression.
+    """
+    return f"coalesce({row}.{PENDING_JOB_ID_PROPERTY}, '') = coalesce({job}, '')"
+
+
 def upsert_node_query(labels: Sequence[str]) -> str:
     """Build the Cypher for an UNWIND-batched node upsert.
 
@@ -110,18 +128,19 @@ def upsert_node_query(labels: Sequence[str]) -> str:
     ``properties["id"]`` cannot overwrite the ``id`` used to ``MERGE`` and
     orphan the node from later upserts of the same record.
 
-    The Cutover Job tag is applied only when the ``MERGE`` creates the
-    node, so the tag means "this job created this node". A job that only
-    writes over an existing node leaves it untagged: it stays visible to
-    retrieval, and the job's rollback — which deletes tagged rows —
-    cannot reach it.
+    The Cutover Job tag is set only when the ``MERGE`` creates the node, so
+    the tag means "this job created this node". A write over a row the job
+    did not create is not applied: the row reports ``written`` false, and the
+    store defers the write to the job's commit transaction.
 
     Args:
         labels: The node's labels to add, in addition to the identity anchor.
             Must already be validated, and non-empty.
 
     Returns:
-        A parameterized Cypher query expecting a ``$records`` list parameter.
+        A parameterized Cypher query expecting a ``$records`` list parameter
+        whose items carry ``id``, ``properties``, and ``pending_job_id``. It
+        returns ``id`` and ``written`` for every record it matches.
 
     Raises:
         ValueError: ``labels`` is empty, or any label is not a safe
@@ -130,13 +149,17 @@ def upsert_node_query(labels: Sequence[str]) -> str:
     if not labels:
         raise ValueError("upsert_node_query requires at least one label")
     label_expr = ":".join(validate_identifier(label) for label in labels)
+    own = own_row_expression("n", "record.pending_job_id")
     return (
         f"UNWIND $records AS record "
         f"MERGE (n:{NODE_IDENTITY_LABEL} {{id: record.id}}) "
         f"ON CREATE SET n.{PENDING_JOB_ID_PROPERTY} = record.pending_job_id "
+        f"WITH n, record, {own} AS own "
+        f"FOREACH (_ IN CASE WHEN own THEN [1] ELSE [] END | "
         f"SET n:{label_expr} "
         f"SET n += record.properties "
-        f"SET n.id = record.id"
+        f"SET n.id = record.id) "
+        f"RETURN record.id AS id, own AS written"
     )
 
 
@@ -233,9 +256,10 @@ def upsert_survivor_query(labels: Sequence[str]) -> str:
     values, which only a Python-side read can gather, so making that
     atomic too is out of scope here.
 
-    Like ``upsert_node_query``, the Cutover Job tag is applied only when
-    the ``MERGE`` creates the node, so a survivor a job merely accumulates
-    into stays visible and out of reach of that job's rollback.
+    The Cutover Job tag is set only when the ``MERGE`` creates the node. A
+    write over a row the job did not create is not applied: the row reports
+    ``written`` false, and the store defers the write to the job's commit
+    transaction, where the accumulators are read again.
 
     Args:
         labels: The node's labels: the leaf label first, then ancestor
@@ -246,7 +270,8 @@ def upsert_survivor_query(labels: Sequence[str]) -> str:
         parameter whose items carry ``id``, ``properties`` (every survivor
         field except ``source_chunk_ids`` and ``merge_count``),
         ``pending_job_id`` (the Cutover Job tag, or None),
-        ``new_source_chunk_ids``, and ``merge_count_delta``.
+        ``new_source_chunk_ids``, and ``merge_count_delta``. It returns
+        ``id`` and ``written`` for every record it matches.
 
     Raises:
         ValueError: ``labels`` is empty, or any label is not a safe
@@ -255,23 +280,23 @@ def upsert_survivor_query(labels: Sequence[str]) -> str:
     if not labels:
         raise ValueError("upsert_survivor_query requires at least one label")
     label_expr = ":".join(validate_identifier(label) for label in labels)
+    own = own_row_expression("n", "record.pending_job_id")
     return (
         f"UNWIND $records AS record "
         f"MERGE (n:{NODE_IDENTITY_LABEL} {{id: record.id}}) "
         f"ON CREATE SET n.{PENDING_JOB_ID_PROPERTY} = record.pending_job_id "
-        f"SET n:{label_expr} "
-        f"WITH n, record, "
-        f"(record.pending_job_id IS NULL OR n.{PENDING_JOB_ID_PROPERTY} IS NULL "
-        f"OR n.{PENDING_JOB_ID_PROPERTY} = record.pending_job_id) AS can_update, "
+        f"WITH n, record, {own} AS own, "
         f"coalesce(n.source_chunk_ids, []) AS existing_source_chunk_ids, "
         f"coalesce(n.merge_count, 0) AS existing_merge_count "
-        f"SET n += CASE WHEN can_update THEN record.properties ELSE {{}} END "
-        f"SET n.source_chunk_ids = CASE WHEN can_update THEN "
-        f"[x IN existing_source_chunk_ids WHERE NOT x IN record.new_source_chunk_ids] "
-        f"+ record.new_source_chunk_ids ELSE n.source_chunk_ids END "
-        f"SET n.merge_count = CASE WHEN can_update THEN "
-        f"existing_merge_count + record.merge_count_delta ELSE n.merge_count END "
-        f"SET n.id = record.id"
+        f"FOREACH (_ IN CASE WHEN own THEN [1] ELSE [] END | "
+        f"SET n:{label_expr} "
+        f"SET n += record.properties "
+        f"SET n.source_chunk_ids = [x IN existing_source_chunk_ids "
+        f"WHERE NOT x IN record.new_source_chunk_ids] "
+        f"+ record.new_source_chunk_ids "
+        f"SET n.merge_count = existing_merge_count + record.merge_count_delta "
+        f"SET n.id = record.id) "
+        f"RETURN record.id AS id, own AS written"
     )
 
 
@@ -287,24 +312,35 @@ def set_embedding_query(vector_property: str) -> str:
     still matches what its vector was computed from, so a slower write from
     an older call cannot overwrite a newer one's vector with a stale one.
 
+    A record whose row the job did not create is not applied. Such a record
+    belongs to a job, so the query returns it with ``written`` false and the
+    store defers it: the vector is written at commit, after the text it was
+    computed from. The text guard is not checked for those rows.
+
     Args:
         vector_property: The property to set. Must already be validated.
 
     Returns:
         Parameterized Cypher expecting $records, a list of dicts with the keys
-        id, vector, expected_name, and expected_description. Each row the
-        guard actually matched comes back as ``{"id": <node id>}``, so a
-        caller can tell which records were applied and which were skipped
-        because a concurrent write already changed or removed the node.
+        id, vector, expected_name, expected_description, and pending_job_id.
+        It returns ``id`` and ``written`` for each record whose guard passed
+        and for each job record that reached a row the job did not create.
+        A record the guard rejects gets no row, so a caller can tell which
+        records were applied and which were skipped because a concurrent
+        write already changed or removed the node.
     """
     safe_property = validate_identifier(vector_property)
+    own = own_row_expression("n", "record.pending_job_id")
     return (
         f"UNWIND $records AS record "
         f"MATCH (n:{NODE_IDENTITY_LABEL} {{id: record.id}}) "
-        f"WHERE n.name = record.expected_name "
-        f"AND coalesce(n.description, '') = record.expected_description "
-        f"SET n.{safe_property} = record.vector "
-        f"RETURN n.id AS id"
+        f"WITH n, record, {own} AS own "
+        f"WHERE (own AND n.name = record.expected_name "
+        f"AND coalesce(n.description, '') = record.expected_description) "
+        f"OR (NOT own AND record.pending_job_id IS NOT NULL) "
+        f"FOREACH (_ IN CASE WHEN own THEN [1] ELSE [] END | "
+        f"SET n.{safe_property} = record.vector) "
+        f"RETURN n.id AS id, own AS written"
     )
 
 
@@ -319,24 +355,28 @@ def clear_property_query(property_name: str) -> str:
     this call started with, so it cannot wipe a vector a newer, still-in-
     flight call has already written for different text.
 
+    A job clears only rows it created. A committed row is left as it is, so
+    a job never removes a value it did not set.
+
     Args:
         property_name: The property to remove. Must already be validated.
 
     Returns:
         Parameterized Cypher expecting $records, a list of dicts with the keys
-        id, expected_name, and expected_description. Each row the guard
-        actually matched comes back as ``{"id": <node id>}``, so a caller can
-        tell which records were cleared and which were skipped because a
-        concurrent write already changed or removed the node.
+        id, expected_name, expected_description, and pending_job_id. It
+        returns ``id`` and ``written`` for each record whose row the job owns
+        and whose guard passed. Other records get no row.
     """
     safe_property = validate_identifier(property_name)
+    own = own_row_expression("n", "record.pending_job_id")
     return (
         f"UNWIND $records AS record "
         f"MATCH (n:{NODE_IDENTITY_LABEL} {{id: record.id}}) "
-        f"WHERE n.name = record.expected_name "
+        f"WITH n, record, {own} AS own "
+        f"WHERE own AND n.name = record.expected_name "
         f"AND coalesce(n.description, '') = record.expected_description "
         f"REMOVE n.{safe_property} "
-        f"RETURN n.id AS id"
+        f"RETURN n.id AS id, own AS written"
     )
 
 
@@ -427,22 +467,30 @@ def set_chunk_embedding_query(vector_property: str) -> str:
 
     Similar to ``set_embedding_query`` but guards on ``text`` instead of
     ``name``/``description``, since chunks have no name field. The text
-    guard prevents a stale write from overwriting a newer vector.
+    guard prevents a stale write from overwriting a newer vector. A record
+    whose row the job did not create is not applied and comes back with
+    ``written`` false, so the store can defer it to the commit.
 
     Args:
         vector_property: The property to set. Must already be validated.
 
     Returns:
         Parameterized Cypher expecting $records, a list of dicts with the
-        keys id, vector, and expected_text.
+        keys id, vector, expected_text, and pending_job_id. It returns
+        ``id`` and ``written`` for each record whose guard passed and for
+        each job record that reached a row the job did not create.
     """
     safe_property = validate_identifier(vector_property)
+    own = own_row_expression("n", "record.pending_job_id")
     return (
         f"UNWIND $records AS record "
         f"MATCH (n:{NODE_IDENTITY_LABEL} {{id: record.id}}) "
-        f"WHERE n.text = record.expected_text "
-        f"SET n.{safe_property} = record.vector "
-        f"RETURN n.id AS id"
+        f"WITH n, record, {own} AS own "
+        f"WHERE (own AND n.text = record.expected_text) "
+        f"OR (NOT own AND record.pending_job_id IS NOT NULL) "
+        f"FOREACH (_ IN CASE WHEN own THEN [1] ELSE [] END | "
+        f"SET n.{safe_property} = record.vector) "
+        f"RETURN n.id AS id, own AS written"
     )
 
 
@@ -452,7 +500,8 @@ def clear_chunk_embedding_query(vector_property: str) -> str:
     Guards on ``text`` the same way ``set_chunk_embedding_query`` does,
     so a concurrent update that changed a chunk's text between this
     call's embed and its clear does not accidentally wipe a newer
-    vector.
+    vector. A job clears only chunks it created, so a committed chunk is
+    never changed by a job.
 
     Args:
         vector_property: The property to remove. Must already be
@@ -460,14 +509,19 @@ def clear_chunk_embedding_query(vector_property: str) -> str:
 
     Returns:
         Parameterized Cypher expecting $records, a list of dicts with
-        the keys id and expected_text.
+        the keys id, expected_text, and pending_job_id. It returns ``id``
+        and ``written`` for each record whose row the job owns and whose
+        text guard passed. Other records get no row.
     """
     safe_property = validate_identifier(vector_property)
+    own = own_row_expression("n", "record.pending_job_id")
     return (
         f"UNWIND $records AS record "
         f"MATCH (n:{NODE_IDENTITY_LABEL} {{id: record.id}}) "
-        f"WHERE n.text = record.expected_text "
-        f"REMOVE n.{safe_property}"
+        f"WITH n, record, {own} AS own "
+        f"WHERE own AND n.text = record.expected_text "
+        f"REMOVE n.{safe_property} "
+        f"RETURN n.id AS id, own AS written"
     )
 
 

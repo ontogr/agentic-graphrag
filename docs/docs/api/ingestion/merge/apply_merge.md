@@ -6,7 +6,7 @@ sidebar_label: apply_merge
 # `agrag.ingestion.merge.apply_merge` \{#agrag-ingestion-merge-apply_merge}
 
 ```python
-apply_merge(plan:MergePlan, *, graph_store:GraphStore, schema:GraphSchema, pending_job_id:str | None = None) -> None
+apply_merge(plan:MergePlan, *, graph_store:GraphStore, schema:GraphSchema, pending_job_id:str | None = None, deferred:DeferredWrites | None = None) -> None
 ```
 
 Write a computed MergePlan to storage.
@@ -25,9 +25,12 @@ without its alias remains.
 - **pending_job_id** (<code>str | None</code>) – The in-flight Cutover Job's id, tagging the
   survivor node and its aliases until that job commits. None
   writes untagged, for callers outside a job.
+- **deferred** (<code>[DeferredWrites](../../common/data_models/graph_record/DeferredWrites.md) | None</code>) – Receives the survivor write when it reaches a committed
+  entity. Required when `pending_job_id` is set.
 
 **Raises:**
 
+- <code>ValueError</code> – `pending_job_id` is set and `deferred` is None.
 - <code>GraphStoreAliasConflictError</code> – An accepted merge_key is already owned
   by a live entity outside this merge's own survivor id -- a
   concurrent writer accepted that name as an alias of, or

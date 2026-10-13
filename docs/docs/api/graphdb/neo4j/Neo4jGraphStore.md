@@ -256,7 +256,7 @@ Write candidates without changing nodes that already exist.
 ## `upsert_nodes` \{#agrag-graphdb-neo4j-Neo4jGraphStore-upsert_nodes}
 
 ```python
-upsert_nodes(label:str, nodes:Sequence[NodeRecord], *, batch_size:int = 256, pending_job_id:UUID | None = None) -> UpsertResult
+upsert_nodes(label:str, nodes:Sequence[NodeRecord], *, batch_size:int = 256, pending_job_id:UUID | None = None, deferred:DeferredWrites | None = None) -> UpsertResult
 ```
 
 Write or merge nodes, honoring each record's full label set.
@@ -270,22 +270,24 @@ queries, since Cypher requires labels to be literal in the query text
 rather than a runtime parameter, so `batch_size` chunks apply within
 each group rather than across the whole call.
 
-`pending_job_id` tags only the nodes this call creates, through
-`ON CREATE SET`. A node that already exists keeps its state, so a
-job's rollback cannot delete data committed earlier.
+`pending_job_id` tags only the nodes this call creates. A write that
+reaches a node the job did not create is not applied and is added to
+`deferred`, so a job's rollback cannot change data committed earlier.
 
 **Returns:**
 
-- <code>[UpsertResult](../../common/data_models/graph_record/UpsertResult.md)</code> – The number written and one failure entry for each isolated record.
+- <code>[UpsertResult](../../common/data_models/graph_record/UpsertResult.md)</code> – The number written or deferred, and one failure entry for each
+- <code>[UpsertResult](../../common/data_models/graph_record/UpsertResult.md)</code> – isolated record.
 
 **Raises:**
 
-- <code>ValueError</code> – `batch_size` is not positive.
+- <code>ValueError</code> – `batch_size` is not positive, or `deferred` is
+  missing while `pending_job_id` is set.
 
 ## `upsert_relations` \{#agrag-graphdb-neo4j-Neo4jGraphStore-upsert_relations}
 
 ```python
-upsert_relations(relations:Sequence[RelationRecord], *, batch_size:int = 256, pending_job_id:UUID | None = None) -> UpsertResult
+upsert_relations(relations:Sequence[RelationRecord], *, batch_size:int = 256, pending_job_id:UUID | None = None, deferred:DeferredWrites | None = None) -> UpsertResult
 ```
 
 Write or merge relationships between existing nodes.
@@ -293,15 +295,18 @@ Write or merge relationships between existing nodes.
 Relationship identity is each record's `id`, not its endpoints: see
 `upsert_relation_query` for how endpoint changes and same-id
 parallel relationships are handled. `pending_job_id` tags only the
-relationships this call creates.
+relationships this call creates. A write that reaches a relationship
+the job did not create is not applied and is added to `deferred`.
 
 **Returns:**
 
-- <code>[UpsertResult](../../common/data_models/graph_record/UpsertResult.md)</code> – The number written and one failure entry for each isolated record.
+- <code>[UpsertResult](../../common/data_models/graph_record/UpsertResult.md)</code> – The number written or deferred, and one failure entry for each
+- <code>[UpsertResult](../../common/data_models/graph_record/UpsertResult.md)</code> – isolated record.
 
 **Raises:**
 
-- <code>ValueError</code> – `batch_size` is not positive.
+- <code>ValueError</code> – `batch_size` is not positive, or `deferred` is
+  missing while `pending_job_id` is set.
 
 ## `vector_search` \{#agrag-graphdb-neo4j-Neo4jGraphStore-vector_search}
 
