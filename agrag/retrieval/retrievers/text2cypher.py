@@ -192,13 +192,22 @@ def _baml_call_options() -> "BamlCallOptions":
     }
 
 
+_TRAILING_LIMIT = re.compile(r"\bLIMIT\s+(\d+)\s*;?\s*$", flags=re.IGNORECASE)
+
+
 def _append_row_limit(query: str, max_rows: int) -> str:
-    """Append a LIMIT clause when the query declares none.
+    """Bound the rows a generated query returns to ``max_rows``.
+
+    Only a ``LIMIT`` that ends the query bounds its result. A ``LIMIT``
+    inside a ``WITH`` clause does not, so it is ignored. A trailing
+    integer ``LIMIT`` above the cap is lowered to the cap, and one at or
+    under the cap is kept unchanged. Any other query gets
+    ``LIMIT <max_rows>`` appended, with a trailing ``;`` removed first.
 
     String literals, comments, and backtick identifiers are blanked
-    before the LIMIT scan, matching ``reject_write_cypher``, so a
-    quoted or commented "LIMIT" inside a predicate cannot suppress
-    the bound. The scan is case-insensitive, like Cypher keywords.
+    before the scan, matching ``reject_write_cypher``, so a quoted or
+    commented "LIMIT" cannot hide a missing bound. The scan is
+    case-insensitive, like Cypher keywords.
 
     Args:
         query: The generated read query.
@@ -207,10 +216,17 @@ def _append_row_limit(query: str, max_rows: int) -> str:
     Returns:
         The query, bounded to at most ``max_rows`` rows.
     """
-    stripped = strip_cypher_syntax(query)
-    if re.search(r"\bLIMIT\b", stripped, flags=re.IGNORECASE):
+    stripped = strip_cypher_syntax(query).rstrip()
+    match = _TRAILING_LIMIT.search(stripped)
+    if match is None:
+        body = query.rstrip().rstrip(";").rstrip()
+        # A trailing line comment would swallow a LIMIT appended on the same
+        # line, so the bound goes on its own line instead.
+        separator = "\n" if len(stripped) < len(query.rstrip()) else " "
+        return f"{body}{separator}LIMIT {max_rows}"
+    if int(match.group(1)) <= max_rows:
         return query
-    return f"{query} LIMIT {max_rows}"
+    return f"{query[: match.start(1)]}{max_rows}{query[match.end(1) :]}"
 
 
 def _node_id_prop(node: object) -> object | None:

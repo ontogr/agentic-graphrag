@@ -73,7 +73,7 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
-Only `BAMLExtractor` uses the heading path. The local and escalating extractors read the chunk text only. See [Configure chunking](./configure-chunking.mdx) for the embedding side of this configuration.
+Only `BAMLExtractor` uses the heading path. The local extractor reads the chunk text only. See [Configure chunking](./configure-chunking.mdx) for the embedding side of this configuration.
 
 ## Configure extraction
 
@@ -111,6 +111,50 @@ See the [configuration reference](../reference/configuration.mdx#local-extractio
 `EXTRACTION_MODE` accepts `gliner`, `hybrid` (the default), and `llm`. `Graph.effective_mode` reports the mode selected for the graph, not the class of the extractor. When `hybrid` has no LLM configured, the mode becomes `gliner` and Graph logs a warning. An injected custom local extractor still runs unchanged in that mode; Graph does not replace it with GLiNER. `Graph` can configure both extractor slots in `hybrid`, but it does not yet escalate automatically between them. To escalate now, compose `GlinerExtractor` and an LLM extractor with `EscalatingExtractor`, as shown below.
 
 For LLM-only ingestion, pass `extraction_settings=ExtractionSettings(mode="llm")` and `llm_extractor=BAMLExtractor(...)` to `Graph.open`. Do not pass `extractor=` in that mode. If you omit `llm_extractor=`, `Graph` reads `EXTRACTION_LLM_CLIENTS`, or `LLM_BASE_URL` with `LLM_MODEL_ID`, to build it. `Graph.llm_model_name` reports the configured client models, or the class name of a custom LLM extractor.
+
+## Extract with the local model
+
+`GlinerExtractor` runs a model on your machine. It needs no LLM key. It needs the `extract` extra:
+
+```bash
+uv pip install "agentic-graphrag[extract]"
+```
+
+```python
+import asyncio
+
+from uuid import uuid4
+
+from agrag.common.data_models import DEFAULT_SCHEMA
+from agrag.common.data_models.chunk import Chunk
+from agrag.common.data_models.provenance import TextProvenance
+from agrag.ingestion.extract import GlinerExtractor
+
+
+async def main() -> None:
+    text = "Ada Lovelace wrote the first algorithm for the Analytical Engine."
+    chunk = Chunk(
+        id=uuid4(),
+        document_id=uuid4(),
+        text=text,
+        provenance=TextProvenance(char_start=0, char_end=len(text)),
+    )
+
+    result = await GlinerExtractor().extract(chunk, DEFAULT_SCHEMA)
+    for entity in result.entities:
+        print(entity.label, entity.text, entity.confidence)
+    for candidate in result.candidates:
+        print(candidate.reason, candidate.label, candidate.confidence)
+
+
+asyncio.run(main())
+```
+
+Each kept entity and relation has a `confidence`. The extractor keeps an entity at 0.5 or more and a relation at 0.7 or more. Set `EXTRACTION_ENTITY_THRESHOLD` and `EXTRACTION_RELATION_THRESHOLD` to change them. A relation must also match a pattern of the schema. The pattern accepts the child types of its labels.
+
+`result.candidates` lists what the extractor dropped, with the reason: `below_relation_cut`, `unresolved_endpoint`, `off_pattern` or `entity_band`. Set `EXTRACTION_CANDIDATES_ENABLED=false` to turn this off. With candidates off, the extractor makes one model call for each chunk. With candidates on, it makes two.
+
+The default chunk size fits the model in one pass. See [Configure chunking](./configure-chunking.mdx) before you set a much larger size.
 
 ## Run locally first, escalating to an LLM
 

@@ -10,11 +10,13 @@ from typing import Any, NamedTuple, cast
 import yaml
 from pydantic import BaseModel
 
+from agrag.common.data_models.default_schema import DEFAULT_SCHEMA
 from agrag.common.data_models.graph_schema import (
     Cardinality,
     GraphSchema,
     PropertySpec,
 )
+from agrag.common.data_models.presets import LEGAL, OPERATIONS, Preset
 from agrag.schema.canonical import build_schema, dump_schema
 from agrag.schema.errors import Issues, SchemaIssue, SchemaLoadError
 from agrag.schema.shorthand import (
@@ -34,7 +36,13 @@ from agrag.schema.shorthand import (
 logger = logging.getLogger(__name__)
 
 SchemaSource = (
-    GraphSchema | Mapping[str, Any] | Sequence[Any] | type[BaseModel] | Path | str
+    GraphSchema
+    | Preset
+    | Mapping[str, Any]
+    | Sequence[Any]
+    | type[BaseModel]
+    | Path
+    | str
 )
 
 DEFAULT_NAME = "custom"
@@ -45,7 +53,11 @@ _BASE_PREFIX = "extends."
 _MODEL_LISTS = ("name", "version", "entities", "relations")
 
 # The names that schema= and extends= accept in place of a path.
-_NAMED_SCHEMAS: dict[str, GraphSchema] = {}
+_NAMED_SCHEMAS: dict[str, GraphSchema] = {
+    "default": DEFAULT_SCHEMA,
+    "operations": OPERATIONS.apply(DEFAULT_SCHEMA),
+    "legal": LEGAL.apply(DEFAULT_SCHEMA),
+}
 
 
 class _Raw(NamedTuple):
@@ -134,9 +146,18 @@ def _from_parsed(parsed: object, name: str, origin: str | None) -> _Raw:
     )
 
 
+def _apply_preset(preset: Preset) -> GraphSchema:
+    try:
+        return preset.apply(DEFAULT_SCHEMA)
+    except ValueError as exc:
+        raise _fail(str(exc)) from exc
+
+
 def _read_source(source: SchemaSource) -> GraphSchema | _Raw:  # noqa: PLR0911
     if isinstance(source, GraphSchema):
         return source
+    if isinstance(source, Preset):
+        return _apply_preset(source)
     # The format modules import this package, so the import runs at call time.
     from agrag.schema.formats.dispatch import (  # noqa: PLC0415
         is_model_source,
@@ -155,7 +176,7 @@ def _read_source(source: SchemaSource) -> GraphSchema | _Raw:  # noqa: PLR0911
             return _from_parsed(_parse_json(text, None), DEFAULT_NAME, None)
         if not (text.lower().endswith(_FILE_SUFFIXES) or Path(text).is_file()):
             names = ", ".join(sorted(_NAMED_SCHEMAS))
-            presets = f"a preset name ({names}), " if names else ""
+            presets = f"a shipped schema name ({names}), " if names else ""
             raise _fail(
                 f"unknown schema {text!r}. Pass {presets}a path to a .json, "
                 ".yaml, .yml or .ttl file, a dict, or a list of labels."
@@ -172,7 +193,7 @@ def _read_source(source: SchemaSource) -> GraphSchema | _Raw:  # noqa: PLR0911
     else:
         raise _fail(
             f"cannot load a schema from {describe(source)}. Pass a GraphSchema, a "
-            "dict, a list of labels, a preset name or a path."
+            "dict, a list of labels, a shipped schema name or a path."
         )
     return _from_parsed(_read_file(path), path.stem, str(path))
 
@@ -613,7 +634,7 @@ def _pick_extends(
         return None
     chosen = from_call if from_call is not None else from_file
     if chosen is None or isinstance(
-        chosen, (GraphSchema, Mapping, Sequence, Path, str)
+        chosen, (GraphSchema, Preset, Mapping, Sequence, Path, str)
     ):
         return chosen
     from agrag.schema.formats.dispatch import is_model_source  # noqa: PLC0415
@@ -721,12 +742,16 @@ def load_schema(
 ) -> GraphSchema:
     """Load a schema from any accepted source.
 
-    ``source`` may be a ``GraphSchema``, a dict, a list of entity labels and
-    relations, JSON text, a path to a ``.json``, ``.yaml``, ``.yml`` or
-    ``.ttl`` file, a Pydantic class or a list of Pydantic classes, or the name
-    of a shipped schema. Turtle import needs the optional ``schema-formats``
-    extra. Shorthand is accepted at every level. The
+    ``source`` may be a ``GraphSchema``, a ``Preset``, a dict, a list of entity
+    labels and relations, JSON text, a path to a ``.json``, ``.yaml``, ``.yml``
+    or ``.ttl`` file, a Pydantic class or a list of Pydantic classes, or the
+    name of a shipped schema. Turtle (``.ttl``) import needs the optional
+    ``schema-formats`` extra. Shorthand is accepted at every level. The
     result is always the canonical ``GraphSchema``.
+
+    The shipped names are ``"default"``, ``"operations"`` and ``"legal"``. A
+    preset name or a ``Preset`` value means that preset applied to the default
+    schema, so ``"operations"`` is the schema named ``default+operations``.
 
     A schema with no ``extends`` stands alone and replaces the default schema.
     With ``extends``, the schema builds on a base. A type or relation that the
@@ -740,8 +765,9 @@ def load_schema(
 
     Args:
         source: The schema to load.
-        extends: The base schema, as a shipped name, a path, a dict or a
-            ``GraphSchema``. Do not also set ``extends`` in ``source``.
+        extends: The base schema, as a shipped name, a ``Preset``, a path, a
+            dict or a ``GraphSchema``. A preset is applied to the default
+            schema. Do not also set ``extends`` in ``source``.
 
     Returns:
         The loaded schema. ``name`` defaults to ``custom`` (the file stem for a

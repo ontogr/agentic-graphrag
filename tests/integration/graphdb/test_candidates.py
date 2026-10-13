@@ -61,12 +61,13 @@ class TestCandidateStore:
         store: GraphStore,
     ) -> None:
         """Separate writes retain their counts and list as one total."""
+        text = f"Master Agreement {uuid4()}"
         chunks = [uuid4(), uuid4()]
         records = [
             CandidateRecord(
                 kind="entity",
                 label="Contract",
-                text="Master Agreement",
+                text=text,
                 confidence=0.4,
                 reason="entity_band",
                 chunk_id=chunks[0],
@@ -75,7 +76,7 @@ class TestCandidateStore:
             CandidateRecord(
                 kind="entity",
                 label="Contract",
-                text="Master Agreement",
+                text=text,
                 confidence=0.8,
                 reason="entity_band",
                 chunk_id=chunks[1],
@@ -98,14 +99,15 @@ class TestCandidateStore:
                     "state": None,
                     "min_count": 1,
                     "skip": 0,
-                    "limit": 10,
+                    "limit": 1000,
                 },
             )
 
-            assert len(rows) == 1
-            assert rows[0]["count"] == 5
-            assert rows[0]["confidence"] == 0.8
-            assert set(rows[0]["chunk_ids"]) == {str(chunk) for chunk in chunks}
+            own_rows = [row for row in rows if row["text"] == text]
+            assert len(own_rows) == 1
+            assert own_rows[0]["count"] == 5
+            assert own_rows[0]["confidence"] == 0.8
+            assert set(own_rows[0]["chunk_ids"]) == {str(chunk) for chunk in chunks}
         finally:
             await _delete_candidates(store, [str(record.id) for record in records])
             await store.execute_write(
@@ -192,7 +194,7 @@ class TestCandidateStore:
                     "state": None,
                     "min_count": 1,
                     "skip": 0,
-                    "limit": 10,
+                    "limit": 1000,
                 },
             )
             visible_ids = {item for row in visible for item in row["ids"]}

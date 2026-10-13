@@ -17,21 +17,33 @@ The model runs in this process, so extraction needs no LLM key. It loads on
 first use and one load serves concurrent calls. Inference calls run one at a
 time on one worker thread. A call cancelled while it waits for its turn never
 starts, and one cancelled mid-inference leaves the next call waiting until the
-inference ends. Each instance loads its own model and runs its own inference
-thread, so share one extractor across graphs that use the same event loop.
-Concurrent calls from separate event loops are not supported. The first load
-downloads the weights from Hugging Face unless
-`model` is passed. GLiNER reports entity spans and types, so extracted
-entities carry no property values. Needs the `extract` extra.
-It asks for confidence and spans, and applies the configured entity and
-per-label thresholds.
+inference ends. The first load downloads the weights from Hugging Face unless
+`model` is passed. Needs the `extract` extra.
+
+One model call reads the whole schema: every entity type and every relation,
+each with its description. Entities need `settings.entity_threshold`.
+Relations need `settings.relation_threshold` and must match a pattern of
+the schema, where a pattern also accepts the child types of its labels. When
+the model returns the same words under a parent type and a child type, the
+label with the higher score is kept. Every kept entity and relation carries
+its confidence.
+
+The extractor reports what it dropped as candidates in the result: relations
+below the threshold, that match no pattern, or whose endpoint is not a kept
+entity. With `settings.candidates_enabled` it also makes a second model
+call at `settings.band_floor` and reports entity spans that score between
+that floor and the entity threshold and do not overlap a kept entity.
+
+The model reports spans and types only, so extracted entities carry no
+property values. The result sets `needs_properties` when a kept entity has
+a type that declares properties. Chunks of the default size fit the model in
+one pass.
 
 **Parameters:**
 
-- **settings** (<code>[ExtractionSettings](../settings/ExtractionSettings.md) | None</code>) – The checkpoint, precision and score thresholds. `None`
-  reads `ExtractionSettings` from the environment and `.env`.
-- **model** (<code>object | None</code>) – An already-built GLiNER2.5 model. The checkpoint and precision
-  settings do not apply to this model.
+- **settings** (<code>[ExtractionSettings](../settings/ExtractionSettings.md) | None</code>) – Model name, data type and thresholds. Defaults to
+  `ExtractionSettings()`, loaded from the environment or `.env`.
+- **model** (<code>object | None</code>) – An already-built GLiNER2.5 model.
 - **tracer** (<code>Tracer | None</code>) – Opens `agrag.extraction.gliner` and
   `agrag.extraction.model_load` spans. `None` opens no recorded
   span.

@@ -6,7 +6,7 @@ sidebar_label: fetch_relation_edges
 # `agrag.ingestion.community.fetch_relation_edges` \{#agrag-ingestion-community-fetch_relation_edges}
 
 ```python
-fetch_relation_edges(graph_store:GraphStore, *, page_size:int = 5000, use_cursor:bool = True) -> list[WeightedEdge]
+fetch_relation_edges(graph_store:GraphStore, *, page_size:int = 5000) -> list[WeightedEdge]
 ```
 
 Return every live domain relation as a weighted edge tuple.
@@ -18,15 +18,12 @@ entities connected by more than one distinct relation type contribute
 one edge tuple per type. graspologic_native sums parallel-edge
 weights when it builds its own adjacency.
 
-Supports cursor (keyset) pagination for large graphs where `SKIP`
-is expensive, and legacy `SKIP` pagination for callers that need
-it.
+Pages by keyset on `(a.id, b.id, type(r), r.id)`.
 
 **Parameters:**
 
 - **graph_store** (<code>[GraphStore](../../graphdb/base/GraphStore.md)</code>) – Where the relations are read from.
 - **page_size** (<code>int</code>) – Rows fetched per page.
-- **use_cursor** (<code>bool</code>) – When True uses keyset pagination on `(a.id, b.id, type(r), r.id)`; when False uses `SKIP` pagination.
 
 **Returns:**
 

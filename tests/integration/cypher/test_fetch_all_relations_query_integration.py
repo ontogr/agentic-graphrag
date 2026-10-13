@@ -1,4 +1,4 @@
-"""Integration tests for fetch_all_relations_query against real Neo4j.
+"""Integration tests for fetch_all_relations_query_cursor against real Neo4j.
 
 Run against the Docker Compose Neo4j instance from
 ``docker/docker-compose.ci.yml`` (``make dev-services-up``). The
@@ -18,7 +18,7 @@ import pytest
 from agrag.common.data_models.chunk import CHUNK_LABEL
 from agrag.common.data_models.graph_record import NodeRecord, RelationRecord
 from agrag.cypher.entities import validate_identifier
-from agrag.cypher.relations import fetch_all_relations_query
+from agrag.cypher.relations import fetch_all_relations_query_cursor
 from agrag.embedding.base import Embedder
 from agrag.graphdb import build_graph_store
 
@@ -42,7 +42,7 @@ class _FixedEmbedder(Embedder):
 
 @pytest.mark.skipif(neo4j_missing, reason="neo4j extra not installed")
 class TestFetchAllRelationsQueryIntegration:
-    """``fetch_all_relations_query`` excludes system and Chunk edges."""
+    """``fetch_all_relations_query_cursor`` excludes system and Chunk edges."""
 
     @pytest.fixture(autouse=True)
     async def setup_store(self) -> AsyncGenerator[None, None]:
@@ -144,7 +144,14 @@ class TestFetchAllRelationsQueryIntegration:
             )
 
             rows = await self.store.execute_read(
-                fetch_all_relations_query(), {"skip": 0, "limit": 100}
+                fetch_all_relations_query_cursor(),
+                {
+                    "last_a": "",
+                    "last_b": "",
+                    "last_type": "",
+                    "last_rel_id": "",
+                    "limit": 1000,
+                },
             )
 
             seeded_source_ids = {

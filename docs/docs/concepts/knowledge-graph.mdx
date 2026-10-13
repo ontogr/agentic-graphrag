@@ -41,7 +41,7 @@ The graph has these kinds of node:
 3. Table and Figure: one node for each table or figure. A table holds its caption, its column names and its row count. A figure holds its caption and its page box. It does not store the image.
 4. Source: one node for each record file, such as a CSV file. It joins each of its row documents with `HAS_DOCUMENT`.
 5. Chunk: one retrieval-sized piece of text. It holds the text, its location in the source, the headings above it, the sections it covers and the chunker that made it.
-6. Entity: one node for each name and type, such as the person "Ada Lovelace". Its label is the type from your schema. The same name with two types makes two entities. It records which chunks mention it.
+6. Entity: one node for each name and type, such as the person "Ada Lovelace". Its label is the type from your schema. A type with parents also adds the labels of its parents to the node. The same name with two types makes two entities. It records which chunks mention it.
 7. ResolvedEntity (see [Matching and resolved entities](./resolved-entities.mdx)): a group of entities that the resolver decided are the same thing. It exists only for groups of two or more.
 8. Community (see [Communities](./communities.mdx)): a group of related entities. It holds a title, a summary, a rating and findings.
 
@@ -70,7 +70,7 @@ Why does `HAS_PART` have an end time instead of being deleted? A changed documen
 
 Why does the resolver add a ResolvedEntity instead of merging entities? A match is a judgement. The original entity nodes stay, so a wrong match loses no information.
 
-Why is the type the label? The type is what you filter and index by. Every Agentic GraphRAG node also carries an internal marker label, so Agentic GraphRAG can find its own nodes in a shared database.
+Why is the type the label? The type is what you filter and index by. A parent type is a label too, so a filter on `Organization` returns `Vendor` entities. Every Agentic GraphRAG node also carries an internal marker label, so Agentic GraphRAG can find its own nodes in a shared database.
 
 Why does a chunk list its sections as a property and not as edges? A chunk can span several sections. It stores their ids in `section_ids`, so a reader can find them without a traversal. The [Chunking](./chunking.mdx) page explains how a chunk records its sections.
 

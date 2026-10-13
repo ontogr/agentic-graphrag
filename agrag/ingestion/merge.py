@@ -317,6 +317,17 @@ async def merge_properties(
     return resolved, conflicts, failures
 
 
+def _stored_labels(schema: GraphSchema, label: str) -> list[str]:
+    """Return the labels a node of ``label`` is stored with, leaf first.
+
+    A label the schema does not declare has no ancestors, so it is stored
+    alone.
+    """
+    if any(entity.label == label for entity in schema.entities):
+        return schema.node_labels(label)
+    return [label]
+
+
 def _new_survivor_id(label: str, name: str, job_id: UUID | str | None) -> UUID:
     """Return the id for a brand-new merge survivor.
 
@@ -572,7 +583,8 @@ async def apply_merge(
     Args:
         plan: The merge to write.
         graph_store: Where the merge is written.
-        schema: The schema the survivor's label belongs to.
+        schema: The schema the survivor's label belongs to. Its hierarchy
+            decides the ancestor labels the node is stored with.
         pending_job_id: The in-flight Cutover Job's id, tagging the
             survivor node and its aliases until that job commits. None
             writes untagged, for callers outside a job.
@@ -592,7 +604,9 @@ async def apply_merge(
     from agrag.graphdb.errors import GraphStoreAliasConflictError  # noqa: PLC0415
     from agrag.graphdb.serialize import node_params  # noqa: PLC0415
 
-    validate_identifier(plan.survivor.label)
+    stored_labels = _stored_labels(schema, plan.survivor.label)
+    for stored_label in stored_labels:
+        validate_identifier(stored_label)
     survivor_id = str(plan.survivor.id)
 
     async def write(txn: GraphStoreTransaction) -> None:
@@ -600,7 +614,7 @@ async def apply_merge(
         # those two go through upsert_survivor_query's atomic accumulation
         # instead, using node_params only to get their driver-safe encoding,
         # not their values.
-        record = plan.survivor.to_node_record()
+        record = plan.survivor.to_node_record(ancestor_labels=stored_labels[1:])
         survivor_properties = dict(record.properties)
         survivor_properties.pop("source_chunk_ids", None)
         survivor_properties.pop("merge_count", None)
@@ -613,7 +627,7 @@ async def apply_merge(
         params["new_source_chunk_ids"] = [str(cid) for cid in plan.new_source_chunk_ids]
         params["merge_count_delta"] = plan.merge_count_delta
         await txn.execute_write(
-            upsert_survivor_query(plan.survivor.label), {"records": [params]}
+            upsert_survivor_query(stored_labels), {"records": [params]}
         )
         accepted_merge_keys = plan.accepted_merge_keys or [plan.survivor.merge_key]
         alias_rows = await txn.execute_write(

@@ -218,7 +218,7 @@ def upsert_merge_alias_query() -> str:
     )
 
 
-def upsert_survivor_query(label: str) -> str:
+def upsert_survivor_query(labels: Sequence[str]) -> str:
     """Build Cypher upserting a merge survivor with atomic accumulation.
 
     Unlike ``upsert_node_query``'s plain ``SET n += record.properties``
@@ -238,7 +238,8 @@ def upsert_survivor_query(label: str) -> str:
     into stays visible and out of reach of that job's rollback.
 
     Args:
-        label: The node label. Must already be validated.
+        labels: The node's labels: the leaf label first, then ancestor
+            labels. Must be non-empty. Each is validated here.
 
     Returns:
         A parameterized Cypher query expecting a ``$records`` list
@@ -246,13 +247,19 @@ def upsert_survivor_query(label: str) -> str:
         field except ``source_chunk_ids`` and ``merge_count``),
         ``pending_job_id`` (the Cutover Job tag, or None),
         ``new_source_chunk_ids``, and ``merge_count_delta``.
+
+    Raises:
+        ValueError: ``labels`` is empty, or any label is not a safe
+            identifier.
     """
-    safe_label = validate_identifier(label)
+    if not labels:
+        raise ValueError("upsert_survivor_query requires at least one label")
+    label_expr = ":".join(validate_identifier(label) for label in labels)
     return (
         f"UNWIND $records AS record "
         f"MERGE (n:{NODE_IDENTITY_LABEL} {{id: record.id}}) "
         f"ON CREATE SET n.{PENDING_JOB_ID_PROPERTY} = record.pending_job_id "
-        f"SET n:{safe_label} "
+        f"SET n:{label_expr} "
         f"WITH n, record, "
         f"(record.pending_job_id IS NULL OR n.{PENDING_JOB_ID_PROPERTY} IS NULL "
         f"OR n.{PENDING_JOB_ID_PROPERTY} = record.pending_job_id) AS can_update, "
@@ -339,15 +346,25 @@ def fetch_all_by_label_query(label: str) -> str:
     Nodes an in-flight Cutover Job wrote are excluded, so consolidation
     never resolves against uncommitted entities.
 
+    Only nodes whose own (leaf) label is ``label`` are returned. A node of
+    a child type also carries ``label`` as an ancestor label, but its
+    merge_key starts with the child label, so the prefix test leaves it
+    out. Resolution never merges across leaf labels.
+
     Args:
-        label: The node label. Must already be validated.
+        label: The node label. Validated here.
 
     Returns:
         Parameterized Cypher expecting $skip and $limit.
+
+    Raises:
+        ValueError: ``label`` is not a safe identifier.
     """
+    safe_label = validate_identifier(label)
     return (
-        f"MATCH (n:{validate_identifier(label)}) "
+        f"MATCH (n:{safe_label}) "
         f"WHERE {pending_filter_clause('n')} "
+        f"AND n.merge_key STARTS WITH '{safe_label}:' "
         f"RETURN n ORDER BY n.id SKIP $skip LIMIT $limit"
     )
 

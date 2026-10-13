@@ -22,6 +22,7 @@ from agrag.common.data_models.extraction import (
     ExtractionResult,
 )
 from agrag.common.data_models.graph_schema import EntityType, GraphSchema
+from agrag.ingestion._gliner_decode import decode_gliner
 from agrag.ingestion.settings import ExtractionSettings
 from agrag.llm.client_config import LLMClientConfig, RetryConfig
 from agrag.llm.retry import NO_RETRY, call_with_retry
@@ -158,7 +159,7 @@ def _resolve_relation_pair(
 def _normalize_extraction_result(
     result: ExtractionResult, schema: GraphSchema
 ) -> ExtractionResult:
-    """Drop entities and relations that the schema does not declare.
+    """Drop LLM entities and relations that the schema does not declare.
 
     An entity survives only when its label is a declared EntityType, and
     keeps only the property keys that EntityType declares. An extractor
@@ -167,8 +168,8 @@ def _normalize_extraction_result(
     prompted), and compute_merge has no schema of its own to filter against
     later. A relation survives only when its label is a declared
     RelationType and the resolved (source label, target label) pair, checked
-    against the schema's allowed endpoint pairs. A relation pointing at a
-    dropped entity is dropped too.
+    against the surviving entities, satisfies ``schema.allows``. A relation
+    pointing at a dropped entity is dropped too.
     Surviving relation indices are remapped to the filtered entity list.
 
     Args:
@@ -226,7 +227,63 @@ def _normalize_extraction_result(
         entities=valid_entities,
         relations=valid_relations,
         extractor_name=result.extractor_name,
+        candidates=result.candidates,
+        needs_properties=result.needs_properties,
     )
+
+
+def _infer(
+    model: object,
+    text: str,
+    main_schema: object,
+    band_schema: object | None,
+    settings: ExtractionSettings,
+) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    """Run the gliner2 calls for one chunk on the calling thread.
+
+    The main call reads entities at ``entity_threshold``. The schema carries a
+    threshold for every relation, so the same call returns relations from
+    ``relation_floor``. The band call reads entities at ``band_floor``, which
+    lets the caller see the spans between the two thresholds. The two calls
+    stay apart because gliner2 resolves overlap after it applies the
+    threshold: a lower threshold can drop a span that the higher one keeps.
+
+    Args:
+        model: The GLiNER2.5 model.
+        text: The chunk text.
+        main_schema: The schema with entities and relations.
+        band_schema: The entity-only schema for the band call, or None to skip
+            that call.
+        settings: Supplies both thresholds.
+
+    Returns:
+        The raw result of the main call, and of the band call. The band result
+        is None when no band call ran or when the band call raised.
+    """
+    raw = model.extract(  # ty: ignore[unresolved-attribute]
+        text,
+        main_schema,
+        threshold=settings.entity_threshold,
+        include_confidence=True,
+        include_spans=True,
+    )
+    if band_schema is None:
+        return raw, None
+    try:
+        band_raw = model.extract(  # ty: ignore[unresolved-attribute]
+            text,
+            band_schema,
+            threshold=settings.band_floor,
+            include_confidence=True,
+            include_spans=True,
+        )
+    except Exception:
+        logger.warning(
+            "Band inference failed; keeping the main result without band candidates.",
+            exc_info=True,
+        )
+        return raw, None
+    return raw, band_raw
 
 
 class ExtractorMissingExtraError(IngestionError):
@@ -367,20 +424,32 @@ class GlinerExtractor(Extractor):
     first use and one load serves concurrent calls. Inference calls run one at a
     time on one worker thread. A call cancelled while it waits for its turn never
     starts, and one cancelled mid-inference leaves the next call waiting until the
-    inference ends. Each instance loads its own model and runs its own inference
-    thread, so share one extractor across graphs that use the same event loop.
-    Concurrent calls from separate event loops are not supported. The first load
-    downloads the weights from Hugging Face unless
-    ``model`` is passed. GLiNER reports entity spans and types, so extracted
-    entities carry no property values. Needs the ``extract`` extra.
-    It asks for confidence and spans, and applies the configured entity and
-    per-label thresholds.
+    inference ends. The first load downloads the weights from Hugging Face unless
+    ``model`` is passed. Needs the ``extract`` extra.
+
+    One model call reads the whole schema: every entity type and every relation,
+    each with its description. Entities need ``settings.entity_threshold``.
+    Relations need ``settings.relation_threshold`` and must match a pattern of
+    the schema, where a pattern also accepts the child types of its labels. When
+    the model returns the same words under a parent type and a child type, the
+    label with the higher score is kept. Every kept entity and relation carries
+    its confidence.
+
+    The extractor reports what it dropped as candidates in the result: relations
+    below the threshold, that match no pattern, or whose endpoint is not a kept
+    entity. With ``settings.candidates_enabled`` it also makes a second model
+    call at ``settings.band_floor`` and reports entity spans that score between
+    that floor and the entity threshold and do not overlap a kept entity.
+
+    The model reports spans and types only, so extracted entities carry no
+    property values. The result sets ``needs_properties`` when a kept entity has
+    a type that declares properties. Chunks of the default size fit the model in
+    one pass.
 
     Args:
-        settings: The checkpoint, precision and score thresholds. ``None``
-            reads ``ExtractionSettings`` from the environment and ``.env``.
-        model: An already-built GLiNER2.5 model. The checkpoint and precision
-            settings do not apply to this model.
+        settings: Model name, data type and thresholds. Defaults to
+            ``ExtractionSettings()``, loaded from the environment or ``.env``.
+        model: An already-built GLiNER2.5 model.
         tracer: Opens ``agrag.extraction.gliner`` and
             ``agrag.extraction.model_load`` spans. ``None`` opens no recorded
             span.
@@ -430,24 +499,28 @@ class GlinerExtractor(Extractor):
             attributes={"agrag.chunk_id": str(chunk.id)},
         ) as span:
             model = await self._load_model()
-            gliner_schema = self._build_schema(model, schema)
+            settings = self.settings
+            main_schema = self._build_schema(model, schema, band=False)
+            band_schema = (
+                self._build_schema(model, schema, band=True)
+                if settings.candidates_enabled
+                else None
+            )
             # Unlike asyncio.to_thread, run_in_executor does not copy the context,
             # so copy it here to keep the active trace span in the inference thread.
-            raw = await asyncio.get_running_loop().run_in_executor(
+            raw, band_raw = await asyncio.get_running_loop().run_in_executor(
                 self._inference_executor,
                 partial(
                     contextvars.copy_context().run,
-                    model.extract,  # ty: ignore[unresolved-attribute]
+                    _infer,
+                    model,
                     chunk.text,
-                    gliner_schema,
-                    threshold=self.settings.entity_threshold,
-                    include_confidence=True,
-                    include_spans=True,
+                    main_schema,
+                    band_schema,
+                    settings,
                 ),
             )
-            result = _normalize_extraction_result(
-                self._to_result(raw, chunk, schema), schema
-            )
+            result = decode_gliner(raw, band_raw, chunk, schema, settings)
             span.set_attribute("agrag.entities_extracted", len(result.entities))
             span.set_attribute("agrag.relations_extracted", len(result.relations))
             return result
@@ -512,146 +585,52 @@ class GlinerExtractor(Extractor):
             )
         return self._model
 
-    def _build_schema(self, model: object, schema: GraphSchema) -> object:
-        """Return a GLiNER2.5 schema object built from schema's labels and guidance.
+    def _build_schema(
+        self, model: object, schema: GraphSchema, *, band: bool
+    ) -> object:
+        """Return a GLiNER2.5 schema object built from the types of schema.
 
-        GLiNER2.5's ``entities()``/``relations()`` accept a label -> description
-        dict, so each type's ``description`` reaches the model as extraction
-        guidance instead of being dropped.
+        GLiNER2.5 takes a label -> description mapping, so each description
+        reaches the model as guidance. A label with an entry in
+        ``settings.label_thresholds`` gets its own entity threshold. Every
+        relation gets a threshold of ``relation_floor``, or less when its label
+        threshold is lower, so the model returns relations that score below the
+        relation cut and the caller can report them. Every declared entity type
+        is listed, parents and children alike, so the model sees both labels.
+
+        Args:
+            model: The GLiNER2.5 model.
+            schema: The schema to read.
+            band: Whether to build the entity-only schema for the band call. It
+                has no label thresholds, so all labels read at the call
+                threshold.
         """
+        settings = self.settings
         builder = model.create_schema()  # ty: ignore[unresolved-attribute]
-        builder = builder.entities(
-            {
-                entity.label: (
-                    {
-                        "description": entity.description,
-                        "threshold": self.settings.label_thresholds[entity.label],
-                    }
-                    if entity.label in self.settings.label_thresholds
-                    else entity.description
-                )
-                for entity in schema.entities
-            }
-        )
-        return builder.relations(
-            {relation.label: relation.description for relation in schema.relations}
-        )
-
-    def _to_result(
-        self, raw: object, chunk: Chunk, schema: GraphSchema
-    ) -> ExtractionResult:
-        """Return an ExtractionResult built from gliner2's raw output.
-
-        Called with ``include_spans=True`` and ``include_confidence=True``,
-        GLiNER2.5's extract() returns a dict with ``entities`` (label -> list of
-        mention dicts with text, confidence, start, end) and
-        ``relation_extraction`` (label -> list of relation
-        dicts each having the keys head, tail, with endpoints shaped like mention
-        dicts). Every reported span is
-        verified against chunk.text via ``_resolve_span``: a mention whose text
-        does not occur in chunk.text at all is dropped, an off-by-a-few span is
-        corrected. Relation endpoints are matched back to entities by their
-        resolved (text, start, end), not by text alone, so two mentions with
-        identical surface text still resolve to their own entity. When the same
-        span appears under multiple labels, all candidate indices are preserved
-        and each relation is resolved to a distinct candidate pair compatible
-        with its declared endpoint patterns. A relation whose endpoints both
-        resolve to the same entity is dropped, not raised, so one malformed
-        relation does not abort the whole chunk.
-
-        Entity confidence is the mention score. Relation confidence is the
-        relation score, which head and tail share.
-
-        GLiNER2.5 is used here as a span extractor only, so every entity's
-        ``properties`` is empty; it never claims a schema-declared property
-        value it did not actually extract.
-        """
-        if chunk.id is None:
-            raise ValueError("Chunk must have an id for extraction.")
-        raw_dict: dict = raw  # ty: ignore[invalid-assignment]
-        raw_entities: dict[str, list[dict]] = raw_dict.get("entities", {})
-        raw_relations: dict[str, list[dict]] = raw_dict.get("relation_extraction", {})
-
-        entities: list[ExtractedEntity] = []
-        span_index: dict[tuple[str, int, int], list[int]] = {}
-        chunk_id = chunk.id
-        occurrences_by_text: dict[str, list[int]] = {}
-        for label, mentions in raw_entities.items():
-            for mention in mentions:
-                span = _resolve_span(
-                    mention["text"],
-                    chunk.text,
-                    mention["start"],
-                    mention["end"],
-                    occurrences_by_text,
-                )
-                if span is None:
-                    continue
-                start, end = span
-                key = (mention["text"], start, end)
-                span_index.setdefault(key, []).append(len(entities))
-                entities.append(
-                    ExtractedEntity(
-                        chunk_id=chunk_id,
-                        label=label,
-                        text=mention["text"],
-                        char_start=start,
-                        char_end=end,
-                        confidence=mention.get("confidence"),
-                    )
-                )
-
-        relation_labels = {relation.label for relation in schema.relations}
-        relations: list[ExtractedRelation] = []
-        for label, pairs in raw_relations.items():
-            if label not in relation_labels:
-                continue
-            for pair in pairs:
-                head, tail = pair["head"], pair["tail"]
-                source_span = _resolve_span(
-                    head["text"],
-                    chunk.text,
-                    head["start"],
-                    head["end"],
-                    occurrences_by_text,
-                )
-                target_span = _resolve_span(
-                    tail["text"],
-                    chunk.text,
-                    tail["start"],
-                    tail["end"],
-                    occurrences_by_text,
-                )
-                if source_span is None or target_span is None:
-                    continue
-                source_key = (head["text"], *source_span)
-                target_key = (tail["text"], *target_span)
-                source_candidates = span_index.get(source_key, [])
-                target_candidates = span_index.get(target_key, [])
-                match = next(
-                    (
-                        (si, ti)
-                        for si in source_candidates
-                        for ti in target_candidates
-                        if si != ti
-                        and schema.allows(label, entities[si].label, entities[ti].label)
+        entities: dict[str, str | dict[str, object]] = {}
+        for entity in schema.entities:
+            override = None if band else settings.label_thresholds.get(entity.label)
+            entities[entity.label] = (
+                entity.description
+                if override is None
+                else {"description": entity.description, "threshold": override}
+            )
+        builder = builder.entities(entities)
+        if band:
+            return builder
+        relations = {
+            relation.label: {
+                "description": relation.description,
+                "threshold": min(
+                    settings.relation_floor,
+                    settings.label_thresholds.get(
+                        relation.label, settings.relation_floor
                     ),
-                    None,
-                )
-                if match is not None:
-                    si, ti = match
-                    relations.append(
-                        ExtractedRelation(
-                            chunk_id=chunk_id,
-                            label=label,
-                            source_index=si,
-                            target_index=ti,
-                            confidence=head.get("confidence"),
-                        )
-                    )
-        return ExtractionResult(
-            entities=entities, relations=relations, extractor_name="gliner"
-        )
+                ),
+            }
+            for relation in schema.relations
+        }
+        return builder.relations(relations)
 
 
 class BAMLExtractor(LLMExtractor):
@@ -891,8 +870,9 @@ class EscalatingExtractor(Extractor):
     """Run a cheap extractor on every chunk and a stronger one on weak results.
 
     The primary extractor runs first. A chunk escalates when the primary finds
-    no entities in a chunk of at least ``min_chunk_words`` words, or when the
-    mean entity confidence is below ``min_confidence``. An escalated chunk gets
+    no entities in a chunk of at least ``min_chunk_words`` words, when the
+    mean entity confidence is below ``min_confidence``, or when the primary
+    sets ``needs_properties``. An escalated chunk gets
     the ``escalate_to`` result alone. The two results are never combined. A
     common pairing is ``GlinerExtractor`` as primary and ``BAMLExtractor`` as
     fallback.
@@ -962,6 +942,8 @@ class EscalatingExtractor(Extractor):
             result: The primary extractor's result for chunk.
             chunk: The chunk result came from, used for its word count.
         """
+        if result.needs_properties:
+            return True
         if not result.entities and len(chunk.text.split()) >= self.min_chunk_words:
             return True
         confidences = [

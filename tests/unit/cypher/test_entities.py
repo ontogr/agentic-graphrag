@@ -9,6 +9,7 @@ that filter_clause rejects an unsafe field name.
 import pytest
 
 from agrag.cypher.entities import (
+    fetch_all_by_label_query,
     filter_clause,
     upsert_node_query,
     upsert_survivor_query,
@@ -55,12 +56,38 @@ class TestUpsertNodeQuery:
 
 
 class TestUpsertSurvivorQuery:
-    """upsert_survivor_query validates its label."""
+    """upsert_survivor_query sets the leaf and ancestor labels."""
 
-    def test_validates_label(self) -> None:
+    def test_rejects_unsafe_label(self) -> None:
+        """An unsafe label in the list raises before the query is built."""
+        with pytest.raises(ValueError):
+            upsert_survivor_query(["Vendor", "Bad Label"])
+
+    def test_rejects_empty_labels(self) -> None:
+        """An empty label list raises rather than building a labelless SET."""
+        with pytest.raises(ValueError):
+            upsert_survivor_query([])
+
+    def test_sets_leaf_and_ancestor_labels(self) -> None:
+        """The leaf label and each ancestor label are applied to the node."""
+        assert "SET n:Vendor:Organization " in upsert_survivor_query(
+            ["Vendor", "Organization"]
+        )
+
+
+class TestFetchAllByLabelQuery:
+    """fetch_all_by_label_query returns only nodes whose leaf label matches."""
+
+    def test_filters_on_leaf_label_prefix(self) -> None:
+        """Nodes whose merge_key starts with another type are excluded."""
+        assert "n.merge_key STARTS WITH 'Organization:'" in (
+            fetch_all_by_label_query("Organization")
+        )
+
+    def test_rejects_unsafe_label(self) -> None:
         """An unsafe label raises before the query is built."""
         with pytest.raises(ValueError):
-            upsert_survivor_query("Bad Label")
+            fetch_all_by_label_query("Bad Label")
 
 
 class TestFilterClause:

@@ -4,12 +4,14 @@ import random
 
 import pytest
 
+from agrag.common.data_models.default_schema import DEFAULT_SCHEMA
 from agrag.common.data_models.graph_schema import (
     EntityType,
     GraphSchema,
     PropertySpec,
     RelationType,
 )
+from agrag.common.data_models.presets import LEGAL, OPERATIONS
 from agrag.schema import dump_schema, load_schema
 
 
@@ -80,3 +82,26 @@ class TestDumpSchema:
         full = load_schema(dump_schema(short))
 
         assert full == short
+
+
+_SHIPPED = {
+    "default": DEFAULT_SCHEMA,
+    "operations": OPERATIONS.apply(DEFAULT_SCHEMA),
+    "legal": LEGAL.apply(DEFAULT_SCHEMA),
+}
+
+
+class TestShippedSchemas:
+    """The shipped schema names load to their canonical schemas."""
+
+    @pytest.mark.parametrize("name", ["default", "operations", "legal"])
+    def test_shipped_schema_survives_a_dump_and_load(self, name):
+        """Dumping a shipped schema and loading it gives an equal schema."""
+        schema = _SHIPPED[name]
+
+        assert load_schema(dump_schema(schema)) == schema
+
+    @pytest.mark.parametrize("name", ["default", "operations", "legal"])
+    def test_shipped_name_loads_its_schema(self, name):
+        """Loading a shipped name gives the schema built for that name."""
+        assert load_schema(name) == _SHIPPED[name]

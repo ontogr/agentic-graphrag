@@ -6,7 +6,7 @@ description: Declare the entity and relation types for your domain and give them
 
 # Define a graph schema
 
-Declare the entity types and relation types for your domain. A schema lists the types that extraction can find. Give the schema to a graph. The extractor then looks only for those types.
+Declare the entity types and relation types for your domain. A schema lists the types that extraction can find. Give the schema to a graph. The extractor then looks only for those types. You can also write a schema as a short list or a YAML file. See [Write a custom schema](./write-a-custom-schema.mdx).
 
 ## Before you start
 
@@ -76,7 +76,7 @@ When you change the types or the patterns, raise `version`.
 
 ### Group types with parents
 
-A type can name parent types. A relation pattern that names a parent also covers every child. `ancestors(label)` returns the ancestors from nearest to farthest. `node_labels(label)` returns the type label first, followed by those ancestors. These helpers describe schema labels. Stored nodes currently carry only their leaf label.
+A type can name parent types. A relation pattern that names a parent also covers every child. `ancestors(label)` returns the ancestors from nearest to farthest. `node_labels(label)` returns the type label first, followed by those ancestors. The graph stores each entity node with the same labels, as the example below shows.
 
 ```python
 from agrag.common.data_models import EntityType, GraphSchema, RelationType
@@ -114,6 +114,8 @@ The output:
 ['Vendor', 'Organization']
 True
 ```
+
+The graph stores a `Vendor` node with the labels `Vendor` and `Organization`. A query on `Organization` also finds it, and the vector index of `Organization` includes it. A graph that you wrote before you added parents keeps its old labels until you ingest the documents again.
 
 A child type does not inherit its parent's properties. Declare those properties again on the child.
 
@@ -168,7 +170,7 @@ Each error names the fix. For example: `Relation 'OWNS' pattern target 'Product'
 
 ## 3. Open a graph with the schema and add text
 
-This script contains the whole flow. It opens a graph, adds two sentences, and prints what the graph stored.
+This script contains the whole flow. It opens a graph, adds two sentences, and prints what the graph stored. `Graph` accepts a `GraphSchema`, a file path, a dict, a list of strings or a shipped schema name. Call `schema.resolve()` to print the entity types and relation patterns that the extractor works from.
 
 ```python fixture:clean_neo4j
 import asyncio
