@@ -61,7 +61,9 @@ from agrag.vectordb.base import VectorStore
 
 logger = logging.getLogger(__name__)
 
-CleanupStep = Callable[[list[UUID], list[UUID]], Awaitable[list[StageFailure]]]
+CleanupStep = Callable[
+    [list[UUID], list[UUID], list[UUID]], Awaitable[list[StageFailure]]
+]
 
 
 def _vector_collections(retrieval_settings: RetrievalSettings) -> tuple[str, str, str]:
@@ -443,11 +445,13 @@ async def _commit_batch(  # noqa: PLR0913
     ):
         components: list[MatchComponent] = []
         deferred = DeferredWrites()
+        created_entity_ids: list[UUID] = []
 
         async def _pending(
             job_id: UUID,
             _components: list[MatchComponent] = components,
             _deferred: DeferredWrites = deferred,
+            _created: list[UUID] = created_entity_ids,
             _slice: tuple[
                 list[Chunk],
                 list[Document],
@@ -491,6 +495,7 @@ async def _commit_batch(  # noqa: PLR0913
                 max_llm_pairs=max_llm_pairs,
                 deferred=_deferred,
             )
+            _created.extend(ingested.created_entity_ids)
             return ingested.add_result
 
         partial, cleanup_failures, _ = await run_cutover_job(
@@ -505,6 +510,7 @@ async def _commit_batch(  # noqa: PLR0913
             cleanup=cleanup,
             components=components,
             deferred=deferred,
+            created_entity_ids=created_entity_ids,
             tracer=tracer,
         )
         partials.append(_with_cleanup_failures(partial, cleanup_failures))

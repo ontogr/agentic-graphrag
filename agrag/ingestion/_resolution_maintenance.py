@@ -20,7 +20,7 @@ from agrag.graphdb.base import GraphStore
 from agrag.graphdb.entities import load_entities
 from agrag.graphdb.serialize import parse_entity_node
 from agrag.ingestion.reports import ConsolidationReport, ReevaluationReport
-from agrag.ingestion.resolve import resolve_among, resolve_persisted
+from agrag.ingestion.resolve import resolve_among, resolve_created, resolve_persisted
 from agrag.ingestion.resolved_embeddings import _synchronize_resolved_entity_vectors
 from agrag.ingestion.resolved_entities import (
     MatchComponent,
@@ -203,6 +203,106 @@ async def deactivate_match(
             error_policy=ErrorPolicy.RAISE,
         )
         return result.resolved_entities
+
+
+async def reconcile_created_entities(
+    created_entity_ids: list[UUID],
+    *,
+    schema: GraphSchema,
+    graph_store: GraphStore,
+    embedder: Embedder,
+    vector_store: VectorStore | None,
+    retrieval_settings: RetrievalSettings,
+    tracer: Tracer,
+    max_llm_pairs: int,
+) -> list[StageFailure]:
+    """Resolve entities a committed job created against everything committed.
+
+    A job resolves its mentions against committed data only, so an entity
+    that a concurrent job created and had not committed yet is never a
+    candidate. Running this after the commit closes that gap: the matches are
+    written and the resolved entities rebuilt the way ``consolidate`` does.
+    A failure is returned, never raised, because the job already committed.
+
+    Args:
+        created_entity_ids: The entities the job created.
+        schema: The graph schema.
+        graph_store: The store the job committed to.
+        embedder: Embeds entity names and rebuilt resolved entities.
+        vector_store: The optional second write target for embeddings.
+        retrieval_settings: Collection names for the VectorStore writes.
+        tracer: A tracer to record spans.
+        max_llm_pairs: The most ambiguous pairs per label sent to the LLM.
+
+    Returns:
+        The recorded failures.
+    """
+    if not created_entity_ids:
+        return []
+    with tracer.start_as_current_span(
+        "agrag.ingestion.reconcile_created_entities",
+        attributes={"agrag.created_entity_count": len(created_entity_ids)},
+    ):
+        try:
+            loaded = await load_entities(graph_store, created_entity_ids, tracer=tracer)
+            created = [loaded[i] for i in created_entity_ids if i in loaded]
+            if not created:
+                return []
+            pool, result, failures = await resolve_created(
+                created,
+                graph_store=graph_store,
+                embedder=embedder,
+                vector_store=vector_store,
+                vector_collection=retrieval_settings.entity_collection,
+                entity_labels=[entity.label for entity in schema.entities],
+                tracer=tracer,
+                max_llm_pairs=max_llm_pairs,
+                error_policy=ErrorPolicy.SKIP,
+            )
+            decisions = [
+                MatchDecision(
+                    entity_a_id=pool[match.left_index].id,
+                    entity_b_id=pool[match.right_index].id,
+                    comparator=match.comparator,
+                    score=match.score,
+                    reasoning=match.reasoning,
+                    decided_at=match.decided_at,
+                )
+                for match in result.matches
+            ]
+            members_by_id = {entity.id: entity for entity in pool}
+            components: list[MatchComponent] = []
+            for component in match_decision_components(decisions):
+                member_ids = {d.entity_a_id for d in component} | {
+                    d.entity_b_id for d in component
+                }
+                components.append(
+                    (component, [members_by_id[member_id] for member_id in member_ids])
+                )
+            _, rebuild_failures = await write_and_rebuild_components(
+                components,
+                schema=schema,
+                graph_store=graph_store,
+                embedder=embedder,
+                vector_store=vector_store,
+                retrieval_settings=retrieval_settings,
+                tracer=tracer,
+                error_policy=ErrorPolicy.SKIP,
+            )
+        except Exception as exc:  # noqa: BLE001
+            trace_id, span_id = record_stage_failure(exc)
+            return [
+                StageFailure(
+                    item_id=",".join(
+                        str(entity_id) for entity_id in created_entity_ids
+                    ),
+                    error_type=type(exc).__name__,
+                    error_message=str(exc),
+                    trace_id=trace_id,
+                    span_id=span_id,
+                )
+            ]
+        return [*failures, *rebuild_failures]
 
 
 async def consolidate(

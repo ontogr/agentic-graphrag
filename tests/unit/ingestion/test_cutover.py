@@ -470,7 +470,9 @@ class _FakeVectorStore(VectorStore):
 
 
 async def _noop_cleanup(
-    affected_entity_ids: list[UUID], component_seed_ids: list[UUID]
+    affected_entity_ids: list[UUID],
+    component_seed_ids: list[UUID],
+    created_entity_ids: list[UUID],
 ) -> None:
     """Default cleanup step for jobs whose cleanup does nothing."""
 
@@ -672,7 +674,9 @@ class TestRunCutoverJobLeaseRenewal:
         async def pending(job_id: UUID) -> None:
             store.nodes.append(_tag_node(job_id))
 
-        async def cleanup(affected: list[UUID], seeds: list[UUID]) -> None:
+        async def cleanup(
+            affected: list[UUID], seeds: list[UUID], created: list[UUID]
+        ) -> None:
             nonlocal cleanup_cancelled
             cleanup_started.set()
             try:
@@ -1101,7 +1105,9 @@ class TestRunCutoverJobRollForward:
 
         cleaned = False
 
-        async def cleanup(affected: list[UUID], seeds: list[UUID]) -> None:
+        async def cleanup(
+            affected: list[UUID], seeds: list[UUID], created: list[UUID]
+        ) -> None:
             nonlocal cleaned
             cleaned = True
 
@@ -1202,7 +1208,9 @@ class TestRunCutoverJobComponentSeeds:
         async def pending(job_id: UUID) -> None:
             return None
 
-        async def cleanup(affected: list[UUID], seeds: list[UUID]) -> None:
+        async def cleanup(
+            affected: list[UUID], seeds: list[UUID], created: list[UUID]
+        ) -> None:
             received.append((affected, seeds))
 
         affected = [uuid4()]

@@ -43,6 +43,7 @@ Entity resolution public API.
 - [**persisted_candidate_indices**](candidate_source/persisted_candidate_indices.md) – Return ANN candidate indices, with a bounded exhaustive fallback.
 - [**resolve_among**](resolution/resolve_among.md) – Resolve a fixed set of persisted entities by comparing same-label pairs.
 - [**resolve_batch**](resolution/resolve_batch.md) – Resolve one extraction batch against itself and the persisted graph.
+- [**resolve_created**](resolution/resolve_created.md) – Resolve newly committed entities against everything committed.
 - [**resolve_persisted**](resolution/resolve_persisted.md) – Resolve persisted entities against each other.
 
 **Attributes:**

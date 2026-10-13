@@ -12,6 +12,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import uuid4
 
+from agrag.common.data_models.stage_failure import StageFailure
 from agrag.cypher.cutover_job_write import (
     claim_job_query,
     claim_pending_job_query,
@@ -264,10 +265,10 @@ class TestResumeIncompleteJobs:
         assert store.rollback_tokens[0] != original_token
         assert job_id not in store.jobs
 
-    async def test_roll_forward_receives_both_recorded_lists(self) -> None:
-        """Cleanup gets the snapshot and component seeds the job recorded."""
+    async def test_roll_forward_receives_all_recorded_lists(self) -> None:
+        """Cleanup gets the snapshot, component seeds and created entities."""
         job_id = str(uuid4())
-        affected, seed = uuid4(), uuid4()
+        affected, seed, created = uuid4(), uuid4(), uuid4()
         store = _FakeResumeStore(
             [
                 {
@@ -275,20 +276,55 @@ class TestResumeIncompleteJobs:
                     "status": "committed",
                     "affected_entity_ids": [str(affected)],
                     "component_seed_ids": [str(seed), "not-a-uuid"],
+                    "created_entity_ids": [str(created)],
                     "lease_expired": True,
                 }
             ]
         )
-        calls: list[tuple[list[Any], list[Any]]] = []
+        calls: list[tuple[list[Any], list[Any], list[Any]]] = []
 
-        async def _record(entity_ids: list[Any], seed_ids: list[Any]) -> None:
-            calls.append((entity_ids, seed_ids))
+        async def _record(
+            entity_ids: list[Any], seed_ids: list[Any], created_ids: list[Any]
+        ) -> list[StageFailure]:
+            calls.append((entity_ids, seed_ids, created_ids))
+            return []
 
         handled = await resume_incomplete_jobs(store, roll_forward=_record)
 
         assert handled == [job_id]
-        assert calls == [([affected], [seed])]
+        assert calls == [([affected], [seed], [created])]
         assert store.jobs[job_id]["status"] == "done"
+
+    async def test_roll_forward_failure_leaves_job_cleaning(self) -> None:
+        """A cleanup that returns a failure is retried, not marked done."""
+        job_id = str(uuid4())
+        store = _FakeResumeStore(
+            [
+                {
+                    "id": job_id,
+                    "status": "committed",
+                    "affected_entity_ids": [],
+                    "component_seed_ids": [str(uuid4())],
+                    "created_entity_ids": [],
+                    "lease_expired": True,
+                }
+            ]
+        )
+
+        async def _fail(
+            entity_ids: list[Any], seed_ids: list[Any], created_ids: list[Any]
+        ) -> list[StageFailure]:
+            return [
+                StageFailure(
+                    item_id=str(seed_ids[0]),
+                    error_type="RuntimeError",
+                    error_message="rebuild failed",
+                )
+            ]
+
+        await resume_incomplete_jobs(store, roll_forward=_fail)
+
+        assert store.jobs[job_id]["status"] == "cleaning"
 
     async def test_add_job_with_only_seeds_still_runs_cleanup(self) -> None:
         """A job with no affected entities replays when it recorded components.
@@ -311,7 +347,9 @@ class TestResumeIncompleteJobs:
         )
         calls: list[tuple[list[Any], list[Any]]] = []
 
-        async def _record(entity_ids: list[Any], seed_ids: list[Any]) -> None:
+        async def _record(
+            entity_ids: list[Any], seed_ids: list[Any], created_ids: list[Any]
+        ) -> None:
             calls.append((entity_ids, seed_ids))
 
         handled = await resume_incomplete_jobs(store, roll_forward=_record)
@@ -334,7 +372,9 @@ class TestResumeIncompleteJobs:
             ]
         )
 
-        async def _failing(entity_ids: list[Any], seed_ids: list[Any]) -> None:
+        async def _failing(
+            entity_ids: list[Any], seed_ids: list[Any], created_ids: list[Any]
+        ) -> None:
             raise RuntimeError("rebuild blew up")
 
         handled = await resume_incomplete_jobs(store, roll_forward=_failing)
@@ -378,7 +418,9 @@ class TestResumeIncompleteJobs:
         )
         calls: list[object] = []
 
-        async def _record(entity_ids: list[Any], seed_ids: list[Any]) -> None:
+        async def _record(
+            entity_ids: list[Any], seed_ids: list[Any], created_ids: list[Any]
+        ) -> None:
             calls.append((entity_ids, seed_ids))
 
         handled = await resume_incomplete_jobs(store, roll_forward=_record)
@@ -404,7 +446,9 @@ class TestResumeIncompleteJobs:
             ]
         )
 
-        async def _failing_prune(entity_ids: list[Any], seed_ids: list[Any]) -> None:
+        async def _failing_prune(
+            entity_ids: list[Any], seed_ids: list[Any], created_ids: list[Any]
+        ) -> None:
             raise RuntimeError("prune blew up")
 
         handled = await resume_incomplete_jobs(store, roll_forward=_failing_prune)
@@ -426,7 +470,9 @@ class TestResumeIncompleteJobs:
             ]
         )
 
-        async def _slow_prune(entity_ids: list[Any], seed_ids: list[Any]) -> None:
+        async def _slow_prune(
+            entity_ids: list[Any], seed_ids: list[Any], created_ids: list[Any]
+        ) -> None:
             await asyncio.sleep(1.1)
 
         handled = await resume_incomplete_jobs(
