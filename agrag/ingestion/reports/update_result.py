@@ -2,6 +2,7 @@
 
 from pydantic import BaseModel
 
+from agrag.common.data_models.update_decision import UpdateDecision
 from agrag.ingestion.reports.add_result import AddResult
 
 
@@ -15,6 +16,7 @@ class UpdateResult(BaseModel):
         new_content_hash: Hash written by an update, or ``None`` on deletion.
         parts_closed: Number of open HAS_PART edges closed.
         add_result: Ingestion details for changed content, if any.
+        decision: The outcome selected for an update, or ``None`` on deletion.
     """
 
     document_key: str
@@ -23,3 +25,4 @@ class UpdateResult(BaseModel):
     new_content_hash: str | None = None
     parts_closed: int = 0
     add_result: AddResult | None = None
+    decision: UpdateDecision | None = None

@@ -68,9 +68,10 @@ Workers that share a graph must run the same version during an upgrade. Use the 
 
 | What differs | What `Graph.update` does |
 |---|---|
-| Nothing | Nothing runs. The call returns `no_op=True`. |
-| Only the extraction fingerprint | It extracts the entities again on the same chunks. The chunks are not embedded again. Entities that only the old run produced are removed. Relations lose the evidence of this document's old run, and a relation with no evidence left is removed. |
-| The content hash, the chunker fingerprint or the schema fingerprint, or no chunk is open | It writes a new version of the document with new chunks, and the new chunks are embedded. The old version closes when the job commits, and entities that only the old version produced are removed. |
+| The content hash, chunker fingerprint or schema fingerprint differs, or no chunk is open | It writes a new version with new chunks and embeddings. The old version closes when the job commits. |
+| `force=True`, or only the extraction fingerprint differs | It extracts entities again on the existing chunks. The chunks and embeddings stay the same. Entities that only the old run produced are removed. |
+| Only `published_at` or `content_date` differs | It writes the dates without chunking or extraction. |
+| All compared values match | Nothing runs. The call returns `no_op=True`. |
 
 The values come from the document and its chunks:
 

@@ -1,19 +1,20 @@
 """Shared graph helpers for document version lifecycle operations.
 
-A document is decided against the stamps of its newest open chunk. The
-decision is one of three outcomes: nothing to do, re-extract in place with
-the same chunks, or write a new version.
+A document is decided against its dates and the stamps of its newest open chunk.
+The decision can skip work, update dates, re-extract in place, or write a new
+version.
 """
 
 from __future__ import annotations
 
 from collections.abc import Sequence
-from enum import StrEnum
+from datetime import date
 from typing import TYPE_CHECKING
 from uuid import UUID
 
 from pydantic import BaseModel
 
+from agrag.common.data_models.update_decision import UpdateDecision
 from agrag.common.schema_fingerprint import RunRecord
 from agrag.cypher.documents import current_run_record_query, find_document_query
 from agrag.cypher.relations import close_has_part_query
@@ -22,23 +23,6 @@ from agrag.graphdb.base import GraphStore
 
 if TYPE_CHECKING:
     from agrag.graphdb.base import GraphStoreTransaction
-
-
-class UpdateDecision(StrEnum):
-    """What an update does with a document already in the graph.
-
-    Attributes:
-        NO_OP: The stored version matches the new input in every stamp.
-        IN_PLACE: Only the extraction setup differs or was never recorded
-            (a refresh whose extraction failed), so the chunks are kept and
-            re-extracted.
-        NEW_VERSION: The content, the chunking, the schema or the stamps are
-            missing or differ, so a new version is written.
-    """
-
-    NO_OP = "no_op"
-    IN_PLACE = "in_place"
-    NEW_VERSION = "new_version"
 
 
 class DocumentLookup(BaseModel):
@@ -55,6 +39,8 @@ class DocumentLookup(BaseModel):
             chunk, or ``None`` when it records none.
         current_extraction_fingerprint: The extraction fingerprint recorded on
             that chunk, or ``None`` when it records none.
+        current_published_at: The stored publication date.
+        current_content_date: The stored content date.
     """
 
     document_node_id: UUID
@@ -63,25 +49,37 @@ class DocumentLookup(BaseModel):
     current_chunker_hash: str | None = None
     current_schema_fingerprint: str | None = None
     current_extraction_fingerprint: str | None = None
+    current_published_at: date | None = None
+    current_content_date: date | None = None
 
     def decide(
-        self, *, content_hash: str, chunker_hash: str, run: RunRecord
+        self,
+        *,
+        content_hash: str,
+        chunker_hash: str,
+        run: RunRecord,
+        force: bool = False,
+        published_at: date | None = None,
+        content_date: date | None = None,
     ) -> UpdateDecision:
         """Pick the update outcome for a new input against the stored version.
 
         A document without an open chunk is always written as a new version.
         So is any change to the content, the chunking or the schema. When those
-        match, the chunks are kept and re-extracted in place if the extraction
-        stamp differs or is missing. A missing stamp marks a version whose
-        extraction failed, so it is retried rather than treated as current.
+        match, the chunks are kept and re-extracted if forced or if the
+        extraction stamp differs or is missing. Date-only changes are written
+        without extraction.
 
         Args:
             content_hash: The content hash of the new input.
             chunker_hash: The chunker fingerprint of the new input.
             run: The run record of the new run.
+            force: Whether to re-extract matching chunks.
+            published_at: The new publication date, if known.
+            content_date: The new content date, if known.
 
         Returns:
-            ``NEW_VERSION``, ``IN_PLACE`` or ``NO_OP``.
+            The selected update outcome.
         """
         if (
             not self.has_open_chunks
@@ -90,9 +88,14 @@ class DocumentLookup(BaseModel):
             or self.current_schema_fingerprint != run.schema_fingerprint
         ):
             return UpdateDecision.NEW_VERSION
-        if self.current_extraction_fingerprint == run.extraction_fingerprint:
-            return UpdateDecision.NO_OP
-        return UpdateDecision.IN_PLACE
+        if force or self.current_extraction_fingerprint != run.extraction_fingerprint:
+            return UpdateDecision.IN_PLACE
+        if (
+            self.current_published_at != published_at
+            or self.current_content_date != content_date
+        ):
+            return UpdateDecision.METADATA_ONLY
+        return UpdateDecision.NO_OP
 
 
 async def find_document(
@@ -121,6 +124,8 @@ async def find_document(
         current_content_hash = str(row["current_content_hash"])
     except (KeyError, TypeError, ValueError):
         return None
+    current_published_at = row.get("published_at")
+    current_content_date = row.get("content_date")
     run_rows = await graph_store.execute_read(
         current_run_record_query(), {"document_key": document_key}
     )
@@ -128,11 +133,15 @@ async def find_document(
         return DocumentLookup(
             document_node_id=document_node_id,
             current_content_hash=current_content_hash,
+            current_published_at=current_published_at,
+            current_content_date=current_content_date,
         )
     run_row = run_rows[0]
     return DocumentLookup(
         document_node_id=document_node_id,
         current_content_hash=current_content_hash,
+        current_published_at=current_published_at,
+        current_content_date=current_content_date,
         has_open_chunks=True,
         current_chunker_hash=_optional_str(run_row.get("chunker_hash")),
         current_schema_fingerprint=_optional_str(run_row.get("schema_fingerprint")),

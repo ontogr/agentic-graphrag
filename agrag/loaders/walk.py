@@ -124,10 +124,8 @@ class _CorpusWalk:
             if resume_index is None:
                 continue
 
-            # A source is staged in its own buffer and only merged into the
-            # yielded batch once its loader finishes without raising, so a
-            # source that fails partway through never leaks the documents it
-            # already produced into the batch stream.
+            # SKIP and QUARANTINE apply to a whole source. Keep its documents
+            # until the loader finishes so a late failure cannot leak rows.
             source_batch: list[Document] = []
             source_bytes = path.stat().st_size
             resume_position = resume_index
@@ -189,7 +187,10 @@ class _CorpusWalk:
                             break
                         source_batch.append(doc)
                         source_cursor = LoaderCursor(uri=uri, record_index=record_index)
-                        if len(batch) + len(source_batch) >= self._batch_size:
+                        if (
+                            self._error_policy == ErrorPolicy.RAISE
+                            and len(batch) + len(source_batch) >= self._batch_size
+                        ):
                             # Only count documents once they are actually
                             # flushed into a batch. A document counted here but
                             # never flushed (the source later raises, and this
@@ -208,11 +209,22 @@ class _CorpusWalk:
                 )
                 continue
 
-            stats.documents += len(source_batch)
             stats.sources += 1
             stats.bytes_read += source_bytes
-            batch.extend(source_batch)
-            cursor = source_cursor
+            for index, doc in enumerate(
+                source_batch, start=resume_position - len(source_batch) + 1
+            ):
+                stats.documents += 1
+                batch.append(doc)
+                cursor = LoaderCursor(
+                    uri=uri,
+                    record_index=index
+                    if loader.family == DocumentFamily.RECORD
+                    else None,
+                )
+                if len(batch) >= self._batch_size:
+                    yield batch, cursor, stats
+                    batch = []
 
         yield batch, cursor, stats
 

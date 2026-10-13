@@ -284,6 +284,8 @@ asyncio.run(main())
 - `ErrorPolicy.SKIP` drops the failing source and continues.
 - `ErrorPolicy.QUARANTINE` sets the failing source aside and continues.
 
+With `SKIP` or `QUARANTINE`, the walk buffers one source's documents until its loader finishes successfully. A malformed row therefore discards the whole source, even after enough rows to fill a batch. Successful sources still yield bounded batches with resume cursors. Buffering uses memory proportional to the documents in one source; `RAISE` keeps streaming batches as they fill.
+
 Read the outcome from the returned `AddResult`:
 
 ```python
@@ -374,6 +376,10 @@ asyncio.run(main())
 ## Supported formats
 
 Loaders are chosen by file extension. See [Loading documents](../concepts/loading.mdx#supported-formats) for the formats and the extra each one needs.
+
+CSV, TSV, JSON Lines, and JSON record loaders accept `published_at_column` and `content_date_column` in `ReadOptions`. Set each option to the column that holds the date the source was published or the date the content describes. Values must use an ISO date such as `2024-05-01` or an ISO date-time. Blank, null, or missing values produce `None`. A malformed value raises `MalformedRecordError` with the column name and source.
+
+For other sources, set `published_at` and `content_date` to `datetime.date` values on a `Document` that you pass to `Graph.add(documents=...)`. The graph stores each date as an ISO string, such as `2024-05-01`. `Graph.update` applies date-only changes without re-extracting the document.
 
 ## Next steps
 

@@ -117,6 +117,10 @@ class ReadOptions:
             last column.
         id_column: The column whose value becomes the document id.
         title_column: The column whose value becomes the document title.
+        published_at_column: The column whose ISO date or date-time becomes
+            ``Document.published_at``. Blank values mean no date.
+        content_date_column: The column whose ISO date or date-time becomes
+            ``Document.content_date``. Blank values mean no date.
         json_mode: The JSON reading mode.
         csv_mode: The CSV reading mode.
         csv_delimiter: The column separator. ``None`` infers it from the extension.
@@ -134,6 +138,8 @@ class ReadOptions:
     text_column: str | None = None
     id_column: str | None = None
     title_column: str | None = None
+    published_at_column: str | None = None
+    content_date_column: str | None = None
     json_mode: JsonMode = JsonMode.AUTO
     csv_mode: CsvMode = CsvMode.ROWS
     csv_delimiter: str | None = None

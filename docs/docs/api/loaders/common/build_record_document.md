@@ -17,7 +17,7 @@ Build a record-family Document from one row.
 - **decoded** (<code>[DecodedText](../types/DecodedText.md)</code>) – The decoded text and its metadata.
 - **source_format** (<code>[SourceFormat](../../common/data_models/document/SourceFormat.md)</code>) – The format the loader used.
 - **loader_name** (<code>str</code>) – The name to record for the loader.
-- **opts** (<code>[ReadOptions](../types/ReadOptions.md)</code>) – The read options, used for the id, title, and text columns.
+- **opts** (<code>[ReadOptions](../types/ReadOptions.md)</code>) – The read options, used for the id, title, date, and text columns.
 - **record_index** (<code>int</code>) – The 0-based row number.
 - **record** (<code>dict</code>) – The parsed record data.
 - **source_hash** (<code>str</code>) – The hash of the whole source file.
@@ -31,4 +31,5 @@ Build a record-family Document from one row.
 **Raises:**
 
 - <code>[MalformedRecordError](../errors/MalformedRecordError.md)</code> – `opts.id_column` is configured but missing, null, or
-  blank in this record.
+  blank in this record, or a configured date value is not an ISO date
+  or date-time.
