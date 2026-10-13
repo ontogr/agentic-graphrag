@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.5] - 2026-10-13
+
 ### Added
 
 - Add the LegalBench-RAG benchmark ([#62](https://github.com/ontogr/agentic-graphrag/pull/62))
@@ -15,6 +17,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add the BEAM memory benchmark ([#64](https://github.com/ontogr/agentic-graphrag/pull/64))
 - Shrink the Legal lite set to a quick check ([#69](https://github.com/ontogr/agentic-graphrag/pull/69))
 - Add the HealthBench benchmark ([#65](https://github.com/ontogr/agentic-graphrag/pull/65))
+- Use FastEmbed as the default dense embedder ([#80](https://github.com/ontogr/agentic-graphrag/pull/80))
+- Store document hierarchy in the graph ([#81](https://github.com/ontogr/agentic-graphrag/pull/81))
+- Add typed schema properties ([#88](https://github.com/ontogr/agentic-graphrag/pull/88))
+- Add validated extraction settings and confidence levels ([#90](https://github.com/ontogr/agentic-graphrag/pull/90))
+- Add schema hierarchy and relation rules ([#92](https://github.com/ontogr/agentic-graphrag/pull/92))
+- Add a schema loader for dicts, label lists, JSON and YAML ([#95](https://github.com/ontogr/agentic-graphrag/pull/95))
+- Add default schema and presets ([#97](https://github.com/ontogr/agentic-graphrag/pull/97))
+- Export a schema as JSON Schema ([#98](https://github.com/ontogr/agentic-graphrag/pull/98))
+- Export a schema as SHACL ([#100](https://github.com/ontogr/agentic-graphrag/pull/100))
+- Import a schema from Pydantic classes ([#101](https://github.com/ontogr/agentic-graphrag/pull/101))
+- Add JSON-LD schema export ([#102](https://github.com/ontogr/agentic-graphrag/pull/102))
+- Import OWL schemas ([#103](https://github.com/ontogr/agentic-graphrag/pull/103))
+- Add the candidate store and keep it out of every read path ([#104](https://github.com/ontogr/agentic-graphrag/pull/104))
+- Load shipped schemas by name and accept any schema in Graph ([#105](https://github.com/ontogr/agentic-graphrag/pull/105))
+- Store ancestor labels on entity nodes ([#107](https://github.com/ontogr/agentic-graphrag/pull/107))
+- Read GLiNER output with confidence, parent labels and candidates ([#109](https://github.com/ontogr/agentic-graphrag/pull/109))
+- Re-extract documents when the schema or settings change ([#114](https://github.com/ontogr/agentic-graphrag/pull/114))
+- Escalate weak chunks to the LLM within a budget ([#116](https://github.com/ontogr/agentic-graphrag/pull/116))
+- Ask the LLM for names and labels only and find spans in code ([#119](https://github.com/ontogr/agentic-graphrag/pull/119))
+- Add document dates and refresh controls ([#121](https://github.com/ontogr/agentic-graphrag/pull/121))
+- Capture extraction candidates ([#123](https://github.com/ontogr/agentic-graphrag/pull/123))
+- Review and convert candidates ([#124](https://github.com/ontogr/agentic-graphrag/pull/124))
 
 ### Changed
 
@@ -24,10 +48,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Resolve mentions in one module ([#74](https://github.com/ontogr/agentic-graphrag/pull/74))
 - Split Graph by lifecycle stage ([#75](https://github.com/ontogr/agentic-graphrag/pull/75))
 - Use one failure rule for retrieval ([#76](https://github.com/ontogr/agentic-graphrag/pull/76))
+- Shorten node identity and merge alias labels ([#86](https://github.com/ontogr/agentic-graphrag/pull/86))
+- Rename structural edges to HAS_PART ([#87](https://github.com/ontogr/agentic-graphrag/pull/87))
+- Index the pending tag for commit and rollback ([#110](https://github.com/ontogr/agentic-graphrag/pull/110))
 
 ### Fixed
 
 - Replay job cleanup when resuming ([#71](https://github.com/ontogr/agentic-graphrag/pull/71))
+- Protect credentials and settings loading ([#89](https://github.com/ontogr/agentic-graphrag/pull/89))
+- Preserve undecided entity matches ([#91](https://github.com/ontogr/agentic-graphrag/pull/91))
+- Retry graph transactions ([#93](https://github.com/ontogr/agentic-graphrag/pull/93))
+- Reject schema names that collide with names the graph writes itself ([#96](https://github.com/ontogr/agentic-graphrag/pull/96))
+- Protect committed jobs from rollback ([#99](https://github.com/ontogr/agentic-graphrag/pull/99))
+- Guard match deactivation against pending edges ([#106](https://github.com/ontogr/agentic-graphrag/pull/106))
+- Close gaps in the generated-Cypher gate ([#108](https://github.com/ontogr/agentic-graphrag/pull/108))
+- Roll back an expired pending job before another job takes its document ([#111](https://github.com/ontogr/agentic-graphrag/pull/111))
+- Validate the output of every extractor against the schema ([#112](https://github.com/ontogr/agentic-graphrag/pull/112))
+- Defer job writes over committed rows to commit ([#113](https://github.com/ontogr/agentic-graphrag/pull/113))
+- Keep concurrent jobs from losing a shared relation ([#115](https://github.com/ontogr/agentic-graphrag/pull/115))
+- Resolve entities that concurrent adds create ([#117](https://github.com/ontogr/agentic-graphrag/pull/117))
+- Write each document batch before extracting the next ([#118](https://github.com/ontogr/agentic-graphrag/pull/118))
+- Cover the splitter in the chunker fingerprint ([#120](https://github.com/ontogr/agentic-graphrag/pull/120))
+- Bound LLM requests and improve retries ([#122](https://github.com/ontogr/agentic-graphrag/pull/122))
 - Cap selectolax below 1.0
 
 ## [0.0.4] - 2026-09-30
@@ -89,7 +131,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.0.1] - 2026-08-25
 
-[unreleased]: https://github.com/ontogr/agentic-graphrag/compare/v0.0.4..HEAD
+[unreleased]: https://github.com/ontogr/agentic-graphrag/compare/v0.0.5..HEAD
+[0.0.5]: https://github.com/ontogr/agentic-graphrag/compare/v0.0.4..v0.0.5
 [0.0.4]: https://github.com/ontogr/agentic-graphrag/compare/v0.0.3..v0.0.4
 [0.0.3]: https://github.com/ontogr/agentic-graphrag/compare/v0.0.2..v0.0.3
 [0.0.2]: https://github.com/ontogr/agentic-graphrag/compare/v0.0.1..v0.0.2

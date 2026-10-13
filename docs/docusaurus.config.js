@@ -163,7 +163,7 @@ const config = {
             position: 'right',
           },
           {
-            to: '/latest/get-started/quickstart',
+            to: '/stable/get-started/quickstart',
             label: 'Quickstart',
             className: 'navbar-cta',
             position: 'right',
@@ -180,15 +180,14 @@ const config = {
           width: 32,
           height: 32,
         },
-        // Pages that the newest release does not have yet are linked at /latest/. Link them at /stable/ after the next release.
         links: [
           {
             title: 'Learn',
             items: [
-              {label: 'Introduction', to: '/latest/get-started/introduction'},
-              {label: 'Installation', to: '/latest/get-started/installation'},
-              {label: 'Quickstart', to: '/latest/get-started/quickstart'},
-              {label: 'Architecture', to: '/latest/concepts/architecture'},
+              {label: 'Introduction', to: '/stable/get-started/introduction'},
+              {label: 'Installation', to: '/stable/get-started/installation'},
+              {label: 'Quickstart', to: '/stable/get-started/quickstart'},
+              {label: 'Architecture', to: '/stable/concepts/architecture'},
               {label: 'Benchmarks', to: '/stable/benchmarks'},
             ],
           },
@@ -196,7 +195,7 @@ const config = {
             title: 'Build',
             items: [
               {label: 'Guides', to: '/stable/guides/ingest-documents'},
-              {label: 'Configuration', to: '/latest/reference/configuration'},
+              {label: 'Configuration', to: '/stable/reference/configuration'},
               {label: 'API reference', to: '/stable/api'},
               {label: 'Trace spans', to: '/stable/reference/trace-spans'},
               {label: 'Changelog', to: '/stable/changelog'},
