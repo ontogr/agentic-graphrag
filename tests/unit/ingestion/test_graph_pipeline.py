@@ -1074,10 +1074,13 @@ class TestGraphAddPipeline:
 
         await graph.add(text="hi", on_progress=cb)
         assert len(seen) == 2
-        # Partial progress has no storage counts yet.
-        assert seen[0].storage.nodes_written == 0
-        # Final progress includes storage counts.
-        assert seen[1].storage.nodes_written >= 0
+        # Each progress result counts the writes committed so far.
+        assert seen[0].storage.nodes_written == 3
+        assert seen[0].storage.relationships_written == 4
+        assert seen[1].storage.nodes_written == seen[0].storage.nodes_written
+        assert seen[1].storage.relationships_written == (
+            seen[0].storage.relationships_written
+        )
 
     async def test_on_progress_exception_suppressed(self) -> None:
         """Exception in on_progress does not abort add."""

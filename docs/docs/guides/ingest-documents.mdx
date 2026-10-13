@@ -331,7 +331,7 @@ An unknown format raises `UnsupportedFormatError`. A format that needs docling, 
 
 ## Track progress
 
-Pass `on_progress` to receive an `AddResult` after each batch. Use it to log or stream status without blocking ingestion:
+Pass `on_progress` to receive an `AddResult` after each batch. Each result counts the writes the graph has made so far. Use it to log or stream status without blocking ingestion:
 
 ```python
 import asyncio
@@ -368,6 +368,8 @@ async def main() -> None:
 
 asyncio.run(main())
 ```
+
+`Graph.add` reads documents in batches of up to 100. It writes each batch to the graph as soon as the batch is extracted, before it reads the next batch. If a later batch fails, the earlier batches stay in the graph. There is no resume point, so calling `add` again starts from the first document and processes every document again. Each add call needs distinct document keys. A duplicate key found in a later batch raises an error, and the batches before it stay in the graph.
 
 ## Supported formats
 
