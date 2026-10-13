@@ -281,7 +281,9 @@ class TestResumeIncompleteJobs:
         )
         calls: list[tuple[list[Any], list[Any]]] = []
 
-        async def _record(entity_ids: list[Any], seed_ids: list[Any]) -> None:
+        async def _record(
+            entity_ids: list[Any], seed_ids: list[Any], created_ids: list[Any]
+        ) -> None:
             calls.append((entity_ids, seed_ids))
 
         handled = await resume_incomplete_jobs(store, roll_forward=_record)
@@ -311,7 +313,9 @@ class TestResumeIncompleteJobs:
         )
         calls: list[tuple[list[Any], list[Any]]] = []
 
-        async def _record(entity_ids: list[Any], seed_ids: list[Any]) -> None:
+        async def _record(
+            entity_ids: list[Any], seed_ids: list[Any], created_ids: list[Any]
+        ) -> None:
             calls.append((entity_ids, seed_ids))
 
         handled = await resume_incomplete_jobs(store, roll_forward=_record)
@@ -334,7 +338,9 @@ class TestResumeIncompleteJobs:
             ]
         )
 
-        async def _failing(entity_ids: list[Any], seed_ids: list[Any]) -> None:
+        async def _failing(
+            entity_ids: list[Any], seed_ids: list[Any], created_ids: list[Any]
+        ) -> None:
             raise RuntimeError("rebuild blew up")
 
         handled = await resume_incomplete_jobs(store, roll_forward=_failing)
@@ -378,7 +384,9 @@ class TestResumeIncompleteJobs:
         )
         calls: list[object] = []
 
-        async def _record(entity_ids: list[Any], seed_ids: list[Any]) -> None:
+        async def _record(
+            entity_ids: list[Any], seed_ids: list[Any], created_ids: list[Any]
+        ) -> None:
             calls.append((entity_ids, seed_ids))
 
         handled = await resume_incomplete_jobs(store, roll_forward=_record)
@@ -404,7 +412,9 @@ class TestResumeIncompleteJobs:
             ]
         )
 
-        async def _failing_prune(entity_ids: list[Any], seed_ids: list[Any]) -> None:
+        async def _failing_prune(
+            entity_ids: list[Any], seed_ids: list[Any], created_ids: list[Any]
+        ) -> None:
             raise RuntimeError("prune blew up")
 
         handled = await resume_incomplete_jobs(store, roll_forward=_failing_prune)
@@ -426,7 +436,9 @@ class TestResumeIncompleteJobs:
             ]
         )
 
-        async def _slow_prune(entity_ids: list[Any], seed_ids: list[Any]) -> None:
+        async def _slow_prune(
+            entity_ids: list[Any], seed_ids: list[Any], created_ids: list[Any]
+        ) -> None:
             await asyncio.sleep(1.1)
 
         handled = await resume_incomplete_jobs(

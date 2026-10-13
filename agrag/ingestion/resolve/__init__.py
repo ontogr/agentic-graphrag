@@ -14,6 +14,7 @@ from agrag.ingestion.resolve.resolution import (
     find_exact_matches,
     resolve_among,
     resolve_batch,
+    resolve_created,
     resolve_persisted,
 )
 from agrag.ingestion.resolve.resolver import (
@@ -38,6 +39,7 @@ __all__ = [
     "find_exact_matches",
     "resolve_among",
     "resolve_batch",
+    "resolve_created",
     "resolve_persisted",
     "CandidateSource",
     "Comparator",

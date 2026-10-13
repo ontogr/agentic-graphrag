@@ -48,6 +48,8 @@ If no LLM is configured, the remaining pairs stay undecided. The graph does not 
 
 `Graph.add` compares the mentions of one call with each other and with similar entities that the graph already stores. `Graph.consolidate` runs the same tiers over every entity in the graph, when you ask for it. If you added data before an LLM was configured, use it. The guide [Consolidate duplicates](../guides/consolidate-duplicates.mdx) shows how.
 
+Entities that two documents create at the same time are resolved after both jobs commit. Each add resolves its mentions only against data that is already committed, so a concurrent add cannot see an entity that has not committed yet. After a job commits, it resolves the entities it created against everything committed so far, so near-duplicate names such as "Acme Corporation" and "Acme Corp" still end in one resolved entity.
+
 ## Example
 
 | Pair | Deciding tier | Result |

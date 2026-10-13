@@ -204,7 +204,7 @@ class TestCutoverJobLeavesCommittedEntities:
                 await _merge_mention(store, schema, entity, job_id, deferred)
                 raise RuntimeError("later stage failed")
 
-            async def cleanup(_: list[UUID], __: list[UUID]) -> str:
+            async def cleanup(_: list[UUID], __: list[UUID], ___: list[UUID]) -> str:
                 return "cleaned"
 
             with pytest.raises(RuntimeError, match="later stage failed"):
@@ -241,7 +241,7 @@ class TestCutoverJobLeavesCommittedEntities:
                     await _merge_mention(store, schema, entity, job_id, deferred)
                 )
 
-            async def cleanup(_: list[UUID], __: list[UUID]) -> str:
+            async def cleanup(_: list[UUID], __: list[UUID], ___: list[UUID]) -> str:
                 return "cleaned"
 
             await run_cutover_job(
@@ -289,7 +289,7 @@ class TestCutoverJobLeavesCommittedEntities:
                     {"id": str(entity.id), "other": str(other)},
                 )
 
-            async def cleanup(_: list[UUID], __: list[UUID]) -> str:
+            async def cleanup(_: list[UUID], __: list[UUID], ___: list[UUID]) -> str:
                 return "cleaned"
 
             with pytest.raises(GraphStoreWriteConflictError):
@@ -328,7 +328,7 @@ async def _commit_named_entity(
     return entity
 
 
-async def _cleaned(_: list[UUID], __: list[UUID]) -> str:
+async def _cleaned(_: list[UUID], __: list[UUID], ___: list[UUID]) -> str:
     """Stand in for the cleanup stage of a job that has no cleanup work."""
     return "cleaned"
 

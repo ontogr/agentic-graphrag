@@ -45,7 +45,9 @@ async def resume_incomplete_jobs(
     *,
     vector_store: Any = None,
     vector_collections: Sequence[str] = (),
-    roll_forward: Callable[[list[UUID], list[UUID]], Awaitable[object]] | None = None,
+    roll_forward: (
+        Callable[[list[UUID], list[UUID], list[UUID]], Awaitable[object]] | None
+    ) = None,
     lease_ttl_seconds: int | None = None,
     tracer: Tracer | None = None,
 ) -> list[str]:
@@ -59,10 +61,11 @@ async def resume_incomplete_jobs(
         vector_collections: The collections the pending phase may have
             written to.
         roll_forward: Runs one rolled-forward job's cleanup. It receives the
-            job's affected-entity snapshot and its component seed ids. An
-            exception leaves the job in ``cleaning`` for a later open. None
-            rolls forward only jobs that recorded neither list, because a
-            job with work left cannot finish without it.
+            job's affected-entity snapshot, its component seed ids and the
+            entities it created. An exception leaves the job in ``cleaning``
+            for a later open. None rolls forward only jobs that recorded none
+            of these lists, because a job with work left cannot finish without
+            it.
         lease_ttl_seconds: Lease duration for a resume claimant. None reads
             ``CutoverJobSettings`` when the function runs.
         tracer: Opens this pass's span.
@@ -119,6 +122,7 @@ async def resume_incomplete_jobs(
                 job_id=job_id,
                 affected_entity_ids=_uuid_list(row, "affected_entity_ids"),
                 component_seed_ids=_uuid_list(row, "component_seed_ids"),
+                created_entity_ids=_uuid_list(row, "created_entity_ids"),
                 vector_store=vector_store,
                 vector_collections=vector_collections,
                 roll_forward=roll_forward,
@@ -214,9 +218,12 @@ async def _roll_forward(
     job_id: str,
     affected_entity_ids: list[UUID],
     component_seed_ids: list[UUID],
+    created_entity_ids: list[UUID],
     vector_store: Any,
     vector_collections: Sequence[str],
-    roll_forward: Callable[[list[UUID], list[UUID]], Awaitable[object]] | None,
+    roll_forward: (
+        Callable[[list[UUID], list[UUID], list[UUID]], Awaitable[object]] | None
+    ),
     lease_token: str,
     lease_ttl_seconds: int,
 ) -> bool:
@@ -224,9 +231,9 @@ async def _roll_forward(
 
     The commit cleared the job's pending tags atomically, so what is left
     is the cleanup phase the crashed worker never reached: the same
-    cleanup a live call runs over the job's recorded snapshot and component
-    seeds, flipping the vector payloads still flagged pending, and the
-    terminal ``done`` flip. All three are idempotent, so a resume
+    cleanup a live call runs over the job's recorded snapshot, component
+    seeds and created entities, flipping the vector payloads still flagged
+    pending, and the terminal ``done`` flip. All three are idempotent, so a resume
     that dies part way through simply re-runs them on the next open.
 
     A cleanup that raises leaves the job in ``cleaning`` — terminal only
@@ -275,6 +282,7 @@ async def _roll_forward(
             job_uuid=job_uuid,
             affected_entity_ids=affected_entity_ids,
             component_seed_ids=component_seed_ids,
+            created_entity_ids=created_entity_ids,
             vector_store=vector_store,
             vector_collections=vector_collections,
             roll_forward=roll_forward,
@@ -309,20 +317,25 @@ async def _finish_roll_forward(
     job_uuid: UUID,
     affected_entity_ids: list[UUID],
     component_seed_ids: list[UUID],
+    created_entity_ids: list[UUID],
     vector_store: Any,
     vector_collections: Sequence[str],
-    roll_forward: Callable[[list[UUID], list[UUID]], Awaitable[object]] | None,
+    roll_forward: (
+        Callable[[list[UUID], list[UUID], list[UUID]], Awaitable[object]] | None
+    ),
     lease_token: str,
     stop_renewal: asyncio.Event,
     renewal_stopped: asyncio.Event,
 ) -> bool:
     """Complete cleanup and mark one recovery claim done."""
-    has_work = bool(affected_entity_ids or component_seed_ids)
+    has_work = bool(affected_entity_ids or component_seed_ids or created_entity_ids)
     if roll_forward is None and has_work:
         return False
     if roll_forward is not None and has_work:
         try:
-            await roll_forward(affected_entity_ids, component_seed_ids)
+            await roll_forward(
+                affected_entity_ids, component_seed_ids, created_entity_ids
+            )
         except Exception as exc:  # noqa: BLE001
             record_swallowed_exception(exc)
             return False

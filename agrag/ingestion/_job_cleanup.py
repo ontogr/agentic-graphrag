@@ -16,6 +16,7 @@ from agrag.common.data_models.stage_failure import StageFailure
 from agrag.embedding.base import Embedder
 from agrag.graphdb.base import GraphStore
 from agrag.ingestion._ingest_pipeline import _delete_vectors
+from agrag.ingestion._resolution_maintenance import reconcile_created_entities
 from agrag.ingestion.resolved_embeddings import _synchronize_resolved_entity_vectors
 from agrag.ingestion.resolved_entities import (
     prune_orphaned_entities,
@@ -30,6 +31,7 @@ from agrag.vectordb.base import VectorStore
 async def finish_job(
     affected_entity_ids: list[UUID],
     component_seed_ids: list[UUID],
+    created_entity_ids: list[UUID],
     *,
     graph_store: GraphStore,
     schema: GraphSchema,
@@ -37,32 +39,37 @@ async def finish_job(
     vector_store: VectorStore | None,
     retrieval_settings: RetrievalSettings,
     tracer: Tracer,
+    max_llm_pairs: int,
     error_policy: ErrorPolicy = ErrorPolicy.RAISE,
 ) -> list[StageFailure]:
     """Run the cleanup phase of one committed Cutover Job.
 
     A pending job never deletes the resolved entity it supersedes, so
     after the commit this rebuilds the resolved entity of each component
-    the job rebuilt, then prunes the entities that lost their last
-    evidence. The live calls and crash recovery both run it, with the
+    the job rebuilt, resolves the entities the job created against
+    everything committed since, then prunes the entities that lost their
+    last evidence. The live calls and crash recovery both run it, with the
     lists the job recorded. Running it again changes nothing.
 
     Args:
         affected_entity_ids: Entities that may have lost their last
             evidence; the only ones pruning may remove.
         component_seed_ids: One member id per component to rebuild.
+        created_entity_ids: Entities the job created, to resolve against
+            the committed graph. A failure here is recorded, never raised.
         graph_store: The store the job wrote to.
         schema: The graph schema.
         embedder: Embeds rebuilt resolved entities.
         vector_store: The optional second write target for embeddings.
         retrieval_settings: Collection names for the VectorStore writes.
         tracer: A tracer to record spans.
+        max_llm_pairs: The most ambiguous pairs per label sent to the LLM.
         error_policy: RAISE propagates the first failure; any other
             policy records it and continues. Recovery uses RAISE, so a
             failure leaves the job in ``cleaning`` for a later open.
 
     Returns:
-        The failures recorded while rebuilding components.
+        The failures recorded while rebuilding and reconciling.
     """
     failures = await rebuild_seeded_components(
         component_seed_ids,
@@ -73,6 +80,18 @@ async def finish_job(
         retrieval_settings=retrieval_settings,
         tracer=tracer,
         error_policy=error_policy,
+    )
+    failures.extend(
+        await reconcile_created_entities(
+            created_entity_ids,
+            schema=schema,
+            graph_store=graph_store,
+            embedder=embedder,
+            vector_store=vector_store,
+            retrieval_settings=retrieval_settings,
+            tracer=tracer,
+            max_llm_pairs=max_llm_pairs,
+        )
     )
     await prune_document_entities(
         affected_entity_ids,
