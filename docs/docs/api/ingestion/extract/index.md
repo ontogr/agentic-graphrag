@@ -17,6 +17,10 @@ The Extractor interface: reads one Chunk and produces an ExtractionResult.
 - [**GlinerExtractor**](GlinerExtractor.md) – Extracts entities and relations with a local GLiNER2.5 model.
 - [**LLMExtractor**](LLMExtractor.md) – LLM role that may receive entities found by an earlier extractor.
 
+**Functions:**
+
+- [**validate_extraction**](validate_extraction.md) – Drop entities and relations that the schema does not declare.
+
 **Attributes:**
 
 - [**logger**](logger.md) –
