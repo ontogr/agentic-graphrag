@@ -10,10 +10,11 @@ store when connecting fails.
 import builtins
 import hashlib
 import logging
-from collections.abc import Mapping, Sequence
+from collections.abc import AsyncIterator, Callable, Mapping, Sequence
 from contextlib import AbstractAsyncContextManager
+from math import ceil
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 from unittest import mock
 from unittest.mock import AsyncMock, MagicMock
 from uuid import UUID, uuid4
@@ -65,7 +66,6 @@ from agrag.ingestion._ingest_pipeline import (
 )
 from agrag.ingestion.extract import (
     BAMLExtractor,
-    EscalatingExtractor,
     ExtractionLLMSettings,
     Extractor,
     ExtractorMissingExtraError,
@@ -79,7 +79,7 @@ from agrag.ingestion.settings import (
 )
 from agrag.llm.client_config import LLMClientConfig
 from agrag.loaders.prose import TextLoader
-from agrag.loaders.types import ErrorPolicy, ReadOptions
+from agrag.loaders.types import ErrorPolicy, LoadStats, ReadOptions
 from agrag.schema import SchemaLoadError, load_schema
 from agrag.schema.loader import SchemaSource
 from tests.unit.ingestion._lease_fake import CutoverJobLeaseFake
@@ -565,38 +565,21 @@ class TestGraphExtractionSettings:
                 extraction_settings=ExtractionSettings(mode="llm"),
             )
 
-    @pytest.mark.parametrize("nested", [False, True])
-    async def test_gliner_mode_rejects_llm_inside_escalating_extractor(
-        self, nested: bool
-    ) -> None:
-        """Local-only mode cannot send content to a wrapped LLM extractor."""
-        extractor = EscalatingExtractor(_MockExtractor(), _MockLLMExtractor())
-        if nested:
-            extractor = EscalatingExtractor(extractor, _MockExtractor())
-
-        with pytest.raises(ValueError, match='mode="hybrid"'):
-            await Graph.open(
-                schema=DEFAULT_SCHEMA,
-                graph_store=_MockGraphStore(),
-                embedder=_MockEmbedder(),
-                extractor=extractor,
-                extraction_settings=ExtractionSettings(mode="gliner"),
-            )
-
-    async def test_wrapped_llm_keeps_hybrid_without_environment_client(
+    async def test_explicit_llm_keeps_hybrid_without_environment_client(
         self,
         monkeypatch: pytest.MonkeyPatch,
         tmp_path: Path,
         caplog: pytest.LogCaptureFixture,
     ) -> None:
-        """An explicitly composed LLM is available without environment settings."""
+        """An LLM passed as llm_extractor is available without environment settings."""
         _clear_llm_env(monkeypatch, tmp_path)
         llm = _MockLLMExtractor()
         graph = await Graph.open(
             schema=DEFAULT_SCHEMA,
             graph_store=_MockGraphStore(),
             embedder=_MockEmbedder(),
-            extractor=EscalatingExtractor(_MockExtractor(), llm),
+            extractor=_MockExtractor(),
+            llm_extractor=llm,
         )
 
         assert graph.effective_mode == "hybrid"
@@ -1268,3 +1251,202 @@ class TestGraphChunking:
         graph, store = await self._open()
 
         assert await self._update(graph, store, chunk_rows=[]) is False
+
+
+class _ScoreByChunk(Extractor):
+    """First extractor: every chunk gets one weak entity (score 0.4)."""
+
+    async def extract(self, chunk: Chunk, schema: GraphSchema) -> ExtractionResult:
+        return ExtractionResult(
+            entities=[
+                ExtractedEntity(
+                    chunk_id=chunk.id,
+                    label="Person",
+                    text=f"p{chunk.index}",
+                    char_start=0,
+                    char_end=2,
+                    confidence=0.4,
+                )
+            ],
+            relations=[],
+            extractor_name="first",
+        )
+
+
+class _CountingLlm(LLMExtractor):
+    """Escalation extractor that counts its calls."""
+
+    def __init__(self) -> None:
+        """Create the extractor with an empty call count."""
+        self.calls = 0
+
+    async def extract(
+        self,
+        chunk: Chunk,
+        schema: GraphSchema,
+        candidates: Sequence[ExtractedEntity] | None = None,
+    ) -> ExtractionResult:
+        self.calls += 1
+        return ExtractionResult(entities=[], relations=[], extractor_name="llm")
+
+
+_MANY_PARAGRAPHS = "\n\n".join(f"Paragraph {i} " + "word " * 30 for i in range(12))
+_SHORT_TEXT = "Ada Lovelace wrote notes."
+
+
+async def _open_escalating_graph(
+    llm: LLMExtractor | None,
+    *,
+    budget: float | str = 0.25,
+    mode: Literal["gliner", "hybrid"] = "hybrid",
+) -> Graph:
+    """Open a graph with a weak first extractor and small chunks.
+
+    The first extractor's 0.4 entities sit below the default entity threshold,
+    so the threshold is lowered to keep them as spans that can be ranked.
+    """
+    return await Graph.open(
+        schema=DEFAULT_SCHEMA,
+        graph_store=_MockGraphStore(),
+        embedder=_MockEmbedder(),
+        extractor=_ScoreByChunk(),
+        llm_extractor=llm,
+        extraction_settings=ExtractionSettings(
+            mode=mode, escalation_budget=budget, entity_threshold=0.3
+        ),
+        chunker=Chunker(size=40, min_size=10),
+    )
+
+
+def _one_document_per_batch(
+    docs: list[Document],
+) -> Callable[..., AsyncIterator[tuple[list[Document], LoadStats]]]:
+    """Return a stand-in for iter_document_batches that yields one batch each."""
+
+    async def _batches(**_: object) -> AsyncIterator[tuple[list[Document], LoadStats]]:
+        stats = LoadStats()
+        for document in docs:
+            stats.documents += 1
+            stats.sources += 1
+            yield [document], stats
+
+    return _batches
+
+
+class TestGraphEscalation:
+    """Graph.add and Graph.update apply the budget and report it."""
+
+    async def test_add_returns_the_escalation_report(self) -> None:
+        """AddResult.escalation counts the chunks of the whole call."""
+        llm = _CountingLlm()
+        graph = await _open_escalating_graph(llm)
+
+        result = await graph.add(text=_MANY_PARAGRAPHS)
+
+        report = result.escalation
+        assert report.total == result.extraction.chunks_processed > 4
+        assert report.eligible == report.total
+        assert report.escalated == ceil(report.total * 0.25) == llm.calls
+        assert report.left_for_gliner == report.eligible - report.escalated
+        assert report.lowest_score_left == 0.4
+        assert report.budget_needed == 1.0
+
+    async def test_add_logs_the_report_lines(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Graph.add logs the three report lines at the end of the call."""
+        graph = await _open_escalating_graph(_CountingLlm())
+
+        with caplog.at_level(logging.INFO, logger="agrag.ingestion.graph"):
+            result = await graph.add(text=_MANY_PARAGRAPHS)
+
+        report = result.escalation
+        messages = [r.getMessage() for r in caplog.records]
+        assert messages[:3] == [
+            f"mode hybrid | chunks {report.total:,} | "
+            f"eligible {report.eligible:,} (100%) | "
+            f"escalated {report.escalated:,} (budget 25%)",
+            f"left for GLiNER only {report.left_for_gliner:,} | lowest score left 0.40",
+            "budget needed 100% to escalate all eligible chunks",
+        ]
+        assert messages[3] == (
+            f"escalation failed on {report.failed:,} chunks | first result kept"
+        )
+
+    async def test_add_logs_nothing_without_an_llm_extractor(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A graph with one extractor does not log escalation lines."""
+        graph = await _open_escalating_graph(None, mode="gliner")
+
+        with caplog.at_level(logging.INFO, logger="agrag.ingestion.graph"):
+            result = await graph.add(text=_MANY_PARAGRAPHS)
+
+        assert caplog.records == []
+        assert result.escalation.escalated == 0
+
+    async def test_budget_all_escalates_every_eligible_chunk(self) -> None:
+        """Budget all has no ceiling."""
+        llm = _CountingLlm()
+        graph = await _open_escalating_graph(llm, budget="all")
+
+        result = await graph.add(text=_MANY_PARAGRAPHS)
+
+        assert llm.calls == result.escalation.total
+
+    async def test_budget_zero_never_calls_the_llm_extractor(self) -> None:
+        """Budget 0 means the first extractor only."""
+        llm = _CountingLlm()
+        graph = await _open_escalating_graph(llm, budget=0.0)
+
+        result = await graph.add(text=_MANY_PARAGRAPHS)
+
+        assert llm.calls == 0
+        assert result.escalation.left_for_gliner == result.escalation.eligible
+
+    async def test_update_applies_the_budget_to_its_one_document(self) -> None:
+        """update() ranks and caps the chunks of the one document it extracts."""
+        llm = _CountingLlm()
+        graph = await _open_escalating_graph(llm)
+
+        result = await graph.update("memory://doc", text=_MANY_PARAGRAPHS)
+
+        assert result.add_result is not None
+        report = result.add_result.escalation
+        assert report.total == result.add_result.extraction.chunks_processed
+        assert report.escalated == ceil(report.total * 0.25) == llm.calls
+
+    async def test_each_walk_batch_gets_its_own_budget(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Two one-chunk batches escalate one chunk each, not a pooled share.
+
+        At 20% a pooled budget of two chunks rounds up to one call. A budget
+        per batch rounds each batch up, so both chunks escalate.
+        """
+        llm = _CountingLlm()
+        graph = await _open_escalating_graph(llm, budget=0.2)
+        docs = [
+            Document(
+                text=_SHORT_TEXT,
+                title="t",
+                uri=f"memory://{name}",
+                document_key=f"memory://{name}",
+                source_format=SourceFormat.TXT,
+                family=DocumentFamily.PROSE,
+                content_hash=name,
+                loader_name="text",
+                char_count=len(_SHORT_TEXT),
+                line_count=1,
+            )
+            for name in ("a", "b")
+        ]
+        monkeypatch.setattr(
+            ingest_module, "iter_document_batches", _one_document_per_batch(docs)
+        )
+
+        result = await graph.add(documents=docs)
+
+        assert llm.calls == 2
+        assert (result.escalation.total, result.escalation.escalated) == (2, 2)
+        assert result.escalation.budget_needed == 1.0

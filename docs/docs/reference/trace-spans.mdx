@@ -104,9 +104,12 @@ One `add` call with one chunk and the local extractor produces this tree. `load_
 agrag.ingestion.add
   agrag.ingestion.load_document           only with source=
   agrag.ingestion.chunk_document
-  agrag.extraction.extract_chunk          one per chunk
-    agrag.extraction.gliner               or agrag.extraction.baml, agrag.extraction.escalating
+  agrag.extraction.extract_chunk          one per chunk (first phase)
+    agrag.extraction.gliner               or agrag.extraction.baml
       agrag.extraction.model_load         first call only
+  agrag.extraction.escalate               once per batch, only with an LLM extractor
+    agrag.extraction.extract_chunk        one per escalated chunk
+      agrag.extraction.baml
   agrag.extraction.remap_relations        only when a relation remap fails and the error policy is not RAISE
   agrag.ingestion.cutover_job
     agrag.ingestion.ingest_chunks
@@ -215,7 +218,7 @@ Each LLM path also opens one small domain span carrying its own ids and counts.
 |---|---|---|
 | Extraction, BAML | `agrag.extraction.baml` | `agrag.chunk_id`, `agrag.entities_extracted`, `agrag.relations_extracted`, `agrag.extraction.heading_context` (bool, whether a section line was sent) |
 | Extraction, GLiNER | `agrag.extraction.gliner`, and `agrag.extraction.model_load` around the one-time model build | the same counts. `agrag.model` is on the load span |
-| Extraction, escalating | `agrag.extraction.escalating` | `agrag.chunk_id`, `agrag.escalated` (bool) |
+| Extraction, escalate | `agrag.extraction.escalate` | `agrag.chunks_total`, `agrag.chunks_eligible`, `agrag.chunks_escalated` |
 | Resolution | `agrag.resolution.llm_verify` | `agrag.pair_count`, `agrag.match_count`, `agrag.uncertain_count`, `agrag.request_failed` (bool), `agrag.llm_unavailable` (bool) |
 | Merge | `agrag.merge.resolve_description` | `agrag.description_count`, `agrag.summarized` (bool) |
 | Community | `agrag.community.report_batch` | `agrag.batch_size` |

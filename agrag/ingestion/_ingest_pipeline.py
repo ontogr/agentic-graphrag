@@ -11,11 +11,13 @@ state.
 
 import asyncio
 import contextlib
+import time
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from uuid import UUID
 
 from opentelemetry.trace import Tracer
+from pydantic import BaseModel, ConfigDict
 
 from agrag.chunking.chunker import ChunkPlacement
 from agrag.common.data_models.chunk import CHUNK_LABEL, Chunk
@@ -41,6 +43,13 @@ from agrag.cypher.entities import (
 from agrag.embedding.base import Embedder
 from agrag.graphdb.base import GraphStore
 from agrag.ingestion._deferred import write_or_defer
+from agrag.ingestion._escalation import (
+    accept_escalated,
+    combine_results,
+    kept_entities,
+    labels_with_properties,
+    plan_escalation,
+)
 from agrag.ingestion._merge_stage import MergeStageResult, merge_stage
 from agrag.ingestion._resolve_stage import resolve_stage
 from agrag.ingestion._stage_context import StageContext
@@ -51,8 +60,10 @@ from agrag.ingestion._storage import (
 )
 from agrag.ingestion.extract import Extractor, LLMExtractor, validate_extraction
 from agrag.ingestion.reports import AddResult
+from agrag.ingestion.reports.escalation_report import EscalationReport
 from agrag.ingestion.resolve.zone_classifier import MAX_LLM_PAIRS
 from agrag.ingestion.resolved_entities import MatchComponent
+from agrag.ingestion.settings import ExtractionSettings, effective_mode
 from agrag.ingestion.stats import (
     ExtractionStats,
     IngestStats,
@@ -69,31 +80,61 @@ from agrag.retrieval.settings import RetrievalSettings
 from agrag.vectordb.base import VectorStore
 
 
-async def extract_chunks(
-    chunks: list[Chunk],
+async def _run_extractor(
+    chunks: Sequence[Chunk],
     *,
-    start_index: int,
     extractor: Extractor | LLMExtractor,
     schema: GraphSchema,
-    error_policy: ErrorPolicy,
-    tracer: Tracer | None = None,
-) -> tuple[list[ExtractedEntity], list[ExtractedRelation], list[StageFailure]]:
-    resolved_tracer = get_tracer(tracer)
+    raise_errors: bool,
+    tracer: Tracer,
+    phase: str,
+    candidates: Sequence[Sequence[ExtractedEntity]] | None = None,
+) -> list[ExtractionResult | StageFailure]:
+    """Run one extractor over chunks, keeping its own concurrency limit.
+
+    Args:
+        chunks: The chunks to read.
+        extractor: The extractor to call. The first phase passes an
+            ``Extractor``. The LLM phase passes an ``LLMExtractor``. Its
+            ``max_concurrency`` sets the semaphore, so a phase never runs more
+            calls than its extractor allows.
+        schema: The schema to extract against.
+        raise_errors: ``True`` raises the first error and cancels the other
+            calls. ``False`` turns each error into a ``StageFailure``.
+        tracer: The tracer for the per-chunk spans.
+        phase: ``"primary"`` or ``"escalation"``, recorded on each span.
+        candidates: For the escalation phase, the kept first-phase entities of
+            each chunk, in the order of ``chunks``. Only an ``LLMExtractor``
+            receives them. ``None`` calls every extractor with ``(chunk, schema)``.
+
+    Returns:
+        One result or failure per chunk, in the order of ``chunks``.
+    """
     semaphore = asyncio.Semaphore(extractor.max_concurrency or 8)
 
     async def _extract_one(
-        chunk: Chunk,
+        chunk: Chunk, position: int
     ) -> ExtractionResult | StageFailure:
         async with semaphore:
-            with resolved_tracer.start_as_current_span(
+            with tracer.start_as_current_span(
                 "agrag.extraction.extract_chunk",
-                attributes={"agrag.chunk_id": str(chunk.id)},
+                attributes={
+                    "agrag.chunk_id": str(chunk.id),
+                    "agrag.extraction.phase": phase,
+                },
             ) as span:
                 try:
-                    result = await extractor.extract(chunk, schema)
+                    if candidates is not None and isinstance(extractor, LLMExtractor):
+                        result = await extractor.extract(
+                            chunk, schema, candidates=candidates[position]
+                        )
+                    else:
+                        result = await extractor.extract(chunk, schema)
+                    # Every extractor goes through the schema check, so an LLM
+                    # label the schema does not declare never reaches the graph.
                     result = validate_extraction(result, schema)
                 except Exception as exc:
-                    if error_policy is ErrorPolicy.RAISE:
+                    if raise_errors:
                         raise
                     trace_id, span_id = record_stage_failure(exc)
                     return StageFailure(
@@ -107,14 +148,277 @@ async def extract_chunks(
                 span.set_attribute("agrag.relations_extracted", len(result.relations))
                 return result
 
-    tasks = [asyncio.ensure_future(_extract_one(chunk)) for chunk in chunks]
+    tasks = [
+        asyncio.ensure_future(_extract_one(chunk, position))
+        for position, chunk in enumerate(chunks)
+    ]
     try:
-        outcomes = await asyncio.gather(*tasks)
+        return list(await asyncio.gather(*tasks))
     except BaseException:
         for task in tasks:
             task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
         raise
+
+
+async def _escalate(
+    chunks: list[Chunk],
+    outcomes: list[ExtractionResult | StageFailure],
+    *,
+    llm_extractor: LLMExtractor,
+    schema: GraphSchema,
+    settings: ExtractionSettings,
+    tracer: Tracer,
+) -> tuple[list[ExtractionResult | StageFailure], list[StageFailure], EscalationReport]:
+    """Run the LLM extractor on the weakest eligible chunks of a batch.
+
+    The LLM extractor gets the kept entities of the first result as candidates.
+    Used in ``hybrid`` only. An error in an LLM call never raises out of this
+    function, whatever the error policy: the chunk already has a good first
+    result, and one failed call must not discard the paid results of the other
+    chunks. A chunk whose call raised, or whose answer parsed to no entities
+    while the first result had some, keeps its first result and counts in
+    ``failed``.
+
+    Args:
+        chunks: The chunks of the batch.
+        outcomes: The first extractor's result or failure for each chunk.
+        llm_extractor: The LLM extractor.
+        schema: The schema to extract against.
+        settings: The thresholds and the budget.
+        tracer: The tracer for the batch span and the per-chunk spans.
+
+    Returns:
+        The outcomes with each accepted LLM result combined in, the failures of
+        the LLM calls, and the batch report (``primary_seconds`` is left for
+        the caller).
+    """
+    results = [o if isinstance(o, ExtractionResult) else None for o in outcomes]
+    with tracer.start_as_current_span("agrag.extraction.escalate") as span:
+        plan = plan_escalation(
+            results,
+            settings,
+            chunks=chunks,
+            property_labels=labels_with_properties(schema),
+        )
+        report = plan.report(len(chunks))
+        span.set_attribute("agrag.chunks_total", report.total)
+        span.set_attribute("agrag.chunks_eligible", report.eligible)
+        span.set_attribute("agrag.chunks_escalated", report.escalated)
+        if not plan.selected:
+            return outcomes, [], report
+        # Weakest first: with a limit below the batch size the weakest chunks
+        # start first, so an interrupted run has spent its calls where they
+        # matter most.
+        started = time.perf_counter()
+        escalated = await _run_extractor(
+            [chunks[position] for position in plan.selected],
+            extractor=llm_extractor,
+            schema=schema,
+            raise_errors=False,
+            tracer=tracer,
+            phase="escalation",
+            candidates=[
+                kept_entities(first, settings)
+                if (first := results[position]) is not None
+                else []
+                for position in plan.selected
+            ],
+        )
+        seconds = time.perf_counter() - started
+        merged = list(outcomes)
+        failures: list[StageFailure] = []
+        failed = 0
+        for position, outcome in zip(plan.selected, escalated, strict=True):
+            first = results[position]
+            if isinstance(outcome, StageFailure):
+                failures.append(outcome)
+                failed += 1
+            elif first is not None:
+                if accept_escalated(first, outcome):
+                    merged[position] = validate_extraction(
+                        combine_results(first, outcome), schema
+                    )
+                else:
+                    failed += 1
+        span.set_attribute("agrag.chunks_failed", failed)
+    report = report.model_copy(update={"failed": failed, "escalation_seconds": seconds})
+    return merged, failures, report
+
+
+async def _extract_llm_only(
+    chunks: list[Chunk],
+    *,
+    schema: GraphSchema,
+    error_policy: ErrorPolicy,
+    settings: ExtractionSettings,
+    llm_extractor: LLMExtractor,
+    tracer: Tracer,
+) -> tuple[list[ExtractionResult | StageFailure], list[StageFailure], EscalationReport]:
+    """Run the LLM extractor on every chunk long enough, with no candidates.
+
+    Chunks under ``settings.min_escalation_words`` words are not sent. They get
+    an empty result and count in ``skipped_short``. A failed call follows
+    ``error_policy``: under ``RAISE`` the error propagates and the batch stops;
+    under ``SKIP`` and ``QUARANTINE`` it becomes a ``StageFailure`` and counts
+    in ``failed``. A parsed empty answer is a valid empty result.
+
+    Args:
+        chunks: The chunks of the batch.
+        schema: The schema to extract against.
+        error_policy: The run's error policy.
+        settings: The minimum word count for a chunk to be sent.
+        llm_extractor: The LLM extractor.
+        tracer: The tracer for the per-chunk spans.
+
+    Returns:
+        One outcome per chunk in order, the failures of the LLM calls, and the
+        batch report (``primary_seconds`` is left for the caller).
+    """
+    selected = [
+        position
+        for position, chunk in enumerate(chunks)
+        if len(chunk.text.split()) >= settings.min_escalation_words
+    ]
+    started = time.perf_counter()
+    answers = await _run_extractor(
+        [chunks[position] for position in selected],
+        extractor=llm_extractor,
+        schema=schema,
+        raise_errors=error_policy is ErrorPolicy.RAISE,
+        tracer=tracer,
+        phase="escalation",
+    )
+    seconds = time.perf_counter() - started
+    outcomes: list[ExtractionResult | StageFailure] = [
+        ExtractionResult(entities=[], relations=[], extractor_name="llm")
+        for _ in chunks
+    ]
+    failures: list[StageFailure] = []
+    for position, answer in zip(selected, answers, strict=True):
+        if isinstance(answer, StageFailure):
+            failures.append(answer)
+        else:
+            outcomes[position] = answer
+    report = EscalationReport(
+        mode="llm",
+        total=len(chunks),
+        skipped_short=len(chunks) - len(selected),
+        eligible=len(selected),
+        escalated=len(selected),
+        failed=len(failures),
+        escalation_seconds=seconds,
+    )
+    return outcomes, failures, report
+
+
+class ExtractionBatch(BaseModel):
+    """What the extractors found in one batch of chunks.
+
+    Attributes:
+        entities: The mentions of every chunk that extracted, in chunk order.
+        relations: The relations, with indices shifted by the batch offset.
+        failures: One StageFailure per chunk, escalation call or relation that
+            failed. The first extractor's failures come first.
+        report: How the escalation tier treated the batch.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    entities: list[ExtractedEntity]
+    relations: list[ExtractedRelation]
+    failures: list[StageFailure]
+    report: EscalationReport
+
+
+async def extract_chunks(
+    chunks: list[Chunk],
+    *,
+    start_index: int,
+    extractor: Extractor | LLMExtractor,
+    schema: GraphSchema,
+    error_policy: ErrorPolicy,
+    settings: ExtractionSettings,
+    llm_extractor: LLMExtractor | None = None,
+    tracer: Tracer | None = None,
+) -> ExtractionBatch:
+    """Extract a batch in the mode that the settings and the LLM slot resolve to.
+
+    The mode comes from ``effective_mode``. In ``gliner`` the first extractor
+    reads every chunk and nothing else runs. In ``hybrid`` the weakest eligible
+    chunks then go to ``llm_extractor``, up to ``settings.escalation_budget`` of
+    the batch, with the first result as candidates. In ``llm`` the first
+    extractor is skipped, and every chunk with at least
+    ``settings.min_escalation_words`` words goes to ``llm_extractor`` with no
+    candidates. The budget and the threshold apply only in ``hybrid``.
+
+    ``error_policy`` applies to the first extractor in ``gliner`` and
+    ``hybrid``, and to the LLM extractor in ``llm``. In ``hybrid`` an error in
+    the LLM extractor never raises: the chunk keeps its first result.
+
+    The caller decides the batch: a walk batch for ``Graph.add`` and one
+    document for ``Graph.update``.
+
+    Args:
+        chunks: The chunks of the batch.
+        start_index: The entity index offset of this batch in the whole call.
+        extractor: The first extractor, run on every chunk in ``gliner`` and
+            ``hybrid``.
+        schema: The schema to extract against.
+        error_policy: How to treat a failed call of the extractor that the mode
+            runs first (the first extractor, or the LLM extractor in ``llm``).
+        settings: The mode, the escalation thresholds and the budget.
+        llm_extractor: The LLM extractor, or ``None`` when the mode has no LLM.
+        tracer: The tracer for the extraction spans.
+
+    Returns:
+        The batch: entities and relations in chunk order, the failures in phase
+        order (first extractor, then LLM), and the report. The report names the
+        effective mode and the time of each phase that ran.
+
+    Raises:
+        ValueError: If the settings mode is ``llm`` and ``llm_extractor`` is
+            ``None``.
+    """
+    resolved_tracer = get_tracer(tracer)
+    mode = effective_mode(settings, llm_available=llm_extractor is not None)
+    escalation_failures: list[StageFailure] = []
+    if mode == "llm":
+        if llm_extractor is None:
+            raise ValueError("extraction mode 'llm' needs an llm_extractor")
+        outcomes, escalation_failures, report = await _extract_llm_only(
+            chunks,
+            schema=schema,
+            error_policy=error_policy,
+            settings=settings,
+            llm_extractor=llm_extractor,
+            tracer=resolved_tracer,
+        )
+        primary_seconds = 0.0
+    else:
+        started = time.perf_counter()
+        outcomes = await _run_extractor(
+            chunks,
+            extractor=extractor,
+            schema=schema,
+            raise_errors=error_policy is ErrorPolicy.RAISE,
+            tracer=resolved_tracer,
+            phase="primary",
+        )
+        primary_seconds = time.perf_counter() - started
+        report = EscalationReport(total=len(chunks))
+        if llm_extractor is not None and mode == "hybrid":
+            outcomes, escalation_failures, report = await _escalate(
+                chunks,
+                outcomes,
+                llm_extractor=llm_extractor,
+                schema=schema,
+                settings=settings,
+                tracer=resolved_tracer,
+            )
+    report = report.model_copy(
+        update={"mode": mode, "primary_seconds": primary_seconds}
+    )
     entities: list[ExtractedEntity] = []
     relations: list[ExtractedRelation] = []
     failures: list[StageFailure] = []
@@ -152,7 +456,13 @@ async def extract_chunks(
                 )
                 continue
             relations.append(new_rel)
-    return entities, relations, failures
+    failures.extend(escalation_failures)
+    return ExtractionBatch(
+        entities=entities,
+        relations=relations,
+        failures=failures,
+        report=report,
+    )
 
 
 @dataclass(frozen=True)

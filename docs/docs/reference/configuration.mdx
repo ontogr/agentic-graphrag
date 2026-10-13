@@ -64,7 +64,7 @@ Class: `ExtractionSettings`. Prefix: `EXTRACTION_`.
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `EXTRACTION_MODE` | `hybrid` | Selects `gliner`, `hybrid`, or `llm`. `hybrid` without an LLM uses `gliner` and logs a warning. The mode sets Graph's effective mode, but `Graph` does not yet escalate automatically between slots. |
+| `EXTRACTION_MODE` | `hybrid` | Selects `gliner`, `hybrid`, or `llm`. `hybrid` without an LLM uses `gliner` and logs a warning. `llm` reads every chunk with the LLM extractor, and the word minimum applies to it. See [Control LLM cost during extraction](../guides/control-llm-cost-during-extraction.mdx). |
 | `EXTRACTION_MODEL_NAME` | `fastino/gliner2.5-base-v1` | GLiNER checkpoint loaded by `GlinerExtractor`. |
 | `EXTRACTION_DTYPE` | `fp32` | Model precision: `fp32`, `fp16`, or `bf16`. The model loads in `fp32` before the extractor casts it. |
 | `EXTRACTION_ENTITY_THRESHOLD` | `0.5` | Minimum score for a kept entity span. |
@@ -72,9 +72,9 @@ Class: `ExtractionSettings`. Prefix: `EXTRACTION_`.
 | `EXTRACTION_RELATION_FLOOR` | `0.3` | Minimum relation score returned by the model. Relations between this value and `EXTRACTION_RELATION_THRESHOLD` are reported as candidates. It cannot exceed `EXTRACTION_RELATION_THRESHOLD`. |
 | `EXTRACTION_BAND_FLOOR` | `0.3` | Minimum entity score in the band below `EXTRACTION_ENTITY_THRESHOLD`. When candidates are enabled, a second model call reports spans in this band that overlap no kept entity. It cannot exceed `EXTRACTION_ENTITY_THRESHOLD`. |
 | `EXTRACTION_LABEL_THRESHOLDS` | `{}` | JSON object mapping entity or relation labels to their own thresholds. An entity label's threshold replaces `EXTRACTION_ENTITY_THRESHOLD` for that label. A relation label's threshold replaces `EXTRACTION_RELATION_THRESHOLD` as the cut for kept relations, and the model reads that relation at the lower of the threshold and `EXTRACTION_RELATION_FLOOR`. A label not in the schema has no effect. |
-| `EXTRACTION_ESCALATION_THRESHOLD` | `0.75` | Entity score threshold for automatic LLM escalation. Configured but not used for automatic escalation yet. |
-| `EXTRACTION_ESCALATION_BUDGET` | `0.2` | Share of chunks available for automatic LLM escalation, from `0` to `1`, or `all`. Configured but not used for automatic escalation yet. |
-| `EXTRACTION_MIN_ESCALATION_WORDS` | `8` | Minimum words in an empty-result chunk for automatic LLM escalation. Configured but not used for automatic escalation yet. |
+| `EXTRACTION_ESCALATION_THRESHOLD` | `0.75` | A chunk is eligible for the LLM in `hybrid` mode when one of its entities scores below this value. |
+| `EXTRACTION_ESCALATION_BUDGET` | `0.2` | The share of the chunks in a batch that the LLM extractor can read, from `0` to `1`, or `all`. The value is rounded up. `all` sets no limit, and `0` means no chunk goes to the LLM. |
+| `EXTRACTION_MIN_ESCALATION_WORDS` | `8` | Minimum words in a chunk with no entities for the LLM to read it. Used in `llm` mode and for the empty-result case in `hybrid` mode. |
 | `EXTRACTION_CANDIDATES_ENABLED` | `true` | Whether `GlinerExtractor` reports rejected relations and band entities as candidates in its result. Enabling it adds a second model call per chunk. Ingestion does not store these candidates yet. |
 
 All score values must be between `0` and `1`. `EXTRACTION_LABEL_THRESHOLDS` must be one JSON object. For example, the following `.env` values configure every field:
@@ -206,4 +206,5 @@ Class: `CutoverJobSettings`. Prefix: `CUTOVER_JOB_`.
 ## Related
 
 - How-to: [Configure storage backends](../guides/configure-storage-backends.mdx).
+- How-to: [Control LLM cost during extraction](../guides/control-llm-cost-during-extraction.mdx).
 - Reference: [Core API](../api/index.md).

@@ -1,4 +1,4 @@
-"""Tests for GlinerExtractor, BAMLExtractor, EscalatingExtractor, and errors.
+"""Tests for GlinerExtractor, BAMLExtractor, and errors.
 
 Uses hand-built GraphSchema fixtures (one-pair, multi-label, symmetric
 KNOWS, duplicate-label, overwrite-label, and property schemas) to exercise
@@ -11,9 +11,7 @@ GlinerExtractor and BAMLExtractor are driven with hand-rolled mock model or
 client objects (no real gliner2 or LLM calls); missing-extra behavior is
 verified by patching ``sys.modules`` entries to ``None``. Concurrency tests
 use ``threading.Event`` pairs to prove a model loads exactly once across
-overlapping or cancelled concurrent extract() calls. EscalatingExtractor
-tests use fake primary/escalate extractors to verify escalation triggers on
-low yield or low mean confidence, and never merges results from both.
+overlapping or cancelled concurrent extract() calls.
 """
 
 import asyncio
@@ -49,11 +47,8 @@ from agrag.common.data_models.graph_schema import (
 from agrag.common.data_models.provenance import TextProvenance
 from agrag.ingestion.extract import (
     BAMLExtractor,
-    EscalatingExtractor,
-    Extractor,
     ExtractorMissingExtraError,
     GlinerExtractor,
-    LLMExtractor,
     _describe_entity_type,
     validate_extraction,
 )
@@ -1646,209 +1641,6 @@ class TestBAMLExtractor:
         assert result.relations == []
 
 
-class TestEscalatingExtractor:
-    """EscalatingExtractor escalates on weak results, not on strong ones."""
-
-    def _make_extractor(
-        self,
-        *,
-        primary_entities: list | None = None,
-        primary_confidences: list[float | None] | None = None,
-        primary_needs_properties: bool = False,
-        escalate_entities: list | None = None,
-    ) -> tuple[EscalatingExtractor, list[str]]:
-        """Build an EscalatingExtractor with a fake primary and escalate_to.
-
-        Returns the extractor and a list that records which extractors ran.
-        """
-        ran: list[str] = []
-
-        primary_result = ExtractionResult(
-            entities=[
-                ExtractedEntity(
-                    chunk_id=uuid4(),
-                    label="Person",
-                    text="X",
-                    char_start=0,
-                    char_end=1,
-                    confidence=conf,
-                )
-                for conf in (primary_confidences or primary_entities or [])
-            ]
-            if primary_entities is not None
-            else [],
-            relations=[],
-            extractor_name="primary",
-            needs_properties=primary_needs_properties,
-        )
-
-        escalate_result = ExtractionResult(
-            entities=[
-                ExtractedEntity(
-                    chunk_id=uuid4(),
-                    label="Person",
-                    text="Y",
-                    char_start=0,
-                    char_end=1,
-                    confidence=0.9,
-                )
-            ]
-            if escalate_entities is not None
-            else [],
-            relations=[],
-            extractor_name="escalate",
-        )
-
-        class MockExtractor(Extractor):
-            def __init__(self, result: ExtractionResult, name: str) -> None:
-                self._result = result
-                self._name = name
-
-            async def extract(self, chunk, schema):  # noqa: ANN001
-                ran.append(self._name)
-                return self._result
-
-        primary = MockExtractor(primary_result, "primary")
-        escalate = MockExtractor(escalate_result, "escalate")
-        return EscalatingExtractor(primary=primary, escalate_to=escalate), ran
-
-    async def test_escalates_on_zero_yield_above_word_floor(self) -> None:
-        """Zero entities from primary escalates when chunk has enough words."""
-        chunk = _chunk("This is a chunk with more than eight words in it.")
-        extractor, ran = self._make_extractor(primary_entities=None)
-        result = await extractor.extract(chunk, DEFAULT_SCHEMA)
-        assert ran == ["primary", "escalate"]
-        assert result.extractor_name == "escalate"
-
-    async def test_does_not_escalate_on_zero_yield_below_word_floor(self) -> None:
-        """Zero entities from primary is accepted when chunk is short."""
-        chunk = _chunk("short")
-        extractor, ran = self._make_extractor(primary_entities=None)
-        result = await extractor.extract(chunk, DEFAULT_SCHEMA)
-        assert ran == ["primary"]
-        assert result.extractor_name == "primary"
-
-    async def test_escalates_when_primary_only_reports_undeclared_labels(
-        self,
-    ) -> None:
-        """Entities the schema drops do not make the primary result strong."""
-
-        class UndeclaredPrimary(Extractor):
-            async def extract(self, chunk, schema):  # noqa: ANN001
-                return ExtractionResult(
-                    entities=[
-                        ExtractedEntity(
-                            chunk_id=uuid4(),
-                            label="Ghost",
-                            text="Nobody",
-                            char_start=0,
-                            char_end=6,
-                            confidence=0.9,
-                        )
-                    ],
-                    relations=[],
-                    extractor_name="primary",
-                )
-
-        class FallbackExtractor(Extractor):
-            async def extract(self, chunk, schema):  # noqa: ANN001
-                return ExtractionResult(
-                    entities=[], relations=[], extractor_name="escalate"
-                )
-
-        extractor = EscalatingExtractor(
-            primary=UndeclaredPrimary(), escalate_to=FallbackExtractor()
-        )
-        chunk = _chunk("This is a chunk with more than eight words in it.")
-
-        result = await extractor.extract(chunk, DEFAULT_SCHEMA)
-
-        assert result.extractor_name == "escalate"
-
-    async def test_escalates_on_low_mean_confidence(self) -> None:
-        """Mean confidence below threshold triggers escalation."""
-        chunk = _chunk("This is a chunk with enough words to pass the floor.")
-        extractor, ran = self._make_extractor(
-            primary_entities=[1, 2],
-            primary_confidences=[0.3, 0.4],
-        )
-        result = await extractor.extract(chunk, DEFAULT_SCHEMA)
-        assert ran == ["primary", "escalate"]
-        assert result.extractor_name == "escalate"
-
-    async def test_escalates_when_primary_leaves_properties_unfilled(self) -> None:
-        """A confident primary result that needs properties still escalates."""
-        chunk = _chunk("This is a chunk with enough words to pass the floor.")
-        extractor, ran = self._make_extractor(
-            primary_entities=[1, 2],
-            primary_confidences=[0.9, 0.95],
-            primary_needs_properties=True,
-        )
-        result = await extractor.extract(chunk, DEFAULT_SCHEMA)
-        assert ran == ["primary", "escalate"]
-        assert result.extractor_name == "escalate"
-
-    async def test_does_not_escalate_on_high_confidence(self) -> None:
-        """Confident primary result is kept as-is."""
-        chunk = _chunk("This is a chunk with enough words to pass the floor.")
-        extractor, ran = self._make_extractor(
-            primary_entities=[1, 2],
-            primary_confidences=[0.9, 0.95],
-        )
-        result = await extractor.extract(chunk, DEFAULT_SCHEMA)
-        assert ran == ["primary"]
-        assert result.extractor_name == "primary"
-
-    async def test_does_not_escalate_when_no_confidence_reported(self) -> None:
-        """Primary result with no confidence values is not escalated."""
-        chunk = _chunk("This is a chunk with enough words to pass the floor.")
-        extractor, ran = self._make_extractor(
-            primary_entities=[1, 2],
-            primary_confidences=[None, None],
-        )
-        result = await extractor.extract(chunk, DEFAULT_SCHEMA)
-        assert ran == ["primary"]
-        assert result.extractor_name == "primary"
-
-    async def test_passes_primary_entities_to_llm_escalation(self) -> None:
-        """The LLM escalation role receives the local result as candidates."""
-        candidate = ExtractedEntity(
-            chunk_id=uuid4(),
-            label="Person",
-            text="Ada",
-            char_start=0,
-            char_end=3,
-            confidence=0.3,
-        )
-        primary_result = ExtractionResult(
-            entities=[candidate], relations=[], extractor_name="local"
-        )
-        seen: list[tuple[ExtractedEntity, ...] | None] = []
-
-        class Primary(Extractor):
-            async def extract(self, chunk, schema):  # noqa: ANN001
-                return primary_result
-
-        class LLM(LLMExtractor):
-            async def extract(
-                self,
-                chunk,
-                schema,
-                candidates=None,  # noqa: ANN001
-            ) -> ExtractionResult:
-                seen.append(tuple(candidates) if candidates is not None else None)
-                return ExtractionResult(entities=[], relations=[], extractor_name="llm")
-
-        extractor = EscalatingExtractor(
-            Primary(), LLM(), min_confidence=0.5, min_chunk_words=100
-        )
-
-        result = await extractor.extract(_chunk("Ada works."), DEFAULT_SCHEMA)
-
-        assert result.extractor_name == "llm"
-        assert seen == [(candidate,)]
-
-
 def _tracing_provider() -> tuple[TracerProvider, InMemorySpanExporter]:
     """Return a provider wired to an in-memory exporter."""
     exporter = InMemorySpanExporter()
@@ -1941,75 +1733,6 @@ class TestExtractionSpans:
         grouped = _spans_by_name(exporter)
         (load_span,) = grouped["agrag.extraction.model_load"]
         assert (load_span.attributes or {})["agrag.model"] == "fake-checkpoint"
-
-    async def test_escalating_span_marks_escalated_false(self) -> None:
-        """A confident primary result records escalated false."""
-        provider, exporter = _tracing_provider()
-
-        class Primary(Extractor):
-            async def extract(self, chunk, schema):  # noqa: ANN001
-                return ExtractionResult(
-                    entities=[
-                        ExtractedEntity(
-                            chunk_id=chunk.id,
-                            label="Person",
-                            text="Ada",
-                            char_start=0,
-                            char_end=3,
-                            confidence=0.9,
-                        )
-                    ],
-                    relations=[],
-                    extractor_name="primary",
-                )
-
-        class EscalateTo(Extractor):
-            async def extract(self, chunk, schema):  # noqa: ANN001
-                raise AssertionError("must not run without escalation")
-
-        chunk = _chunk("This is a chunk with enough words to pass the floor.")
-        extractor = EscalatingExtractor(
-            primary=Primary(),
-            escalate_to=EscalateTo(),
-            tracer=provider.get_tracer("test"),
-        )
-        result = await extractor.extract(chunk, DEFAULT_SCHEMA)
-
-        assert result.extractor_name == "primary"
-        grouped = _spans_by_name(exporter)
-        assert set(grouped) == {"agrag.extraction.escalating"}
-        (span,) = grouped["agrag.extraction.escalating"]
-        assert (span.attributes or {})["agrag.chunk_id"] == str(chunk.id)
-        assert (span.attributes or {})["agrag.escalated"] is False
-
-    async def test_escalating_span_marks_escalated_true(self) -> None:
-        """A weak primary result records escalated true."""
-        provider, exporter = _tracing_provider()
-
-        class Primary(Extractor):
-            async def extract(self, chunk, schema):  # noqa: ANN001
-                return ExtractionResult(
-                    entities=[], relations=[], extractor_name="primary"
-                )
-
-        class EscalateTo(Extractor):
-            async def extract(self, chunk, schema):  # noqa: ANN001
-                return ExtractionResult(
-                    entities=[], relations=[], extractor_name="escalate"
-                )
-
-        chunk = _chunk("This is a chunk with more than eight words in it.")
-        extractor = EscalatingExtractor(
-            primary=Primary(),
-            escalate_to=EscalateTo(),
-            tracer=provider.get_tracer("test"),
-        )
-        result = await extractor.extract(chunk, DEFAULT_SCHEMA)
-
-        assert result.extractor_name == "escalate"
-        grouped = _spans_by_name(exporter)
-        (span,) = grouped["agrag.extraction.escalating"]
-        assert (span.attributes or {})["agrag.escalated"] is True
 
 
 class TestHeadingContext:

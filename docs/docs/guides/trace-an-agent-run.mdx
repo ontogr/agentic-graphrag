@@ -122,6 +122,8 @@ Spans hold the question, the tool inputs, and the evidence text. There is no opt
 
 The same tracer traces every other component that calls an LLM, so one run of an ingestion or retrieval pipeline produces a single connected trace. For a connected retrieval trace, pass one tracer to all five: `SearchEngine`, `GraphStore`, `VectorStore`, `Embedder` and `build_agent`. The engine does not push its tracer into its stores, so a store built without the tracer exports adapter spans that no retrieval span connects to. Pass it wherever a component takes `tracer=`:
 
+Pass the same tracer to `Graph.open`. When the graph has an LLM extractor, it opens one `agrag.extraction.escalate` span for each batch.
+
 The next block is a reference. `tracer`, `chunks_by_id`, `graph_store`, `schema`, and `chat_model` stand for objects that your application already builds.
 
 {/* pmd-metadata: notest */}
@@ -131,23 +133,18 @@ from agrag.agents.model import build_chat_model
 from agrag.eval.judge import ChatModelJudge
 from agrag.ingestion.extract import (
     BAMLExtractor,
-    EscalatingExtractor,
     ExtractionLLMSettings,
     GlinerExtractor,
 )
 from agrag.retrieval.retrievers.text2cypher import Text2CypherRetriever
 
-# Extraction
+# LLM extractor. Pass it to Graph as llm_extractor to escalate weak chunks.
 extractor = BAMLExtractor(
     settings=ExtractionLLMSettings.from_openai_compatible_env(), tracer=tracer
 )
 
-# An escalating extractor traces its own decision as well
-escalating = EscalatingExtractor(
-    primary=GlinerExtractor(tracer=tracer),
-    escalate_to=extractor,
-    tracer=tracer,
-)
+# Local extractor, traced
+primary = GlinerExtractor(tracer=tracer)
 
 # Resolution, when you build the comparator yourself
 from agrag.ingestion.resolve.resolver import LLMVerify

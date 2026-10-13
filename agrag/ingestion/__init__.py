@@ -2,7 +2,6 @@
 
 from agrag.ingestion.extract import (
     BAMLExtractor,
-    EscalatingExtractor,
     ExtractionLLMSettings,
     Extractor,
     ExtractorMissingExtraError,
@@ -14,6 +13,7 @@ from agrag.ingestion.reports import (
     AddResult,
     CommunityDetectionReport,
     ConsolidationReport,
+    EscalationReport,
     ReevaluationReport,
     UpdateResult,
 )
@@ -25,7 +25,7 @@ __all__ = [
     "BAMLExtractor",
     "CommunityDetectionReport",
     "ConsolidationReport",
-    "EscalatingExtractor",
+    "EscalationReport",
     "ExtractionLLMSettings",
     "ExtractionSettings",
     "Extractor",
