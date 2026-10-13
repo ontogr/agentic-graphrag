@@ -162,7 +162,7 @@ asyncio.run(main())
 
 Each kept entity and relation has a `confidence`. The extractor keeps an entity at 0.5 or more and a relation at 0.7 or more. Set `EXTRACTION_ENTITY_THRESHOLD` and `EXTRACTION_RELATION_THRESHOLD` to change them. A relation must also match a pattern of the schema. The pattern accepts the child types of its labels.
 
-`result.candidates` lists what the extractor discarded, with a reason. GLiNER can return `below_relation_cut`, `unresolved_endpoint`, `off_pattern` and `entity_band`. The LLM can return `off_pattern` and `property`. Set `EXTRACTION_CANDIDATES_ENABLED=false` to turn candidate reporting off. With candidates off, GLiNER makes one model call for each chunk. With candidates on, it makes two.
+`result.candidates` lists proposed candidate records. GLiNER reports relation drops in extraction statistics whether candidate writing is enabled or not. Set `EXTRACTION_CANDIDATES_ENABLED=false` to stop writing candidate records; GLiNER still makes one model call for each chunk and skips the entity-band candidate pass. With candidates on, it makes two calls.
 
 The default chunk size fits the model in one pass. See [Configure chunking](./configure-chunking.mdx) before you set a much larger size.
 

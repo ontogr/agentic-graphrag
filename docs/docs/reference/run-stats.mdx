@@ -29,10 +29,13 @@ title: Run statistics
 | `unresolved_endpoint` | relation | An endpoint does not match a kept entity span. |
 | `entity_band` | entity | The entity score is between the band floor and entity threshold. This reason is absent when the GLiNER candidate pass is disabled or the mode is `llm`. |
 | `property` | property | The LLM returned a property key that the entity type does not declare. |
+| `schema_validation` | entity, relation | Schema validation removed an undeclared entity or an invalid relation. These counts do not create candidate proposals. |
 | `unmapped_endpoint` | relation | A relation endpoint has no merged entity. This reason appears in `merge.dropped`. |
 | `merged_self_loop` | relation | Both relation endpoints became one entity. This reason appears in `merge.dropped`. |
 
 Property conflicts are counted in `merge.conflicts_resolved`, not in `merge.dropped`.
+
+Candidate storage failures abort document replacement even under `ErrorPolicy.SKIP`, so previously committed evidence is preserved.
 
 ## Candidate kinds by mode
 

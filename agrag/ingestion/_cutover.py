@@ -14,7 +14,10 @@ from uuid import UUID, uuid4
 from opentelemetry.trace import Tracer
 
 from agrag.common.data_models.graph_record import DeferredWrites
-from agrag.cypher.candidates import delete_stale_candidates_query
+from agrag.cypher.candidates import (
+    delete_reviewed_job_candidates_query,
+    delete_stale_candidates_query,
+)
 from agrag.cypher.cutover_job_write import (
     acquire_lease_query,
     begin_rollback_query,
@@ -469,6 +472,11 @@ async def _commit_pending_writes(
                 keep_node_ids=keep_node_ids,
             )
         if candidate_document_node_id is not None:
+            # A review can settle a key after extraction's early lookup.
+            # Recheck while the new candidates are still invisible to readers.
+            await txn.execute_write(
+                delete_reviewed_job_candidates_query(), {"job_id": job_arg}
+            )
             await txn.execute_write(
                 delete_stale_candidates_query(),
                 {"document_node_id": str(candidate_document_node_id)},

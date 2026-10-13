@@ -114,6 +114,21 @@ def list_candidates_query() -> str:
     )
 
 
+def delete_reviewed_job_candidates_query() -> str:
+    """Remove job candidates whose keys were reviewed before publication."""
+    return (
+        f"MATCH (candidate:{CANDIDATE_LABEL}) "
+        f"WHERE candidate.{PENDING_JOB_ID_PROPERTY} = $job_id "
+        "AND candidate.state = 'pending' "
+        f"MATCH (reviewed:{CANDIDATE_LABEL} {{key: candidate.key}}) "
+        "WHERE reviewed.state IN ['approved', 'rejected'] "
+        f"AND reviewed.{PENDING_JOB_ID_PROPERTY} IS NULL "
+        "WITH collect(DISTINCT candidate) AS duplicates "
+        "FOREACH (candidate IN duplicates | DETACH DELETE candidate) "
+        "RETURN size(duplicates) AS removed"
+    )
+
+
 def delete_stale_candidates_query() -> str:
     """Build deletion of committed pending candidates for a document."""
     return (

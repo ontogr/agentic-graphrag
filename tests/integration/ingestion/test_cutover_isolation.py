@@ -349,7 +349,7 @@ def _relation_writer(
 
     async def write(job_id: UUID) -> None:
         chunk_id = uuid4()
-        records = await _domain_relation_records(
+        records, _ = await _domain_relation_records(
             [
                 ExtractedRelation(
                     chunk_id=chunk_id,

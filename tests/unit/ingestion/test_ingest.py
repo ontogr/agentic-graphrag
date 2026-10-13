@@ -7,6 +7,7 @@ import pytest
 
 from agrag.common.data_models.chunk import Chunk
 from agrag.common.data_models.document import Document, DocumentFamily, SourceFormat
+from agrag.common.data_models.dropped import DroppedCount
 from agrag.common.data_models.extraction import ExtractedEntity, ExtractedRelation
 from agrag.common.data_models.provenance import TextProvenance
 from agrag.ingestion._ingest import _group_by_document, _merge_add_results
@@ -85,7 +86,7 @@ class TestGroupByDocument:
             slices = _group_by_document([unlisted_chunk], [listed], [], [], [], [])
 
         assert len(slices) == 1
-        _, slice_chunks, _, _, _, _, _ = slices[0]
+        _, slice_chunks, _, _, _, _, _, _ = slices[0]
         assert slice_chunks == [unlisted_chunk]
         assert len(_warnings(caplog)) == 1
 
@@ -119,7 +120,7 @@ class TestGroupByDocument:
             )
 
         relations_by_key = {
-            key: slice_relations for key, _, _, _, slice_relations, _, _ in slices
+            key: slice_relations for key, _, _, _, slice_relations, _, _, _ in slices
         }
         assert [
             (rel.label, rel.source_index, rel.target_index)
@@ -132,6 +133,27 @@ class TestGroupByDocument:
         warnings = _warnings(caplog)
         assert len(warnings) == 1
         assert "KNOWS" in warnings[0]
+
+    def test_routes_dropped_counts_by_source_chunk(self) -> None:
+        """Validation drops stay with the document that supplied the chunk."""
+        doc_a, doc_b = _doc(key="a"), _doc(key="b")
+        chunk_a, chunk_b = _chunk(doc_a), _chunk(doc_b)
+        dropped = [
+            DroppedCount(
+                kind="entity",
+                label="Ghost",
+                reason="schema_validation",
+                count=1,
+                chunk_id=chunk_b.id,
+            )
+        ]
+
+        slices = _group_by_document(
+            [chunk_a, chunk_b], [doc_a, doc_b], [], [], [], [], dropped
+        )
+
+        assert slices[0][-1] == []
+        assert slices[1][-1] == dropped
 
 
 class TestMergeAddResultsResolution:

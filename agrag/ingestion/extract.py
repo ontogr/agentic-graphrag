@@ -19,6 +19,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from agrag.common.data_models.candidate import CandidateRecord
 from agrag.common.data_models.chunk import Chunk
+from agrag.common.data_models.dropped import DroppedCount
 from agrag.common.data_models.extraction import (
     ExtractedEntity,
     ExtractedRelation,
@@ -269,6 +270,39 @@ def validate_extraction(
 
     dropped_entities = len(result.entities) - len(valid_entities)
     dropped_relations = len(result.relations) - len(valid_relations)
+    dropped = [
+        *result.dropped,
+        *(
+            DroppedCount(
+                kind="entity",
+                label=entity.label,
+                reason="schema_validation",
+                count=1,
+                chunk_id=entity.chunk_id,
+            )
+            for entity in result.entities
+            if entity.label not in entity_types_by_label
+        ),
+        *(
+            DroppedCount(
+                kind="relation",
+                label=relation.label,
+                reason="schema_validation",
+                count=1,
+                chunk_id=relation.chunk_id,
+            )
+            for relation in result.relations
+            if (
+                relation.source_index not in index_remap
+                or relation.target_index not in index_remap
+                or not schema.allows(
+                    relation.label,
+                    valid_entities[index_remap[relation.source_index]].label,
+                    valid_entities[index_remap[relation.target_index]].label,
+                )
+            )
+        ),
+    ]
     if dropped_entities or dropped_relations or dropped_properties:
         logger.warning(
             "Dropped %d entities, %d relations and %d properties from %s "
@@ -283,6 +317,7 @@ def validate_extraction(
             "entities": valid_entities,
             "relations": valid_relations,
             "candidates": candidates,
+            "dropped": dropped,
         }
     )
 

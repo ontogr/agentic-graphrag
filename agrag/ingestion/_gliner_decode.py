@@ -6,6 +6,7 @@ from uuid import UUID
 
 from agrag.common.data_models.candidate import CandidateRecord
 from agrag.common.data_models.chunk import Chunk
+from agrag.common.data_models.dropped import DroppedCount
 from agrag.common.data_models.extraction import (
     ExtractedEntity,
     ExtractedRelation,
@@ -138,7 +139,7 @@ def _relations(
     schema: GraphSchema,
     settings: ExtractionSettings,
     entities: list[ExtractedEntity],
-) -> tuple[list[ExtractedRelation], list[CandidateRecord]]:
+) -> tuple[list[ExtractedRelation], list[CandidateRecord], list[DroppedCount]]:
     """Keep the relations that pass the cut and the pattern check.
 
     The checks run in this order: the confidence cut, then endpoint
@@ -165,6 +166,7 @@ def _relations(
 
     kept: dict[tuple[int, int, str], float] = {}
     candidates: list[CandidateRecord] = []
+    dropped: list[DroppedCount] = []
     for label, pairs in raw_relations.items():
         if label not in declared:
             continue
@@ -189,6 +191,15 @@ def _relations(
                 key = (source, target, label)
                 kept[key] = max(kept.get(key, 0.0), score)
                 continue
+            dropped.append(
+                DroppedCount(
+                    kind="relation",
+                    label=label,
+                    reason=reason,
+                    count=1,
+                    chunk_id=chunk_id,
+                )
+            )
             if settings.candidates_enabled:
                 candidates.append(
                     CandidateRecord(
@@ -214,7 +225,7 @@ def _relations(
         )
         for (source, target, label), score in sorted(kept.items())
     ]
-    return relations, candidates
+    return relations, candidates, dropped
 
 
 def _band_candidates(
@@ -300,7 +311,7 @@ def decode_gliner(
         )
         for mention in _mentions(raw.get("entities", {}), chunk.text, schema)
     ]
-    relations, candidates = _relations(
+    relations, candidates, dropped = _relations(
         raw.get("relation_extraction", {}),
         chunk=chunk,
         chunk_id=chunk_id,
@@ -325,5 +336,6 @@ def decode_gliner(
         relations=relations,
         extractor_name="gliner",
         candidates=candidates,
+        dropped=dropped,
         needs_properties=any(item.label in with_properties for item in entities),
     )

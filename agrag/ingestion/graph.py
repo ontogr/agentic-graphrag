@@ -671,7 +671,8 @@ class Graph:
                 exactly one document.
             loader: A loader override for a single-file ``source``.
             error_policy: RAISE propagates a stage failure. Any other
-                policy records it and continues.
+                policy records it and continues. Candidate storage failures
+                always abort replacement to preserve committed evidence.
             read_options: How loaders read the replacement, including the
                 normalization of its text. None uses ``ReadOptions()`` defaults.
             force: Extract the entities again on the same chunks, even when the

@@ -460,7 +460,8 @@ A source must resolve to exactly one document.
   exactly one document.
 - **loader** (<code>[Loader](../../loaders/base/Loader.md) | None</code>) – A loader override for a single-file `source`.
 - **error_policy** (<code>[ErrorPolicy](../../loaders/types/ErrorPolicy.md)</code>) – RAISE propagates a stage failure. Any other
-  policy records it and continues.
+  policy records it and continues. Candidate storage failures
+  always abort replacement to preserve committed evidence.
 - **read_options** (<code>[ReadOptions](../../loaders/types/ReadOptions.md) | None</code>) – How loaders read the replacement, including the
   normalization of its text. None uses `ReadOptions()` defaults.
 - **force** (<code>bool</code>) – Extract the entities again on the same chunks, even when the

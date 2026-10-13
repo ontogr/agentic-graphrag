@@ -23,6 +23,7 @@ from agrag.common.data_models.document import (
     Document,
     SourceFormat,
 )
+from agrag.common.data_models.dropped import DroppedCount
 from agrag.common.data_models.extraction import ExtractedEntity, ExtractedRelation
 from agrag.common.data_models.graph_record import DeferredWrites
 from agrag.common.data_models.graph_schema import GraphSchema
@@ -153,6 +154,7 @@ def _group_by_document(  # noqa: PLR0912,PLR0917
     relations: list[ExtractedRelation],
     candidates: list[CandidateRecord],
     extraction_failures: list[StageFailure],
+    dropped: Sequence[DroppedCount] = (),
 ) -> list[
     tuple[
         str,
@@ -162,6 +164,7 @@ def _group_by_document(  # noqa: PLR0912,PLR0917
         list[ExtractedRelation],
         list[CandidateRecord],
         list[StageFailure],
+        list[DroppedCount],
     ]
 ]:
     ordered_keys: list[str] = []
@@ -247,6 +250,13 @@ def _group_by_document(  # noqa: PLR0912,PLR0917
         failures_by_key.setdefault(
             _or_first(failure_key, kind=f"Failure {failure.item_id}"), []
         ).append(failure)
+    dropped_by_key: dict[str, list[DroppedCount]] = {key: [] for key in ordered_keys}
+    for item in dropped:
+        owner_key = _or_first(
+            key_by_chunk_id.get(item.chunk_id) if item.chunk_id is not None else None,
+            kind=f"Dropped {item.kind} {item.label}",
+        )
+        dropped_by_key.setdefault(owner_key, []).append(item)
     documents_by_key: dict[str, list[Document]] = {key: [] for key in ordered_keys}
     for document in documents:
         documents_by_key[document.resolved_document_key].append(document)
@@ -259,6 +269,7 @@ def _group_by_document(  # noqa: PLR0912,PLR0917
             relations_by_key[key],
             candidates_by_key[key],
             failures_by_key[key],
+            dropped_by_key[key],
         )
         for key in ordered_keys
     ]
@@ -489,6 +500,7 @@ async def _commit_batch(  # noqa: PLR0913
         doc_relations,
         doc_candidates,
         doc_failures,
+        doc_dropped,
     ) in _group_by_document(
         flat_batch,
         batch,
@@ -496,6 +508,7 @@ async def _commit_batch(  # noqa: PLR0913
         extracted.relations,
         extracted.candidates,
         extracted.failures,
+        extracted.dropped,
     ):
         written_chunks, written_documents = (
             _without_extraction_stamps(doc_chunks, doc_documents)
@@ -519,6 +532,7 @@ async def _commit_batch(  # noqa: PLR0913
                 list[ExtractedRelation],
                 list[CandidateRecord],
                 list[StageFailure],
+                list[DroppedCount],
             ] = (
                 written_chunks,
                 written_documents,
@@ -526,6 +540,7 @@ async def _commit_batch(  # noqa: PLR0913
                 doc_relations,
                 doc_candidates,
                 doc_failures,
+                doc_dropped,
             ),
         ) -> AddResult:
             (
@@ -535,6 +550,7 @@ async def _commit_batch(  # noqa: PLR0913
                 slice_relations,
                 slice_candidates,
                 slice_failures,
+                slice_dropped,
             ) = _slice
             ingested = await ingest_chunks(
                 slice_chunks,
@@ -557,6 +573,7 @@ async def _commit_batch(  # noqa: PLR0913
                 embed_heading_path=embed_heading_path,
                 max_llm_pairs=max_llm_pairs,
                 candidates=slice_candidates,
+                dropped=slice_dropped,
                 write_candidates=write_candidates,
                 deferred=_deferred,
             )
@@ -928,6 +945,7 @@ async def update_document(  # noqa: PLR0913
                 embed_heading_path=embed_heading_path,
                 max_llm_pairs=max_llm_pairs,
                 candidates=extracted.candidates,
+                dropped=extracted.dropped,
                 write_candidates=write_candidates,
                 deferred=deferred,
                 reuse_chunks=in_place,

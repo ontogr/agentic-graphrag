@@ -5,7 +5,7 @@ sidebar_label: dropped
 
 # `agrag.ingestion.stats.dropped` \{#agrag-ingestion-stats-dropped}
 
-Counts of items discarded during extraction or merge.
+Ingestion imports for shared dropped-count models and aggregation.
 
 **Classes:**
 
@@ -14,7 +14,7 @@ Counts of items discarded during extraction or merge.
 **Functions:**
 
 - [**count_candidates**](count_candidates.md) – Count extractor candidates by kind, label and reason.
-- [**sum_dropped**](sum_dropped.md) – Sum dropped counts from several ingestion jobs.
+- [**sum_dropped**](sum_dropped.md) – Sum dropped counts from several groups.
 
 **Attributes:**
 

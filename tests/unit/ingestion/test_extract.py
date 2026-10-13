@@ -894,6 +894,50 @@ class TestValidateExtraction:
             caplog.text
         )
 
+    def test_validation_drops_are_carried_separately_from_candidates(self) -> None:
+        """Schema drops have counts without becoming candidate proposals."""
+        chunk_id = uuid4()
+        result = ExtractionResult(
+            entities=[
+                ExtractedEntity(
+                    chunk_id=chunk_id,
+                    label="Ghost",
+                    text="Nobody",
+                    char_start=0,
+                    char_end=6,
+                ),
+                ExtractedEntity(
+                    chunk_id=chunk_id,
+                    label="Person",
+                    text="Ada",
+                    char_start=7,
+                    char_end=10,
+                ),
+            ],
+            relations=[
+                ExtractedRelation(
+                    chunk_id=chunk_id,
+                    label="UNKNOWN",
+                    source_index=0,
+                    target_index=1,
+                )
+            ],
+            extractor_name="custom",
+        )
+
+        validated = validate_extraction(result, _ONE_PAIR_SCHEMA)
+
+        assert [entity.label for entity in validated.entities] == ["Person"]
+        assert validated.relations == []
+        assert validated.candidates == []
+        assert [
+            (item.kind, item.label, item.reason, item.count)
+            for item in validated.dropped
+        ] == [
+            ("entity", "Ghost", "schema_validation", 1),
+            ("relation", "UNKNOWN", "schema_validation", 1),
+        ]
+
     def test_logs_dropped_properties_when_no_entity_is_dropped(
         self, caplog: pytest.LogCaptureFixture
     ) -> None:

@@ -9,12 +9,4 @@ sidebar_label: sum_dropped
 sum_dropped(groups:Iterable[Sequence[DroppedCount]]) -> list[DroppedCount]
 ```
 
-Sum dropped counts from several ingestion jobs.
-
-**Parameters:**
-
-- **groups** (<code>Iterable\[Sequence\[[DroppedCount](DroppedCount.md)\]\]</code>) – One list of counts per job.
-
-**Returns:**
-
-- <code>list\[[DroppedCount](DroppedCount.md)\]</code> – One sorted entry per distinct kind, label and reason.
+Sum dropped counts from several groups.

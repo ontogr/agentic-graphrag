@@ -37,11 +37,13 @@ def candidate_node_id(job_id: UUID | None, chunk_id: UUID, key: str) -> UUID:
 
 def _mention_positions(
     entities: Sequence[ExtractedEntity],
-) -> dict[tuple[UUID, str], int]:
-    """Map each chunk and normalized mention text to its first position."""
-    positions: dict[tuple[UUID, str], int] = {}
+) -> dict[tuple[UUID, str], list[int]]:
+    """Group positions with the same chunk and normalized mention text."""
+    positions: dict[tuple[UUID, str], list[int]] = {}
     for position, entity in enumerate(entities):
-        positions.setdefault((entity.chunk_id, normalize_text(entity.text)), position)
+        positions.setdefault((entity.chunk_id, normalize_text(entity.text)), []).append(
+            position
+        )
     return positions
 
 
@@ -49,21 +51,31 @@ def _end(
     chunk_id: UUID,
     text: str | None,
     entities: Sequence[ExtractedEntity],
-    positions: Mapping[tuple[UUID, str], int],
+    positions: Mapping[tuple[UUID, str], list[int]],
     mention_to_entity: Mapping[int, UUID],
+    *,
+    label: str | None,
 ) -> tuple[UUID | None, str | None]:
     if text is None:
-        return None, None
-    position = positions.get((chunk_id, normalize_text(text)))
-    if position is None:
-        return None, None
-    return mention_to_entity.get(position), entities[position].label
+        return None, label
+    matches = [
+        position
+        for position in positions.get((chunk_id, normalize_text(text)), [])
+        if label is None or entities[position].label == label
+    ]
+    endpoints = {
+        (mention_to_entity.get(position), entities[position].label)
+        for position in matches
+    }
+    if len(endpoints) != 1:
+        return None, label
+    return endpoints.pop()
 
 
 def _link(
     candidate: CandidateRecord,
     entities: Sequence[ExtractedEntity],
-    positions: Mapping[tuple[UUID, str], int],
+    positions: Mapping[tuple[UUID, str], list[int]],
     mention_to_entity: Mapping[int, UUID],
 ) -> CandidateRecord | None:
     """Link one candidate to final entities, or skip a merged self-loop."""
@@ -75,6 +87,7 @@ def _link(
         entities,
         positions,
         mention_to_entity,
+        label=candidate.source_label,
     )
     target_id, target_label = (
         _end(
@@ -83,6 +96,7 @@ def _link(
             entities,
             positions,
             mention_to_entity,
+            label=candidate.target_label,
         )
         if candidate.kind == "relation"
         else (None, None)
@@ -165,7 +179,8 @@ async def candidate_stage(
         Written nodes, skipped occurrences and storage failures.
 
     Raises:
-        Exception: A storage call fails when the error policy is ``RAISE``.
+        Exception: A storage call fails in a cutover job or under ``RAISE``.
+        RuntimeError: A cutover job's candidate write reports failed records.
     """
     if not enabled or not candidates:
         return CandidateStageResult()
@@ -199,12 +214,17 @@ async def candidate_stage(
                 fresh, pending_job_id=ctx.job_id
             )
         except Exception as exc:
-            if ctx.error_policy is ErrorPolicy.RAISE:
+            # A partial candidate refresh must not replace committed evidence.
+            if ctx.job_id is not None or ctx.error_policy is ErrorPolicy.RAISE:
                 raise
             return CandidateStageResult(
                 skipped=skipped, failures=[_failure("candidates", exc)]
             )
         span.set_attribute("agrag.candidates_written", outcome.written)
+    if outcome.failures and ctx.job_id is not None:
+        raise RuntimeError(
+            f"Candidate refresh failed: {outcome.failures[0].error_message}"
+        )
     return CandidateStageResult(
         written=outcome.written,
         skipped=skipped,

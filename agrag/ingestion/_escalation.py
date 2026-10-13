@@ -297,6 +297,7 @@ def combine_results(
             "entities": entities,
             "relations": relations,
             "candidates": [*primary.candidates, *escalated.candidates],
+            "dropped": [*primary.dropped, *escalated.dropped],
         }
     )
 

@@ -17,6 +17,7 @@ from agrag.common.data_models.candidate import CandidateRecord
 from agrag.common.data_models.chunk import Chunk
 from agrag.common.data_models.document import Document, DocumentFamily, SourceFormat
 from agrag.common.data_models.extraction import ExtractedEntity, ExtractionResult
+from agrag.common.data_models.graph_record import UpsertFailure, UpsertResult
 from agrag.common.data_models.graph_schema import (
     EntityType,
     GraphSchema,
@@ -29,6 +30,7 @@ from agrag.graphdb.base import GraphStore
 from agrag.ingestion.extract import Extractor
 from agrag.ingestion.graph import Graph
 from agrag.ingestion.settings import ExtractionSettings
+from agrag.loaders.types import ErrorPolicy
 from tests.integration._schema_cleanup import drop_schema_for
 from tests.integration.e2e._artifact import write_artifact
 
@@ -290,6 +292,88 @@ class TestCandidatesE2E:
         assert [row["state"] for row in await env.rows()] == ["rejected"]
         artifact["reviewed_and_deleted"] = {"states": ["rejected"]}
         assert write_artifact("candidates_lifecycle", artifact) == artifact
+
+    @pytest.mark.parametrize(
+        "failure_mode", ["lookup_exception", "exception", "returned_failure"]
+    )
+    async def test_update_candidate_storage_failure_rolls_back_under_skip(
+        self, env: _Env, monkeypatch: pytest.MonkeyPatch, failure_mode: str
+    ) -> None:
+        """Keep committed candidates when a candidate write fails during update."""
+        original = env.text("Alice works at Acme.")
+        await env.graph.add(documents=[_document(env.key(), original)])
+        before = await env.rows()
+
+        async def fail_candidate_write(*_args: Any, **_kwargs: Any) -> UpsertResult:
+            if failure_mode in {"lookup_exception", "exception"}:
+                raise RuntimeError("candidate storage unavailable")
+            return UpsertResult(
+                failures=[
+                    UpsertFailure(
+                        id="candidate",
+                        error_type="StorageError",
+                        error_message="candidate storage unavailable",
+                    )
+                ]
+            )
+
+        monkeypatch.setattr(
+            env.store,
+            "blocked_candidate_keys"
+            if failure_mode == "lookup_exception"
+            else "upsert_candidates",
+            fail_candidate_write,
+        )
+        with pytest.raises(RuntimeError):
+            await env.graph.update(
+                env.key(),
+                text=env.text("Alice joined Acme."),
+                error_policy=ErrorPolicy.SKIP,
+            )
+
+        after = await env.rows()
+        assert after == before
+        assert "works" in after[0]["chunk_text"]
+        artifact = {
+            "failure_mode": failure_mode,
+            "candidate_states": [row["state"] for row in after],
+            "previous_evidence_preserved": "works" in after[0]["chunk_text"],
+        }
+        assert write_artifact("candidates_update_storage_failure", artifact) == artifact
+
+    async def test_review_between_candidate_lookups_prevents_pending_twin(
+        self, env: _Env, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Do not publish a pending twin when review wins the write race."""
+        await env.graph.add(
+            documents=[_document(env.key(), env.text("Alice works at Acme."))]
+        )
+        original_lookup = env.store.blocked_candidate_keys
+        lookup_count = 0
+
+        async def reject_after_early_lookup(keys: Sequence[str]) -> set[str]:
+            nonlocal lookup_count
+            blocked = await original_lookup(keys)
+            lookup_count += 1
+            if lookup_count == 2:
+                await env.store.execute_write(
+                    "MATCH (c:Candidate {label: $label}) SET c.state = 'rejected'",
+                    {"label": env.relation},
+                )
+            return blocked
+
+        monkeypatch.setattr(
+            env.store, "blocked_candidate_keys", reject_after_early_lookup
+        )
+        await env.graph.update(env.key(), text=env.text("Alice joined Acme."))
+
+        rows = await env.rows()
+        assert [row["state"] for row in rows] == ["rejected"]
+        artifact = {
+            "candidate_states": [row["state"] for row in rows],
+            "pending_twin": any(row["state"] == "pending" for row in rows),
+        }
+        assert write_artifact("candidates_review_race", artifact) == artifact
 
     async def test_add_sums_stats_across_document_jobs(self, env: _Env) -> None:
         """Keep per-document writes and sum the discarded occurrences."""
