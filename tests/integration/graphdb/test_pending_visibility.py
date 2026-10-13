@@ -66,11 +66,14 @@ class TestPendingVisibility:
             await _create(
                 store,
                 tag,
-                f"CREATE (:_Node:{label} {{id: $a, probe: $tag}}) "
                 f"CREATE (:_Node:{label} "
-                "{id: $b, probe: $tag, _pending_job_id: $job})",
+                "{id: $a, probe: $tag, merge_key: $ka}) "
+                f"CREATE (:_Node:{label} "
+                "{id: $b, probe: $tag, merge_key: $kb, _pending_job_id: $job})",
                 a=committed,
                 b=pending,
+                ka=f"{label}:committed",
+                kb=f"{label}:pending",
                 job=job,
             )
 

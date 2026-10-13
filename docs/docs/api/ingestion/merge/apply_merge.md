@@ -20,7 +20,8 @@ without its alias remains.
 
 - **plan** (<code>[MergePlan](MergePlan.md)</code>) – The merge to write.
 - **graph_store** (<code>[GraphStore](../../graphdb/base/GraphStore.md)</code>) – Where the merge is written.
-- **schema** (<code>[GraphSchema](../../common/data_models/graph_schema/GraphSchema.md)</code>) – The schema the survivor's label belongs to.
+- **schema** (<code>[GraphSchema](../../common/data_models/graph_schema/GraphSchema.md)</code>) – The schema the survivor's label belongs to. Its hierarchy
+  decides the ancestor labels the node is stored with.
 - **pending_job_id** (<code>str | None</code>) – The in-flight Cutover Job's id, tagging the
   survivor node and its aliases until that job commits. None
   writes untagged, for callers outside a job.
