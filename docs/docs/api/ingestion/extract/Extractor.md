@@ -14,10 +14,9 @@ Reads one chunk and returns the entities and relations it contains.
 
 Subclass this class to provide custom extraction. `Graph` awaits
 `extract` once for each chunk. `GlinerExtractor` is a local
-extractor, `LLMExtractor` marks the LLM role, and
-`EscalatingExtractor` runs a local extractor before an LLM when its
-result is weak. `Graph` drops any entity or relation whose label the
-schema does not declare, and logs the count.
+extractor. `LLMExtractor` marks the LLM role: `Graph` gives it only
+the weakest chunks, as `llm_extractor`. `Graph` drops any entity or
+relation whose label the schema does not declare, and logs the count.
 
 `Graph` runs up to `max_concurrency` `extract` calls at the same
 time. An extractor that is not safe to call from several tasks at once
