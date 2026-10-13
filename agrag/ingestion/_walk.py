@@ -17,6 +17,8 @@ from agrag.loaders.types import ErrorPolicy, LoadStats, ReadOptions
 from agrag.loaders.walk import _CorpusWalk, _InMemoryWalk
 
 
+_DOCUMENT_BATCH_SIZE = 100
+
 SourceType = Union[str, Path]
 SourcesType = Union[SourceType, Sequence[SourceType]]
 
@@ -70,7 +72,7 @@ async def iter_document_batches(
     Args:
         source: A file path, a directory, a glob, or a list of these.
         text: Raw text to read as one document.
-        documents: Already-built documents, yielded as one batch.
+        documents: Already-built documents, yielded in batches of up to 100.
         registry: The loaders to pick from for each file.
         opts: How loaders read sources.
         error_policy: The action to take on a per-source error.
@@ -87,7 +89,9 @@ async def iter_document_batches(
     """
     if documents is not None:
         built = list(documents)
-        yield built, LoadStats(documents=len(built), sources=0)
+        for start in range(0, len(built), _DOCUMENT_BATCH_SIZE):
+            end = min(start + _DOCUMENT_BATCH_SIZE, len(built))
+            yield built[start:end], LoadStats(documents=end, sources=0)
         return
     if text is not None:
         walk: _CorpusWalk | _InMemoryWalk = _InMemoryWalk(text, opts=opts)

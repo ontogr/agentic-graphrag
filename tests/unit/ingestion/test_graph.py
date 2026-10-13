@@ -917,8 +917,9 @@ class TestGraphAddWritesEachBatch:
         real_ingest = ingest_module.ingest_chunks
 
         async def _recording_ingest(*args: object, **kwargs: Any) -> Any:
+            result = await real_ingest(*args, **kwargs)
             events.append("write")
-            return await real_ingest(*args, **kwargs)
+            return result
 
         monkeypatch.setattr(ingest_module, "ingest_chunks", _recording_ingest)
         monkeypatch.setattr(
@@ -946,8 +947,9 @@ class TestGraphAddWritesEachBatch:
         real_ingest = ingest_module.ingest_chunks
 
         async def _recording_ingest(*args: object, **kwargs: Any) -> Any:
+            result = await real_ingest(*args, **kwargs)
             events.append("write")
-            return await real_ingest(*args, **kwargs)
+            return result
 
         monkeypatch.setattr(ingest_module, "ingest_chunks", _recording_ingest)
         monkeypatch.setattr(
@@ -958,6 +960,36 @@ class TestGraphAddWritesEachBatch:
             await graph.add(documents=docs)
 
         assert events == ["extract alpha", "write", "extract beta"]
+
+    async def test_large_list_writes_first_batch_before_later_failure(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Pre-built documents are written in batches of 100 before the next one."""
+        events: list[str] = []
+        graph = await Graph.open(
+            schema=DEFAULT_SCHEMA,
+            graph_store=_MockGraphStore(),
+            embedder=_MockEmbedder(),
+            extractor=_RecordingExtractor(events, fail_on="doc100"),
+        )
+        docs = _named_documents(*(f"doc{index:03d}" for index in range(101)))
+        real_ingest = ingest_module.ingest_chunks
+
+        async def _recording_ingest(*args: object, **kwargs: Any) -> Any:
+            result = await real_ingest(*args, **kwargs)
+            events.append("write")
+            return result
+
+        monkeypatch.setattr(ingest_module, "ingest_chunks", _recording_ingest)
+
+        with pytest.raises(RuntimeError, match="extractor down"):
+            await graph.add(documents=docs)
+
+        assert events == [
+            *(f"extract doc{index:03d}" for index in range(100)),
+            *["write"] * 100,
+            "extract doc100",
+        ]
 
 
 class TestGraphUpdate:
