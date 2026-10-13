@@ -396,6 +396,7 @@ async def _commit_pending_writes(
     close_document_node_id: UUID | None,
     keep_node_ids: Sequence[UUID],
     component_seed_ids: Sequence[UUID],
+    created_entity_ids: Sequence[UUID],
     deferred: DeferredWrites,
     in_place: InPlaceRefresh | None,
 ) -> int:
@@ -421,6 +422,9 @@ async def _commit_pending_writes(
                 "job_id": job_arg,
                 "lease_token": token_arg,
                 "component_seed_ids": [str(seed_id) for seed_id in component_seed_ids],
+                "created_entity_ids": [
+                    str(entity_id) for entity_id in created_entity_ids
+                ],
             },
         )
         if not committed:
@@ -490,12 +494,13 @@ async def run_cutover_job(
     vector_collections: Sequence[str],
     settings: CutoverJobSettings,
     pending_write: Callable[[UUID], Awaitable[T]],
-    cleanup: Callable[[list[UUID], list[UUID]], Awaitable[S]],
+    cleanup: Callable[[list[UUID], list[UUID], list[UUID]], Awaitable[S]],
     deferred: DeferredWrites,
     components: Sequence[MatchComponent] = (),
     close_document_node_id: UUID | None = None,
     in_place: InPlaceRefresh | None = None,
     keep_node_ids: Sequence[UUID] = (),
+    created_entity_ids: Sequence[UUID] = (),
     tracer: Tracer | None = None,
 ) -> tuple[T, S, int]:
     """Run one cutover job under a lease, from pending writes to cleanup.
@@ -509,8 +514,8 @@ async def run_cutover_job(
         vector_collections: The vector collections the job may have written.
         settings: Lease and renewal timing for the job.
         pending_write: Writes the job's pending rows. Receives the job id.
-        cleanup: Removes superseded rows. Receives the affected entity ids and
-            the component seed ids.
+        cleanup: Removes superseded rows. Receives the affected entity ids, the
+            component seed ids and the created entity ids.
         deferred: The writes over committed rows that the commit replays.
         components: The resolver components the job rebuilt.
         close_document_node_id: The document whose open HAS_PART edges are
@@ -520,6 +525,9 @@ async def run_cutover_job(
             re-stamped in the commit transaction.
         keep_node_ids: Structure nodes that stay open when the old version is
             closed.
+        created_entity_ids: The entities the job created. The pending write
+            fills this list, so it is read after that write, like
+            ``keep_node_ids``.
         tracer: Opens the job span. None disables it.
 
     Returns:
@@ -570,6 +578,7 @@ async def run_cutover_job(
                 close_document_node_id=close_document_node_id,
                 in_place=in_place,
                 keep_node_ids=keep_node_ids,
+                created_entity_ids=created_entity_ids,
                 deferred=deferred,
                 stop_renewal=stop_renewal,
                 renewal_stopped=renewal_stopped,
@@ -603,12 +612,13 @@ async def _run_leased(
     vector_store: VectorStore | None,
     vector_collections: Sequence[str],
     pending_write: Callable[[UUID], Awaitable[T]],
-    cleanup: Callable[[list[UUID], list[UUID]], Awaitable[S]],
+    cleanup: Callable[[list[UUID], list[UUID], list[UUID]], Awaitable[S]],
     affected_entity_ids: list[UUID],
     components: Sequence[MatchComponent],
     close_document_node_id: UUID | None,
     in_place: InPlaceRefresh | None,
     keep_node_ids: Sequence[UUID],
+    created_entity_ids: Sequence[UUID],
     deferred: DeferredWrites,
     stop_renewal: asyncio.Event,
     renewal_stopped: asyncio.Event,
@@ -626,6 +636,7 @@ async def _run_leased(
         )
         raise
     component_seed_ids = _component_seed_ids(components)
+    created = list(created_entity_ids)
     commit_task = asyncio.create_task(
         _commit_pending_writes(
             job_id=job_id,
@@ -634,6 +645,7 @@ async def _run_leased(
             close_document_node_id=close_document_node_id,
             keep_node_ids=keep_node_ids,
             component_seed_ids=component_seed_ids,
+            created_entity_ids=created,
             deferred=deferred,
             in_place=in_place,
         )
@@ -670,7 +682,7 @@ async def _run_leased(
     )
     if not started:
         raise CutoverJobLeaseError(f"Job {job_arg} lost its lease before cleanup.")
-    cleanup_result = await cleanup(affected_entity_ids, component_seed_ids)
+    cleanup_result = await cleanup(affected_entity_ids, component_seed_ids, created)
     await clear_pending_vectors(
         vector_store=vector_store, collections=vector_collections, job_id=job_id
     )

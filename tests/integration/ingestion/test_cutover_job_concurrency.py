@@ -208,7 +208,12 @@ class TestCutoverJobLeaseLifetime:
 
             transitioned = await store.execute_write(
                 transition,
-                {"job_id": job_id, "lease_token": token, "component_seed_ids": []},
+                {
+                    "job_id": job_id,
+                    "lease_token": token,
+                    "component_seed_ids": [],
+                    "created_entity_ids": [],
+                },
             )
 
             assert transitioned == []
@@ -246,7 +251,12 @@ class TestCutoverJobLeaseLifetime:
             )
             assert await store.execute_write(
                 commit_job_query(),
-                {"job_id": job_id, "lease_token": token, "component_seed_ids": []},
+                {
+                    "job_id": job_id,
+                    "lease_token": token,
+                    "component_seed_ids": [],
+                    "created_entity_ids": [],
+                },
             )
             await store.execute_write(
                 "MATCH (job:CutoverJob {id: $job_id}) "
@@ -259,7 +269,9 @@ class TestCutoverJobLeaseLifetime:
                 },
             )
 
-            async def slow_prune(_: list[object], __: list[object]) -> None:
+            async def slow_prune(
+                _: list[object], __: list[object], ___: list[object]
+            ) -> None:
                 nonlocal prune_ran
                 prune_ran = True
                 await asyncio.sleep(1.1)
@@ -373,6 +385,7 @@ class TestCutoverJobLeaseLifetime:
                 "job_id": job_id,
                 "lease_token": token,
                 "component_seed_ids": [seed_id],
+                "created_entity_ids": [],
             }
             assert await store.execute_write(commit_job_query(), params)
             assert await store.execute_write(start_cleaning_query(), params)
@@ -402,7 +415,7 @@ class TestCutoverJobLeaseLifetime:
             await asyncio.sleep(2.5)
             resumed.extend(await resume_incomplete_jobs(store))
 
-        async def cleanup(_: list[object], __: list[object]) -> None:
+        async def cleanup(_: list[object], __: list[object], ___: list[object]) -> None:
             return None
 
         try:

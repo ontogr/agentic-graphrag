@@ -75,6 +75,26 @@ class _FixedEmbedder(Embedder):
         return [list(self._vector) for _ in texts]
 
 
+class _DistinctTextEmbedder(_FixedEmbedder):
+    """Run-vector embedder that tilts each text toward its own axis.
+
+    Texts that differ stay below the resolver's hard-merge similarity, so
+    unrelated entities are not merged, and every vector still sits close
+    to the run vector the queries use.
+    """
+
+    model = "distinct"
+
+    async def embed(self, texts: Sequence[str]) -> list[list[float]]:
+        """Return the run vector with one text-chosen axis scaled up."""
+        vectors = []
+        for text in texts:
+            vector = list(self._vector)
+            vector[len(text) % 4] *= 2.5
+            vectors.append(vector)
+        return vectors
+
+
 class _DrugExtractor(Extractor):
     """Extractor that pulls drug-condition pairs from text."""
 
@@ -535,7 +555,15 @@ class TestRetrievalE2E:
 
     async def test_multi_document_ingestion(self) -> None:
         """Entities from several documents are all searchable."""
-        graph = self._graph()
+        graph = Graph(
+            schema=self.schema,
+            graph_store=self.store,
+            embedder=_DistinctTextEmbedder(self.token),
+            extractor=_DrugExtractor(
+                drug_label=self.drug_label,
+                condition_label=self.condition_label,
+            ),
+        )
         await graph.add(
             text=f"Aspirin treats headaches. ref {self.token}", error_policy="skip"
         )

@@ -784,6 +784,7 @@ class Graph:
             vector_store=self._vector_store,
             retrieval_settings=self._retrieval_settings,
             tracer=self._tracer,
+            max_llm_pairs=self._max_llm_pairs,
             error_policy=error_policy,
         )
 
