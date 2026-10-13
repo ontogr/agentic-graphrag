@@ -250,6 +250,56 @@ def clear_pending_relation_tags_query(rel_type: str) -> str:
     )
 
 
+def fold_pending_relations_query(rel_type: str) -> str:
+    """Build Cypher folding a job's new relations into committed ones.
+
+    A job writes a new relation under a job-scoped id and records the
+    canonical id on it. When a committed relation with the canonical id
+    exists, the job's chunk ids join it and the job's copy is deleted.
+
+    Args:
+        rel_type: The relationship type. Validated before it is formatted.
+
+    Returns:
+        Parameterized Cypher expecting ``$job_id``. Returns the folded count.
+
+    Raises:
+        ValueError: ``rel_type`` is not a safe identifier.
+    """
+    safe_type = validate_identifier(rel_type)
+    return (
+        f"MATCH (a)-[r:{safe_type}]->(b) "
+        f"WHERE r.{PENDING_JOB_ID_PROPERTY} = $job_id AND r._canonical_id IS NOT NULL "
+        f"MATCH (a)-[c:{safe_type} {{id: r._canonical_id}}]->(b) "
+        f"WHERE c.{PENDING_JOB_ID_PROPERTY} IS NULL "
+        "SET c.source_chunk_ids = [x IN coalesce(c.source_chunk_ids, []) "
+        "WHERE NOT x IN coalesce(r.source_chunk_ids, [])] "
+        "+ coalesce(r.source_chunk_ids, []) "
+        "DELETE r RETURN count(r) AS folded"
+    )
+
+
+def promote_pending_relations_query(rel_type: str) -> str:
+    """Build Cypher giving a job's remaining new relations their canonical id.
+
+    Args:
+        rel_type: The relationship type. Validated before it is formatted.
+
+    Returns:
+        Parameterized Cypher expecting ``$job_id``. Returns the promoted count.
+
+    Raises:
+        ValueError: ``rel_type`` is not a safe identifier.
+    """
+    safe_type = validate_identifier(rel_type)
+    return (
+        f"MATCH ()-[r:{safe_type}]->() "
+        f"WHERE r.{PENDING_JOB_ID_PROPERTY} = $job_id AND r._canonical_id IS NOT NULL "
+        "SET r.id = r._canonical_id REMOVE r._canonical_id "
+        "RETURN count(r) AS promoted"
+    )
+
+
 def delete_pending_relations_query(rel_type: str) -> str:
     """Build Cypher deleting the relationships a job tagged.
 

@@ -32,9 +32,14 @@ from agrag.cypher.relations import (
     retract_document_relation_evidence_query,
 )
 from agrag.graphdb.base import GraphStore, GraphStoreTransaction
+from agrag.graphdb.errors import GraphStoreConstraintViolationError
 from agrag.ingestion._deferred import replay_deferred
 from agrag.ingestion._document_lifecycle import close_open_has_part_edges
-from agrag.ingestion._pending_rows import clear_job_tags, rollback_job_rows
+from agrag.ingestion._pending_rows import (
+    clear_job_tags,
+    fold_job_relations,
+    rollback_job_rows,
+)
 from agrag.ingestion.resolved_entities import MatchComponent
 from agrag.ingestion.settings import CutoverJobSettings
 from agrag.observability import get_tracer
@@ -60,6 +65,8 @@ class InPlaceRefresh:
 
 T = TypeVar("T")
 S = TypeVar("S")
+
+_COMMIT_ATTEMPTS = 3
 
 
 async def _acquire_lease(
@@ -392,7 +399,9 @@ async def _commit_pending_writes(
     before the replay: its chunk ids leave the relations they evidence, relations
     left with no evidence are deleted, and its committed MENTIONED_IN edges are
     dropped. The kept chunks are then stamped with the new extraction
-    fingerprint.
+    fingerprint. The job's new relations are folded into their canonical ids in
+    the same transaction, and the commit is retried when two jobs promote one
+    relation at the same moment.
     """
     job_arg = str(job_id)
     token_arg = str(token)
@@ -422,6 +431,7 @@ async def _commit_pending_writes(
             )
             await txn.execute_write(delete_document_mentions_query(), document_params)
         await replay_deferred(txn, deferred)
+        await fold_job_relations(txn, job_id=job_id)
         if in_place is not None:
             await txn.execute_write(
                 set_chunk_extraction_fingerprint_query(),
@@ -448,6 +458,14 @@ async def _commit_pending_writes(
         await clear_job_tags(txn, job_id=job_id)
         return parts_closed
 
+    # Two jobs that commit the same new relation at once both try to give it
+    # the canonical id. The loser's transaction fails on the id constraint and
+    # rolls back whole, so a second attempt finds the winner's edge and folds.
+    for _ in range(_COMMIT_ATTEMPTS - 1):
+        try:
+            return await graph_store.run_in_transaction(commit)
+        except GraphStoreConstraintViolationError:
+            continue
     return await graph_store.run_in_transaction(commit)
 
 

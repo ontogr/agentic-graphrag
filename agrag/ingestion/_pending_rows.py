@@ -11,7 +11,9 @@ from agrag.cypher.cutover_job_write import (
     clear_pending_relation_tags_query,
     delete_pending_nodes_query,
     delete_pending_relations_query,
+    fold_pending_relations_query,
     lock_rolling_back_job_query,
+    promote_pending_relations_query,
     rollback_job_query,
 )
 from agrag.cypher.entities import PENDING_TAGGED_NODE_LABELS, is_safe_identifier
@@ -35,6 +37,24 @@ async def _relation_types(txn: GraphStoreTransaction) -> list[str]:
     rows = await txn.execute_read(list_relation_types_query())
     names = (str(row["relationshipType"]) for row in rows)
     return sorted(name for name in names if is_safe_identifier(name))
+
+
+async def fold_job_relations(txn: GraphStoreTransaction, *, job_id: UUID) -> None:
+    """Fold a job's new relations into the committed ones, in the commit.
+
+    Runs inside the commit transaction, before the tags are cleared. A
+    relation the job created under a job-scoped id joins the committed
+    relation with its canonical id when there is one, and takes that id
+    otherwise.
+
+    Args:
+        txn: The commit transaction.
+        job_id: The committing job.
+    """
+    params = {"job_id": str(job_id)}
+    for rel_type in await _relation_types(txn):
+        await txn.execute_write(fold_pending_relations_query(rel_type), params)
+        await txn.execute_write(promote_pending_relations_query(rel_type), params)
 
 
 async def clear_job_tags(txn: GraphStoreTransaction, *, job_id: UUID) -> None:

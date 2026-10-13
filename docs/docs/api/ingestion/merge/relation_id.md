@@ -9,13 +9,11 @@ sidebar_label: relation_id
 relation_id(source_id:UUID, target_id:UUID, rel_type:str) -> UUID
 ```
 
-Return the deterministic id for a domain relationship triple.
+Return the committed id for a domain relationship triple.
 
-Two concurrent `add()` calls resolving the same `(source_id, target_id, rel_type)` triple can both miss the existing-relation lookup
-and each try to create it. Since this id depends only on the triple, both
-writers compute the same one, so `upsert_relation_query`'s `MERGE`
-converges to a single edge instead of two parallel ones with unrelated
-random ids. Mirrors `mentioned_in_id`.
+This is the identity a relation has once committed. While a Cutover Job is
+pending, the job creates the relation under `pending_relation_id` and the
+commit folds it into this id.
 
 **Parameters:**
 
