@@ -495,3 +495,37 @@ class TestIds:
         }
 
         assert len(ids) == 3
+
+    def test_chunks_carry_the_fingerprints_of_their_document(self) -> None:
+        """Each chunk copies the run fingerprints of its document."""
+        document = text_document([_words(20)]).model_copy(
+            update={"schema_fingerprint": "s" * 16, "extraction_fingerprint": "e" * 16}
+        )
+
+        chunks = _chunker().chunk(document).chunks
+
+        assert chunks
+        assert {c.schema_fingerprint for c in chunks} == {"s" * 16}
+        assert {c.extraction_fingerprint for c in chunks} == {"e" * 16}
+
+    def test_chunk_ids_change_with_the_schema_fingerprint(self) -> None:
+        """A change of schema structure gives new chunk ids."""
+        document = text_document([_words(20)])
+        restructured = document.model_copy(update={"schema_fingerprint": "s" * 16})
+
+        first = [c.id for c in _chunker().chunk(document).chunks]
+        second = [c.id for c in _chunker().chunk(restructured).chunks]
+
+        assert first
+        assert set(first).isdisjoint(second)
+
+    def test_chunk_ids_ignore_the_extraction_fingerprint(self) -> None:
+        """A change of extraction setup keeps the chunk ids and updates the stamp."""
+        document = text_document([_words(20)])
+        re_extracted = document.model_copy(update={"extraction_fingerprint": "e" * 16})
+
+        first = [c.id for c in _chunker().chunk(document).chunks]
+        chunks = _chunker().chunk(re_extracted).chunks
+
+        assert first == [c.id for c in chunks]
+        assert {c.extraction_fingerprint for c in chunks} == {"e" * 16}

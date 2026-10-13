@@ -25,11 +25,12 @@ from agrag.common.data_models.extraction import ExtractedEntity, ExtractedRelati
 from agrag.common.data_models.graph_record import DeferredWrites
 from agrag.common.data_models.graph_schema import GraphSchema
 from agrag.common.data_models.stage_failure import StageFailure, cap_failures
+from agrag.common.schema_fingerprint import RunRecord
 from agrag.cypher.relations import entities_in_documents_query
 from agrag.embedding.base import Embedder
 from agrag.graphdb.base import GraphStore
-from agrag.ingestion._cutover import run_cutover_job
-from agrag.ingestion._document_lifecycle import find_document
+from agrag.ingestion._cutover import InPlaceRefresh, run_cutover_job
+from agrag.ingestion._document_lifecycle import UpdateDecision, find_document
 from agrag.ingestion._ingest_pipeline import extract_chunks, ingest_chunks
 from agrag.ingestion._structure import placement_map
 from agrag.ingestion._walk import SourcesType, chunk_documents, iter_document_batches
@@ -375,6 +376,7 @@ async def add_documents(  # noqa: PLR0912,PLR0915,PLR0913
     return_chunks: bool,
     read_options: ReadOptions | None,
     schema: GraphSchema,
+    run: RunRecord,
     graph_store: GraphStore,
     embedder: Embedder,
     extractor: Extractor | LLMExtractor,
@@ -451,7 +453,7 @@ async def add_documents(  # noqa: PLR0912,PLR0915,PLR0913
                 chunks=list(chunks) if return_chunks else [],
             )
 
-        async for batch, stats in iter_document_batches(
+        async for loaded_batch, stats in iter_document_batches(
             source=source,
             text=text,
             documents=documents,
@@ -461,6 +463,8 @@ async def add_documents(  # noqa: PLR0912,PLR0915,PLR0913
             loader=loader,
             tracer=tracer,
         ):
+            # Stamp before chunking: the schema fingerprint is part of the version id.
+            batch = [run.stamp(document) for document in loaded_batch]
             _record_document_keys(batch)
             final_stats.documents = stats.documents
             final_stats.sources = stats.sources
@@ -607,6 +611,7 @@ async def update_document(  # noqa: PLR0913
     error_policy: ErrorPolicy,
     read_options: ReadOptions | None,
     schema: GraphSchema,
+    run: RunRecord,
     graph_store: GraphStore,
     embedder: Embedder,
     extractor: Extractor | LLMExtractor,
@@ -658,19 +663,26 @@ async def update_document(  # noqa: PLR0913
             document = documents_from_source[0].model_copy(
                 update={"document_key": document_key}
             )
+        document = run.stamp(document)
 
         found = await find_document(graph_store, document_key=document_key)
-        if (
-            found is not None
-            and found.current_content_hash == document.content_hash
-            and found.current_chunker_hash in (None, chunker.fingerprint)
-        ):
+        decision = (
+            UpdateDecision.NEW_VERSION
+            if found is None
+            else found.decide(
+                content_hash=document.content_hash,
+                chunker_hash=chunker.fingerprint,
+                run=run,
+            )
+        )
+        if found is not None and decision is UpdateDecision.NO_OP:
             return UpdateResult(
                 document_key=document_key,
                 no_op=True,
                 previous_content_hash=found.current_content_hash,
                 new_content_hash=document.content_hash,
             )
+        in_place = decision is UpdateDecision.IN_PLACE
 
         candidates: list[UUID] = []
         if found is not None:
@@ -721,6 +733,7 @@ async def update_document(  # noqa: PLR0913
                 embed_heading_path=embed_heading_path,
                 max_llm_pairs=max_llm_pairs,
                 deferred=deferred,
+                reuse_chunks=in_place,
             )
             keep_node_ids.extend(batch.structure_node_ids)
             return batch.add_result
@@ -738,10 +751,19 @@ async def update_document(  # noqa: PLR0913
             components=components,
             deferred=deferred,
             close_document_node_id=(
-                found.document_node_id if found is not None else None
+                None if in_place or found is None else found.document_node_id
             ),
             keep_node_ids=keep_node_ids,
             tracer=tracer,
+            in_place=(
+                InPlaceRefresh(
+                    document_node_id=found.document_node_id,
+                    chunk_ids=[chunk.id for chunk in chunks if chunk.id is not None],
+                    extraction_fingerprint=run.extraction_fingerprint,
+                )
+                if in_place and found is not None
+                else None
+            ),
         )
         return UpdateResult(
             document_key=document_key,

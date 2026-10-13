@@ -26,13 +26,20 @@ def _uuid(*parts: str | int | UUID) -> UUID:
 def version_id(document: Document) -> str:
     """Return the id of one version of a document, as ``HAS_PART`` edges use it.
 
+    A version is one content together with the schema structure that ran
+    against it. A new structure makes new sections and chunks. A change of
+    descriptions or extraction settings keeps the version, so its chunks stay.
+
     Args:
         document: The document.
 
     Returns:
-        The id, which changes when the content hash changes.
+        The id, which changes when the content hash or the schema fingerprint
+        changes.
     """
-    return str(Document.id_for(content_hash=document.content_hash))
+    return str(
+        _uuid("Version", document.content_hash, document.schema_fingerprint or "")
+    )
 
 
 def ancestors(sections: list[DocumentSection], index: int) -> list[int]:

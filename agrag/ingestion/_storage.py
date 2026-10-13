@@ -239,6 +239,8 @@ async def write_nodes_stage(
     documents: list[Document],
     placements: Mapping[UUID, ChunkPlacement],
     ctx: StageContext,
+    *,
+    document_only: bool = False,
 ) -> NodeStageResult:
     """Build and write the Chunk, structure and Document nodes of one batch.
 
@@ -250,6 +252,9 @@ async def write_nodes_stage(
         documents: The documents the chunks belong to.
         placements: Where each chunk sits in its document's structure.
         ctx: The store to write to, the error policy, the job and the tracer.
+        document_only: Whether to write only the Document nodes. The chunks,
+            structure and their edges already exist in the graph and stay as
+            they are, so they are neither rewritten nor returned as records.
 
     Returns:
         The node writes, the records that could not be built, and the
@@ -259,10 +264,11 @@ async def write_nodes_stage(
         Exception: A record build or write failed and ``error_policy`` is
             ``RAISE``.
     """
+    written_chunks = [] if document_only else chunks
     chunk_records: list[NodeRecord] = []
     chunk_ids: set[UUID] = set()
     record_failures: list[StageFailure] = []
-    for chunk in chunks:
+    for chunk in written_chunks:
         try:
             chunk_records.append(chunk.to_node_record())
             if chunk.id is not None:
@@ -274,10 +280,14 @@ async def write_nodes_stage(
 
     distinct = distinct_documents(documents)
     document_records = [build_document_record(doc) for doc in distinct]
-    structure = build_document_structure(distinct, chunks, placements)
+    structure = (
+        StructureRecords()
+        if document_only
+        else build_document_structure(distinct, chunks, placements)
+    )
     structure_relation_records = [
         *structure.relations,
-        *build_next_chunk_records(chunks),
+        *build_next_chunk_records(written_chunks),
     ]
     node_writes = await write_nodes(
         ctx.graph_store,

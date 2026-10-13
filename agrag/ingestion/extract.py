@@ -678,6 +678,11 @@ class BAMLExtractor(LLMExtractor):
         self._tracer = tracer
         self._include_heading_path = include_heading_path
 
+    @property
+    def include_heading_path(self) -> bool:
+        """Whether the chunk's heading path is sent to the model as context."""
+        return self._include_heading_path
+
     async def extract(
         self,
         chunk: Chunk,

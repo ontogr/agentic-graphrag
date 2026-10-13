@@ -58,6 +58,13 @@ set. Pass `id` only when rebuilding a document from stored data.
   `uri` when not supplied.
 - [**normalization**](#agrag-common-data_models-document-Document-normalization) (<code>[Normalization](../normalization/Normalization-ref.md) | None</code>) – How the loader normalized `text`. `None` for a document
   that no text loader made, such as a docling document or one built by hand.
+- [**schema_name**](#agrag-common-data_models-document-Document-schema_name) (<code>str | None</code>) – The name of the schema of the run that wrote the document.
+  `None` for a document that no run stamped.
+- [**schema_version**](#agrag-common-data_models-document-Document-schema_version) (<code>str | None</code>) – The version string of that schema.
+- [**schema_fingerprint**](#agrag-common-data_models-document-Document-schema_fingerprint) (<code>str | None</code>) – The structure hash of that schema (see
+  `agrag.common.schema_fingerprint`).
+- [**extraction_fingerprint**](#agrag-common-data_models-document-Document-extraction_fingerprint) (<code>str | None</code>) – The hash of the descriptions, the extraction
+  settings and the model name of that run.
 
 **Functions:**
 
@@ -93,6 +100,12 @@ document_key: str | None = None
 
 ```python
 encoding: str | None = None
+```
+
+## `extraction_fingerprint` \{#agrag-common-data_models-document-Document-extraction_fingerprint}
+
+```python
+extraction_fingerprint: str | None = None
 ```
 
 ## `family` \{#agrag-common-data_models-document-Document-family}
@@ -243,6 +256,24 @@ of `id` where a non-optional value is required, such as building a
 
 - <code>RuntimeError</code> – `id` is still `None`, which means a validator was
   bypassed, for example via `model_construct`.
+
+## `schema_fingerprint` \{#agrag-common-data_models-document-Document-schema_fingerprint}
+
+```python
+schema_fingerprint: str | None = None
+```
+
+## `schema_name` \{#agrag-common-data_models-document-Document-schema_name}
+
+```python
+schema_name: str | None = None
+```
+
+## `schema_version` \{#agrag-common-data_models-document-Document-schema_version}
+
+```python
+schema_version: str | None = None
+```
 
 ## `sections` \{#agrag-common-data_models-document-Document-sections}
 

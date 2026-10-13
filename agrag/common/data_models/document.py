@@ -241,6 +241,13 @@ class Document(DataPoint):
             ``uri`` when not supplied.
         normalization: How the loader normalized ``text``. ``None`` for a document
             that no text loader made, such as a docling document or one built by hand.
+        schema_name: The name of the schema of the run that wrote the document.
+            ``None`` for a document that no run stamped.
+        schema_version: The version string of that schema.
+        schema_fingerprint: The structure hash of that schema (see
+            ``agrag.common.schema_fingerprint``).
+        extraction_fingerprint: The hash of the descriptions, the extraction
+            settings and the model name of that run.
     """
 
     id: UUID | None = None
@@ -266,6 +273,10 @@ class Document(DataPoint):
     sections: list[DocumentSection] = Field(default_factory=list)
     document_key: str | None = None
     normalization: Normalization | None = None
+    schema_name: str | None = None
+    schema_version: str | None = None
+    schema_fingerprint: str | None = None
+    extraction_fingerprint: str | None = None
 
     @model_validator(mode="after")
     def _check_sections(self) -> "Document":
@@ -430,14 +441,23 @@ class Document(DataPoint):
         the update no-op check, not to duplicate the document body already held
         per-chunk.
         """
+        properties: dict[str, object] = {
+            "document_key": self.resolved_document_key,
+            "uri": self.uri,
+            "current_content_hash": self.content_hash,
+            "title": self.title,
+            "updated_at": datetime.now(UTC).isoformat(),
+        }
+        if self.schema_name is not None:
+            properties["schema_name"] = self.schema_name
+        if self.schema_version is not None:
+            properties["schema_version"] = self.schema_version
+        if self.schema_fingerprint is not None:
+            properties["schema_fingerprint"] = self.schema_fingerprint
+        if self.extraction_fingerprint is not None:
+            properties["extraction_fingerprint"] = self.extraction_fingerprint
         return NodeRecord(
             id=self.node_id_for(document_key=self.resolved_document_key),
             labels=[DOCUMENT_LABEL],
-            properties={
-                "document_key": self.resolved_document_key,
-                "uri": self.uri,
-                "current_content_hash": self.content_hash,
-                "title": self.title,
-                "updated_at": datetime.now(UTC).isoformat(),
-            },
+            properties=properties,
         )

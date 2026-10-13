@@ -62,6 +62,30 @@ Rollback starts only while the job is still pending under the worker's lease tok
 
 Workers that share a graph must run the same version during an upgrade. Use the new version to recover any `rolling_back` jobs before you downgrade.
 
+## How Agentic GraphRAG decides a document is unchanged
+
+`Graph.update` compares the values that it stored for the document with the new values. The differences decide what runs.
+
+| What differs | What `Graph.update` does |
+|---|---|
+| Nothing | Nothing runs. The call returns `no_op=True`. |
+| Only the extraction fingerprint | It extracts the entities again on the same chunks. The chunks are not embedded again. Entities that only the old run produced are removed. Relations lose the evidence of this document's old run, and a relation with no evidence left is removed. |
+| The content hash, the chunker fingerprint or the schema fingerprint, or no chunk is open | It writes a new version of the document with new chunks, and the new chunks are embedded. The old version closes when the job commits, and entities that only the old version produced are removed. |
+
+The values come from the document and its chunks:
+
+| Value | What changes it |
+|---|---|
+| Content hash | An edit to the text of the document. |
+| Chunker fingerprint | A change to the chunk size, the minimum chunk size or the tokenizer. |
+| Schema fingerprint | A change to the structure of the schema: entity types, parents, properties, relations, patterns, cardinality or symmetry. The schema name, the schema version and the descriptions do not change it. |
+| Extraction fingerprint | A change to a description, an extraction setting, the extraction mode, the LLM model name or the heading path option of `BAMLExtractor`. |
+| Open chunk | A deleted document has none. |
+
+The Document node stores the schema name, the schema version, the schema fingerprint and the extraction fingerprint. Each chunk stores the chunker fingerprint, the schema fingerprint and the extraction fingerprint. The job writes these values at its commit. A job that fails leaves the old values in place.
+
+The escalation budget is not part of the extraction fingerprint, so a change of the budget does not extract a document again. The chunks do not depend on the extraction settings, so a re-extraction keeps the chunks and their embeddings. A change of the chunker or the schema structure writes a new version, so the document is chunked and embedded again.
+
 ## Example
 
 You call `Graph.add` with a folder of 200 files and `ErrorPolicy.SKIP`. One file ends in `.dat`, and no loader reads that extension. The loader skips it and counts it. The other 199 files become documents and chunks. The `AddResult` shows 199 documents, 1 skipped source, and the number of entities that extraction found.

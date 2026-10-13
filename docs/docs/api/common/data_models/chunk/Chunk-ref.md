@@ -28,6 +28,10 @@ One retrieval-sized piece of a Document.
   written before chunkers were recorded.
 - [**chunker_hash**](#agrag-common-data_models-chunk-Chunk-chunker_hash) (<code>str | None</code>) – The fingerprint of the settings of the chunker that made this
   chunk. `None` for a chunk written before chunkers were recorded.
+- [**schema_fingerprint**](#agrag-common-data_models-chunk-Chunk-schema_fingerprint) (<code>str | None</code>) – The structure hash of the schema of the run that made
+  this chunk. `None` for a chunk written before runs were recorded.
+- [**extraction_fingerprint**](#agrag-common-data_models-chunk-Chunk-extraction_fingerprint) (<code>str | None</code>) – The hash of the descriptions, extraction settings
+  and model name of that run. `None` for the same chunks.
 - [**section_ids**](#agrag-common-data_models-chunk-Chunk-section_ids) (<code>list\[UUID\]</code>) – The node ids of the sections whose text the chunk holds, in
   reading order. Empty for a document with no sections.
 
@@ -84,6 +88,12 @@ document_id: UUID
 embedding: list[float] | None = None
 ```
 
+## `extraction_fingerprint` \{#agrag-common-data_models-chunk-Chunk-extraction_fingerprint}
+
+```python
+extraction_fingerprint: str | None = None
+```
+
 ## `from_node` \{#agrag-common-data_models-chunk-Chunk-from_node}
 
 ```python
@@ -137,6 +147,12 @@ metadata: dict[str, Any] = Field(default_factory=dict)
 
 ```python
 provenance: TextProvenance | PageProvenance = Field(discriminator='kind')
+```
+
+## `schema_fingerprint` \{#agrag-common-data_models-chunk-Chunk-schema_fingerprint}
+
+```python
+schema_fingerprint: str | None = None
 ```
 
 ## `section_ids` \{#agrag-common-data_models-chunk-Chunk-section_ids}
