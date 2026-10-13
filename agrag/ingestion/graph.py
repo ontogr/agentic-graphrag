@@ -151,6 +151,18 @@ def _check_slots(
         raise ValueError(_MSG_SETTINGS_MISMATCH)
 
 
+def _warn_properties_in_gliner_mode(schema: GraphSchema) -> None:
+    """Warn that the local extractor leaves declared entity properties empty."""
+    declaring = sorted(item.label for item in schema.entities if item.properties)
+    if not declaring:
+        return
+    logger.warning(
+        "Entity types with properties (%s) cannot get property values in gliner "
+        "mode. Set EXTRACTION_MODE=hybrid and configure an LLM to extract them.",
+        ", ".join(declaring),
+    )
+
+
 def _default_gliner_extractor(
     settings: ExtractionSettings, tracer: Tracer | None
 ) -> GlinerExtractor:
@@ -274,6 +286,8 @@ class Graph:
         pipeline_extractor = extractor if extractor is not None else llm_slot
         if pipeline_extractor is None:
             raise RuntimeError("Graph has no extractor for the selected mode")
+        if mode == "gliner" and isinstance(pipeline_extractor, GlinerExtractor):
+            _warn_properties_in_gliner_mode(self._schema)
         self.extraction_settings = settings
         self._effective_mode = mode
         self._extractor = pipeline_extractor

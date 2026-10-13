@@ -32,9 +32,14 @@ from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
     InMemorySpanExporter,
 )
 
+from agrag.common.data_models.candidate import CandidateRecord
 from agrag.common.data_models.chunk import Chunk
 from agrag.common.data_models.default_schema import DEFAULT_SCHEMA
-from agrag.common.data_models.extraction import ExtractedEntity, ExtractionResult
+from agrag.common.data_models.extraction import (
+    ExtractedEntity,
+    ExtractedRelation,
+    ExtractionResult,
+)
 from agrag.common.data_models.graph_schema import (
     EntityType,
     GraphSchema,
@@ -50,6 +55,7 @@ from agrag.ingestion.extract import (
     GlinerExtractor,
     LLMExtractor,
     _describe_entity_type,
+    validate_extraction,
 )
 from agrag.ingestion.settings import ExtractionSettings
 
@@ -712,6 +718,125 @@ class TestGlinerCancellation:
         await second
 
         assert peak == 1
+
+
+class TestValidateExtraction:
+    """validate_extraction keeps only the entities and relations a schema declares."""
+
+    def test_keeps_candidates_and_needs_properties(self) -> None:
+        """Candidates and the needs_properties flag pass through unchanged."""
+        candidate = CandidateRecord(
+            kind="entity",
+            label="Person",
+            text="Ada",
+            confidence=0.4,
+            reason="entity_band",
+            chunk_id=uuid4(),
+        )
+        result = ExtractionResult(
+            entities=[],
+            relations=[],
+            extractor_name="custom",
+            candidates=[candidate],
+            needs_properties=True,
+        )
+
+        validated = validate_extraction(result, _ONE_PAIR_SCHEMA)
+
+        assert validated.candidates == [candidate]
+        assert validated.needs_properties is True
+
+    def test_drops_undeclared_label_and_remaps_relation_indices(self) -> None:
+        """A relation to a dropped entity is removed and the others are remapped."""
+        chunk_id = uuid4()
+        ghost = ExtractedEntity(
+            chunk_id=chunk_id, label="Ghost", text="Nobody", char_start=0, char_end=6
+        )
+        ada = ExtractedEntity(
+            chunk_id=chunk_id, label="Person", text="Ada", char_start=7, char_end=10
+        )
+        acme = ExtractedEntity(
+            chunk_id=chunk_id,
+            label="Organization",
+            text="Acme",
+            char_start=20,
+            char_end=24,
+        )
+        result = ExtractionResult(
+            entities=[ghost, ada, acme],
+            relations=[
+                ExtractedRelation(
+                    chunk_id=chunk_id,
+                    label="WORKS_AT",
+                    source_index=0,
+                    target_index=2,
+                ),
+                ExtractedRelation(
+                    chunk_id=chunk_id,
+                    label="WORKS_AT",
+                    source_index=1,
+                    target_index=2,
+                ),
+            ],
+            extractor_name="custom",
+        )
+
+        validated = validate_extraction(result, _ONE_PAIR_SCHEMA)
+
+        assert [entity.label for entity in validated.entities] == [
+            "Person",
+            "Organization",
+        ]
+        assert [
+            (relation.source_index, relation.target_index)
+            for relation in validated.relations
+        ] == [(0, 1)]
+
+    def test_logs_the_number_of_dropped_entities(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A drop is logged with the count of dropped entities and relations."""
+        chunk_id = uuid4()
+        ghost = ExtractedEntity(
+            chunk_id=chunk_id, label="Ghost", text="Nobody", char_start=0, char_end=6
+        )
+        result = ExtractionResult(
+            entities=[ghost],
+            relations=[],
+            extractor_name="custom",
+        )
+
+        with caplog.at_level("WARNING", logger="agrag.ingestion.extract"):
+            validate_extraction(result, _ONE_PAIR_SCHEMA)
+
+        assert "Dropped 1 entities, 0 relations and 0 properties from custom" in (
+            caplog.text
+        )
+
+    def test_logs_dropped_properties_when_no_entity_is_dropped(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """An undeclared property key is logged even when no entity is dropped."""
+        person = ExtractedEntity(
+            chunk_id=uuid4(),
+            label="Person",
+            text="Ada",
+            char_start=0,
+            char_end=3,
+            properties={"shoe_size": "9"},
+        )
+        result = ExtractionResult(
+            entities=[person],
+            relations=[],
+            extractor_name="custom",
+        )
+
+        with caplog.at_level("WARNING", logger="agrag.ingestion.extract"):
+            validate_extraction(result, _ONE_PAIR_SCHEMA)
+
+        assert "Dropped 0 entities, 0 relations and 1 properties from custom" in (
+            caplog.text
+        )
 
 
 class TestDescribeEntityType:
@@ -1602,6 +1727,43 @@ class TestEscalatingExtractor:
         result = await extractor.extract(chunk, DEFAULT_SCHEMA)
         assert ran == ["primary"]
         assert result.extractor_name == "primary"
+
+    async def test_escalates_when_primary_only_reports_undeclared_labels(
+        self,
+    ) -> None:
+        """Entities the schema drops do not make the primary result strong."""
+
+        class UndeclaredPrimary(Extractor):
+            async def extract(self, chunk, schema):  # noqa: ANN001
+                return ExtractionResult(
+                    entities=[
+                        ExtractedEntity(
+                            chunk_id=uuid4(),
+                            label="Ghost",
+                            text="Nobody",
+                            char_start=0,
+                            char_end=6,
+                            confidence=0.9,
+                        )
+                    ],
+                    relations=[],
+                    extractor_name="primary",
+                )
+
+        class FallbackExtractor(Extractor):
+            async def extract(self, chunk, schema):  # noqa: ANN001
+                return ExtractionResult(
+                    entities=[], relations=[], extractor_name="escalate"
+                )
+
+        extractor = EscalatingExtractor(
+            primary=UndeclaredPrimary(), escalate_to=FallbackExtractor()
+        )
+        chunk = _chunk("This is a chunk with more than eight words in it.")
+
+        result = await extractor.extract(chunk, DEFAULT_SCHEMA)
+
+        assert result.extractor_name == "escalate"
 
     async def test_escalates_on_low_mean_confidence(self) -> None:
         """Mean confidence below threshold triggers escalation."""

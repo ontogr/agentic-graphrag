@@ -43,7 +43,11 @@ from agrag.common.data_models.graph_record import (
     RelationRecord,
     UpsertResult,
 )
-from agrag.common.data_models.graph_schema import GraphSchema
+from agrag.common.data_models.graph_schema import (
+    EntityType,
+    GraphSchema,
+    PropertySpec,
+)
 from agrag.common.data_models.normalization import Normalization
 from agrag.common.data_models.presets import OPERATIONS
 from agrag.common.data_models.resolved_entity import (
@@ -311,6 +315,25 @@ def _clear_llm_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setattr(extract_module, "load_dotenv", lambda *a, **k: False)
 
 
+_PERSON_WITH_PROPERTIES = GraphSchema(
+    name="people",
+    version="1",
+    entities=[
+        EntityType(
+            label="Person",
+            description="A person named in the text.",
+            properties={"role": PropertySpec(type="string")},
+        )
+    ],
+    relations=[],
+)
+
+
+def _properties_records(caplog: pytest.LogCaptureFixture) -> list[logging.LogRecord]:
+    """Return the captured log records whose message mentions properties."""
+    return [record for record in caplog.records if "properties" in record.getMessage()]
+
+
 class TestGraphExtractionSettings:
     """Graph exposes and resolves its extraction configuration."""
 
@@ -390,6 +413,59 @@ class TestGraphExtractionSettings:
         for name in ("EXTRACTION_LLM_CLIENTS", "LLM_BASE_URL", "LLM_MODEL_ID"):
             assert name in warnings[0].getMessage()
         assert 'mode="gliner"' in warnings[0].getMessage()
+
+    async def test_warns_when_gliner_mode_leaves_declared_properties_empty(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Gliner mode warns once, naming the types whose properties stay empty."""
+        with caplog.at_level(logging.WARNING):
+            await Graph.open(
+                schema=_PERSON_WITH_PROPERTIES,
+                graph_store=_MockGraphStore(),
+                embedder=_MockEmbedder(),
+                extractor=GlinerExtractor(
+                    settings=ExtractionSettings(mode="gliner"), model=object()
+                ),
+            )
+
+        records = _properties_records(caplog)
+        assert len(records) == 1
+        assert records[0].levelno == logging.WARNING
+        assert "Person" in records[0].getMessage()
+
+    async def test_gliner_mode_without_declared_properties_logs_no_warning(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A schema without entity properties gives no properties warning."""
+        with caplog.at_level(logging.WARNING):
+            await Graph.open(
+                schema=DEFAULT_SCHEMA,
+                graph_store=_MockGraphStore(),
+                embedder=_MockEmbedder(),
+                extractor=GlinerExtractor(
+                    settings=ExtractionSettings(mode="gliner"), model=object()
+                ),
+            )
+
+        assert _properties_records(caplog) == []
+
+    async def test_hybrid_mode_with_an_llm_logs_no_properties_warning(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """An LLM slot can fill declared properties, so no warning is logged."""
+        with caplog.at_level(logging.WARNING):
+            graph = await Graph.open(
+                schema=_PERSON_WITH_PROPERTIES,
+                graph_store=_MockGraphStore(),
+                embedder=_MockEmbedder(),
+                extractor=GlinerExtractor(
+                    settings=ExtractionSettings(mode="hybrid"), model=object()
+                ),
+                llm_extractor=_MockLLMExtractor(),
+            )
+
+        assert graph.effective_mode == "hybrid"
+        assert _properties_records(caplog) == []
 
     @pytest.mark.parametrize(
         ("mode", "llm_available", "expected"),
