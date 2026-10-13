@@ -49,6 +49,11 @@ Write or merge nodes inside the surrounding transaction.
 a row the job did not create is not applied and is added to `deferred`,
 which is required when `pending_job_id` is set.
 
+**Raises:**
+
+- <code>GraphStoreWriteConflictError</code> – `deferred` is None and a row is
+  owned by another in-flight job. The transaction rolls back.
+
 ## `upsert_relations` \{#agrag-graphdb-base-GraphStoreTransaction-upsert_relations}
 
 ```python
@@ -60,3 +65,9 @@ Write or merge relationships inside the surrounding transaction.
 `pending_job_id` tags the rows the call creates. A write that reaches
 a row the job did not create is not applied and is added to `deferred`,
 which is required when `pending_job_id` is set.
+
+**Raises:**
+
+- <code>GraphStoreWriteConflictError</code> – `deferred` is None and a
+  relationship is owned by another in-flight job. The
+  transaction rolls back.
