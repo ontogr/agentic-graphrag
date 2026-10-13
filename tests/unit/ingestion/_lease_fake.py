@@ -9,7 +9,7 @@ working.
 """
 
 from collections.abc import Mapping
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Any
 
 from agrag.cypher.cutover_job_write import (
@@ -200,19 +200,17 @@ class CutoverJobLeaseFake:
         return [{"closed": getattr(self, "closed_has_part_edges", 0)}]
 
     def _steal(self, params: dict[str, Any]) -> list[dict[str, Any]]:
-        """Take over a job only when its lease lapsed or it went terminal.
+        """Take over a job only when it is done or rolled back.
 
         Mirrors ``steal_expired_lease_query``: the steal adopts the new
         run's id, verb, token, and expiry, so a document that has been
-        mutated before can be mutated again.
+        mutated before can be mutated again. Pending and rolling_back jobs
+        never match, even with an expired lease.
         """
         job = self._cutover_jobs.get(str(params["document_key"]))
         if job is None:
             return []
-        expired = job["lease_expires_at"] < datetime.now(UTC)
-        if job["status"] in ("done", "rolled_back") or (
-            job["status"] == "pending" and expired
-        ):
+        if job["status"] in ("done", "rolled_back"):
             job["id"] = str(params["job_id"])
             job["status"] = "pending"
             job["verb"] = params["verb"]

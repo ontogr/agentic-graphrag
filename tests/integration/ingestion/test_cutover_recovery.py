@@ -12,6 +12,7 @@ from uuid import UUID, uuid4
 
 import pytest
 
+from agrag.common.data_models.cutover_job import CUTOVER_JOB_LABEL
 from agrag.cypher.cutover_job_write import begin_rollback_query, rollback_job_query
 from agrag.graphdb import build_graph_store
 from agrag.ingestion._cutover import run_cutover_job
@@ -175,5 +176,86 @@ class TestCutoverRecovery:
         finally:
             await store.execute_write(
                 "MATCH (n {probe: $probe}) DETACH DELETE n", {"probe": probe}
+            )
+            await store.close()
+
+    async def test_new_run_rolls_back_expired_pending_job_before_claiming(
+        self, tmp_path: Path
+    ) -> None:
+        """A new run rolls back a dead pending job and reclaims its merge keys."""
+        store = build_graph_store("neo4j")
+        await store.connect()
+        dead_job, probe = str(uuid4()), uuid4().hex
+        merge_key = f"probe:{probe}"
+
+        async def pending(job_id: UUID) -> str:
+            await store.execute_write(
+                "CREATE (:_MergeAlias {probe: $probe, merge_key: $merge_key, "
+                "id: randomUUID(), _pending_job_id: $job})",
+                {"probe": probe, "merge_key": merge_key, "job": str(job_id)},
+            )
+            return "pending"
+
+        async def cleanup(_: list[UUID], __: list[UUID]) -> str:
+            return "cleaned"
+
+        try:
+            await store.execute_write(
+                f"CREATE (:{CUTOVER_JOB_LABEL} {{id: $job, document_key: $probe, "
+                "status: 'pending', verb: 'add', lease_token: $token, "
+                "lease_expires_at: datetime() - duration('PT1M'), "
+                "affected_entity_ids: [], probe: $probe}) "
+                "CREATE (:_MergeAlias {probe: $probe, merge_key: $merge_key, "
+                "id: randomUUID(), _pending_job_id: $job}) "
+                "CREATE (:Chunk {probe: $probe, id: randomUUID(), "
+                "_pending_job_id: $job})",
+                {
+                    "job": dead_job,
+                    "token": str(uuid4()),
+                    "probe": probe,
+                    "merge_key": merge_key,
+                },
+            )
+
+            result = await run_cutover_job(
+                verb="add",
+                document_key=probe,
+                affected_entity_ids=[],
+                graph_store=store,
+                vector_store=None,
+                vector_collections=(),
+                settings=CutoverJobSettings(),
+                pending_write=pending,
+                cleanup=cleanup,
+            )
+
+            assert result[:2] == ("pending", "cleaned")
+            jobs = await store.execute_read(
+                f"MATCH (j:{CUTOVER_JOB_LABEL} {{document_key: $probe}}) "
+                "RETURN j.id AS id, j.status AS status",
+                {"probe": probe},
+            )
+            assert [row["status"] for row in jobs] == ["done"]
+            assert jobs[0]["id"] != dead_job
+            leftovers = await store.execute_read(
+                "MATCH (n {probe: $probe}) WHERE n._pending_job_id = $job "
+                "RETURN count(n) AS remaining",
+                {"probe": probe, "job": dead_job},
+            )
+            assert leftovers == [{"remaining": 0}]
+            aliases = await store.execute_read(
+                "MATCH (n:_MergeAlias {probe: $probe}) "
+                "RETURN n.merge_key AS merge_key, n._pending_job_id AS pending_job",
+                {"probe": probe},
+            )
+            assert aliases == [{"merge_key": merge_key, "pending_job": None}]
+            (tmp_path / "expired-pending-recovery.json").write_text(
+                json.dumps({"jobs": jobs, "aliases": aliases})
+            )
+        finally:
+            await store.execute_write(
+                "MATCH (n) WHERE n.probe = $probe OR n.document_key = $probe "
+                "DETACH DELETE n",
+                {"probe": probe},
             )
             await store.close()

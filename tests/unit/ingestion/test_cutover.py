@@ -150,12 +150,11 @@ class _FakeCutoverStore:
         return [{"id": job["id"]}]
 
     def _steal(self, params: dict[str, Any]) -> list[dict[str, Any]]:
-        """Take over a job only when its lease lapsed or it went terminal."""
+        """Take over a job only when it is done or rolled back."""
         job = self.jobs.get(str(params["document_key"]))
         if job is None:
             return []
-        expired = job["lease_expires_at"] < datetime.now(UTC)
-        if job["status"] == "done" or (job["status"] == "pending" and expired):
+        if job["status"] in ("done", "rolled_back"):
             job["id"] = str(params["job_id"])
             job["status"] = "pending"
             job["verb"] = params["verb"]
@@ -740,6 +739,47 @@ class TestRunCutoverJobRollback:
             for node in store.nodes
         )
         assert str(vector_id) not in vector_store.records["col-a"]
+
+    async def test_new_write_recovers_expired_pending_job_first(self) -> None:
+        """A later write rolls back an expired pending job before its own write."""
+        store = _FakeCutoverStore()
+        vector_store = _FakeVectorStore()
+        old_job_id = uuid4()
+        vector_id = uuid4()
+        store.jobs["doc-1"] = {
+            "id": str(old_job_id),
+            "status": "pending",
+            "lease_token": str(uuid4()),
+            "lease_expires_at": datetime.now(UTC) - timedelta(seconds=1),
+        }
+        store.nodes.append(_tag_node(old_job_id))
+        await vector_store.upsert(
+            "col-a",
+            [VectorRecord(id=vector_id, vector=[0.0], payload={})],
+            pending_job_id=old_job_id,
+        )
+        old_rows_seen_by_pending_write: list[bool] = []
+
+        async def pending(job_id: UUID) -> None:
+            old_rows_seen_by_pending_write.append(
+                any(
+                    node["properties"].get("_pending_job_id") == str(old_job_id)
+                    for node in store.nodes
+                )
+                or str(vector_id) in vector_store.records["col-a"]
+            )
+            store.nodes.append(_tag_node(job_id))
+
+        await run_cutover_job(
+            **_write_job(pending, graph_store=store, vector_store=vector_store)
+        )
+
+        assert old_rows_seen_by_pending_write == [False]
+        assert old_job_id != UUID(store.jobs["doc-1"]["id"])
+        assert all(
+            node["properties"].get("_pending_job_id") != str(old_job_id)
+            for node in store.nodes
+        )
 
     async def test_cancelled_expired_rollback_stops_vector_deletion(self) -> None:
         """Cancellation stops cleanup and leaves the claimed graph job intact."""
