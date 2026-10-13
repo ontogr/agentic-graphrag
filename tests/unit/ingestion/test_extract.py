@@ -15,11 +15,13 @@ overlapping or cancelled concurrent extract() calls.
 """
 
 import asyncio
+import json
 import logging
 import sys
 import threading
 import types
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import patch
 from uuid import uuid4
 
@@ -49,7 +51,7 @@ from agrag.ingestion.extract import (
     BAMLExtractor,
     ExtractorMissingExtraError,
     GlinerExtractor,
-    _describe_entity_type,
+    UnparsableExtractionError,
     validate_extraction,
 )
 from agrag.ingestion.settings import ExtractionSettings
@@ -166,6 +168,90 @@ def _chunk(
         text=text,
         provenance=TextProvenance(char_start=0, char_end=len(text)),
     )
+
+
+def _reply(
+    entities: list[tuple[str, str]] | None = None,
+    relations: list[tuple[str, str, str]] | None = None,
+    properties: dict[str, dict[str, str]] | None = None,
+) -> str:
+    """Return the JSON text a model would answer with."""
+    properties = properties or {}
+    return json.dumps(
+        {
+            "entities": [
+                {
+                    "label": label,
+                    "text": text,
+                    **({"properties": properties[text]} if text in properties else {}),
+                }
+                for label, text in entities or []
+            ],
+            "relations": [
+                {"label": label, "source_text": source, "target_text": target}
+                for label, source, target in relations or []
+            ],
+        }
+    )
+
+
+class _ParsingClient:
+    """A BAML client double that parses a canned reply with the real parser."""
+
+    def __init__(self, reply: str) -> None:
+        self.reply = reply
+        self.calls: list[dict[str, Any]] = []
+
+    async def ExtractEntitiesAndRelations(  # noqa: N802
+        self,
+        chunk_text: str,
+        section: str | None = None,
+        candidates: list[dict] | None = None,
+        options: dict | None = None,
+    ) -> object:
+        """Record the call and return the parsed canned reply."""
+        from agrag.llm.baml_client import b  # noqa: PLC0415
+
+        options = options or {}
+        self.calls.append(
+            {
+                "text": chunk_text,
+                "section": section,
+                "candidates": candidates,
+                "options": options,
+            }
+        )
+        return b.parse.ExtractEntitiesAndRelations(self.reply, {"tb": options["tb"]})
+
+
+async def _extract(reply: str, text: str, schema: GraphSchema) -> ExtractionResult:
+    """Run BAMLExtractor on text with a canned model reply."""
+    return await BAMLExtractor(client=_ParsingClient(reply)).extract(
+        _chunk(text), schema
+    )
+
+
+def _prompt_of(request: Any) -> str:
+    """Join the text blocks of a rendered BAML request."""
+    return "".join(
+        block["text"]
+        for message in request.body.json()["messages"]
+        for block in message["content"]
+    )
+
+
+async def _render_prompt(client: _ParsingClient) -> str:
+    """Render the prompt of the last extraction call made on a client."""
+    from agrag.llm.baml_client import b  # noqa: PLC0415
+
+    call = client.calls[-1]
+    request = await b.request.ExtractEntitiesAndRelations(
+        call["text"],
+        call["section"],
+        call["candidates"],
+        {"tb": call["options"]["tb"]},
+    )
+    return _prompt_of(request)
 
 
 class FakeSchema:
@@ -834,39 +920,401 @@ class TestValidateExtraction:
         )
 
 
-class TestDescribeEntityType:
-    """_describe_entity_type builds the prompt guidance for one entity type."""
-
-    def test_no_properties_returns_bare_description(self) -> None:
-        """A type with no declared properties is described as-is."""
-        entity_type = EntityType(label="Person", description="A named individual.")
-        assert _describe_entity_type(entity_type) == "A named individual."
-
-    def test_appends_typed_property_guidance(self) -> None:
-        """Property requirements and allowed values reach extraction guidance."""
-        entity_type = EntityType(
-            label="Person",
-            description="A named individual.",
-            properties={
-                "role": PropertySpec(
-                    type="string",
-                    required=True,
-                    enum=["author", "editor"],
-                    description="Use the role in the publication.",
-                ),
-                "age": PropertySpec(type="integer"),
-            },
-        )
-        description = _describe_entity_type(entity_type)
-        assert description == (
-            "A named individual.\nProperties to extract when stated:\n- role "
-            "(string, required, one of: author, editor): "
-            "Use the role in the publication.\n- age (integer)"
-        )
-
-
 class TestBAMLExtractor:
-    """BAMLExtractor raises when the llm extra is not installed."""
+    """BAMLExtractor sends the section and finds the answered names in the chunk."""
+
+    def test_raises_when_baml_client_not_importable(self) -> None:
+        """ExtractorMissingExtraError is raised if baml_client can't be imported."""
+        extractor = BAMLExtractor.__new__(BAMLExtractor)
+        extractor._client = None
+        extractor.settings = None
+        with patch.dict("sys.modules", {"agrag.llm.baml_client": None}):
+            with pytest.raises(ExtractorMissingExtraError) as exc_info:
+                extractor._default_client()
+            assert exc_info.value.extra == "llm"
+
+    async def test_labels_travel_in_the_enum_values_and_the_section_is_passed(
+        self,
+    ) -> None:
+        """The section reaches the model and every declared label is offered."""
+        chunk = Chunk(
+            id=uuid4(),
+            document_id=_DOC_ID,
+            text="Ada knows Charles.",
+            provenance=TextProvenance(char_start=0, char_end=18),
+            heading_path=["Ada Lovelace"],
+        )
+        client = _ParsingClient(_reply())
+
+        await BAMLExtractor(client=client).extract(chunk, _KNOWS_SCHEMA)
+
+        assert client.calls[0]["section"] == "Ada Lovelace"
+        prompt = await _render_prompt(client)
+        assert "Person" in prompt
+        assert "KNOWS" in prompt
+        assert _KNOWS_SCHEMA.relations[0].description in prompt
+
+    async def test_finds_the_span_from_the_name_alone(self) -> None:
+        """The model gives no offsets; the span comes from the chunk text."""
+        text = "Ada Lovelace worked at the Analytical Engine Company."
+        result = await _extract(
+            _reply(entities=[("Organization", "Analytical Engine Company")]),
+            text,
+            _ONE_PAIR_SCHEMA,
+        )
+
+        (entity,) = result.entities
+        assert text[entity.char_start : entity.char_end] == entity.text
+        assert entity.text == "Analytical Engine Company"
+        assert entity.char_start == text.index("Analytical")
+
+    async def test_maps_relation_endpoints_to_entity_indices(self) -> None:
+        """Relation endpoints, given as text, become entity indices."""
+        result = await _extract(
+            _reply(
+                entities=[("Person", "Ada"), ("Person", "Bob")],
+                relations=[("KNOWS", "Ada", "Bob")],
+            ),
+            "Ada and Bob met.",
+            _KNOWS_SCHEMA,
+        )
+
+        assert [entity.text for entity in result.entities] == ["Ada", "Bob"]
+        (relation,) = result.relations
+        assert (relation.source_index, relation.target_index) == (0, 1)
+        assert relation.label == "KNOWS"
+        assert result.extractor_name == "baml"
+
+    async def test_relation_endpoint_matches_despite_case_and_spacing(self) -> None:
+        """A relation endpoint copied with other case or spacing still resolves."""
+        result = await _extract(
+            _reply(
+                entities=[("Person", "Ada Lovelace"), ("Person", "Bob")],
+                relations=[("KNOWS", "ada  lovelace", "BOB")],
+            ),
+            "Ada Lovelace met Bob.",
+            _KNOWS_SCHEMA,
+        )
+
+        (relation,) = result.relations
+        assert (relation.source_index, relation.target_index) == (0, 1)
+
+    async def test_drops_a_relation_whose_endpoint_is_not_an_entity(self) -> None:
+        """A relation that names a text no entity carries is dropped."""
+        result = await _extract(
+            _reply(
+                entities=[("Person", "Ada")],
+                relations=[("KNOWS", "Ada", "Nonexistent")],
+            ),
+            "Ada is new.",
+            _KNOWS_SCHEMA,
+        )
+
+        assert len(result.entities) == 1
+        assert result.relations == []
+
+    async def test_relation_between_two_mentions_of_one_name_is_one_edge(
+        self,
+    ) -> None:
+        """One relation between two people who share a name is a single edge."""
+        result = await _extract(
+            _reply(
+                entities=[("Person", "Ada"), ("Person", "Ada")],
+                relations=[("KNOWS", "Ada", "Ada")],
+            ),
+            "Ada met Bob; later Ada left.",
+            _KNOWS_SCHEMA,
+        )
+
+        assert len(result.relations) == 1
+        relation = result.relations[0]
+        assert {relation.source_index, relation.target_index} == {0, 1}
+
+    async def test_drops_a_self_relation_with_one_mention(self) -> None:
+        """A relation from a name to itself with one mention is dropped."""
+        result = await _extract(
+            _reply(entities=[("Person", "Ada")], relations=[("KNOWS", "Ada", "Ada")]),
+            "Ada left.",
+            _KNOWS_SCHEMA,
+        )
+
+        assert len(result.entities) == 1
+        assert result.relations == []
+
+    async def test_drops_a_listing_past_the_last_occurrence(self) -> None:
+        """A name listed twice that occurs once yields one entity."""
+        result = await _extract(
+            _reply(
+                entities=[("Person", "Ada"), ("Person", "Ada")],
+                relations=[("KNOWS", "Ada", "Ada")],
+            ),
+            "Ada left.",
+            _KNOWS_SCHEMA,
+        )
+
+        assert len(result.entities) == 1
+        assert result.relations == []
+
+    async def test_drops_an_entity_whose_text_is_not_in_the_chunk(self) -> None:
+        """An entity the chunk does not hold is dropped, the others stay."""
+        result = await _extract(
+            _reply(entities=[("Person", "Ada"), ("Person", "Ghost")]),
+            "Ada left.",
+            _KNOWS_SCHEMA,
+        )
+
+        assert [entity.text for entity in result.entities] == ["Ada"]
+
+    async def test_drops_an_entity_with_empty_text(self) -> None:
+        """An empty name never reaches ExtractedEntity."""
+        result = await _extract(
+            _reply(entities=[("Person", "Ada"), ("Person", "")]),
+            "Ada left.",
+            _KNOWS_SCHEMA,
+        )
+
+        assert [entity.text for entity in result.entities] == ["Ada"]
+
+    async def test_does_not_find_a_name_inside_a_longer_word(self) -> None:
+        """A name does not match inside a longer word, as in 'Canada'."""
+        result = await _extract(
+            _reply(entities=[("Person", "Ada")]), "She lives in Canada.", _KNOWS_SCHEMA
+        )
+
+        assert result.entities == []
+
+    async def test_entities_found_only_in_the_heading_are_dropped(self) -> None:
+        """The heading is context for the model and is never searched."""
+        chunk = Chunk(
+            id=uuid4(),
+            document_id=_DOC_ID,
+            text="She left early.",
+            provenance=TextProvenance(char_start=0, char_end=15),
+            heading_path=["Ada Lovelace"],
+        )
+        client = _ParsingClient(_reply(entities=[("Person", "Ada Lovelace")]))
+
+        result = await BAMLExtractor(client=client).extract(chunk, _KNOWS_SCHEMA)
+
+        assert client.calls[0]["section"] == "Ada Lovelace"
+        assert result.entities == []
+
+    async def test_keeps_a_declared_property_and_drops_an_undeclared_one(self) -> None:
+        """A declared property key survives; one the schema lacks is dropped."""
+        result = await _extract(
+            _reply(
+                entities=[("Person", "Ada")],
+                properties={"Ada": {"role": "engineer", "shoe_size": "9"}},
+            ),
+            "Ada left.",
+            _PROPERTY_SCHEMA,
+        )
+
+        assert result.entities[0].properties == {"role": "engineer"}
+
+    async def test_adds_a_properties_field_only_for_property_schemas(self) -> None:
+        """The answer shape has `properties` exactly when a type declares one."""
+
+        async def prompt_for(schema: GraphSchema) -> str:
+            client = _ParsingClient(_reply())
+            await BAMLExtractor(client=client).extract(_chunk("Ada left."), schema)
+            return await _render_prompt(client)
+
+        assert "properties: map<string, string>" in await prompt_for(_PROPERTY_SCHEMA)
+        assert "properties:" not in await prompt_for(_KNOWS_SCHEMA)
+
+    async def test_schema_without_properties_has_no_properties_field(self) -> None:
+        """A schema with no declared property gets names-and-labels entities."""
+        result = await _extract(
+            _reply(entities=[("Person", "Ada")]), "Ada left.", _KNOWS_SCHEMA
+        )
+
+        assert result.entities[0].properties == {}
+
+    async def test_keeps_two_labels_on_one_span(self) -> None:
+        """One name under two labels keeps both labels on the same span."""
+        result = await _extract(
+            _reply(entities=[("Product", "Apple"), ("Organization", "Apple")]),
+            "Apple released the iPhone.",
+            _MULTI_LABEL_SCHEMA,
+        )
+
+        assert {entity.label for entity in result.entities} == {
+            "Product",
+            "Organization",
+        }
+        assert len({(e.char_start, e.char_end) for e in result.entities}) == 1
+
+    async def test_keeps_two_relation_labels_between_one_pair(self) -> None:
+        """Two valid relation labels between one pair both survive."""
+        result = await _extract(
+            _reply(
+                entities=[("Person", "Ada"), ("Organization", "Acme")],
+                relations=[
+                    ("WORKS_AT", "Ada", "Acme"),
+                    ("CONSULTS_FOR", "Ada", "Acme"),
+                ],
+            ),
+            "Ada worked at and consulted for Acme.",
+            _TWO_LABELS_SCHEMA,
+        )
+
+        assert {relation.label for relation in result.relations} == {
+            "WORKS_AT",
+            "CONSULTS_FOR",
+        }
+        assert all((r.source_index, r.target_index) == (0, 1) for r in result.relations)
+
+    async def test_keeps_a_relation_that_needs_the_second_label(self) -> None:
+        """A relation valid only for the second label of a name survives."""
+        result = await _extract(
+            _reply(
+                entities=[
+                    ("Product", "Apple"),
+                    ("Organization", "Apple"),
+                    ("Product", "iPhone"),
+                ],
+                relations=[("SELLS", "Apple", "iPhone")],
+            ),
+            "Apple released the iPhone.",
+            _MULTI_LABEL_SCHEMA,
+        )
+
+        assert len(result.entities) == 3
+        (relation,) = result.relations
+        assert relation.label == "SELLS"
+        assert result.entities[relation.source_index].label == "Organization"
+
+    async def test_one_relation_stays_one_edge_when_names_repeat(self) -> None:
+        """One relation between repeated names is a single edge."""
+        result = await _extract(
+            _reply(
+                entities=[
+                    ("Person", "Alice"),
+                    ("Person", "Alice"),
+                    ("Person", "Bob"),
+                    ("Person", "Bob"),
+                ],
+                relations=[("KNOWS", "Alice", "Bob")],
+            ),
+            "Alice met Bob. Alice also met Bob later.",
+            _KNOWS_SCHEMA,
+        )
+
+        (relation,) = result.relations
+        assert relation.source_index in {0, 1}
+        assert relation.target_index in {2, 3}
+
+    async def test_drops_a_relation_to_a_dropped_entity(self) -> None:
+        """A relation to an entity that was not in the chunk is dropped too."""
+        result = await _extract(
+            _reply(
+                entities=[("Person", "Ada"), ("Organization", "Ghost Corp")],
+                relations=[("WORKS_AT", "Ada", "Ghost Corp")],
+            ),
+            "Ada left.",
+            _ONE_PAIR_SCHEMA,
+        )
+
+        assert [entity.text for entity in result.entities] == ["Ada"]
+        assert result.relations == []
+
+    async def test_drops_a_relation_the_patterns_do_not_permit(self) -> None:
+        """A relation whose endpoint labels are in the wrong order is dropped."""
+        result = await _extract(
+            _reply(
+                entities=[("Person", "Ada"), ("Organization", "Acme")],
+                relations=[("WORKS_AT", "Acme", "Ada")],
+            ),
+            "Ada works at Acme.",
+            _ONE_PAIR_SCHEMA,
+        )
+
+        assert len(result.entities) == 2
+        assert result.relations == []
+
+    async def test_parser_drops_labels_outside_the_schema(self) -> None:
+        """An entity or relation with an undeclared label never reaches agrag."""
+        result = await _extract(
+            _reply(
+                entities=[("Person", "Ada"), ("Spaceship", "Acme")],
+                relations=[("ORBITS", "Ada", "Acme")],
+            ),
+            "Ada works at Acme.",
+            _ONE_PAIR_SCHEMA,
+        )
+
+        assert [entity.label for entity in result.entities] == ["Person"]
+        assert result.relations == []
+
+    async def test_entity_only_schema_has_no_relations_field(self) -> None:
+        """A schema with no relation types shows the model no relation field."""
+        client = _ParsingClient(_reply(entities=[("Person", "Ada")]))
+        result = await BAMLExtractor(client=client).extract(
+            _chunk("Ada left."), _PROPERTY_SCHEMA
+        )
+        prompt = await _render_prompt(client)
+
+        assert "relations:" not in prompt
+        assert "label: ," not in prompt
+        assert [entity.text for entity in result.entities] == ["Ada"]
+        assert result.relations == []
+
+    async def test_entities_and_relations_carry_no_confidence(self) -> None:
+        """The LLM path reports no score."""
+        result = await _extract(
+            _reply(
+                entities=[("Person", "Ada"), ("Person", "Bob")],
+                relations=[("KNOWS", "Ada", "Bob")],
+            ),
+            "Ada knows Bob.",
+            _KNOWS_SCHEMA,
+        )
+
+        assert all(entity.confidence is None for entity in result.entities)
+        assert all(relation.confidence is None for relation in result.relations)
+
+    async def test_extract_with_injected_client_skips_settings(self) -> None:
+        """An injected client works without EXTRACTION_LLM_CLIENTS env vars."""
+        extractor = BAMLExtractor(
+            client=_ParsingClient(_reply(entities=[("Person", "Ada")]))
+        )
+
+        assert extractor.settings is None
+        result = await extractor.extract(_chunk("Ada left."), _KNOWS_SCHEMA)
+
+        assert [entity.text for entity in result.entities] == ["Ada"]
+
+    async def test_prompt_offers_only_declared_labels_and_descriptions(self) -> None:
+        """The rendered request lists the schema's labels, not PLACEHOLDER.
+
+        Renders the real BAML request with the type builder the extractor
+        passed (no network call).
+        """
+        client = _ParsingClient(_reply())
+        await BAMLExtractor(client=client).extract(
+            _chunk("Ada works at Acme."), _ONE_PAIR_SCHEMA
+        )
+        prompt = await _render_prompt(client)
+
+        assert "PLACEHOLDER" not in prompt
+        for label in ("Person", "Organization", "WORKS_AT"):
+            assert label in prompt
+        assert _ONE_PAIR_SCHEMA.relations[0].description in prompt
+        assert "char_start" not in prompt
+        assert "char_end" not in prompt
+
+    async def test_prompt_has_no_type_pairs_and_lists_each_label_once(self) -> None:
+        """Each label appears once with its description and no pair arrows."""
+        client = _ParsingClient(_reply())
+        await BAMLExtractor(client=client).extract(
+            _chunk("Ada works at Acme."), _ONE_PAIR_SCHEMA
+        )
+        prompt = await _render_prompt(client)
+
+        assert prompt.count("- Person: A named individual.") == 1
+        assert prompt.count("- WORKS_AT: A person works at an organization.") == 1
+        assert "->" not in prompt
 
     @pytest.mark.parametrize(
         ("patterns", "symmetric"),
@@ -878,7 +1326,7 @@ class TestBAMLExtractor:
     async def test_extract_resolves_parent_child_and_reversed_symmetric_relation(
         self, patterns: list[tuple[str, str]], symmetric: bool
     ) -> None:
-        """BAML output accepts descendants and rejects unrelated endpoint types."""
+        """Descendant labels satisfy a parent pattern; unrelated pairs are dropped."""
         schema = GraphSchema(
             name="hierarchical",
             version="1",
@@ -901,744 +1349,122 @@ class TestBAMLExtractor:
                 )
             ],
         )
-        chunk = _chunk("Acme met OrgCo, and Ada joined.")
 
-        class MockClient:
-            async def ExtractEntitiesAndRelations(
-                self, text: str, section: str | None, options: dict
-            ) -> SimpleNamespace:
-                return SimpleNamespace(
-                    entities=[
-                        SimpleNamespace(
-                            label="Company",
-                            text="Acme",
-                            char_start=0,
-                            char_end=4,
-                            properties={},
-                        ),
-                        SimpleNamespace(
-                            label="Organization",
-                            text="OrgCo",
-                            char_start=9,
-                            char_end=14,
-                            properties={},
-                        ),
-                        SimpleNamespace(
-                            label="Person",
-                            text="Ada",
-                            char_start=20,
-                            char_end=23,
-                            properties={},
-                        ),
-                    ],
-                    relations=[
-                        SimpleNamespace(
-                            label="ASSOCIATED_WITH",
-                            source_text="Acme",
-                            target_text="OrgCo",
-                        ),
-                        SimpleNamespace(
-                            label="ASSOCIATED_WITH",
-                            source_text="Acme",
-                            target_text="Ada",
-                        ),
-                    ],
-                )
-
-        result = await BAMLExtractor(client=MockClient()).extract(chunk, schema)
+        result = await _extract(
+            _reply(
+                entities=[
+                    ("Company", "Acme"),
+                    ("Organization", "OrgCo"),
+                    ("Person", "Ada"),
+                ],
+                relations=[
+                    ("ASSOCIATED_WITH", "Acme", "OrgCo"),
+                    ("ASSOCIATED_WITH", "Acme", "Ada"),
+                ],
+            ),
+            "Acme met OrgCo, and Ada joined.",
+            schema,
+        )
 
         assert [
             (relation.source_index, relation.target_index)
             for relation in result.relations
         ] == [(0, 1)]
 
-    def test_raises_when_baml_client_not_importable(self) -> None:
-        """ExtractorMissingExtraError is raised if baml_client can't be imported."""
-        extractor = BAMLExtractor.__new__(BAMLExtractor)
-        extractor._client = None
-        extractor.settings = None
-        with patch.dict("sys.modules", {"agrag.llm.baml_client": None}):
-            with pytest.raises(ExtractorMissingExtraError) as exc_info:
-                extractor._default_client()
-            assert exc_info.value.extra == "llm"
-
-    def test_type_builder_carries_declared_properties_into_the_description(
-        self,
-    ) -> None:
-        """A schema's declared properties reach the TypeBuilder enum description.
-
-        Regression test: BAMLExtractedEntity.properties has no per-label
-        schema of its own -- a BAML class field is static -- so the model
-        only learns which property names to extract through this
-        description. Without it, properties reaches the prompt with no
-        vocabulary and every extracted key gets dropped as undeclared.
-        """
-        recorded: dict[str, str] = {}
-
-        class FakeValueBuilder:
-            def __init__(self, label: str) -> None:
-                self.label = label
-
-            def description(self, text: str) -> None:
-                recorded[self.label] = text
-
-        class FakeLabelBuilder:
-            def add_value(self, label: str) -> "FakeValueBuilder":
-                return FakeValueBuilder(label)
-
-        class FakeTypeBuilder:
-            def __init__(self) -> None:
-                self.ExtractedEntityLabel = FakeLabelBuilder()
-                self.ExtractedRelationLabel = FakeLabelBuilder()
-
-        extractor = BAMLExtractor.__new__(BAMLExtractor)
-        extractor._client = None
-        with patch("agrag.llm.baml_client.type_builder.TypeBuilder", FakeTypeBuilder):
-            extractor._type_builder_for(_PROPERTY_SCHEMA)
-
-        assert recorded["Person"] == (
-            "A named individual.\nProperties to extract when stated:\n- role "
-            "(string, required, one of: author, editor): "
-            "Use the role in the publication."
+    async def test_prose_reply_is_unparsable(self, monkeypatch) -> None:
+        """Prose parses to an empty result; the extractor reports it as a failure."""
+        prose = "I could not find any entities in this text."
+        monkeypatch.setattr(
+            "agrag.ingestion.extract._last_reply", lambda collector: prose
         )
 
-    async def test_to_result_maps_source_text_to_indices(self) -> None:
-        """BAML output relations are mapped to entity indices by text."""
-        chunk = _chunk()
-        org_text = "the Analytical Engine Company"
-        org_start = chunk.text.index(org_text)
-        # Simulate BAML raw output
-        entities_raw = [
-            SimpleNamespace(
-                label="Person", text="Ada", char_start=0, char_end=3, properties={}
-            ),
-            SimpleNamespace(
-                label="Organization",
-                text=org_text,
-                char_start=org_start,
-                char_end=org_start + len(org_text),
-                properties={},
-            ),
-        ]
-        relations_raw = [
-            SimpleNamespace(
-                label="WORKS_AT",
-                source_text="Ada",
-                target_text="the Analytical Engine Company",
+        with pytest.raises(UnparsableExtractionError):
+            await _extract(prose, "Ada left.", _KNOWS_SCHEMA)
+
+    @pytest.mark.parametrize(
+        "reply",
+        ["", "{}", '{"foo": 1}', '{"entities": [{"label": "Per'],
+    )
+    async def test_reply_without_an_answer_is_unparsable(
+        self, monkeypatch, reply: str
+    ) -> None:
+        """A reply with no answer and no entity is a failure, not an empty answer."""
+        monkeypatch.setattr(
+            "agrag.ingestion.extract._last_reply", lambda collector: reply
+        )
+
+        with pytest.raises(UnparsableExtractionError):
+            await _extract(reply, "Ada left.", _KNOWS_SCHEMA)
+
+    @pytest.mark.parametrize("reply", ['{"entities": [], "relations": []}', "[]"])
+    async def test_empty_json_answer_is_a_normal_empty_result(
+        self, monkeypatch, reply: str
+    ) -> None:
+        """A real empty answer returns an empty result and does not raise."""
+        monkeypatch.setattr(
+            "agrag.ingestion.extract._last_reply", lambda collector: reply
+        )
+
+        result = await _extract(reply, "Ada left.", _KNOWS_SCHEMA)
+
+        assert result.entities == []
+        assert result.relations == []
+
+    async def test_partly_recovered_reply_is_a_normal_result(self, monkeypatch) -> None:
+        """A truncated reply that still yields an entity is not a failure."""
+        truncated = '{"entities":[{"label":"Person","text":"Ada"},{"label":"Per'
+        monkeypatch.setattr(
+            "agrag.ingestion.extract._last_reply", lambda collector: truncated
+        )
+
+        result = await _extract(truncated, "Ada left.", _KNOWS_SCHEMA)
+
+        assert [entity.text for entity in result.entities] == ["Ada"]
+
+    async def test_missing_raw_reply_never_raises(self) -> None:
+        """A client that records no collector is judged by the parsed result."""
+        result = await _extract(_reply(), "Ada left.", _KNOWS_SCHEMA)
+
+        assert result.entities == []
+
+    async def test_a_raised_call_error_propagates(self) -> None:
+        """A client error is not turned into an unparsable-reply error."""
+
+        class Failing:
+            async def ExtractEntitiesAndRelations(self, *args):  # noqa: N802
+                raise RuntimeError("provider down")
+
+        with pytest.raises(RuntimeError, match="provider down"):
+            await BAMLExtractor(client=Failing()).extract(
+                _chunk("Ada left."), _KNOWS_SCHEMA
+            )
+
+
+class TestCandidatesInPrompt:
+    """Candidates reach the prompt only when there are some."""
+
+    async def test_renders_candidates_only_when_given(self) -> None:
+        """Kept entities appear in the prompt; no candidates give the blind prompt."""
+        chunk = _chunk("Ada left.")
+
+        async def prompt(candidates: list[ExtractedEntity] | None) -> str:
+            client = _ParsingClient(_reply())
+            await BAMLExtractor(client=client).extract(chunk, _KNOWS_SCHEMA, candidates)
+            return await _render_prompt(client)
+
+        kept = [
+            ExtractedEntity(
+                chunk_id=chunk.id,
+                label="Person",
+                text="Lovelace",
+                char_start=0,
+                char_end=8,
             )
         ]
-        raw = SimpleNamespace(entities=entities_raw, relations=relations_raw)
 
-        extractor = BAMLExtractor.__new__(BAMLExtractor)
-        result = extractor._to_result(raw, chunk, _ONE_PAIR_SCHEMA)
-
-        assert len(result.entities) == 2
-        assert result.entities[0].text == "Ada"
-        assert result.entities[1].text == "the Analytical Engine Company"
-        assert len(result.relations) == 1
-        assert result.relations[0].source_index == 0
-        assert result.relations[0].target_index == 1
-        assert result.relations[0].label == "WORKS_AT"
-        assert result.extractor_name == "baml"
-
-    async def test_to_result_skips_relations_with_unknown_text(self) -> None:
-        """Relations whose text doesn't match any entity are dropped."""
-        chunk = _chunk()
-        entities_raw = [
-            SimpleNamespace(
-                label="Person", text="Ada", char_start=0, char_end=3, properties={}
-            ),
-        ]
-        relations_raw = [
-            SimpleNamespace(
-                label="WORKS_AT",
-                source_text="Ada",
-                target_text="Nonexistent Corp",
-            )
-        ]
-        raw = SimpleNamespace(entities=entities_raw, relations=relations_raw)
-
-        extractor = BAMLExtractor.__new__(BAMLExtractor)
-        result = extractor._to_result(raw, chunk, _ONE_PAIR_SCHEMA)
-
-        assert len(result.entities) == 1
-        assert len(result.relations) == 0
-
-    async def test_to_result_resolves_self_referencing_relation_between_duplicates(
-        self,
-    ) -> None:
-        """One raw relation between two same-named people yields a single edge.
-
-        BAML relations carry no entity identity beyond surface text, so a
-        relation between two distinct people who share a name reports the
-        same text for both endpoints. The old text-only-keyed lookup mapped
-        both endpoints to one index, and ExtractedRelation raised on the
-        self-reference, aborting the whole chunk. Resolving the two distinct
-        mentions is right, but the single declared relation must still become
-        exactly one (source, target) pair — not both directions.
-        """
-        chunk = _chunk("Ada met Bob; later Ada left.")
-        second_ada_start = chunk.text.index("Ada", 1)
-        entities_raw = [
-            SimpleNamespace(
-                label="Person", text="Ada", char_start=0, char_end=3, properties={}
-            ),
-            SimpleNamespace(
-                label="Person",
-                text="Ada",
-                char_start=second_ada_start,
-                char_end=second_ada_start + 3,
-                properties={},
-            ),
-        ]
-        relations_raw = [
-            SimpleNamespace(label="KNOWS", source_text="Ada", target_text="Ada"),
-        ]
-        raw = SimpleNamespace(entities=entities_raw, relations=relations_raw)
-
-        extractor = BAMLExtractor.__new__(BAMLExtractor)
-        result = extractor._to_result(raw, chunk, _KNOWS_SCHEMA)
-
-        # Exactly one edge (0->1 or 1->0), not both directions.
-        assert len(result.relations) == 1
-        relation = result.relations[0]
-        assert relation.source_index != relation.target_index
-        assert {relation.source_index, relation.target_index} == {0, 1}
-
-    async def test_to_result_drops_self_referencing_relation_with_one_candidate(
-        self,
-    ) -> None:
-        """A self-referencing relation with only one matching entity is dropped.
-
-        With a single "Ada" entity, a relation naming "Ada" on both sides has
-        no distinct pairing available. Dropping it, not raising, keeps the
-        rest of the chunk's entities and relations intact.
-        """
-        chunk = _chunk()
-        entities_raw = [
-            SimpleNamespace(
-                label="Person", text="Ada", char_start=0, char_end=3, properties={}
-            ),
-        ]
-        relations_raw = [
-            SimpleNamespace(label="KNOWS", source_text="Ada", target_text="Ada"),
-        ]
-        raw = SimpleNamespace(entities=entities_raw, relations=relations_raw)
-
-        extractor = BAMLExtractor.__new__(BAMLExtractor)
-        result = extractor._to_result(raw, chunk, _KNOWS_SCHEMA)
-
-        assert len(result.entities) == 1
-        assert result.relations == []
-
-    async def test_to_result_drops_duplicate_entity_resolving_to_a_claimed_span(
-        self,
-    ) -> None:
-        """A malformed duplicate that resolves onto an already-claimed span is dropped.
-
-        Two raw entities can share text with only one real occurrence in the
-        chunk: a correct one, and a malformed one whose hint offsets are
-        wrong but whose text still exists exactly once. Without deduping,
-        both would resolve to the same (text, span) and survive as separate
-        entities, and a same-text relation could then be fabricated between
-        what is really one entity.
-        """
-        chunk = _chunk()
-        entities_raw = [
-            SimpleNamespace(
-                label="Person", text="Ada", char_start=0, char_end=3, properties={}
-            ),
-            SimpleNamespace(
-                label="Person", text="Ada", char_start=500, char_end=503, properties={}
-            ),
-        ]
-        relations_raw = [
-            SimpleNamespace(label="KNOWS", source_text="Ada", target_text="Ada"),
-        ]
-        raw = SimpleNamespace(entities=entities_raw, relations=relations_raw)
-
-        extractor = BAMLExtractor.__new__(BAMLExtractor)
-        result = extractor._to_result(raw, chunk, _KNOWS_SCHEMA)
-
-        assert len(result.entities) == 1
-        assert result.relations == []
-
-    async def test_extract_keeps_entity_with_corrected_span(self) -> None:
-        """A wrong-but-recoverable span is corrected, not dropped.
-
-        LLMs are unreliable at counting characters; a span this far off (but
-        whose text genuinely occurs in the chunk) is a miscount, not a
-        fabrication, so the mention is kept with its real span.
-        """
-        chunk = _chunk()
-
-        class MockClient:
-            async def ExtractEntitiesAndRelations(self, *args):  # noqa: N802
-                return SimpleNamespace(
-                    entities=[
-                        SimpleNamespace(
-                            label="Person",
-                            text="Ada",
-                            char_start=0,
-                            char_end=1000,
-                            properties={},
-                        ),
-                    ],
-                    relations=[],
-                )
-
-        extractor = BAMLExtractor(client=MockClient())
-        result = await extractor.extract(chunk, DEFAULT_SCHEMA)
-
-        assert len(result.entities) == 1
-        assert result.entities[0].text == "Ada"
-        assert result.entities[0].char_start == 0
-        assert result.entities[0].char_end == 3
-
-    async def test_extract_drops_entity_with_hallucinated_text(self) -> None:
-        """An entity whose text never occurs in chunk.text is dropped."""
-        chunk = _chunk()
-
-        class MockClient:
-            async def ExtractEntitiesAndRelations(self, *args):  # noqa: N802
-                return SimpleNamespace(
-                    entities=[
-                        SimpleNamespace(
-                            label="Person",
-                            text="Ada",
-                            char_start=0,
-                            char_end=3,
-                            properties={},
-                        ),
-                        SimpleNamespace(
-                            label="Person",
-                            text="Ghost",
-                            char_start=0,
-                            char_end=5,
-                            properties={},
-                        ),
-                    ],
-                    relations=[],
-                )
-
-        extractor = BAMLExtractor(client=MockClient())
-        result = await extractor.extract(chunk, DEFAULT_SCHEMA)
-
-        assert [entity.text for entity in result.entities] == ["Ada"]
-
-    async def test_extract_keeps_declared_property_drops_undeclared(self) -> None:
-        """Normalization keeps a declared property key and drops an undeclared one.
-
-        Regression test: an extractor can report a property the schema never
-        defined -- an LLM inventing a field, or a schema that dropped a
-        property after the model was prompted -- and compute_merge has no
-        schema of its own to filter against later, so normalization is
-        where an undeclared key must be dropped.
-        """
-        chunk = _chunk()
-
-        class MockClient:
-            async def ExtractEntitiesAndRelations(self, *args):  # noqa: N802
-                return SimpleNamespace(
-                    entities=[
-                        SimpleNamespace(
-                            label="Person",
-                            text="Ada",
-                            char_start=0,
-                            char_end=3,
-                            properties={"role": "engineer", "shoe_size": "9"},
-                        ),
-                    ],
-                    relations=[],
-                )
-
-        extractor = BAMLExtractor(client=MockClient())
-        result = await extractor.extract(chunk, _PROPERTY_SCHEMA)
-
-        assert len(result.entities) == 1
-        assert result.entities[0].properties == {"role": "engineer"}
-
-    async def test_extract_drops_entity_with_zero_length_span(self) -> None:
-        """A zero-length span is dropped before it reaches ExtractedEntity."""
-
-        class MockClient:
-            async def ExtractEntitiesAndRelations(self, *args):  # noqa: N802
-                return SimpleNamespace(
-                    entities=[
-                        SimpleNamespace(
-                            label="Person",
-                            text="Ada",
-                            char_start=0,
-                            char_end=3,
-                            properties={},
-                        ),
-                        SimpleNamespace(
-                            label="Person",
-                            text="",
-                            char_start=5,
-                            char_end=5,
-                            properties={},
-                        ),
-                    ],
-                    relations=[],
-                )
-
-        extractor = BAMLExtractor(client=MockClient())
-        result = await extractor.extract(_chunk(), DEFAULT_SCHEMA)
-
-        assert [entity.text for entity in result.entities] == ["Ada"]
-
-    async def test_to_result_keeps_distinct_labels_on_same_span(self) -> None:
-        """Two valid labels on one span are kept, preserving the second's relations.
-
-        When the LLM extracts "Apple" as both Product and Organization at the
-        same character span, the old dedup (keyed only on span) would drop the
-        second entity. A SELLS relation (Organization -> Product) that needs
-        the Organization entity then had no target and disappeared.
-        """
-        chunk = _chunk("Apple released the iPhone.")
-        apple_start = chunk.text.index("Apple")
-        entities_raw = [
-            SimpleNamespace(
-                label="Product",
-                text="Apple",
-                char_start=apple_start,
-                char_end=apple_start + 5,
-                properties={},
-            ),
-            SimpleNamespace(
-                label="Organization",
-                text="Apple",
-                char_start=apple_start,
-                char_end=apple_start + 5,
-                properties={},
-            ),
-        ]
-        relations_raw = [
-            SimpleNamespace(
-                label="SELLS",
-                source_text="Apple",
-                target_text="iPhone",
-            ),
-        ]
-        raw = SimpleNamespace(entities=entities_raw, relations=relations_raw)
-
-        extractor = BAMLExtractor.__new__(BAMLExtractor)
-        result = extractor._to_result(raw, chunk, _MULTI_LABEL_SCHEMA)
-
-        # Both labels survive despite sharing a span.
-        assert len(result.entities) == 2
-        labels = {entity.label for entity in result.entities}
-        assert labels == {"Product", "Organization"}
-
-    async def test_to_result_keeps_distinct_labels_between_same_pair(self) -> None:
-        """Two schema-valid labels on the same entity pair both survive dedup.
-
-        Regression test for the seen_pairs bug: the dedup key was only
-        (source_index, target_index), so a second relation label (e.g.
-        CONSULTS_FOR) between the same Person and Organization as a first
-        label (WORKS_AT) was collapsed into the first and lost.
-        """
-        chunk = _chunk("Ada worked at and consulted for Acme.")
-        ada_start = chunk.text.index("Ada")
-        acme_start = chunk.text.index("Acme")
-        entities_raw = [
-            SimpleNamespace(
-                label="Person",
-                text="Ada",
-                char_start=ada_start,
-                char_end=ada_start + 3,
-                properties={},
-            ),
-            SimpleNamespace(
-                label="Organization",
-                text="Acme",
-                char_start=acme_start,
-                char_end=acme_start + 4,
-                properties={},
-            ),
-        ]
-        relations_raw = [
-            SimpleNamespace(label="WORKS_AT", source_text="Ada", target_text="Acme"),
-            SimpleNamespace(
-                label="CONSULTS_FOR", source_text="Ada", target_text="Acme"
-            ),
-        ]
-        raw = SimpleNamespace(entities=entities_raw, relations=relations_raw)
-
-        extractor = BAMLExtractor.__new__(BAMLExtractor)
-        result = extractor._to_result(raw, chunk, _TWO_LABELS_SCHEMA)
-
-        assert len(result.entities) == 2
-        assert len(result.relations) == 2
-        labels = {relation.label for relation in result.relations}
-        assert labels == {"WORKS_AT", "CONSULTS_FOR"}
-        for relation in result.relations:
-            assert relation.source_index == 0
-            assert relation.target_index == 1
-
-    async def test_extract_preserves_relation_needing_second_label(self) -> None:
-        """A relation valid only for the second label survives extraction.
-
-        Regression test for the dedup bug: seen_spans was keyed on
-        (start, end) only, so "Apple" as Organization was dropped when
-        "Apple" as Product appeared first. With both labels surviving and
-        all pairings emitted, normalization selects the (Organization,
-        Product) pairing that matches the SELLS pattern.
-        """
-        chunk = _chunk("Apple released the iPhone.")
-        apple_start = chunk.text.index("Apple")
-        iphone_start = chunk.text.index("iPhone")
-
-        class MockClient:
-            async def ExtractEntitiesAndRelations(self, *args):  # noqa: N802
-                return SimpleNamespace(
-                    entities=[
-                        SimpleNamespace(
-                            label="Product",
-                            text="Apple",
-                            char_start=apple_start,
-                            char_end=apple_start + 5,
-                            properties={},
-                        ),
-                        SimpleNamespace(
-                            label="Organization",
-                            text="Apple",
-                            char_start=apple_start,
-                            char_end=apple_start + 5,
-                            properties={},
-                        ),
-                        SimpleNamespace(
-                            label="Product",
-                            text="iPhone",
-                            char_start=iphone_start,
-                            char_end=iphone_start + 6,
-                            properties={},
-                        ),
-                    ],
-                    relations=[
-                        SimpleNamespace(
-                            label="SELLS",
-                            source_text="Apple",
-                            target_text="iPhone",
-                        ),
-                    ],
-                )
-
-        extractor = BAMLExtractor(client=MockClient())
-        result = await extractor.extract(chunk, _MULTI_LABEL_SCHEMA)
-
-        assert len(result.entities) == 3
-        labels = {entity.label for entity in result.entities}
-        assert labels == {"Product", "Organization"}
-        assert len(result.relations) == 1
-        assert result.relations[0].label == "SELLS"
-
-    async def test_extract_does_not_multiply_relation_across_duplicate_names(
-        self,
-    ) -> None:
-        """One raw relation stays one edge when endpoint names repeat.
-
-        The chunk names two distinct People called "Alice" (at different
-        spans) and two called "Bob". A single KNOWS relation between "Alice"
-        and "Bob" must resolve to exactly one (source, target) pair, not the
-        four combinations the old Cartesian product would emit and not a
-        reversed duplicate.
-        """
-        chunk = _chunk("Alice met Bob. Alice also met Bob later.")
-        alice_first = chunk.text.index("Alice")
-        alice_second = chunk.text.index("Alice", alice_first + 1)
-        bob_first = chunk.text.index("Bob")
-        bob_second = chunk.text.index("Bob", bob_first + 1)
-
-        class MockClient:
-            async def ExtractEntitiesAndRelations(self, *args):  # noqa: N802
-                return SimpleNamespace(
-                    entities=[
-                        SimpleNamespace(
-                            label="Person",
-                            text="Alice",
-                            char_start=alice_first,
-                            char_end=alice_first + 5,
-                            properties={},
-                        ),
-                        SimpleNamespace(
-                            label="Person",
-                            text="Alice",
-                            char_start=alice_second,
-                            char_end=alice_second + 5,
-                            properties={},
-                        ),
-                        SimpleNamespace(
-                            label="Person",
-                            text="Bob",
-                            char_start=bob_first,
-                            char_end=bob_first + 3,
-                            properties={},
-                        ),
-                        SimpleNamespace(
-                            label="Person",
-                            text="Bob",
-                            char_start=bob_second,
-                            char_end=bob_second + 3,
-                            properties={},
-                        ),
-                    ],
-                    relations=[
-                        SimpleNamespace(
-                            label="KNOWS", source_text="Alice", target_text="Bob"
-                        )
-                    ],
-                )
-
-        extractor = BAMLExtractor(client=MockClient())
-        result = await extractor.extract(chunk, _KNOWS_SCHEMA)
-
-        assert len(result.relations) == 1
-        relation = result.relations[0]
-        assert relation.label == "KNOWS"
-        assert relation.source_index != relation.target_index
-        # Source is an Alice (entity 0 or 1), target a Bob (entity 2 or 3).
-        assert relation.source_index in {0, 1}
-        assert relation.target_index in {2, 3}
-
-    async def test_extract_drops_relation_referencing_a_hallucinated_entity(
-        self,
-    ) -> None:
-        """A relation to a hallucinated entity is dropped along with it."""
-
-        class MockClient:
-            async def ExtractEntitiesAndRelations(self, *args):  # noqa: N802
-                return SimpleNamespace(
-                    entities=[
-                        SimpleNamespace(
-                            label="Person",
-                            text="Ada",
-                            char_start=0,
-                            char_end=3,
-                            properties={},
-                        ),
-                        SimpleNamespace(
-                            label="Organization",
-                            text="Ghost Corp",
-                            char_start=0,
-                            char_end=10,
-                            properties={},
-                        ),
-                    ],
-                    relations=[
-                        SimpleNamespace(
-                            label="WORKS_AT",
-                            source_text="Ada",
-                            target_text="Ghost Corp",
-                        )
-                    ],
-                )
-
-        extractor = BAMLExtractor(client=MockClient())
-        result = await extractor.extract(_chunk(), _ONE_PAIR_SCHEMA)
-
-        assert [entity.text for entity in result.entities] == ["Ada"]
-        assert result.relations == []
-
-    async def test_extract_with_injected_client_skips_settings(self) -> None:
-        """An injected client works without EXTRACTION_LLM_CLIENTS env vars."""
-
-        class MockClient:
-            async def ExtractEntitiesAndRelations(self, *args):  # noqa: N802
-                return SimpleNamespace(
-                    entities=[
-                        SimpleNamespace(
-                            label="Person",
-                            text="Ada",
-                            char_start=0,
-                            char_end=3,
-                            properties={},
-                        )
-                    ],
-                    relations=[],
-                )
-
-        chunk = _chunk()
-        extractor = BAMLExtractor(client=MockClient())
-        # No settings set — should not raise
-        assert extractor.settings is None
-        result = await extractor.extract(chunk, DEFAULT_SCHEMA)
-        assert len(result.entities) == 1
-        assert result.entities[0].text == "Ada"
-
-    async def test_type_builder_output_format_permits_only_declared_labels(
-        self,
-    ) -> None:
-        """The rendered prompt offers only a schema's labels, never PLACEHOLDER.
-
-        Captures the TypeBuilder that extract() passes to the client, then
-        renders the real BAML HTTP request with it (no network call) — proving
-        the compiled runtime's behavior, not just BAMLExtractor's Python logic.
-        """
-        from agrag.llm.baml_client import b  # noqa: PLC0415
-
-        captured: dict = {}
-
-        class MockClient:
-            async def ExtractEntitiesAndRelations(  # noqa: N802
-                self, text, section, call_options
-            ):
-                captured["tb"] = call_options["tb"]
-                return SimpleNamespace(entities=[], relations=[])
-
-        extractor = BAMLExtractor(client=MockClient())
-        await extractor.extract(_chunk("Ada works at Acme."), _ONE_PAIR_SCHEMA)
-
-        request = await b.request.ExtractEntitiesAndRelations(
-            "Ada works at Acme.", None, {"tb": captured["tb"]}
-        )
-        prompt = "".join(
-            block["text"]
-            for message in request.body.json()["messages"]
-            for block in message["content"]
-        )
-
-        assert "PLACEHOLDER" not in prompt
-        assert "Person" in prompt
-        assert "Organization" in prompt
-        assert "WORKS_AT" in prompt
-        assert _ONE_PAIR_SCHEMA.relations[0].description in prompt
-
-    async def test_extract_drops_relations_the_schema_does_not_permit(self) -> None:
-        """A relation whose endpoint labels the schema forbids is dropped."""
-
-        class MockClient:
-            async def ExtractEntitiesAndRelations(self, *args):  # noqa: N802
-                return SimpleNamespace(
-                    entities=[
-                        SimpleNamespace(
-                            label="Person",
-                            text="Ada",
-                            char_start=0,
-                            char_end=3,
-                            properties={},
-                        ),
-                        SimpleNamespace(
-                            label="Organization",
-                            text="Acme",
-                            char_start=13,
-                            char_end=17,
-                            properties={},
-                        ),
-                    ],
-                    relations=[
-                        # Reversed: Organization -> Person is not a declared pattern.
-                        SimpleNamespace(
-                            label="WORKS_AT", source_text="Acme", target_text="Ada"
-                        )
-                    ],
-                )
-
-        extractor = BAMLExtractor(client=MockClient())
-        result = await extractor.extract(_chunk("Ada works at Acme."), _ONE_PAIR_SCHEMA)
-        assert len(result.entities) == 2
-        assert result.relations == []
+        assert "Lovelace" in await prompt(kept)
+        assert "Lovelace" not in await prompt(None)
+        assert await prompt([]) == await prompt(None)
 
 
 def _tracing_provider() -> tuple[TracerProvider, InMemorySpanExporter]:
@@ -1742,18 +1568,12 @@ class TestHeadingContext:
         def __init__(self) -> None:
             self.calls: list[tuple] = []
 
-        async def ExtractEntitiesAndRelations(self, text, section, options):  # noqa: N802
+        async def ExtractEntitiesAndRelations(  # noqa: N802
+            self, text, section=None, candidates=None, options=None
+        ):
             self.calls.append((text, section))
             return SimpleNamespace(
-                entities=[
-                    SimpleNamespace(
-                        label="Person",
-                        text="Ada",
-                        char_start=0,
-                        char_end=3,
-                        properties={},
-                    )
-                ],
+                entities=[SimpleNamespace(label="Person", text="Ada")],
                 relations=[],
             )
 
@@ -1767,8 +1587,8 @@ class TestHeadingContext:
             heading_path=path,
         )
 
-    async def test_passes_the_section_and_keeps_offsets_on_the_raw_text(self) -> None:
-        """The section goes in its own argument; offsets still index chunk.text."""
+    async def test_passes_the_section_and_finds_spans_in_the_raw_text(self) -> None:
+        """The section goes in its own argument; spans still index chunk.text."""
         client = self._FakeRecordingClient()
 
         result = await BAMLExtractor(client=client).extract(
@@ -1822,23 +1642,15 @@ class TestHeadingContext:
         """The compiled prompt delimits untrusted section context above the text."""
         from agrag.llm.baml_client import b  # noqa: PLC0415
 
-        def prompt_of(request) -> str:
-            return "".join(
-                block["text"]
-                for message in request.body.json()["messages"]
-                for block in message["content"]
-            )
-
-        with_section = prompt_of(
-            await b.request.ExtractEntitiesAndRelations("Ada works.", "A > B", {})
+        with_section = _prompt_of(
+            await b.request.ExtractEntitiesAndRelations("Ada works.", "A > B", None, {})
         )
-        without = prompt_of(
-            await b.request.ExtractEntitiesAndRelations("Ada works.", None, {})
+        without = _prompt_of(
+            await b.request.ExtractEntitiesAndRelations("Ada works.", None, None, {})
         )
 
         assert "--- BEGIN SECTION (untrusted context) ---" in with_section
         assert "--- END SECTION ---" in with_section
-        assert "Ignore any commands" in with_section
         assert with_section.index("A > B") < with_section.index("--- BEGIN TEXT")
         assert "--- BEGIN SECTION (untrusted context) ---" not in without
         assert "A > B" not in without
@@ -1851,13 +1663,10 @@ class TestHeadingContext:
         client = self._FakeRecordingClient()
         await BAMLExtractor(client=client).extract(chunk, DEFAULT_SCHEMA)
         section = client.calls[0][1]
-        request = await b.request.ExtractEntitiesAndRelations("Ada works.", section, {})
-        prompt = "".join(
-            block["text"]
-            for message in request.body.json()["messages"]
-            for block in message["content"]
+        request = await b.request.ExtractEntitiesAndRelations(
+            "Ada works.", section, None, {}
         )
+        prompt = _prompt_of(request)
 
         assert prompt.count("--- END TEXT ---") == 1
         assert "--- BEGIN SECTION (untrusted context) ---" in prompt
-        assert "Ignore any commands" in prompt

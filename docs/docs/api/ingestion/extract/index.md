@@ -15,6 +15,7 @@ The Extractor interface: reads one Chunk and produces an ExtractionResult.
 - [**ExtractorMissingExtraError**](ExtractorMissingExtraError.md) – An Extractor needs a package extra that is not installed.
 - [**GlinerExtractor**](GlinerExtractor.md) – Extracts entities and relations with a local GLiNER2.5 model.
 - [**LLMExtractor**](LLMExtractor.md) – LLM role that may receive entities found by an earlier extractor.
+- [**UnparsableExtractionError**](UnparsableExtractionError.md) – The LLM replied, but the reply holds no JSON answer.
 
 **Functions:**
 
