@@ -41,14 +41,16 @@ def acquire_lease_query() -> str:
     )
 
 
-def steal_expired_lease_query() -> str:
-    """Build Cypher taking over a job whose lease lapsed or went terminal.
+def steal_terminal_job_query() -> str:
+    """Build Cypher taking over a job already in a terminal state.
 
-    Matches a job for ``$document_key`` that is either still pending with
-    an expired lease (its worker died without committing) or already in a
-    terminal state (a previous run finished and left the node behind), and
-    resets it to pending under the caller's identity and token. Committed
-    and cleaning jobs never match: they are mid-roll-forward under the
+    Matches a job for ``$document_key`` only when it is ``done`` or
+    ``rolled_back``, meaning a previous run left the node behind, and
+    resets it to pending under the caller's identity and token. A pending
+    or rolling_back job with an expired lease never matches: its worker
+    died while its tagged rows and staged vectors still exist, so the
+    caller rolls it back first (see ``_acquire_lease``). Committed and
+    cleaning jobs never match either: they are mid-roll-forward under the
     resume hook, and stealing one would fork the cleanup phase.
 
     The steal adopts ``$job_id`` as well as ``$lease_token``: every later
@@ -67,9 +69,8 @@ def steal_expired_lease_query() -> str:
     return (
         f"MATCH (job:{CUTOVER_JOB_LABEL} {{document_key: $document_key}}) "
         f"{_job_lock_clause()}"
-        "WHERE job.lease_token = $expected_lease_token AND ("
-        "job.status IN ['done', 'rolled_back'] "
-        "OR (job.status = 'pending' AND job.lease_expires_at < datetime())) "
+        "WHERE job.lease_token = $expected_lease_token "
+        "AND job.status IN ['done', 'rolled_back'] "
         "SET job.id = $job_id, job.status = 'pending', job.verb = $verb, "
         "job.lease_token = $lease_token, "
         "job.lease_expires_at = datetime($lease_expires_at), "

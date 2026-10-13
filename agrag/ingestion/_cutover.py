@@ -22,7 +22,7 @@ from agrag.cypher.cutover_job_write import (
     record_parts_closed_query,
     renew_lease_query,
     start_cleaning_query,
-    steal_expired_lease_query,
+    steal_terminal_job_query,
 )
 from agrag.graphdb.base import GraphStore, GraphStoreTransaction
 from agrag.ingestion._document_lifecycle import close_open_has_part_edges
@@ -51,7 +51,11 @@ async def _acquire_lease(
     vector_collections: Sequence[str],
     settings: CutoverJobSettings,
 ) -> tuple[UUID, UUID]:
-    """Acquire the lease for one document, stealing only a dead one's.
+    """Acquire the lease for one document, rolling back a dead run first.
+
+    An expired pending or rolling-back job still owns tagged rows and
+    staged vectors, so it is rolled back before the document is taken over.
+    A finished job (done or rolled_back) is taken over in place.
 
     Returns:
         The new job's id and its fencing token.
@@ -82,7 +86,7 @@ async def _acquire_lease(
         return job_id, token
     if (
         rows
-        and rows[0].get("status") == "rolling_back"
+        and rows[0].get("status") in ("pending", "rolling_back")
         and rows[0].get("lease_expired")
     ):
         rollback_token = uuid4()
@@ -152,7 +156,7 @@ async def _acquire_lease(
     token = uuid4()
     now = datetime.now(UTC)
     rows = await graph_store.execute_write(
-        steal_expired_lease_query(),
+        steal_terminal_job_query(),
         {
             "job_id": str(job_id),
             "document_key": document_key,
