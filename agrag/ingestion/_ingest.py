@@ -774,8 +774,10 @@ async def update_document(  # noqa: PLR0913
             cleanup=cleanup,
             components=components,
             deferred=deferred,
+            # The node id depends on the key only, so the close also reaches a
+            # version that a racing writer committed after the lookup above.
             close_document_node_id=(
-                None if in_place or found is None else found.document_node_id
+                None if in_place else Document.node_id_for(document_key=document_key)
             ),
             keep_node_ids=keep_node_ids,
             tracer=tracer,

@@ -20,3 +20,5 @@ The section chunker: one packer that serves every source format.
 - [**CHUNKER_NAME**](CHUNKER_NAME.md) –
 - [**DEFAULT_SIZE**](DEFAULT_SIZE.md) –
 - [**DEFAULT_TOKENIZER**](DEFAULT_TOKENIZER.md) –
+- [**SPLITTER_VERSION**](SPLITTER_VERSION.md) –
+- [**TABLE_RENDERING_VERSION**](TABLE_RENDERING_VERSION.md) –

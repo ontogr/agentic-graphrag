@@ -23,6 +23,7 @@ from agrag.graphdb import build_graph_store
 from agrag.graphdb.base import GraphStore
 from agrag.ingestion.extract import Extractor
 from agrag.ingestion.graph import Graph
+from tests.integration.e2e._artifact import write_artifact
 
 
 neo4j_missing = importlib.util.find_spec("neo4j") is None
@@ -349,6 +350,70 @@ class TestDocumentLifecycle:
             )
             assert rows[0]["total"] == len(first.chunks)
             assert rows[0]["open_edges"] == len(first.chunks)
+        finally:
+            await store.execute_write(
+                "MATCH (d:Document {document_key: $key}) "
+                "OPTIONAL MATCH (d)-[:HAS_PART]->(c:Chunk) "
+                "DETACH DELETE d, c",
+                {"key": key},
+            )
+            await store.close()
+
+    async def test_update_closes_version_missed_by_stale_lookup(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """An update whose lookup missed the stored version still closes it."""
+        store = build_graph_store("neo4j")
+        await store.connect()
+        graph = await _open_graph(store)
+        key = f"lifecycle://{uuid4().hex}"
+        first_text = "stale lookup first version, racing writer. " * 60
+        second_text = "stale lookup second version, committed later. " * 60
+
+        async def _lookup_misses(graph_store: GraphStore, *, document_key: str) -> None:
+            """Report no stored document, as a lookup that ran before a commit."""
+            return
+
+        try:
+            first = await graph.add(
+                documents=[_document(key, first_text)], return_chunks=True
+            )
+            old_ids = [str(chunk.id) for chunk in first.chunks]
+            assert len(old_ids) >= 1
+            monkeypatch.setattr("agrag.ingestion._ingest.find_document", _lookup_misses)
+
+            updated = await graph.update(key, text=second_text)
+
+            assert updated.no_op is False
+            assert updated.parts_closed == len(old_ids)
+
+            rows = await store.execute_read(
+                "MATCH (:Document {document_key: $key})-[r:HAS_PART]->(c:Chunk) "
+                "WHERE c.id IN $old_ids "
+                "RETURN count(r) AS total, "
+                "count(CASE WHEN r.invalid_at IS NULL THEN 1 END) AS open_edges",
+                {"key": key, "old_ids": old_ids},
+            )
+            assert rows[0]["total"] == len(old_ids)
+            assert rows[0]["open_edges"] == 0
+
+            rows = await store.execute_read(
+                "MATCH (:Document {document_key: $key})-[r:HAS_PART]->(c:Chunk) "
+                "WHERE r.invalid_at IS NULL "
+                "RETURN collect(c.id) AS open_ids",
+                {"key": key},
+            )
+            open_ids = list(rows[0]["open_ids"])
+            assert len(open_ids) >= 1
+            assert set(open_ids).isdisjoint(set(old_ids))
+            artifact = {
+                "first_version_closed_edges": len(old_ids),
+                "first_version_open_edges": 0,
+                "new_version_open_edges": len(open_ids),
+                "parts_closed": updated.parts_closed,
+            }
+            written = write_artifact("lifecycle_stale_lookup_update", artifact)
+            assert written == artifact
         finally:
             await store.execute_write(
                 "MATCH (d:Document {document_key: $key}) "

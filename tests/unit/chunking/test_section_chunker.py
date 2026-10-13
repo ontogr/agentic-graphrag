@@ -77,6 +77,26 @@ class TestSettings:
         assert Chunker(size=100).fingerprint != Chunker(size=200).fingerprint
 
 
+class TestFingerprintCoversTheSplitter:
+    """A new splitter or table rendering gives new chunk fingerprints."""
+
+    def test_a_new_splitter_version_changes_the_fingerprint(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A chonkie upgrade makes the old chunks stale."""
+        before = Chunker().fingerprint
+        monkeypatch.setattr(chunker_module, "SPLITTER_VERSION", "chonkie-99")
+        assert Chunker().fingerprint != before
+
+    def test_a_new_table_rendering_version_changes_the_fingerprint(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A change to how tables render makes the old chunks stale."""
+        before = Chunker().fingerprint
+        monkeypatch.setattr(chunker_module, "TABLE_RENDERING_VERSION", 99)
+        assert Chunker().fingerprint != before
+
+
 class _SplitterThatReturns:
     """A stand-in for the chonkie splitter that returns fixed pieces."""
 

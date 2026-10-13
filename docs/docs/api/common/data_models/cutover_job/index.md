@@ -5,11 +5,10 @@ sidebar_label: cutover_job
 
 # `agrag.common.data_models.cutover_job` \{#agrag-common-data_models-cutover_job}
 
-Crash-recoverable state for one add/update/delete_document call.
+Names and lifecycle states of the Cutover Job node.
 
 **Classes:**
 
-- [**CutoverJob**](CutoverJob.md) – Crash-recoverable state for one add/update/delete_document call.
 - [**CutoverJobStatus**](CutoverJobStatus.md) – Lifecycle phase of a Cutover Job.
 
 **Attributes:**
