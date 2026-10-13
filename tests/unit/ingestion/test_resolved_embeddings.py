@@ -7,6 +7,7 @@ from uuid import uuid4
 
 import pytest
 
+from agrag.common.data_models.graph_record import DeferredWrites
 from agrag.common.data_models.resolved_entity import ResolvedEntity
 from agrag.common.data_models.vector_record import Distance
 from agrag.embedding.base import Embedder
@@ -59,8 +60,8 @@ class TestEmbedResolvedEntities:
             execute_write=AsyncMock(
                 side_effect=[
                     RuntimeError("graph store down"),
-                    [{"id": str(entity.id)}],
-                    [{"id": str(entity.id)}],
+                    [{"id": str(entity.id), "written": True}],
+                    [{"id": str(entity.id), "written": True}],
                 ]
             )
         )
@@ -84,7 +85,9 @@ class TestEmbedResolvedEntities:
         """RAISE leaves neither graph nor mirrored vector searchable after failure."""
         entity = _entity()
         graph_store = SimpleNamespace(
-            execute_write=AsyncMock(return_value=[{"id": str(entity.id)}])
+            execute_write=AsyncMock(
+                return_value=[{"id": str(entity.id), "written": True}]
+            )
         )
         vector_store = SimpleNamespace(
             upsert=AsyncMock(side_effect=RuntimeError("vector store down")),
@@ -110,7 +113,9 @@ class TestEmbedResolvedEntities:
         """Native-vector retrieval is ready when no mirror store is configured."""
         entity = _entity()
         graph_store = SimpleNamespace(
-            execute_write=AsyncMock(return_value=[{"id": str(entity.id)}])
+            execute_write=AsyncMock(
+                return_value=[{"id": str(entity.id), "written": True}]
+            )
         )
 
         failures = await embed_resolved_entities(
@@ -138,7 +143,9 @@ class TestEmbedResolvedEntities:
         """
         matched, unmatched = _entity(), _entity()
         graph_store = SimpleNamespace(
-            execute_write=AsyncMock(return_value=[{"id": str(matched.id)}])
+            execute_write=AsyncMock(
+                return_value=[{"id": str(matched.id), "written": True}]
+            )
         )
         vector_store = SimpleNamespace(upsert=AsyncMock(), delete=AsyncMock())
 
@@ -167,8 +174,8 @@ class TestEmbedResolvedEntities:
             execute_write=AsyncMock(
                 side_effect=[
                     RuntimeError("graph store down"),
-                    [{"id": str(matched.id)}],
-                    [{"id": str(matched.id)}],
+                    [{"id": str(matched.id), "written": True}],
+                    [{"id": str(matched.id), "written": True}],
                 ]
             )
         )
@@ -205,7 +212,9 @@ class TestSynchronizeResolvedEntityVectors:
         """
         entity = _entity()
         graph_store = SimpleNamespace(
-            execute_write=AsyncMock(return_value=[{"id": str(entity.id)}])
+            execute_write=AsyncMock(
+                return_value=[{"id": str(entity.id), "written": True}]
+            )
         )
         vector_store = SimpleNamespace(delete=AsyncMock(), upsert=AsyncMock())
 
@@ -223,13 +232,16 @@ class TestSynchronizeResolvedEntityVectors:
         vector_store.delete.assert_not_awaited()
         vector_store.upsert.assert_awaited_once()
 
-    async def test_pending_job_does_not_overwrite_external_vector(self) -> None:
-        """A pending graph write cannot replace a committed vector by id."""
+    async def test_pending_job_defers_embedding_of_a_committed_entity(self) -> None:
+        """A job's embedding over a committed entity waits for the commit."""
         entity = _entity()
         graph_store = SimpleNamespace(
-            execute_write=AsyncMock(return_value=[{"id": str(entity.id)}])
+            execute_write=AsyncMock(
+                return_value=[{"id": str(entity.id), "written": False}]
+            )
         )
         vector_store = SimpleNamespace(delete=AsyncMock(), upsert=AsyncMock())
+        deferred = DeferredWrites()
 
         failures = await _synchronize_resolved_entity_vectors(
             [entity],
@@ -240,9 +252,11 @@ class TestSynchronizeResolvedEntityVectors:
             vector_collection="resolved",
             error_policy=ErrorPolicy.RAISE,
             pending_job_id=uuid4(),
+            deferred=deferred,
         )
 
         assert failures == []
+        assert len(deferred) == 1
         vector_store.upsert.assert_not_awaited()
 
     async def test_holds_back_republished_entity_when_stale_clear_fails(self) -> None:
@@ -262,7 +276,7 @@ class TestSynchronizeResolvedEntityVectors:
         async def execute_write(_query: str, params: dict) -> list[dict]:
             if "ids" in params:
                 raise RuntimeError("clear failed")
-            return [{"id": str(entity.id)}]
+            return [{"id": str(entity.id), "written": True}]
 
         graph_store = SimpleNamespace(
             execute_read=AsyncMock(
@@ -309,7 +323,7 @@ class TestSynchronizeResolvedEntityVectors:
         async def execute_write(_query: str, params: dict) -> list[dict]:
             if "ids" in params:
                 raise RuntimeError("clear failed")
-            return [{"id": str(entity.id)}]
+            return [{"id": str(entity.id), "written": True}]
 
         graph_store = SimpleNamespace(
             execute_read=AsyncMock(
@@ -352,7 +366,7 @@ class TestSynchronizeResolvedEntityVectors:
         async def execute_write(_query: str, params: dict) -> list[dict]:
             records = params.get("records")
             if records and "expected_name" in records[0]:
-                return [{"id": str(current_entity.id)}]
+                return [{"id": str(current_entity.id), "written": True}]
             return []
 
         graph_store = SimpleNamespace(
@@ -382,7 +396,9 @@ class TestSynchronizeResolvedEntityVectors:
         """A failed stale-vector deletion remains visible to the caller."""
         entity = _entity()
         graph_store = SimpleNamespace(
-            execute_write=AsyncMock(return_value=[{"id": str(entity.id)}])
+            execute_write=AsyncMock(
+                return_value=[{"id": str(entity.id), "written": True}]
+            )
         )
         vector_store = SimpleNamespace(
             delete=AsyncMock(side_effect=RuntimeError("delete failed")),
@@ -423,7 +439,9 @@ class TestSynchronizeResolvedEntityVectors:
                     {"id": str(stale_id), "collection": "resolved"},
                 ]
             ),
-            execute_write=AsyncMock(return_value=[{"id": str(entity.id)}]),
+            execute_write=AsyncMock(
+                return_value=[{"id": str(entity.id), "written": True}]
+            ),
         )
         vector_store = SimpleNamespace(delete=AsyncMock(), upsert=AsyncMock())
 

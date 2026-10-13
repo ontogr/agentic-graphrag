@@ -18,7 +18,11 @@ from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
 )
 from opentelemetry.trace import SpanKind, StatusCode
 
-from agrag.common.data_models.graph_record import NodeRecord, RelationRecord
+from agrag.common.data_models.graph_record import (
+    DeferredWrites,
+    NodeRecord,
+    RelationRecord,
+)
 from agrag.cypher.entities import NODE_IDENTITY_LABEL
 from agrag.cypher.schema import (
     node_id_constraint_query,
@@ -27,6 +31,7 @@ from agrag.cypher.schema import (
 from agrag.graphdb.errors import (
     GraphStoreConstraintViolationError,
     GraphStoreMissingExtraError,
+    GraphStoreWriteConflictError,
 )
 from agrag.graphdb.neo4j import _VECTOR_SEARCH_MAX_K, Neo4jGraphStore
 from agrag.graphdb.settings import Neo4jSettings
@@ -93,7 +98,8 @@ def _store() -> Neo4jGraphStore:
         store._driver.last_session.transaction.statements.append((query, parameters))
         if "RETURN record.id AS id" in query:
             store._driver.last_session.transaction.rows = [
-                {"id": record["id"]} for record in parameters["records"]
+                {"id": record["id"], "written": True}
+                for record in parameters["records"]
             ]
         result = mock.MagicMock()
         result.data = mock.AsyncMock(
@@ -229,8 +235,13 @@ class TestPendingJobTag:
         )
 
         async def work(txn: Any) -> None:
-            await txn.upsert_nodes("Chunk", [node], pending_job_id=job_id)
-            await txn.upsert_relations([relation], pending_job_id=job_id)
+            deferred = DeferredWrites()
+            await txn.upsert_nodes(
+                "Chunk", [node], pending_job_id=job_id, deferred=deferred
+            )
+            await txn.upsert_relations(
+                [relation], pending_job_id=job_id, deferred=deferred
+            )
 
         await store.run_in_transaction(work)
         sent = [
@@ -239,6 +250,89 @@ class TestPendingJobTag:
             if "records" in parameters
         ]
         assert [r["pending_job_id"] for r in sent] == [str(job_id)] * 2
+
+
+class TestDeferredWrites:
+    """A write that reaches a row the job did not create is deferred or refused."""
+
+    async def test_unwritten_node_is_deferred_under_a_job(self) -> None:
+        """A job's write over a committed node is held, not reported as failed."""
+        store = _store()
+        store._identity_constraint_ready = True
+        node = NodeRecord(id=uuid4(), labels=["Chunk"], properties={"text": "new"})
+        deferred = DeferredWrites()
+
+        async def committed_rows(_run: Any, _query: str, parameters: Any) -> Any:
+            return [
+                {"id": record["id"], "written": False}
+                for record in parameters["records"]
+            ]
+
+        store._driver.last_session.execute_write.side_effect = committed_rows
+
+        result = await store.upsert_nodes(
+            "Chunk", [node], pending_job_id=uuid4(), deferred=deferred
+        )
+
+        assert result.written == 1
+        assert result.failures == []
+        assert len(deferred) == 1
+
+    async def test_unwritten_row_without_a_job_is_a_failure(self) -> None:
+        """A maintenance write that hits another job's row reports a conflict."""
+        store = _store()
+        store._identity_constraint_ready = True
+        node = NodeRecord(id=uuid4(), labels=["Chunk"], properties={})
+
+        async def other_job_rows(_run: Any, _query: str, parameters: Any) -> Any:
+            return [
+                {"id": record["id"], "written": False}
+                for record in parameters["records"]
+            ]
+
+        store._driver.last_session.execute_write.side_effect = other_job_rows
+
+        result = await store.upsert_nodes("Chunk", [node])
+
+        assert result.written == 0
+        assert result.failures[0].id == str(node.id)
+        assert result.failures[0].error_type == "PendingRowConflict"
+
+    async def test_job_write_without_deferred_is_rejected(self) -> None:
+        """A job write needs a deferral list before it touches any row."""
+        store = _store()
+        node = NodeRecord(id=uuid4(), labels=["Chunk"], properties={})
+
+        with pytest.raises(ValueError, match="deferred"):
+            await store.upsert_nodes("Chunk", [node], pending_job_id=uuid4())
+
+        store._driver.last_session.execute_write.assert_not_called()
+
+    async def test_transaction_write_to_another_jobs_row_raises_conflict(
+        self,
+    ) -> None:
+        """Inside a transaction with no deferral list, the write is refused."""
+        store = _store()
+        store._identity_constraint_ready = True
+        node = NodeRecord(id=uuid4(), labels=["Chunk"], properties={})
+
+        def other_job_rows(query: str, parameters: Any) -> Any:
+            records = parameters.get("records", [])
+            result = mock.MagicMock()
+            result.data = mock.AsyncMock(
+                return_value=[
+                    {"id": record["id"], "written": False} for record in records
+                ]
+            )
+            return result
+
+        store._driver.last_session.transaction.run.side_effect = other_job_rows
+
+        async def work(txn: Any) -> None:
+            await txn.upsert_nodes("Chunk", [node])
+
+        with pytest.raises(GraphStoreWriteConflictError):
+            await store.run_in_transaction(work)
 
 
 class TestBatchWritePerItemIsolation:

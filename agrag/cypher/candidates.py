@@ -16,11 +16,7 @@ from agrag.cypher.entities import NODE_IDENTITY_LABEL
 
 
 def _created_tag(alias: str) -> str:
-    return (
-        f"{alias}.{PENDING_JOB_ID_PROPERTY} = record.pending_job_id, "
-        f"{alias}._pending_created = CASE WHEN record.pending_job_id IS NULL "
-        "THEN false ELSE true END"
-    )
+    return f"{alias}.{PENDING_JOB_ID_PROPERTY} = record.pending_job_id"
 
 
 def _link(entity: str, edge_type: str, edge_id: str) -> str:

@@ -56,11 +56,10 @@ async def _node_tags(store: GraphStore, tag: str) -> dict[str, str | None]:
 
 
 async def _relation_rows(store: GraphStore, tag: str) -> list[dict[str, Any]]:
-    """Return each probe relationship's name and bookkeeping, by name."""
+    """Return each probe relationship's name, active flag and pending tag."""
     return await store.execute_read(
         "MATCH ()-[r {probe: $tag}]->() RETURN r.name AS name, r.active AS active, "
-        "r._pending_job_id AS pending, r._pending_created AS created, "
-        "r._pending_previous_active AS previous ORDER BY name",
+        "r._pending_job_id AS pending ORDER BY name",
         {"tag": tag},
     )
 
@@ -109,11 +108,9 @@ class TestClearJobTags:
                 "(alias {name: 'alias', probe: $tag}), "
                 "(candidate {name: 'candidate', probe: $tag}) "
                 "CREATE (identity)-[:PendingProbeA {name: 'a-tagged', probe: $tag, "
-                "active: true, _pending_job_id: $job, _pending_created: true}]->"
-                "(committed) "
+                "active: true, _pending_job_id: $job}]->(committed) "
                 "CREATE (alias)-[:PendingProbeB {name: 'b-tagged', probe: $tag, "
-                "active: true, _pending_job_id: $job, _pending_created: false, "
-                "_pending_previous_active: false}]->(candidate) "
+                "active: true, _pending_job_id: $job}]->(candidate) "
                 "CREATE (committed)-[:PendingProbeB {name: 'b-committed', "
                 "probe: $tag, active: true}]->(candidate)",
                 {"tag": tag, "job": str(job)},
@@ -132,46 +129,22 @@ class TestClearJobTags:
                 "other": str(other),
             }
             assert await _relation_rows(store, tag) == [
-                {
-                    "name": "a-other",
-                    "active": True,
-                    "pending": str(other),
-                    "created": None,
-                    "previous": None,
-                },
-                {
-                    "name": "a-tagged",
-                    "active": True,
-                    "pending": None,
-                    "created": None,
-                    "previous": None,
-                },
-                {
-                    "name": "b-committed",
-                    "active": True,
-                    "pending": None,
-                    "created": None,
-                    "previous": None,
-                },
-                {
-                    "name": "b-tagged",
-                    "active": True,
-                    "pending": None,
-                    "created": None,
-                    "previous": None,
-                },
+                {"name": "a-other", "active": True, "pending": str(other)},
+                {"name": "a-tagged", "active": True, "pending": None},
+                {"name": "b-committed", "active": True, "pending": None},
+                {"name": "b-tagged", "active": True, "pending": None},
             ]
         finally:
             await _drop(store, tag)
 
 
 class TestRollbackJobRows:
-    """rollback_job_rows undoes one job's writes under its lease fence."""
+    """rollback_job_rows deletes only the rows one job created."""
 
-    async def test_deletes_created_rows_restores_reactivated_and_drops_job(
+    async def test_deletes_created_rows_and_leaves_a_reconfirmed_edge_alone(
         self, store: GraphStore
     ) -> None:
-        """A rolled-back job leaves committed and other-job rows as they were."""
+        """A committed edge a rolled-back job re-confirmed keeps its value."""
         tag, job, other, token = uuid4().hex, uuid4(), uuid4(), uuid4()
         try:
             await _seed_committed_and_other_job(store, tag, other)
@@ -197,12 +170,9 @@ class TestRollbackJobRows:
                 "MATCH (committed {name: 'committed', probe: $tag}), "
                 "(other {name: 'other', probe: $tag}) "
                 "CREATE (committed)-[:PendingProbeA {name: 'a-created', probe: $tag, "
-                "active: true, _pending_job_id: $job, _pending_created: true}]->"
-                "(other) "
-                "CREATE (committed)-[:PendingProbeB {name: 'b-reactivated', "
-                "probe: $tag, active: true, _pending_job_id: $job, "
-                "_pending_created: false, _pending_previous_active: false}]->"
-                "(other)",
+                "active: true, _pending_job_id: $job}]->(other) "
+                "CREATE (committed)-[:PendingProbeB {name: 'b-reconfirmed', "
+                "probe: $tag, active: false}]->(other)",
                 {"tag": tag, "job": str(job)},
             )
 
@@ -214,20 +184,8 @@ class TestRollbackJobRows:
                 "other": str(other),
             }
             assert await _relation_rows(store, tag) == [
-                {
-                    "name": "a-other",
-                    "active": True,
-                    "pending": str(other),
-                    "created": None,
-                    "previous": None,
-                },
-                {
-                    "name": "b-reactivated",
-                    "active": False,
-                    "pending": None,
-                    "created": None,
-                    "previous": None,
-                },
+                {"name": "a-other", "active": True, "pending": str(other)},
+                {"name": "b-reconfirmed", "active": False, "pending": None},
             ]
         finally:
             await _drop(store, tag)

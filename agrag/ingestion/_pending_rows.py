@@ -12,7 +12,6 @@ from agrag.cypher.cutover_job_write import (
     delete_pending_nodes_query,
     delete_pending_relations_query,
     lock_rolling_back_job_query,
-    restore_pending_relations_query,
     rollback_job_query,
 )
 from agrag.cypher.entities import PENDING_TAGGED_NODE_LABELS, is_safe_identifier
@@ -86,9 +85,6 @@ async def rollback_job_rows(
         for rel_type in rel_types:
             await txn.execute_write(
                 delete_pending_relations_query(rel_type), job_params
-            )
-            await txn.execute_write(
-                restore_pending_relations_query(rel_type), job_params
             )
         for label in PENDING_TAGGED_NODE_LABELS:
             await txn.execute_write(delete_pending_nodes_query(label), job_params)

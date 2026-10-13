@@ -10,6 +10,7 @@ constraint behavior under concurrency by the integration test instead.
 """
 
 import asyncio
+import copy
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -18,6 +19,7 @@ from uuid import UUID, uuid4
 import pytest
 
 from agrag.common.data_models.entity import Entity
+from agrag.common.data_models.graph_record import DeferredWrites
 from agrag.common.data_models.vector_record import VectorRecord
 from agrag.cypher.cutover_job_write import (
     acquire_lease_query,
@@ -37,6 +39,7 @@ from agrag.cypher.cutover_job_write import (
 )
 from agrag.cypher.entities import PENDING_TAGGED_NODE_LABELS
 from agrag.cypher.relations import close_has_part_query
+from agrag.graphdb.errors import GraphStoreWriteConflictError
 from agrag.ingestion._cutover import (
     CutoverJobLeaseError,
     run_cutover_job,
@@ -339,6 +342,37 @@ class _CommitBlockingStore(_FakeCutoverStore):
         return result
 
 
+_REPLAY_QUERY = "UNWIND $records AS record MATCH (n {id: record.id}) RETURN n.id AS id"
+
+
+class _ReplayConflictStore(_FakeCutoverStore):
+    """Rolls a transaction's job table and nodes back when its work raises.
+
+    The replay query reports every record as not written, which is what a
+    row owned by another in-flight job looks like to the commit transaction.
+    """
+
+    async def run_in_transaction(self, work: Any) -> Any:
+        """Run work, restoring the job table and nodes if it raises."""
+        saved_jobs = copy.deepcopy(self.jobs)
+        saved_nodes = copy.deepcopy(self.nodes)
+        try:
+            return await super().run_in_transaction(work)
+        except Exception:
+            self.jobs.clear()
+            self.jobs.update(saved_jobs)
+            self.nodes[:] = saved_nodes
+            raise
+
+    async def execute_write(
+        self, query: str, parameters: dict[str, Any] | None = None
+    ) -> list[dict[str, Any]]:
+        """Report the replayed record as owned by another job."""
+        if query == _REPLAY_QUERY:
+            return [{"id": "entity-1", "written": False}]
+        return await super().execute_write(query, parameters)
+
+
 class _FakeVectorStore(VectorStore):
     """In-memory VectorStore that keeps staged and committed records apart."""
 
@@ -453,6 +487,7 @@ def _write_job(pending_write, cleanup=_noop_cleanup, **kwargs) -> dict[str, Any]
         "settings": kwargs.pop("settings", CutoverJobSettings()),
         "pending_write": pending_write,
         "cleanup": cleanup,
+        "deferred": kwargs.pop("deferred", DeferredWrites()),
         **kwargs,
     }
 
@@ -983,6 +1018,31 @@ class TestRunCutoverJobRollback:
             )
 
         assert vector_store.records["col-a"] == {}
+
+
+class TestRunCutoverJobReplay:
+    """A deferred write that the commit cannot apply fails the whole commit."""
+
+    async def test_replay_conflict_rolls_job_back_and_never_commits(self) -> None:
+        """A replay that finds a row another job owns rolls the job back."""
+        store = _ReplayConflictStore()
+        deferred = DeferredWrites()
+
+        async def pending(job_id: UUID) -> None:
+            store.nodes.append(_tag_node(job_id))
+            deferred.add_unwritten(
+                _REPLAY_QUERY,
+                [{"id": "entity-1", "pending_job_id": str(job_id), "properties": {}}],
+                [{"id": "entity-1", "written": False}],
+            )
+
+        with pytest.raises(GraphStoreWriteConflictError):
+            await run_cutover_job(
+                **_write_job(pending, graph_store=store, deferred=deferred)
+            )
+
+        assert store.nodes == []
+        assert "doc-1" not in store.jobs
 
 
 class TestRunCutoverJobRollForward:

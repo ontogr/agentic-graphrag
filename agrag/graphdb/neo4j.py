@@ -18,6 +18,7 @@ from agrag.common.data_models.candidate import (
     CandidateRecord,
 )
 from agrag.common.data_models.graph_record import (
+    DeferredWrites,
     NodeRecord,
     RelationRecord,
     UpsertFailure,
@@ -64,6 +65,7 @@ from agrag.graphdb.base import GraphStore, GraphStoreTransaction
 from agrag.graphdb.errors import (
     GraphStoreConstraintViolationError,
     GraphStoreMissingExtraError,
+    GraphStoreWriteConflictError,
 )
 from agrag.graphdb.serialize import candidate_params, node_params, relation_params
 from agrag.graphdb.settings import Neo4jSettings
@@ -191,6 +193,36 @@ def _query_parameter_attributes(
     return attributes
 
 
+def _require_deferred(
+    pending_job_id: UUID | None, deferred: DeferredWrites | None
+) -> None:
+    """Reject a job write that has nowhere to put deferred writes."""
+    if pending_job_id is not None and deferred is None:
+        raise ValueError("deferred is required when pending_job_id is set")
+
+
+def _settle_transaction_rows(
+    query: str,
+    batch: Sequence[dict[str, Any]],
+    rows: Sequence[dict[str, Any]],
+    *,
+    deferred: DeferredWrites | None,
+) -> None:
+    """Defer the records a transactional write left unwritten.
+
+    Without a deferral list, this caller has no job to defer to, so a row
+    that another job owns cannot be written. The error rolls the surrounding
+    transaction back.
+    """
+    if deferred is not None:
+        deferred.add_unwritten(query, batch, rows)
+        return
+    if any(row.get("written") is False for row in rows):
+        raise GraphStoreWriteConflictError(
+            "write reached a row owned by an in-flight job"
+        )
+
+
 class _Neo4jTransaction(GraphStoreTransaction):
     """A ``GraphStoreTransaction`` bound to one managed Neo4j transaction.
 
@@ -258,6 +290,7 @@ class _Neo4jTransaction(GraphStoreTransaction):
         *,
         batch_size: int = 256,
         pending_job_id: UUID | None = None,
+        deferred: DeferredWrites | None = None,
     ) -> None:
         """Write or merge nodes against this transaction.
 
@@ -266,8 +299,12 @@ class _Neo4jTransaction(GraphStoreTransaction):
         the callback, so no write inside it needs to repeat the check.
 
         Raises:
-            ValueError: ``batch_size`` is not positive.
+            ValueError: ``batch_size`` is not positive, or ``deferred`` is
+                missing while ``pending_job_id`` is set.
+            GraphStoreWriteConflictError: A row is owned by another job and
+                ``deferred`` is None.
         """
+        _require_deferred(pending_job_id, deferred)
         require_positive_batch_size(batch_size)
         await self._store.register_labels([label])
         groups: dict[tuple[str, ...], list[NodeRecord]] = defaultdict(list)
@@ -282,7 +319,8 @@ class _Neo4jTransaction(GraphStoreTransaction):
             ]
             for start in range(0, len(records), batch_size):
                 batch = records[start : start + batch_size]
-                await self.execute_write(query, {"records": batch})
+                rows = await self.execute_write(query, {"records": batch})
+                _settle_transaction_rows(query, batch, rows, deferred=deferred)
 
     async def upsert_relations(
         self,
@@ -290,6 +328,7 @@ class _Neo4jTransaction(GraphStoreTransaction):
         *,
         batch_size: int = 256,
         pending_job_id: UUID | None = None,
+        deferred: DeferredWrites | None = None,
     ) -> None:
         """Write or merge relationships against this transaction.
 
@@ -298,8 +337,12 @@ class _Neo4jTransaction(GraphStoreTransaction):
         the surrounding managed transaction.
 
         Raises:
-            ValueError: ``batch_size`` is not positive.
+            ValueError: ``batch_size`` is not positive, or ``deferred`` is
+                missing while ``pending_job_id`` is set.
+            GraphStoreWriteConflictError: A relationship is owned by another
+                job and ``deferred`` is None.
         """
+        _require_deferred(pending_job_id, deferred)
         require_positive_batch_size(batch_size)
         by_type: dict[str, list[dict[str, Any]]] = defaultdict(list)
         for rel in relations:
@@ -313,7 +356,8 @@ class _Neo4jTransaction(GraphStoreTransaction):
             query = upsert_relation_query(rel_type)
             for start in range(0, len(params), batch_size):
                 batch = params[start : start + batch_size]
-                await self.execute_write(query, {"records": batch})
+                rows = await self.execute_write(query, {"records": batch})
+                _settle_transaction_rows(query, batch, rows, deferred=deferred)
 
 
 class Neo4jGraphStore(GraphStore):
@@ -805,6 +849,7 @@ class Neo4jGraphStore(GraphStore):
         *,
         batch_size: int = 256,
         pending_job_id: UUID | None = None,
+        deferred: DeferredWrites | None = None,
     ) -> UpsertResult:
         """Write or merge nodes, honoring each record's full label set.
 
@@ -817,16 +862,19 @@ class Neo4jGraphStore(GraphStore):
         rather than a runtime parameter, so ``batch_size`` chunks apply within
         each group rather than across the whole call.
 
-        ``pending_job_id`` tags only the nodes this call creates, through
-        ``ON CREATE SET``. A node that already exists keeps its state, so a
-        job's rollback cannot delete data committed earlier.
+        ``pending_job_id`` tags only the nodes this call creates. A write that
+        reaches a node the job did not create is not applied and is added to
+        ``deferred``, so a job's rollback cannot change data committed earlier.
 
         Returns:
-            The number written and one failure entry for each isolated record.
+            The number written or deferred, and one failure entry for each
+            isolated record.
 
         Raises:
-            ValueError: ``batch_size`` is not positive.
+            ValueError: ``batch_size`` is not positive, or ``deferred`` is
+                missing while ``pending_job_id`` is set.
         """
+        _require_deferred(pending_job_id, deferred)
         with self._tracer.start_as_current_span(
             "agrag.graphdb.upsert_nodes",
             kind=SpanKind.INTERNAL,
@@ -866,7 +914,9 @@ class Neo4jGraphStore(GraphStore):
             )
             for labels, records in groups.items():
                 query = upsert_node_query(labels)
-                batch_result = await self._batch_write(query, records, batch_size)
+                batch_result = await self._batch_write(
+                    query, records, batch_size, deferred=deferred
+                )
                 outcome.written += batch_result.written
                 outcome.failures.extend(batch_result.failures)
             span.set_attribute("agrag.written", outcome.written)
@@ -879,20 +929,25 @@ class Neo4jGraphStore(GraphStore):
         *,
         batch_size: int = 256,
         pending_job_id: UUID | None = None,
+        deferred: DeferredWrites | None = None,
     ) -> UpsertResult:
         """Write or merge relationships between existing nodes.
 
         Relationship identity is each record's ``id``, not its endpoints: see
         ``upsert_relation_query`` for how endpoint changes and same-id
         parallel relationships are handled. ``pending_job_id`` tags only the
-        relationships this call creates.
+        relationships this call creates. A write that reaches a relationship
+        the job did not create is not applied and is added to ``deferred``.
 
         Returns:
-            The number written and one failure entry for each isolated record.
+            The number written or deferred, and one failure entry for each
+            isolated record.
 
         Raises:
-            ValueError: ``batch_size`` is not positive.
+            ValueError: ``batch_size`` is not positive, or ``deferred`` is
+                missing while ``pending_job_id`` is set.
         """
+        _require_deferred(pending_job_id, deferred)
         with self._tracer.start_as_current_span(
             "agrag.graphdb.upsert_relations",
             kind=SpanKind.INTERNAL,
@@ -934,7 +989,11 @@ class Neo4jGraphStore(GraphStore):
                 self._known_relation_types.add(rel_type)
                 query = upsert_relation_query(rel_type)
                 batch_result = await self._batch_write(
-                    query, params, batch_size, require_returned_ids=True
+                    query,
+                    params,
+                    batch_size,
+                    require_returned_ids=True,
+                    deferred=deferred,
                 )
                 outcome.written += batch_result.written
                 outcome.failures.extend(batch_result.failures)
@@ -1118,6 +1177,7 @@ class Neo4jGraphStore(GraphStore):
         batch_size: int,
         *,
         require_returned_ids: bool = False,
+        deferred: DeferredWrites | None = None,
     ) -> UpsertResult:
         """Run batched writes, isolating failures that belong to one record."""
         outcome = UpsertResult()
@@ -1142,24 +1202,52 @@ class Neo4jGraphStore(GraphStore):
                             )
                         )
                         continue
-                    if require_returned_ids and not rows:
-                        outcome.failures.append(
-                            UpsertFailure(
-                                id=str(record["id"]),
-                                error_type="MissingEndpoint",
-                                error_message="relationship endpoint does not exist",
-                            )
-                        )
-                    else:
-                        outcome.written += 1
+                    outcome.written += self._settle_rows(
+                        query,
+                        [record],
+                        rows,
+                        deferred=deferred,
+                        outcome=outcome,
+                        require_returned_ids=require_returned_ids,
+                    )
                 continue
-            if not require_returned_ids:
-                outcome.written += len(batch)
-                continue
-            returned_ids = {str(row["id"]) for row in rows}
+            outcome.written += self._settle_rows(
+                query,
+                batch,
+                rows,
+                deferred=deferred,
+                outcome=outcome,
+                require_returned_ids=require_returned_ids,
+            )
+        return outcome
+
+    @staticmethod
+    def _settle_rows(
+        query: str,
+        batch: Sequence[dict[str, Any]],
+        rows: Sequence[dict[str, Any]],
+        *,
+        deferred: DeferredWrites | None,
+        outcome: UpsertResult,
+        require_returned_ids: bool,
+    ) -> int:
+        """Record each sent record's outcome from the rows a write returned.
+
+        With ``require_returned_ids``, a record with no returned row is a
+        missing relationship endpoint and is reported as a failure. A row
+        that reports ``written`` false belongs to another job: it is deferred
+        when ``deferred`` is set and is a ``PendingRowConflict`` failure
+        otherwise.
+
+        Returns:
+            The number of records the write applied or deferred.
+        """
+        returned_ids = {str(row["id"]) for row in rows}
+        if require_returned_ids:
+            found: list[dict[str, Any]] = []
             for record in batch:
                 if str(record["id"]) in returned_ids:
-                    outcome.written += 1
+                    found.append(record)
                 else:
                     outcome.failures.append(
                         UpsertFailure(
@@ -1168,7 +1256,26 @@ class Neo4jGraphStore(GraphStore):
                             error_message="relationship endpoint does not exist",
                         )
                     )
-        return outcome
+            batch = found
+        unwritten = {str(row["id"]) for row in rows if row.get("written") is False}
+        if not unwritten:
+            return len(batch)
+        if deferred is not None:
+            deferred.add_unwritten(query, batch, rows)
+            return len(batch)
+        applied = 0
+        for record in batch:
+            if str(record["id"]) in unwritten:
+                outcome.failures.append(
+                    UpsertFailure(
+                        id=str(record["id"]),
+                        error_type="PendingRowConflict",
+                        error_message="row belongs to an in-flight job",
+                    )
+                )
+            else:
+                applied += 1
+        return applied
 
     @staticmethod
     def _record_batch_size(span: Span | None, records: int, batch_size: int) -> None:

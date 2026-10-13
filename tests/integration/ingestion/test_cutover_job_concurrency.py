@@ -15,6 +15,7 @@ from uuid import UUID, uuid4
 import pytest
 
 from agrag.common.data_models.cutover_job import CUTOVER_JOB_LABEL
+from agrag.common.data_models.graph_record import DeferredWrites
 from agrag.cypher.cutover_job_read import find_incomplete_jobs_query
 from agrag.cypher.cutover_job_write import (
     acquire_lease_query,
@@ -416,6 +417,7 @@ class TestCutoverJobLeaseLifetime:
                 settings=CutoverJobSettings(lease_ttl_seconds=1),
                 pending_write=slow_write,
                 cleanup=cleanup,
+                deferred=DeferredWrites(),
             )
             assert seen["job_id"] not in resumed
             rows = await store.execute_read(

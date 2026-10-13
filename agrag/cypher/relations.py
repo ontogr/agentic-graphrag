@@ -8,6 +8,7 @@ from collections.abc import Sequence
 from typing import Any, Literal
 
 from agrag.common.data_models.candidate import CANDIDATE_EDGE_TYPES
+from agrag.common.data_models.graph_record import PENDING_JOB_ID_PROPERTY
 from agrag.common.data_models.structure import (
     FIGURE_LABEL,
     HAS_CHILD,
@@ -21,7 +22,11 @@ from agrag.cypher._pending_filter import (
     pending_filter_clause,
     pending_path_filter_clause,
 )
-from agrag.cypher.entities import NODE_IDENTITY_LABEL, validate_identifier
+from agrag.cypher.entities import (
+    NODE_IDENTITY_LABEL,
+    own_row_expression,
+    validate_identifier,
+)
 
 
 TraversalDirection = Literal["outgoing", "incoming", "both"]
@@ -395,8 +400,11 @@ def upsert_relation_query(rel_type: str) -> str:
     separate identities when their ids differ, so parallel relationships do
     not collapse into one. When a record's endpoints move, the relationship
     keeps its id: the stale copy at the old endpoints is deleted before the
-    new one is written, backed by the per-type uniqueness constraint from
-    ``relation_id_constraint_query``. A relationship's type is immutable once
+    new one is written. The stale copy is deleted only when the writer owns
+    it. A committed copy is left alone, so the write fails on the per-type
+    uniqueness constraint from ``relation_id_constraint_query``. Production
+    ids hash the endpoints, so an id's endpoints never move in practice. A
+    relationship's type is immutable once
     written; retyping one requires deleting it under its old type first, since
     a single upsert call only ever targets one type. Identity is reasserted
     after applying properties, so a caller-supplied ``properties["id"]``
@@ -415,11 +423,11 @@ def upsert_relation_query(rel_type: str) -> str:
     Both endpoints must carry the identity label. Candidate edge types are
     reserved for the candidate store and cannot be written here.
 
-    The Cutover Job tag is applied only when the ``MERGE`` creates the
-    relationship, so the tag means "this job created this edge". A job
-    that only writes over an existing edge leaves it untagged: it stays
-    visible to retrieval, and the job's rollback — which deletes tagged
-    rows — cannot reach it.
+    The Cutover Job tag is set only when the ``MERGE`` creates the
+    relationship, so the tag means "this job created this edge". A write
+    over a relationship the job did not create is not applied: the row
+    reports ``written`` false, and the store defers the write to the job's
+    commit transaction.
 
     Args:
         rel_type: The relationship type. Must already be validated.
@@ -429,7 +437,7 @@ def upsert_relation_query(rel_type: str) -> str:
         items carry ``id``, ``start_id``, ``end_id``, ``properties``, and
         ``pending_job_id`` keys. ``properties`` may include
         ``source_chunk_ids``; other keys are applied as-is. The query returns
-        one row with ``id`` for every record whose endpoints matched and was
+        ``id`` and ``written`` for every record whose endpoints matched and was
         processed.
 
     Raises:
@@ -438,6 +446,8 @@ def upsert_relation_query(rel_type: str) -> str:
     safe_type = validate_identifier(rel_type)
     if safe_type in CANDIDATE_EDGE_TYPES:
         raise ValueError(f"{safe_type!r} is reserved for the candidate store")
+    own = own_row_expression("r", "record.pending_job_id")
+    own_stale = own_row_expression("stale", "record.pending_job_id")
     return (
         f"UNWIND $records AS record "
         f"MATCH (a:{NODE_IDENTITY_LABEL} {{id: record.start_id}}) "
@@ -445,26 +455,19 @@ def upsert_relation_query(rel_type: str) -> str:
         f"OPTIONAL MATCH (x:{NODE_IDENTITY_LABEL})"
         f"-[stale:{safe_type} {{id: record.id}}]->(y:{NODE_IDENTITY_LABEL}) "
         f"WHERE (x.id <> record.start_id OR y.id <> record.end_id) "
-        f"AND (record.pending_job_id IS NULL "
-        f"OR stale._pending_job_id IS NULL "
-        f"OR stale._pending_job_id = record.pending_job_id) "
+        f"AND {own_stale} "
         f"FOREACH (_ IN CASE WHEN stale IS NULL THEN [] ELSE [1] END | DELETE stale) "
         f"MERGE (a)-[r:{safe_type} {{id: record.id}}]->(b) "
-        f"ON CREATE SET r._pending_job_id = record.pending_job_id, "
-        f"r._pending_created = CASE WHEN record.pending_job_id IS NULL "
-        f"THEN null ELSE true END "
-        f"WITH r, record, "
-        f"(record.pending_job_id IS NULL OR r._pending_job_id IS NULL "
-        f"OR r._pending_job_id = record.pending_job_id) AS can_update, "
+        f"ON CREATE SET r.{PENDING_JOB_ID_PROPERTY} = record.pending_job_id "
+        f"WITH r, record, {own} AS own, "
         f"coalesce(r.source_chunk_ids, []) AS existing_source_chunk_ids "
-        f"SET r += CASE WHEN can_update THEN record.properties ELSE {{}} END "
-        f"SET r.source_chunk_ids = CASE WHEN can_update THEN "
-        f"[x IN existing_source_chunk_ids "
+        f"FOREACH (_ IN CASE WHEN own THEN [1] ELSE [] END | "
+        f"SET r += record.properties "
+        f"SET r.source_chunk_ids = [x IN existing_source_chunk_ids "
         f"WHERE NOT x IN coalesce(record.properties.source_chunk_ids, [])] "
         f"+ coalesce(record.properties.source_chunk_ids, []) "
-        f"ELSE r.source_chunk_ids END "
-        f"SET r.id = record.id "
-        f"RETURN record.id AS id"
+        f"SET r.id = record.id) "
+        f"RETURN record.id AS id, own AS written"
     )
 
 

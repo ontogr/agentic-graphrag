@@ -13,6 +13,7 @@ from uuid import UUID, uuid4
 import pytest
 
 from agrag.common.data_models.cutover_job import CUTOVER_JOB_LABEL
+from agrag.common.data_models.graph_record import DeferredWrites
 from agrag.cypher.cutover_job_write import begin_rollback_query, rollback_job_query
 from agrag.graphdb import build_graph_store
 from agrag.ingestion._cutover import run_cutover_job
@@ -79,6 +80,7 @@ class TestCutoverRecovery:
                 settings=CutoverJobSettings(),
                 pending_write=pending,
                 cleanup=cleanup,
+                deferred=DeferredWrites(),
                 close_document_node_id=document,
             )
 
@@ -227,6 +229,7 @@ class TestCutoverRecovery:
                 settings=CutoverJobSettings(),
                 pending_write=pending,
                 cleanup=cleanup,
+                deferred=DeferredWrites(),
             )
 
             assert result[:2] == ("pending", "cleaned")

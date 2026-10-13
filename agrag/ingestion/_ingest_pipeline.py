@@ -26,6 +26,7 @@ from agrag.common.data_models.extraction import (
     ExtractedRelation,
     ExtractionResult,
 )
+from agrag.common.data_models.graph_record import DeferredWrites
 from agrag.common.data_models.graph_schema import GraphSchema
 from agrag.common.data_models.stage_failure import StageFailure, cap_failures
 from agrag.common.data_models.vector_record import VectorRecord
@@ -39,6 +40,7 @@ from agrag.cypher.entities import (
 )
 from agrag.embedding.base import Embedder
 from agrag.graphdb.base import GraphStore
+from agrag.ingestion._deferred import write_or_defer
 from agrag.ingestion._merge_stage import MergeStageResult, merge_stage
 from agrag.ingestion._resolve_stage import resolve_stage
 from agrag.ingestion._stage_context import StageContext
@@ -229,6 +231,7 @@ async def embed_chunks_stage(
             vector_store=ctx.vector_store,
             vector_collection=vector_collection,
             pending_job_id=ctx.job_id,
+            deferred=ctx.deferred,
             embed_heading_path=embed_heading_path,
         )
     return EmbedStageResult(failures=[*failures, *embed_failures])
@@ -267,6 +270,7 @@ async def embed_survivors_stage(
             vector_collection=vector_collection,
             labels_by_id={ent.id: ent.label for ent in survivors.values()},
             pending_job_id=ctx.job_id,
+            deferred=ctx.deferred,
         )
     return EmbedStageResult(failures=failures)
 
@@ -337,6 +341,7 @@ async def ingest_chunks(
     tracer: Tracer | None = None,
     embed_heading_path: bool = True,
     max_llm_pairs: int = MAX_LLM_PAIRS,
+    deferred: DeferredWrites | None = None,
 ) -> BatchResult:
     """Resolve, merge, write and embed one batch of extracted chunks.
 
@@ -361,15 +366,21 @@ async def ingest_chunks(
         tracer: Opens the spans. None disables them.
         embed_heading_path: Whether the chunk embedder gets each heading path.
         max_llm_pairs: The cap on LLM verifications for this batch.
+        deferred: Receives the writes over committed rows that a job must not
+            apply itself. Required when ``job_id`` is set; the caller replays
+            it in the job's commit transaction.
 
     Returns:
         The stats of every stage, the chunks when ``return_chunks`` is set, and
         the structure node ids the batch wrote.
 
     Raises:
+        ValueError: ``job_id`` is set and ``deferred`` is None.
         Exception: The first failure of any stage when ``error_policy`` is
             ``RAISE``.
     """
+    if job_id is not None and deferred is None:
+        raise ValueError("deferred is required when job_id is set")
     job_uuid = UUID(str(job_id)) if job_id is not None else None
     ctx = StageContext(
         graph_store=graph_store,
@@ -378,6 +389,7 @@ async def ingest_chunks(
         error_policy=error_policy,
         tracer=get_tracer(tracer),
         job_id=job_uuid,
+        deferred=deferred,
     )
     with ctx.tracer.start_as_current_span("agrag.ingestion.ingest_chunks"):
         resolution_stats, merge = await _resolve_and_merge(
@@ -608,6 +620,7 @@ async def _embed_and_upsert_chunks(
     vector_store: VectorStore | None = None,
     vector_collection: str = "",
     pending_job_id: UUID | str | None = None,
+    deferred: DeferredWrites | None = None,
     embed_heading_path: bool = False,
 ) -> list[StageFailure]:
     """Embed every chunk's text and write the vectors back onto their nodes.
@@ -652,6 +665,8 @@ async def _embed_and_upsert_chunks(
         pending_job_id: The in-flight job's id, mirrored into vector
             payloads until that job commits. None writes untagged
             payloads, for callers outside a job.
+        deferred: Receives the vector writes over committed chunks. None
+            outside a job.
         embed_heading_path: Whether the embedder gets each chunk's heading path
             above its text.
 
@@ -662,6 +677,7 @@ async def _embed_and_upsert_chunks(
         Exception: Whatever embed() or the write raised, when
             error_policy is RAISE.
     """
+    job = str(pending_job_id) if pending_job_id is not None else None
     try:
         texts = [ch.contextual_text if embed_heading_path else ch.text for ch in chunks]
         vectors = await embedder.embed(texts)
@@ -671,12 +687,16 @@ async def _embed_and_upsert_chunks(
             records.append(
                 {
                     "id": str(ch.id),
+                    "pending_job_id": job,
                     "vector": vec,
                     "expected_text": ch.text,
                 }
             )
-        matched_rows = await graph_store.execute_write(
-            set_chunk_embedding_query("embedding"), {"records": records}
+        matched_rows = await write_or_defer(
+            graph_store,
+            set_chunk_embedding_query("embedding"),
+            records,
+            deferred=deferred,
         )
     except Exception as exc:  # noqa: BLE001
         with contextlib.suppress(Exception):
@@ -684,7 +704,12 @@ async def _embed_and_upsert_chunks(
                 clear_chunk_embedding_query("embedding"),
                 {
                     "records": [
-                        {"id": str(ch.id), "expected_text": ch.text} for ch in chunks
+                        {
+                            "id": str(ch.id),
+                            "pending_job_id": job,
+                            "expected_text": ch.text,
+                        }
+                        for ch in chunks
                     ]
                 },
             )
@@ -702,6 +727,8 @@ async def _embed_and_upsert_chunks(
         ]
     if vector_store is not None:
         vector_records = []
+        # A deferred row still matches: the commit applies it, so its vector
+        # belongs in the mirror.
         matched_ids = {
             UUID(str(row["id"]))
             for row in matched_rows
@@ -755,6 +782,7 @@ async def _embed_and_upsert_survivors(
     vector_collection: str = "",
     labels_by_id: dict[UUID, str] | None = None,
     pending_job_id: UUID | str | None = None,
+    deferred: DeferredWrites | None = None,
 ) -> list[StageFailure]:
     """Embed every survivor's current text and write only the vector.
 
@@ -807,6 +835,8 @@ async def _embed_and_upsert_survivors(
         pending_job_id: The in-flight job's id, mirrored into vector
             payloads until that job commits. None writes untagged
             payloads, for callers outside a job.
+        deferred: Receives the vector writes over committed entities. None
+            outside a job.
 
     Returns:
         A single-item list with the failure, or empty on success.
@@ -815,15 +845,21 @@ async def _embed_and_upsert_survivors(
         Exception: Whatever embed() or the write raised, when error_policy
             is RAISE.
     """
+    job = str(pending_job_id) if pending_job_id is not None else None
     try:
         texts = [ent.embedding_text for ent in survivors.values()]
         vectors = await embedder.embed(texts)
         records = []
         for ent, vec in zip(survivors.values(), vectors, strict=True):
             ent.embedding = vec
-            records.append({**_embedding_guard_fields(ent), "vector": vec})
-        matched_rows = await graph_store.execute_write(
-            set_embedding_query("embedding"), {"records": records}
+            records.append(
+                {**_embedding_guard_fields(ent), "pending_job_id": job, "vector": vec}
+            )
+        matched_rows = await write_or_defer(
+            graph_store,
+            set_embedding_query("embedding"),
+            records,
+            deferred=deferred,
         )
     except Exception as exc:  # noqa: BLE001
         # Best-effort: a failure here must not mask error_policy.
@@ -832,7 +868,8 @@ async def _embed_and_upsert_survivors(
                 clear_property_query("embedding"),
                 {
                     "records": [
-                        _embedding_guard_fields(ent) for ent in survivors.values()
+                        {**_embedding_guard_fields(ent), "pending_job_id": job}
+                        for ent in survivors.values()
                     ]
                 },
             )
@@ -850,6 +887,8 @@ async def _embed_and_upsert_survivors(
         ]
     if vector_store is not None:
         label_map = labels_by_id or {}
+        # A deferred row still matches: the commit applies it, so its vector
+        # belongs in the mirror.
         matched_ids = {
             UUID(str(row["id"]))
             for row in matched_rows

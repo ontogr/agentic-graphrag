@@ -14,7 +14,6 @@ from agrag.cypher.cutover_job_write import (
     clear_pending_relation_tags_query,
     delete_pending_nodes_query,
     delete_pending_relations_query,
-    restore_pending_relations_query,
 )
 from agrag.cypher.schema import pending_node_index_query, pending_relation_index_query
 
@@ -35,7 +34,6 @@ LABEL_BUILDERS: list[Callable[[str], str]] = [
 RELATION_TYPE_BUILDERS: list[Callable[[str], str]] = [
     clear_pending_relation_tags_query,
     delete_pending_relations_query,
-    restore_pending_relations_query,
     pending_relation_index_query,
 ]
 

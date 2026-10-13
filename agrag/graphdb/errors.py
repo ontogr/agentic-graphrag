@@ -20,6 +20,15 @@ class GraphStoreMissingExtraError(GraphStoreError):
         self.extra = extra
 
 
+class GraphStoreWriteConflictError(GraphStoreError):
+    """A write reached a row that an in-flight job owns and no job can defer it.
+
+    Raised inside a transaction when a write without a deferral list finds a
+    row tagged by another job, so the caller's transaction rolls back instead
+    of changing a row it does not own.
+    """
+
+
 class GraphStoreConstraintViolationError(GraphStoreError):
     """A write violated a uniqueness constraint the backend enforces.
 
@@ -62,4 +71,5 @@ __all__ = [
     "GraphStoreConstraintViolationError",
     "GraphStoreError",
     "GraphStoreMissingExtraError",
+    "GraphStoreWriteConflictError",
 ]

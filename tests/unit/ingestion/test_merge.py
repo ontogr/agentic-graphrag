@@ -912,3 +912,20 @@ class TestApplyMerge:
         )
         await apply_merge(plan, graph_store=store, schema=_hierarchy_schema())
         assert "SET n:Ghost " in store.write_queries[0]
+
+    async def test_job_write_without_a_deferral_list_is_rejected(self) -> None:
+        """A job's merge must have a list to hold writes over committed rows."""
+        store = _WriteRecordingStore()
+        plan, _ = await compute_merge(
+            existing_entities=[],
+            mentions=[_mention(text="Acme", label="Vendor")],
+            schema=_hierarchy_schema(),
+        )
+        with pytest.raises(ValueError, match="deferred"):
+            await apply_merge(
+                plan,
+                graph_store=store,
+                schema=_hierarchy_schema(),
+                pending_job_id=str(uuid4()),
+            )
+        assert store.write_queries == []

@@ -4,6 +4,7 @@ import contextlib
 from typing import Literal
 from uuid import UUID
 
+from agrag.common.data_models.graph_record import DeferredWrites
 from agrag.common.data_models.resolved_entity import ResolvedEntity
 from agrag.common.data_models.stage_failure import StageFailure
 from agrag.common.data_models.vector_record import VectorRecord
@@ -16,12 +17,17 @@ from agrag.cypher.resolution_write import (
 )
 from agrag.embedding.base import Embedder
 from agrag.graphdb.base import GraphStore
+from agrag.ingestion._deferred import write_or_defer
 from agrag.loaders.types import ErrorPolicy
 from agrag.observability import record_stage_failure
 from agrag.vectordb.base import VectorStore
 
 
-def _embedding_record(entity: ResolvedEntity, vector: list[float]) -> dict[str, object]:
+def _embedding_record(
+    entity: ResolvedEntity,
+    vector: list[float],
+    pending_job_id: str | None,
+) -> dict[str, object]:
     """Build the optimistic graph embedding record for one resolved entity."""
     description = entity.properties.get("description")
     return {
@@ -29,17 +35,22 @@ def _embedding_record(entity: ResolvedEntity, vector: list[float]) -> dict[str, 
         "vector": vector,
         "expected_name": entity.name,
         "expected_description": str(description) if description is not None else "",
+        "pending_job_id": pending_job_id,
     }
 
 
-def _matched_ids(rows: list[dict[str, object]]) -> set[UUID]:
-    """Return the node ids a guarded write in agrag.cypher.entities matched.
+def _applied_ids(rows: list[dict[str, object]]) -> set[UUID]:
+    """Return the node ids a guarded write in agrag.cypher.entities applied now.
 
-    A row is missing for any record the write's optimistic-concurrency guard
-    skipped, because a concurrent write already changed or removed that node.
+    A row with ``written`` false belongs to a committed node that a job may not
+    change yet. Its write is deferred to the commit, so it is neither applied
+    nor a failure here. A record missing from the rows was skipped by the
+    write's optimistic-concurrency guard.
     """
     return {
-        UUID(str(row["id"])) for row in rows if isinstance(row, dict) and row.get("id")
+        UUID(str(row["id"]))
+        for row in rows
+        if isinstance(row, dict) and row.get("id") and row.get("written") is True
     }
 
 
@@ -74,6 +85,7 @@ async def embed_resolved_entities(
     vector_collection: str,
     error_policy: ErrorPolicy,
     pending_job_id: UUID | str | None = None,
+    deferred: DeferredWrites | None = None,
 ) -> list[StageFailure]:
     """Write resolved-entity embeddings to the graph and optional vector store.
 
@@ -87,17 +99,24 @@ async def embed_resolved_entities(
     concurrent rebuild can replace or delete a ResolvedEntity between
     this call reading it and writing its embedding; skipping the unmatched
     ones keeps this call from resurrecting a vector, or overwriting a status,
-    that the concurrent call already owns.
+    that the concurrent call already owns. Under a job, an embedding over a
+    committed node is deferred to the commit and is not mirrored yet.
+
+    Raises:
+        ValueError: ``pending_job_id`` is set and ``deferred`` is None.
     """
+    if pending_job_id is not None and deferred is None:
+        raise ValueError("deferred is required when pending_job_id is set")
     if not entities:
         return []
+    job_id = str(pending_job_id) if pending_job_id is not None else None
     try:
         vectors = await embedder.embed([entity.embedding_text for entity in entities])
         records: list[dict[str, object]] = []
         vector_records_by_id: dict[UUID, VectorRecord] = {}
         for entity, vector in zip(entities, vectors, strict=True):
             entity.embedding = vector
-            records.append(_embedding_record(entity, vector))
+            records.append(_embedding_record(entity, vector, job_id))
             payload: dict[str, object] = {
                 "label": entity.label,
                 "name": entity.name,
@@ -111,11 +130,14 @@ async def embed_resolved_entities(
                 vector=vector,
                 payload=payload,
             )
-        rows = await graph_store.execute_write(
-            set_embedding_query("embedding"), {"records": records}
+        rows = await write_or_defer(
+            graph_store,
+            set_embedding_query("embedding"),
+            records,
+            deferred=deferred,
         )
-        matched_ids = _matched_ids(rows)
-        synced_entities = [entity for entity in entities if entity.id in matched_ids]
+        applied_ids = _applied_ids(rows)
+        synced_entities = [entity for entity in entities if entity.id in applied_ids]
         if vector_store is not None and synced_entities:
             await vector_store.upsert(
                 vector_collection,
@@ -135,9 +157,13 @@ async def embed_resolved_entities(
         with contextlib.suppress(Exception):
             cleared_rows = await graph_store.execute_write(
                 clear_property_query("embedding"),
-                {"records": [_embedding_record(entity, []) for entity in entities]},
+                {
+                    "records": [
+                        _embedding_record(entity, [], job_id) for entity in entities
+                    ]
+                },
             )
-            cleared_ids = _matched_ids(cleared_rows)
+            cleared_ids = _applied_ids(cleared_rows)
         cleared_entities = [entity for entity in entities if entity.id in cleared_ids]
         if vector_store is not None and cleared_entities:
             with contextlib.suppress(Exception):
@@ -177,6 +203,7 @@ async def _synchronize_resolved_entity_vectors(
     vector_collection: str,
     error_policy: ErrorPolicy,
     pending_job_id: UUID | str | None = None,
+    deferred: DeferredWrites | None = None,
 ) -> list[StageFailure]:
     """Replace stale resolved vectors and synchronize current resolved entities.
 
@@ -270,6 +297,7 @@ async def _synchronize_resolved_entity_vectors(
             vector_collection=vector_collection,
             error_policy=error_policy,
             pending_job_id=pending_job_id,
+            deferred=deferred,
         )
     )
     synced_ids = {
