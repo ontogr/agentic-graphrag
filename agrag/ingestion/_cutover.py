@@ -26,9 +26,14 @@ from agrag.cypher.cutover_job_write import (
     steal_terminal_job_query,
 )
 from agrag.graphdb.base import GraphStore, GraphStoreTransaction
+from agrag.graphdb.errors import GraphStoreConstraintViolationError
 from agrag.ingestion._deferred import replay_deferred
 from agrag.ingestion._document_lifecycle import close_open_has_part_edges
-from agrag.ingestion._pending_rows import clear_job_tags, rollback_job_rows
+from agrag.ingestion._pending_rows import (
+    clear_job_tags,
+    fold_job_relations,
+    rollback_job_rows,
+)
 from agrag.ingestion.resolved_entities import MatchComponent
 from agrag.ingestion.settings import CutoverJobSettings
 from agrag.observability import get_tracer
@@ -41,6 +46,8 @@ class CutoverJobLeaseError(Exception):
 
 T = TypeVar("T")
 S = TypeVar("S")
+
+_COMMIT_ATTEMPTS = 3
 
 
 async def _acquire_lease(
@@ -367,7 +374,10 @@ async def _commit_pending_writes(
     """Atomically expose pending graph writes and close superseded edges.
 
     The deferred writes over committed rows run right after the flip, so a
-    replay that hits a row another job owns rolls the whole commit back.
+    replay that hits a row another job owns rolls the whole commit back. The
+    job's new relations are folded into their canonical ids in the same
+    transaction, and the commit is retried when two jobs promote one relation
+    at the same moment.
     """
     job_arg = str(job_id)
     token_arg = str(token)
@@ -384,6 +394,7 @@ async def _commit_pending_writes(
         if not committed:
             raise CutoverJobLeaseError(f"Job {job_arg} lost its lease before commit.")
         await replay_deferred(txn, deferred)
+        await fold_job_relations(txn, job_id=job_id)
         # The close runs before the tag clear so it can tell the
         # superseded version's edges from the ones this job just
         # wrote; both land in the same transaction as the flip.
@@ -402,6 +413,14 @@ async def _commit_pending_writes(
         await clear_job_tags(txn, job_id=job_id)
         return parts_closed
 
+    # Two jobs that commit the same new relation at once both try to give it
+    # the canonical id. The loser's transaction fails on the id constraint and
+    # rolls back whole, so a second attempt finds the winner's edge and folds.
+    for _ in range(_COMMIT_ATTEMPTS - 1):
+        try:
+            return await graph_store.run_in_transaction(commit)
+        except GraphStoreConstraintViolationError:
+            continue
     return await graph_store.run_in_transaction(commit)
 
 

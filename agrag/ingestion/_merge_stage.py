@@ -23,6 +23,7 @@ from agrag.ingestion.merge import (
     apply_merge,
     compute_merge,
     mentioned_in_id,
+    pending_relation_id,
     relation_id,
 )
 from agrag.ingestion.resolve.resolution import BatchResolution
@@ -380,12 +381,16 @@ async def _domain_relation_records(
             existing_id, existing_scids = existing
             union_ids = list(dict.fromkeys([*existing_scids, *chunk_ids]))
             rel_id = existing_id
+            canonical_id = None
         else:
-            # Deterministic, not uuid4(): two concurrent add() calls that
-            # both miss the existing-relation lookup for this triple must
-            # compute the same id, so their upserts converge onto one
-            # edge instead of creating parallel ones.
-            rel_id = relation_id(src_id, tgt_id, rel_type)
+            # A new relation is written under a job-scoped id; the commit folds
+            # it into the canonical id.
+            canonical_id = relation_id(src_id, tgt_id, rel_type)
+            rel_id = (
+                pending_relation_id(UUID(pending_job_id), canonical_id)
+                if pending_job_id is not None
+                else canonical_id
+            )
             union_ids = list(dict.fromkeys(chunk_ids))
 
         relation_obj = Relation(
@@ -395,7 +400,10 @@ async def _domain_relation_records(
             target_id=tgt_id,
             source_chunk_ids=union_ids,
         )
-        relation_records.append(relation_obj.to_relation_record())
+        record = relation_obj.to_relation_record()
+        if canonical_id is not None and pending_job_id is not None:
+            record.properties["canonical_id"] = str(canonical_id)
+        relation_records.append(record)
     return relation_records
 
 
