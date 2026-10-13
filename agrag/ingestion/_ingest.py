@@ -31,7 +31,11 @@ from agrag.embedding.base import Embedder
 from agrag.graphdb.base import GraphStore
 from agrag.ingestion._cutover import InPlaceRefresh, run_cutover_job
 from agrag.ingestion._document_lifecycle import UpdateDecision, find_document
-from agrag.ingestion._ingest_pipeline import extract_chunks, ingest_chunks
+from agrag.ingestion._ingest_pipeline import (
+    ExtractionBatch,
+    extract_chunks,
+    ingest_chunks,
+)
 from agrag.ingestion._structure import placement_map
 from agrag.ingestion._walk import SourcesType, chunk_documents, iter_document_batches
 from agrag.ingestion.extract import Extractor, LLMExtractor
@@ -378,6 +382,135 @@ async def document_entity_candidates(
     return candidates
 
 
+async def _commit_batch(  # noqa: PLR0913
+    flat_batch: list[Chunk],
+    batch: list[Document],
+    extracted: ExtractionBatch,
+    *,
+    graph_store: GraphStore,
+    embedder: Embedder,
+    vector_store: VectorStore | None,
+    schema: GraphSchema,
+    retrieval_settings: RetrievalSettings,
+    cutover_settings: CutoverJobSettings,
+    error_policy: ErrorPolicy,
+    return_chunks: bool,
+    placements_by_id: dict[UUID, ChunkPlacement],
+    tracer: Tracer,
+    embed_heading_path: bool,
+    max_llm_pairs: int,
+    cleanup: CleanupStep,
+) -> list[AddResult]:
+    """Write one extracted walk batch as one Cutover Job per document.
+
+    Args:
+        flat_batch: The chunks of the walk batch.
+        batch: The stamped documents of the walk batch.
+        extracted: The extraction output for ``flat_batch``. Its relation
+            indices are positions within its own entity list.
+        graph_store: The store that receives the graph writes.
+        embedder: The embedder for chunk and entity vectors.
+        vector_store: The vector store, or ``None`` when vectors are off.
+        schema: The graph schema the entities are written against.
+        retrieval_settings: The collection names and retrieval settings.
+        cutover_settings: The settings for each Cutover Job.
+        error_policy: How a failed write or embedding is treated.
+        return_chunks: Whether each result carries its chunks.
+        placements_by_id: The chunk placements, keyed by chunk id.
+        tracer: The tracer for the write spans.
+        embed_heading_path: Whether chunk vectors include the heading path.
+        max_llm_pairs: The cap on LLM-judged entity pairs per document.
+        cleanup: The post-commit cleanup step of each Cutover Job.
+
+    Returns:
+        One AddResult per document, in document order.
+    """
+    vector_collections = _vector_collections(retrieval_settings)
+    partials: list[AddResult] = []
+    for (
+        document_key,
+        doc_chunks,
+        doc_documents,
+        doc_entities,
+        doc_relations,
+        doc_failures,
+    ) in _group_by_document(
+        flat_batch,
+        batch,
+        extracted.entities,
+        extracted.relations,
+        extracted.failures,
+    ):
+        components: list[MatchComponent] = []
+        deferred = DeferredWrites()
+
+        async def _pending(
+            job_id: UUID,
+            _components: list[MatchComponent] = components,
+            _deferred: DeferredWrites = deferred,
+            _slice: tuple[
+                list[Chunk],
+                list[Document],
+                list[ExtractedEntity],
+                list[ExtractedRelation],
+                list[StageFailure],
+            ] = (
+                doc_chunks,
+                doc_documents,
+                doc_entities,
+                doc_relations,
+                doc_failures,
+            ),
+        ) -> AddResult:
+            (
+                slice_chunks,
+                slice_documents,
+                slice_entities,
+                slice_relations,
+                slice_failures,
+            ) = _slice
+            ingested = await ingest_chunks(
+                slice_chunks,
+                slice_documents,
+                slice_entities,
+                slice_relations,
+                slice_failures,
+                graph_store=graph_store,
+                embedder=embedder,
+                vector_store=vector_store,
+                graph_schema=schema,
+                retrieval_settings=retrieval_settings,
+                error_policy=error_policy,
+                ingestion=IngestStats(documents=1),
+                return_chunks=return_chunks,
+                job_id=job_id,
+                rebuilt_components=_components,
+                placements=placements_by_id,
+                tracer=tracer,
+                embed_heading_path=embed_heading_path,
+                max_llm_pairs=max_llm_pairs,
+                deferred=_deferred,
+            )
+            return ingested.add_result
+
+        partial, cleanup_failures, _ = await run_cutover_job(
+            verb="add",
+            document_key=document_key,
+            affected_entity_ids=[],
+            graph_store=graph_store,
+            vector_store=vector_store,
+            vector_collections=vector_collections,
+            settings=cutover_settings,
+            pending_write=_pending,
+            cleanup=cleanup,
+            components=components,
+            deferred=deferred,
+            tracer=tracer,
+        )
+        partials.append(_with_cleanup_failures(partial, cleanup_failures))
+    return partials
+
+
 async def add_documents(  # noqa: PLR0912,PLR0915,PLR0913
     source: SourcesType | None,
     *,
@@ -423,10 +556,11 @@ async def add_documents(  # noqa: PLR0912,PLR0915,PLR0913
         documents_seen: list[Document] = []
         placements_by_id: dict[UUID, ChunkPlacement] = {}
         document_keys_seen: set[str] = set()
-        entities: list[ExtractedEntity] = []
-        relations: list[ExtractedRelation] = []
+        entity_count = 0
+        relation_count = 0
         extraction_failures: list[StageFailure] = []
         escalation_reports: list[EscalationReport] = []
+        partials: list[AddResult] = []
 
         def _record_document_keys(batch: Sequence[Document]) -> None:
             for document in batch:
@@ -453,8 +587,8 @@ async def add_documents(  # noqa: PLR0912,PLR0915,PLR0913
             extraction_failures_capped = cap_failures(list(extraction_failures))
             extraction = ExtractionStats(
                 chunks_processed=len(chunks),
-                entities_extracted=len(entities),
-                relations_extracted=len(relations),
+                entities_extracted=entity_count,
+                relations_extracted=relation_count,
                 failures=extraction_failures_capped.items,
                 failures_total=extraction_failures_capped.total,
                 failures_truncated=extraction_failures_capped.truncated,
@@ -497,7 +631,7 @@ async def add_documents(  # noqa: PLR0912,PLR0915,PLR0913
             documents_seen.extend(batch)
             extracted = await extract_chunks(
                 flat_batch,
-                start_index=len(entities),
+                start_index=0,
                 extractor=extractor,
                 schema=schema,
                 error_policy=error_policy,
@@ -505,20 +639,40 @@ async def add_documents(  # noqa: PLR0912,PLR0915,PLR0913
                 llm_extractor=llm_extractor,
                 tracer=tracer,
             )
-            entities.extend(extracted.entities)
-            relations.extend(extracted.relations)
+            entity_count += len(extracted.entities)
+            relation_count += len(extracted.relations)
             extraction_failures.extend(extracted.failures)
             escalation_reports.append(extracted.report)
+            # Each walk batch commits before the next one is extracted, so a
+            # failure late in a large call keeps the work already written. Each
+            # document's slice is its own Cutover Job with its own lease; a lease
+            # failure aborts the documents still queued while committed documents
+            # stay committed.
+            partials.extend(
+                await _commit_batch(
+                    flat_batch,
+                    batch,
+                    extracted,
+                    graph_store=graph_store,
+                    embedder=embedder,
+                    vector_store=vector_store,
+                    schema=schema,
+                    retrieval_settings=retrieval_settings,
+                    cutover_settings=cutover_settings,
+                    error_policy=error_policy,
+                    return_chunks=return_chunks,
+                    placements_by_id=placements_by_id,
+                    tracer=tracer,
+                    embed_heading_path=embed_heading_path,
+                    max_llm_pairs=max_llm_pairs,
+                    cleanup=cleanup,
+                )
+            )
             if on_progress is not None:
                 with contextlib.suppress(Exception):
                     on_progress(_build_partial_add_result())
 
-        # Assemble the ingestion summary from this call's own walk, then run
-        # each document's slice as its own Cutover Job through the shared
-        # pipeline core. A job holds only its own document's lease and
-        # commits only its own slice; a lease failure aborts the documents
-        # still queued while documents that already committed stay
-        # committed.
+        # Assemble the ingestion summary from this call's own walk.
         ingestion = IngestStats(
             documents=final_stats.documents,
             sources=final_stats.sources,
@@ -526,85 +680,6 @@ async def add_documents(  # noqa: PLR0912,PLR0915,PLR0913
             quarantined=final_stats.quarantined,
             quarantined_items=list(final_stats.quarantined_items),
         )
-        vector_collections = _vector_collections(retrieval_settings)
-        partials: list[AddResult] = []
-        for (
-            document_key,
-            doc_chunks,
-            doc_documents,
-            doc_entities,
-            doc_relations,
-            doc_failures,
-        ) in _group_by_document(
-            chunks, documents_seen, entities, relations, extraction_failures
-        ):
-            components: list[MatchComponent] = []
-            deferred = DeferredWrites()
-
-            async def _pending(
-                job_id: UUID,
-                _components: list[MatchComponent] = components,
-                _deferred: DeferredWrites = deferred,
-                _slice: tuple[
-                    list[Chunk],
-                    list[Document],
-                    list[ExtractedEntity],
-                    list[ExtractedRelation],
-                    list[StageFailure],
-                ] = (
-                    doc_chunks,
-                    doc_documents,
-                    doc_entities,
-                    doc_relations,
-                    doc_failures,
-                ),
-            ) -> AddResult:
-                (
-                    slice_chunks,
-                    slice_documents,
-                    slice_entities,
-                    slice_relations,
-                    slice_failures,
-                ) = _slice
-                batch = await ingest_chunks(
-                    slice_chunks,
-                    slice_documents,
-                    slice_entities,
-                    slice_relations,
-                    slice_failures,
-                    graph_store=graph_store,
-                    embedder=embedder,
-                    vector_store=vector_store,
-                    graph_schema=schema,
-                    retrieval_settings=retrieval_settings,
-                    error_policy=error_policy,
-                    ingestion=IngestStats(documents=1),
-                    return_chunks=return_chunks,
-                    job_id=job_id,
-                    rebuilt_components=_components,
-                    placements=placements_by_id,
-                    tracer=tracer,
-                    embed_heading_path=embed_heading_path,
-                    max_llm_pairs=max_llm_pairs,
-                    deferred=_deferred,
-                )
-                return batch.add_result
-
-            partial, cleanup_failures, _ = await run_cutover_job(
-                verb="add",
-                document_key=document_key,
-                affected_entity_ids=[],
-                graph_store=graph_store,
-                vector_store=vector_store,
-                vector_collections=vector_collections,
-                settings=cutover_settings,
-                pending_write=_pending,
-                cleanup=cleanup,
-                components=components,
-                deferred=deferred,
-                tracer=tracer,
-            )
-            partials.append(_with_cleanup_failures(partial, cleanup_failures))
         result = _merge_add_results(
             partials,
             ingestion=ingestion,

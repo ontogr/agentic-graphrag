@@ -369,6 +369,8 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
+`Graph.add` reads documents in batches of up to 100. It writes each batch to the graph as soon as the batch is extracted, before it reads the next batch. If a later batch fails, the earlier batches stay in the graph. There is no resume point, so calling `add` again starts from the first document and processes every document again.
+
 ## Supported formats
 
 Loaders are chosen by file extension. See [Loading documents](../concepts/loading.mdx#supported-formats) for the formats and the extra each one needs.
