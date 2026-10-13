@@ -33,7 +33,7 @@ from agrag.cypher.cutover_job_write import (
     renew_lease_query,
     rollback_job_query,
     start_cleaning_query,
-    steal_expired_lease_query,
+    steal_terminal_job_query,
 )
 from agrag.cypher.entities import PENDING_TAGGED_NODE_LABELS
 from agrag.cypher.relations import close_has_part_query
@@ -85,7 +85,7 @@ class _FakeCutoverStore:
         """Map each job query to its in-memory implementation."""
         handlers: dict[str, Any] = {
             acquire_lease_query(): self._acquire,
-            steal_expired_lease_query(): self._steal,
+            steal_terminal_job_query(): self._steal,
             commit_job_query(): lambda p: self._transition(p, "pending", "committed"),
             start_cleaning_query(): lambda p: self._transition(
                 p, "committed", "cleaning"

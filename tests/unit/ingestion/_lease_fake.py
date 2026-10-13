@@ -25,7 +25,7 @@ from agrag.cypher.cutover_job_write import (
     record_parts_closed_query,
     rollback_job_query,
     start_cleaning_query,
-    steal_expired_lease_query,
+    steal_terminal_job_query,
 )
 from agrag.cypher.entities import PENDING_TAGGED_NODE_LABELS
 from agrag.cypher.relations import close_has_part_query
@@ -80,7 +80,7 @@ class CutoverJobLeaseFake:
         """Map each Cutover Job query to its in-memory implementation."""
         handlers: dict[str, Any] = {
             acquire_lease_query(): self._acquire,
-            steal_expired_lease_query(): self._steal,
+            steal_terminal_job_query(): self._steal,
             commit_job_query(): lambda p: self._transition(p, "pending", "committed"),
             start_cleaning_query(): lambda p: self._transition(
                 p, "committed", "cleaning"
@@ -202,7 +202,7 @@ class CutoverJobLeaseFake:
     def _steal(self, params: dict[str, Any]) -> list[dict[str, Any]]:
         """Take over a job only when it is done or rolled back.
 
-        Mirrors ``steal_expired_lease_query``: the steal adopts the new
+        Mirrors ``steal_terminal_job_query``: the steal adopts the new
         run's id, verb, token, and expiry, so a document that has been
         mutated before can be mutated again. Pending and rolling_back jobs
         never match, even with an expired lease.

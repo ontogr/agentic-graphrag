@@ -22,7 +22,7 @@ from agrag.cypher.cutover_job_write import (
     record_parts_closed_query,
     renew_lease_query,
     start_cleaning_query,
-    steal_expired_lease_query,
+    steal_terminal_job_query,
 )
 from agrag.graphdb.base import GraphStore, GraphStoreTransaction
 from agrag.ingestion._document_lifecycle import close_open_has_part_edges
@@ -156,7 +156,7 @@ async def _acquire_lease(
     token = uuid4()
     now = datetime.now(UTC)
     rows = await graph_store.execute_write(
-        steal_expired_lease_query(),
+        steal_terminal_job_query(),
         {
             "job_id": str(job_id),
             "document_key": document_key,

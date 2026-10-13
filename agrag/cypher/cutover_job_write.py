@@ -41,7 +41,7 @@ def acquire_lease_query() -> str:
     )
 
 
-def steal_expired_lease_query() -> str:
+def steal_terminal_job_query() -> str:
     """Build Cypher taking over a job already in a terminal state.
 
     Matches a job for ``$document_key`` only when it is ``done`` or

@@ -180,7 +180,7 @@ class TestCutoverRecovery:
             await store.close()
 
     async def test_new_run_rolls_back_expired_pending_job_before_claiming(
-        self, tmp_path: Path
+        self,
     ) -> None:
         """A new run rolls back a dead pending job and reclaims its merge keys."""
         store = build_graph_store("neo4j")
@@ -207,7 +207,7 @@ class TestCutoverRecovery:
                 "affected_entity_ids: [], probe: $probe}) "
                 "CREATE (:_MergeAlias {probe: $probe, merge_key: $merge_key, "
                 "id: randomUUID(), _pending_job_id: $job}) "
-                "CREATE (:Chunk {probe: $probe, id: randomUUID(), "
+                "CREATE (:Chunk:_Node {probe: $probe, id: randomUUID(), "
                 "_pending_job_id: $job})",
                 {
                     "job": dead_job,
@@ -249,9 +249,6 @@ class TestCutoverRecovery:
                 {"probe": probe},
             )
             assert aliases == [{"merge_key": merge_key, "pending_job": None}]
-            (tmp_path / "expired-pending-recovery.json").write_text(
-                json.dumps({"jobs": jobs, "aliases": aliases})
-            )
         finally:
             await store.execute_write(
                 "MATCH (n) WHERE n.probe = $probe OR n.document_key = $probe "
