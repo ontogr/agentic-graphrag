@@ -240,7 +240,7 @@ Write candidate nodes and their evidence links.
 ## `upsert_nodes` \{#agrag-graphdb-base-GraphStore-upsert_nodes}
 
 ```python
-upsert_nodes(label:str, nodes:Sequence[NodeRecord], *, batch_size:int = 256, pending_job_id:UUID | None = None) -> UpsertResult
+upsert_nodes(label:str, nodes:Sequence[NodeRecord], *, batch_size:int = 256, pending_job_id:UUID | None = None, deferred:DeferredWrites | None = None) -> UpsertResult
 ```
 
 Write or merge nodes, honoring each record's full label set.
@@ -255,24 +255,28 @@ Write or merge nodes, honoring each record's full label set.
 - **batch_size** (<code>int</code>) – Records per backend write call, applied within each
   distinct label set when `nodes` mixes more than one. Must
   be positive.
-- **pending_job_id** (<code>UUID | None</code>) – The in-flight Cutover Job's id. The store tags
-  each node it creates, so retrieval skips it until the job
-  commits. A node that already exists keeps its current pending
-  state: a node tagged by another in-flight job stays tagged,
-  and None does not commit it. None writes committed data.
+- **pending_job_id** (<code>UUID | None</code>) – The in-flight Cutover Job's id. `pending_job_id`
+  tags the rows the call creates, so retrieval skips them until
+  the job commits. A write that reaches a row the job did not
+  create is not applied and is added to `deferred`.
+- **deferred** (<code>[DeferredWrites](../../common/data_models/graph_record/DeferredWrites.md) | None</code>) – Receives the records whose rows were not written. The
+  commit transaction replays them. Required when
+  `pending_job_id` is set.
 
 **Returns:**
 
-- <code>[UpsertResult](../../common/data_models/graph_record/UpsertResult.md)</code> – The number written and one failure entry for each isolated record.
+- <code>[UpsertResult](../../common/data_models/graph_record/UpsertResult.md)</code> – The number written or deferred, and one failure entry for each
+- <code>[UpsertResult](../../common/data_models/graph_record/UpsertResult.md)</code> – isolated record.
 
 **Raises:**
 
-- <code>ValueError</code> – `batch_size` is not positive.
+- <code>ValueError</code> – `batch_size` is not positive, or `deferred` is
+  missing while `pending_job_id` is set.
 
 ## `upsert_relations` \{#agrag-graphdb-base-GraphStore-upsert_relations}
 
 ```python
-upsert_relations(relations:Sequence[RelationRecord], *, batch_size:int = 256, pending_job_id:UUID | None = None) -> UpsertResult
+upsert_relations(relations:Sequence[RelationRecord], *, batch_size:int = 256, pending_job_id:UUID | None = None, deferred:DeferredWrites | None = None) -> UpsertResult
 ```
 
 Write or merge relationships between existing nodes.
@@ -281,20 +285,24 @@ Write or merge relationships between existing nodes.
 
 - **relations** (<code>Sequence\[[RelationRecord](../../common/data_models/graph_record/RelationRecord.md)\]</code>) – The relation records to upsert.
 - **batch_size** (<code>int</code>) – Records per backend write call. Must be positive.
-- **pending_job_id** (<code>UUID | None</code>) – The in-flight Cutover Job's id. The store tags
-  each relationship it creates, so retrieval skips it until
-  the job commits. A relationship that already exists keeps its
-  current pending state: one tagged by another in-flight job
-  stays tagged, and None does not commit it. None writes
-  committed data.
+- **pending_job_id** (<code>UUID | None</code>) – The in-flight Cutover Job's id. `pending_job_id`
+  tags the relationships the call creates, so retrieval skips
+  them until the job commits. A write that reaches a
+  relationship the job did not create is not applied and is
+  added to `deferred`.
+- **deferred** (<code>[DeferredWrites](../../common/data_models/graph_record/DeferredWrites.md) | None</code>) – Receives the records whose relationships were not
+  written. The commit transaction replays them. Required when
+  `pending_job_id` is set.
 
 **Returns:**
 
-- <code>[UpsertResult](../../common/data_models/graph_record/UpsertResult.md)</code> – The number written and one failure entry for each isolated record.
+- <code>[UpsertResult](../../common/data_models/graph_record/UpsertResult.md)</code> – The number written or deferred, and one failure entry for each
+- <code>[UpsertResult](../../common/data_models/graph_record/UpsertResult.md)</code> – isolated record.
 
 **Raises:**
 
-- <code>ValueError</code> – `batch_size` is not positive.
+- <code>ValueError</code> – `batch_size` is not positive, or `deferred` is
+  missing while `pending_job_id` is set.
 
 ## `vector_search` \{#agrag-graphdb-base-GraphStore-vector_search}
 
