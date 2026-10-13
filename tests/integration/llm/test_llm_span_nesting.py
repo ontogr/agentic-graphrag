@@ -209,6 +209,112 @@ class TestRetries:
         assert requests[2].status.status_code.name == "UNSET"
         write_span_tree(span_tree_path("nesting_retries.json"), spans)
 
+    @staticmethod
+    async def test_http_408_retries_over_real_baml_http(local: LocalLLM) -> None:
+        """A first-attempt HTTP 408 is retried and the next response succeeds."""
+        exporter = InMemorySpanExporter()
+        provider = TracerProvider()
+        provider.add_span_processor(SimpleSpanProcessor(exporter))
+        tracer = provider.get_tracer("test")
+        settings = ExtractionLLMSettings(
+            clients=[
+                LLMClientConfig(
+                    name="primary",
+                    provider="openai-generic",
+                    model="requested-model",
+                    api_key="sk-nesting-test-key",
+                    base_url=local.url("408-first"),
+                )
+            ],
+            retry=RetryConfig(max_retries=1, delay_ms=1),
+        )
+
+        await BAMLExtractor(settings=settings, tracer=tracer).extract(
+            _chunk("Ada Lovelace founded a clinic."), DEFAULT_SCHEMA
+        )
+
+        spans = exporter.get_finished_spans()
+        requests = _requests(spans)
+        assert len(local.received) == 2
+        assert len(requests) == 2
+        assert requests[0].status.status_code.name == "ERROR"
+        assert (requests[0].attributes or {})["http.response.status_code"] == 408
+        assert requests[1].status.status_code.name == "UNSET"
+        write_span_tree(span_tree_path("nesting_http_408_retry.json"), spans)
+
+    @staticmethod
+    async def test_request_timeout_retries_successfully_and_records_socket_close(
+        local: LocalLLM,
+    ) -> None:
+        """A timed-out real BAML HTTP call retries; record peer-close evidence."""
+        exporter = InMemorySpanExporter()
+        provider = TracerProvider()
+        provider.add_span_processor(SimpleSpanProcessor(exporter))
+        tracer = provider.get_tracer("test")
+        settings = ExtractionLLMSettings(
+            clients=[
+                LLMClientConfig(
+                    name="primary",
+                    provider="openai-generic",
+                    model="requested-model",
+                    api_key="sk-nesting-test-key",
+                    base_url=local.url("slow-first"),
+                )
+            ],
+            retry=RetryConfig(max_retries=1, delay_ms=1, request_timeout_ms=80),
+        )
+
+        await BAMLExtractor(settings=settings, tracer=tracer).extract(
+            _chunk("Ada Lovelace founded a clinic."), DEFAULT_SCHEMA
+        )
+
+        spans = exporter.get_finished_spans()
+        requests = _requests(spans)
+        assert len(local.received) == 2
+        assert len(requests) == 2
+        assert requests[0].status.status_code.name == "ERROR"
+        assert requests[1].status.status_code.name == "UNSET"
+        assert await asyncio.to_thread(local.wait_for_connection_probe, 1)
+        assert local.closed_connections == [True]
+        write_span_tree(span_tree_path("nesting_request_timeout_retry.json"), spans)
+
+    @staticmethod
+    async def test_request_timeout_does_not_retry_when_retry_budget_is_zero(
+        local: LocalLLM,
+    ) -> None:
+        """A timed-out real BAML HTTP call fails without another request."""
+        exporter = InMemorySpanExporter()
+        provider = TracerProvider()
+        provider.add_span_processor(SimpleSpanProcessor(exporter))
+        tracer = provider.get_tracer("test")
+        settings = ExtractionLLMSettings(
+            clients=[
+                LLMClientConfig(
+                    name="primary",
+                    provider="openai-generic",
+                    model="requested-model",
+                    api_key="sk-nesting-test-key",
+                    base_url=local.url("slow-first"),
+                )
+            ],
+            retry=RetryConfig(max_retries=0, request_timeout_ms=80),
+        )
+
+        with pytest.raises(TimeoutError):
+            await BAMLExtractor(settings=settings, tracer=tracer).extract(
+                _chunk("Ada Lovelace founded a clinic."), DEFAULT_SCHEMA
+            )
+
+        spans = exporter.get_finished_spans()
+        requests = _requests(spans)
+        assert len(local.received) == 1
+        assert len(_attempts(spans)) == 1
+        assert len(requests) == 1
+        assert requests[0].status.status_code.name == "ERROR"
+        assert await asyncio.to_thread(local.wait_for_connection_probe, 1)
+        assert local.closed_connections == [True]
+        write_span_tree(span_tree_path("nesting_request_timeout_no_retry.json"), spans)
+
 
 class TestFallback:
     """A failed primary and a served fallback share one attempt span."""

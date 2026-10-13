@@ -116,7 +116,7 @@ Class: `ExtractionLLMSettings`. Prefix: `EXTRACTION_LLM_`.
 | --- | --- | --- |
 | `EXTRACTION_LLM_CLIENTS` | required | A JSON list of client objects (see below). |
 | `EXTRACTION_LLM_STRATEGY` | `single` | `single`, `fallback`, or `round_robin`. Ignored with one client. |
-| `EXTRACTION_LLM_RETRY` | see below | A JSON object with `max_retries` (`3`), `delay_ms` (`200`), `multiplier` (`1.5`), `max_delay_ms` (`10000`), and `timeout_ms` (`0`, no deadline). `timeout_ms` stops new attempts after the deadline; it does not stop a request that is already running. |
+| `EXTRACTION_LLM_RETRY` | see below | A JSON object with `max_retries` (`3`), `delay_ms` (`1000`), `multiplier` (`2.0`), `max_delay_ms` (`30000`), `timeout_ms` (`0`, no deadline), and `request_timeout_ms` (`300000`, `0` turns it off). `timeout_ms` stops new attempts after the deadline; it does not stop a request that is already running. `request_timeout_ms` cancels one attempt that runs too long. |
 
 `ExtractionLLMSettings.from_openai_compatible_env()` builds one `openai-generic` client from `LLM_BASE_URL`, `LLM_API_KEY`, and `LLM_MODEL_ID`. It raises `RuntimeError` when `LLM_BASE_URL` or `LLM_MODEL_ID` is missing.
 

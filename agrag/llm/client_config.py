@@ -52,10 +52,13 @@ class RetryConfig(BaseModel):
         multiplier: The backoff multiplier applied after each retry.
         max_delay_ms: The maximum delay between retries.
         timeout_ms: The retry deadline checked after failed attempts. Zero disables it.
+        request_timeout_ms: The longest one attempt may run. A longer attempt is
+            cancelled and counts as a failure that can retry. Zero disables it.
     """
 
     max_retries: int = Field(default=3, ge=0)
-    delay_ms: int = Field(default=200, ge=0)
-    multiplier: float = Field(default=1.5, ge=0)
-    max_delay_ms: int = Field(default=10_000, ge=0)
+    delay_ms: int = Field(default=1_000, ge=0)
+    multiplier: float = Field(default=2.0, ge=0)
+    max_delay_ms: int = Field(default=30_000, ge=0)
     timeout_ms: int = Field(default=0, ge=0)
+    request_timeout_ms: int = Field(default=300_000, ge=0)

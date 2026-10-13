@@ -6,7 +6,7 @@ sidebar_label: ReadOptions
 # `agrag.loaders.types.ReadOptions` \{#agrag-loaders-types-ReadOptions}
 
 ```python
-ReadOptions(encoding:str | None = None, max_document_bytes:int = 32 * 1024 * 1024, store_text:bool = True, store_raw_record:bool = False, on_error:ErrorPolicy = ErrorPolicy.RAISE, text_column:str | None = None, id_column:str | None = None, title_column:str | None = None, published_at_column:str | None = None, content_date_column:str | None = None, json_mode:JsonMode = JsonMode.AUTO, csv_mode:CsvMode = CsvMode.ROWS, csv_delimiter:str | None = None, normalization:Normalization = Normalization()) -> None
+ReadOptions(encoding:str | None = None, max_document_bytes:int = 32 * 1024 * 1024, store_text:bool = True, store_raw_record:bool = False, text_column:str | None = None, id_column:str | None = None, title_column:str | None = None, published_at_column:str | None = None, content_date_column:str | None = None, json_mode:JsonMode = JsonMode.AUTO, csv_mode:CsvMode = CsvMode.ROWS, csv_delimiter:str | None = None, normalization:Normalization = Normalization()) -> None
 ```
 
 Per-source reader configuration.
@@ -19,7 +19,6 @@ Frozen so it is safe to share across worker processes.
 - [**max_document_bytes**](#agrag-loaders-types-ReadOptions-max_document_bytes) (<code>int</code>) – The largest source, prose or record, the loader will read.
 - [**store_text**](#agrag-loaders-types-ReadOptions-store_text) (<code>bool</code>) – When false, the document text is an empty string.
 - [**store_raw_record**](#agrag-loaders-types-ReadOptions-store_raw_record) (<code>bool</code>) – When true, a record document keeps its raw row data.
-- [**on_error**](#agrag-loaders-types-ReadOptions-on_error) (<code>[ErrorPolicy](ErrorPolicy.md)</code>) – The error policy to apply inside the reader.
 - [**text_column**](#agrag-loaders-types-ReadOptions-text_column) (<code>str | None</code>) – The column that holds document text. `None` uses the first of
   `text`, `body`, `content` and `description` that exists, or the
   last column.
@@ -82,12 +81,6 @@ max_document_bytes: int = 32 * 1024 * 1024
 
 ```python
 normalization: Normalization = field(default_factory=Normalization)
-```
-
-## `on_error` \{#agrag-loaders-types-ReadOptions-on_error}
-
-```python
-on_error: ErrorPolicy = ErrorPolicy.RAISE
 ```
 
 ## `published_at_column` \{#agrag-loaders-types-ReadOptions-published_at_column}

@@ -7,6 +7,7 @@ Python is the only way an env-configured ``RetryConfig`` can actually take
 effect.
 """
 
+import asyncio
 import logging
 import random
 import time
@@ -28,28 +29,10 @@ _T = TypeVar("_T")
 NO_RETRY = RetryConfig(max_retries=0)
 
 
-class UnusableResultError(Exception):
-    """Every attempt returned a result the caller refused to accept."""
-
-    def __init__(self, function: str | None, attempts: int) -> None:
-        """Record which call kept returning unusable results.
-
-        Args:
-            function: The BAML function name, if one was given.
-            attempts: How many attempts ran before giving up.
-        """
-        self.function = function
-        self.attempts = attempts
-        super().__init__(
-            f"LLM call {function or '<unknown>'} returned an unusable "
-            f"result on all {attempts} attempt(s)"
-        )
-
-
 def _is_permanently_unretryable(exc: BaseException) -> bool:
     """Return whether exc would fail identically on every retry.
 
-    An invalid function argument or an HTTP 4xx other than 429 (rate
+    An invalid function argument or an HTTP 4xx other than 408 or 429 (rate
     limiting) reflects the request itself, not a transient provider hiccup —
     retrying it spends the whole retry budget on an error retrying cannot
     fix. Returns False, never raising, when ``baml_py`` is not installed or
@@ -66,7 +49,7 @@ def _is_permanently_unretryable(exc: BaseException) -> bool:
     if isinstance(exc, BamlInvalidArgumentError):
         return True
     if isinstance(exc, BamlClientHttpError):
-        return exc.status_code != 429 and 400 <= exc.status_code < 500
+        return exc.status_code not in (408, 429) and 400 <= exc.status_code < 500
     return False
 
 
@@ -77,7 +60,6 @@ async def call_with_retry(
     options: Mapping[str, Any] | None = None,
     tracer: Tracer | None = None,
     function: str | None = None,
-    accept_result: Callable[[_T], bool] | None = None,
 ) -> _T:
     """Retry an async BAML call with exponential backoff, tracing each attempt.
 
@@ -88,28 +70,25 @@ async def call_with_retry(
         retry: Backoff settings. ``max_retries`` is the number of retries
             after the first attempt. ``timeout_ms`` stops new attempts once
             it elapses; it never interrupts an in-flight attempt.
+            ``request_timeout_ms`` cancels one attempt that runs too long. Zero
+            disables this request timeout.
         options: The BAML call options shared by every attempt, such as the
             client registry and the type builder.
         tracer: Opens ``agrag.llm.call``, one ``agrag.llm.attempt`` per attempt
             and one ``agrag.llm.request`` per provider request. ``None`` opens
             no recorded span.
         function: The BAML function name, recorded as ``agrag.llm.function``.
-        accept_result: Return whether a successful result is usable. A result
-            it rejects is retried like a transient failure. None accepts every
-            result.
 
     Returns:
-        The first successful call's result, or the first result
-        ``accept_result`` accepts.
+        The first successful call's result.
 
     Raises:
         Exception: The last attempt's exception, if every attempt fails, or
             immediately for a BAML error that would fail identically on
-            retry (an invalid argument, or an HTTP 4xx other than 429). When
-            ``timeout_ms`` elapses, no further attempt starts and the last
-            failure raises as-is instead of waiting out the remaining budget.
-        UnusableResultError: Every attempt returned a result ``accept_result``
-            rejected.
+            retry (an invalid argument, or an HTTP 4xx other than 408 or 429).
+            When ``timeout_ms`` elapses, no further attempt starts and the
+            last failure raises as-is instead of waiting out the remaining
+            budget.
     """
     active = get_tracer(tracer)
     attempts = retry.max_retries + 1
@@ -126,20 +105,17 @@ async def call_with_retry(
         while True:
             attempt += 1
             try:
-                result = await _run_attempt(active, call, options, attempt)
+                result = await _run_attempt(
+                    active, call, options, attempt, retry.request_timeout_ms / 1000
+                )
             except Exception as exc:  # noqa: BLE001
                 if attempt >= attempts or _is_permanently_unretryable(exc):
                     call_span.set_attribute("agrag.llm.attempt_count", attempt)
                     raise
                 failure: BaseException = exc
             else:
-                if accept_result is None or accept_result(result):
-                    call_span.set_attribute("agrag.llm.attempt_count", attempt)
-                    return result
-                if attempt >= attempts:
-                    call_span.set_attribute("agrag.llm.attempt_count", attempt)
-                    raise UnusableResultError(function, attempt)
-                failure = UnusableResultError(function, attempt)
+                call_span.set_attribute("agrag.llm.attempt_count", attempt)
+                return result
             wait = min(delay_seconds, max_delay_seconds) * random.uniform(0.5, 1.0)
             if deadline is not None:
                 remaining = deadline - time.monotonic()
@@ -165,6 +141,7 @@ async def _run_attempt(
     call: Callable[[dict[str, Any]], Awaitable[_T]],
     options: Mapping[str, Any] | None,
     attempt: int,
+    request_timeout_seconds: float,
 ) -> _T:
     """Run one attempt under its own span and write its request spans."""
     started = time.time_ns()
@@ -178,6 +155,10 @@ async def _run_attempt(
         if collector is not None:
             attempt_options["collector"] = collector
         try:
+            if request_timeout_seconds > 0:
+                return await asyncio.wait_for(
+                    call(attempt_options), request_timeout_seconds
+                )
             return await call(attempt_options)
         finally:
             if collector is not None:

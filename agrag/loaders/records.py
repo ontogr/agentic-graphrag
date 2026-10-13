@@ -79,8 +79,6 @@ class CsvLoader(RecordLoader):
             for index, row in enumerate(reader):
                 if index < start_at:
                     continue
-                if row is None:
-                    continue
                 yield build_record_document(
                     source=source,
                     decoded=decoded,
