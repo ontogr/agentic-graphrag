@@ -4,6 +4,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field, model_validator
 
+from agrag.common.data_models.candidate import CandidateRecord
+
 
 class ExtractedEntity(BaseModel):
     """One entity mention found in a single Chunk.
@@ -16,12 +18,14 @@ class ExtractedEntity(BaseModel):
         label: The EntityType label this mention was extracted as.
         text: The mention's surface text.
         char_start: The start character offset within the chunk's text.
-        char_end: The end character offset within the chunk's text.
-        confidence: The extractor's confidence in this mention, when available.
-        properties: Schema-declared property values this mention carries,
-            keyed by property name. Empty for an extractor that only reports
-            spans. normalize_extraction_result drops any key that the schema
-            does not declare for this mention's label.
+        char_end: The end character offset within the chunk's text. The
+            offsets of a mention never include the whitespace around its text.
+        confidence: The extractor's confidence in this mention, when the
+            extractor reports one. The local extractor always sets it.
+        properties: Property values this mention carries, keyed by property
+            name. Empty for an extractor that only reports spans. The LLM
+            extractor keeps only the keys that the schema declares for this
+            mention's label.
     """
 
     chunk_id: UUID
@@ -80,13 +84,21 @@ class ExtractionResult(BaseModel):
         entities: The mentions found, in extraction order.
         relations: The relation mentions found, referencing entities by index.
         extractor_name: Which Extractor produced this result. Set by the
-            Extractor itself. Useful for provenance when an EscalatingExtractor
-            escalated.
+            Extractor itself. Useful for provenance when the pipeline mixes
+            extractors.
+        candidates: Items the extractor found but did not keep, each with the
+            reason. Empty when the extractor does not report discards or when
+            candidates are turned off.
+        needs_properties: Whether a kept entity has a type that declares
+            properties. An extractor that cannot fill property values sets it
+            so that a stronger extractor can read the chunk again.
     """
 
     entities: list[ExtractedEntity]
     relations: list[ExtractedRelation]
     extractor_name: str
+    candidates: list[CandidateRecord] = Field(default_factory=list)
+    needs_properties: bool = False
 
     @model_validator(mode="after")
     def _validate_relation_bounds(self) -> "ExtractionResult":

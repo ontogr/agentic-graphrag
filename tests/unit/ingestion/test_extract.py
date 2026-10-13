@@ -132,26 +132,6 @@ _TWO_LABELS_SCHEMA = GraphSchema(
     ],
 )
 
-# Schema where the same span has two entity labels (Product and Organization),
-# with a relation (SIMILAR_TO) whose pattern requires the *first/overwritten*
-# label (Product). Used to test that candidate resolution picks the right label.
-_OVERWRITE_LABEL_SCHEMA = GraphSchema(
-    name="overwrite-label",
-    version="1",
-    entities=[
-        EntityType(label="Product", description="A product."),
-        EntityType(label="Organization", description="A company."),
-    ],
-    relations=[
-        RelationType(
-            label="SIMILAR_TO",
-            description="Two products are similar.",
-            patterns=[("Product", "Product")],
-        ),
-    ],
-)
-
-
 # Schema declaring one property ("role") on Person, used to test that
 # normalization keeps a declared property key and drops an undeclared one.
 _PROPERTY_SCHEMA = GraphSchema(
@@ -187,413 +167,235 @@ def _chunk(
     )
 
 
-class TestGlinerExtractor:
-    """GlinerExtractor raises when gliner2 is not installed."""
+class FakeSchema:
+    """Records the specs that GlinerExtractor passes to the schema builder."""
 
-    @pytest.mark.parametrize(
-        ("patterns", "symmetric"),
-        [
-            ([("Organization", "Organization")], False),
-            ([("Organization", "Company")], True),
-        ],
-    )
-    async def test_extract_allows_descendants_and_reversed_symmetric_pairs(
-        self, patterns: list[tuple[str, str]], symmetric: bool
-    ) -> None:
-        """Schema ancestry and symmetry govern public GLiNER relation output."""
+    def __init__(self) -> None:
+        """Start with no specs recorded."""
+        self.entity_spec: dict[str, object] | None = None
+        self.relation_spec: dict[str, object] | None = None
+
+    def entities(self, spec: dict[str, object]) -> "FakeSchema":
+        """Record the entity specs and return this builder."""
+        self.entity_spec = spec
+        return self
+
+    def relations(self, spec: dict[str, object]) -> "FakeSchema":
+        """Record the relation specs and return this builder."""
+        self.relation_spec = spec
+        return self
+
+
+class FakeModel:
+    """A gliner2 stand-in that replays outputs and records every call.
+
+    Each call to ``extract`` returns the next queued output. The last output
+    repeats when the queue runs out.
+    """
+
+    def __init__(self, *outputs: dict[str, object]) -> None:
+        """Queue the outputs that extract returns, in order."""
+        self._outputs = list(outputs) or [{"entities": {}, "relation_extraction": {}}]
+        self.schemas: list[FakeSchema] = []
+        self.calls: list[dict[str, object]] = []
+
+    def create_schema(self) -> FakeSchema:
+        """Return a new schema builder and record it."""
+        schema = FakeSchema()
+        self.schemas.append(schema)
+        return schema
+
+    def extract(self, text: str, schema: FakeSchema, **kwargs: object) -> dict:
+        """Record the call and return the next queued output."""
+        self.calls.append({"text": text, "schema": schema, **kwargs})
+        if len(self._outputs) > 1:
+            return self._outputs.pop(0)
+        return self._outputs[0]
+
+
+class TestGlinerExtractor:
+    """GlinerExtractor builds one model call per chunk and maps its output."""
+
+    async def test_one_call_carries_entity_and_relation_specs(self) -> None:
+        """One call holds every type with its description and a relation floor."""
+        model = FakeModel()
+        settings = ExtractionSettings(
+            entity_threshold=0.5, relation_floor=0.3, candidates_enabled=False
+        )
+
+        await GlinerExtractor(model=model, settings=settings).extract(
+            _chunk(), _ONE_PAIR_SCHEMA
+        )
+
+        (call,) = model.calls
+        assert call["threshold"] == 0.5
+        assert call["include_confidence"] is True
+        assert call["include_spans"] is True
+        (schema,) = model.schemas
+        assert schema.entity_spec == {
+            "Person": "A named individual.",
+            "Organization": "A company or institution.",
+        }
+        assert schema.relation_spec == {
+            "WORKS_AT": {
+                "description": "A person works at an organization.",
+                "threshold": 0.3,
+            }
+        }
+
+    async def test_label_thresholds_reach_the_model_specs(self) -> None:
+        """A label threshold sets the entity threshold and can lower the floor."""
+        model = FakeModel()
+        settings = ExtractionSettings(
+            label_thresholds={"Person": 0.8, "WORKS_AT": 0.2},
+            candidates_enabled=False,
+        )
+
+        await GlinerExtractor(model=model, settings=settings).extract(
+            _chunk(), _ONE_PAIR_SCHEMA
+        )
+
+        (schema,) = model.schemas
+        assert schema.entity_spec is not None
+        assert schema.entity_spec["Person"] == {
+            "description": "A named individual.",
+            "threshold": 0.8,
+        }
+        assert schema.entity_spec["Organization"] == "A company or institution."
+        assert schema.relation_spec is not None
+        assert schema.relation_spec["WORKS_AT"] == {
+            "description": "A person works at an organization.",
+            "threshold": 0.2,
+        }
+
+    async def test_parent_and_child_labels_are_both_in_the_call(self) -> None:
+        """A type with a parent adds no second call: both labels share one."""
         schema = GraphSchema(
-            name="hierarchical",
+            name="parents",
             version="1",
             entities=[
-                EntityType(label="Organization", description="An organization."),
+                EntityType(label="Organization", description="A company."),
                 EntityType(
-                    label="Company",
-                    description="A company.",
+                    label="Vendor",
+                    description="A company that sells goods.",
                     parents=["Organization"],
                 ),
-                EntityType(label="Person", description="A person."),
-                EntityType(label="Condition", description="A condition."),
             ],
-            relations=[
-                RelationType(
-                    label="ASSOCIATED_WITH",
-                    description="Two things are associated.",
-                    patterns=patterns,
-                    symmetric=symmetric,
-                )
-            ],
+            relations=[],
+        )
+        model = FakeModel()
+
+        await GlinerExtractor(
+            model=model, settings=ExtractionSettings(candidates_enabled=False)
+        ).extract(_chunk(), schema)
+
+        assert len(model.calls) == 1
+        assert model.schemas[0].entity_spec is not None
+        assert set(model.schemas[0].entity_spec) == {"Organization", "Vendor"}
+
+    async def test_band_call_runs_at_the_floor_with_entities_only(self) -> None:
+        """With candidates on, a second entity-only call runs at band_floor."""
+        chunk = _chunk("Ada Lovelace met Bob Smith.")
+        main = {
+            "entities": {
+                "Person": [
+                    {"text": "Ada Lovelace", "confidence": 0.9, "start": 0, "end": 12}
+                ]
+            },
+            "relation_extraction": {},
+        }
+        band = {
+            "entities": {
+                "Organization": [
+                    {"text": "Bob Smith", "confidence": 0.4, "start": 17, "end": 26}
+                ]
+            }
+        }
+        model = FakeModel(main, band)
+        settings = ExtractionSettings(
+            entity_threshold=0.5, band_floor=0.3, candidates_enabled=True
         )
 
-        class MockModel:
-            def create_schema(self) -> "MockModel":
-                return self
-
-            def entities(self, labels: list[str]) -> "MockModel":
-                return self
-
-            def relations(self, labels: list[str]) -> "MockModel":
-                return self
-
-            def extract(
-                self, text: str, schema: object, include_spans=False, **_: object
-            ) -> dict:
-                company_start = text.index("Acme")
-                organization_start = text.index("OrgCo")
-                person_start = text.index("Ada")
-                return {
-                    "entities": {
-                        "Company": [
-                            {
-                                "text": "Acme",
-                                "start": company_start,
-                                "end": company_start + 4,
-                            }
-                        ],
-                        "Organization": [
-                            {
-                                "text": "OrgCo",
-                                "start": organization_start,
-                                "end": organization_start + 5,
-                            }
-                        ],
-                        "Person": [
-                            {
-                                "text": "Ada",
-                                "start": person_start,
-                                "end": person_start + 3,
-                            }
-                        ],
-                    },
-                    "relation_extraction": {
-                        "ASSOCIATED_WITH": [
-                            {
-                                "head": {
-                                    "text": "Acme",
-                                    "start": company_start,
-                                    "end": company_start + 4,
-                                },
-                                "tail": {
-                                    "text": "OrgCo",
-                                    "start": organization_start,
-                                    "end": organization_start + 5,
-                                },
-                            },
-                            {
-                                "head": {
-                                    "text": "Acme",
-                                    "start": company_start,
-                                    "end": company_start + 4,
-                                },
-                                "tail": {
-                                    "text": "Ada",
-                                    "start": person_start,
-                                    "end": person_start + 3,
-                                },
-                            },
-                        ]
-                    },
-                }
-
-        result = await GlinerExtractor(model=MockModel()).extract(
-            _chunk("Acme met OrgCo, and Ada joined."), schema
+        result = await GlinerExtractor(model=model, settings=settings).extract(
+            chunk, _ONE_PAIR_SCHEMA
         )
 
-        assert [
-            (relation.source_index, relation.target_index)
-            for relation in result.relations
-        ] == [(0, 1)]
-
-    async def test_extract_maps_model_output_and_schema(self) -> None:
-        """Injected model output becomes indexed entities and relations."""
-
-        class MockSchemaBuilder:
-            def __init__(self) -> None:
-                self.entity_descriptions: dict[str, str] = {}
-                self.relation_descriptions: dict[str, str] = {}
-
-            def entities(self, descriptions: dict[str, str]) -> "MockSchemaBuilder":
-                self.entity_descriptions = descriptions
-                return self
-
-            def relations(self, descriptions: dict[str, str]) -> "MockSchemaBuilder":
-                self.relation_descriptions = descriptions
-                return self
-
-        class MockModel:
-            def __init__(self) -> None:
-                self.schema = MockSchemaBuilder()
-
-            def create_schema(self) -> MockSchemaBuilder:
-                return self.schema
-
-            def extract(
-                self,
-                text: str,
-                schema: MockSchemaBuilder,
-                include_spans: bool = False,
-                **_: object,
-            ) -> dict:
-                assert text.startswith("Ada Lovelace")
-                assert schema is self.schema
-                assert include_spans is True
-                return {
-                    "entities": {
-                        "Person": [{"text": "Ada Lovelace", "start": 0, "end": 12}],
-                        "Organization": [
-                            {
-                                "text": "Analytical Engine Company",
-                                "start": 27,
-                                "end": 53,
-                            }
-                        ],
-                    },
-                    "relation_extraction": {
-                        "WORKS_FOR": [
-                            {
-                                "head": {
-                                    "text": "Ada Lovelace",
-                                    "start": 0,
-                                    "end": 12,
-                                },
-                                "tail": {
-                                    "text": "Analytical Engine Company",
-                                    "start": 27,
-                                    "end": 53,
-                                },
-                            }
-                        ]
-                    },
-                }
-
-        model = MockModel()
-        result = await GlinerExtractor(model=model).extract(_chunk(), DEFAULT_SCHEMA)
-
-        assert model.schema.entity_descriptions == {
-            item.label: item.description for item in DEFAULT_SCHEMA.entities
-        }
-        assert model.schema.relation_descriptions == {
-            item.label: item.description for item in DEFAULT_SCHEMA.relations
-        }
-        assert [(entity.text, entity.char_start) for entity in result.entities] == [
-            ("Ada Lovelace", 0),
-            ("Analytical Engine Company", 27),
+        assert [call["threshold"] for call in model.calls] == [0.5, 0.3]
+        assert model.schemas[1].relation_spec is None
+        assert [e.text for e in result.entities] == ["Ada Lovelace"]
+        assert [(c.reason, c.text) for c in result.candidates] == [
+            ("entity_band", "Bob Smith")
         ]
-        assert result.relations[0].source_index == 0
-        assert result.relations[0].target_index == 1
+
+    async def test_failing_band_call_keeps_the_main_entities(self) -> None:
+        """A band call that raises leaves the main call's entities in place."""
+        chunk = _chunk("Ada Lovelace met Bob Smith.")
+        main = {
+            "entities": {
+                "Person": [
+                    {"text": "Ada Lovelace", "confidence": 0.9, "start": 0, "end": 12}
+                ]
+            },
+            "relation_extraction": {},
+        }
+
+        class BandFailsModel(FakeModel):
+            def extract(self, text: str, schema: FakeSchema, **kwargs: object) -> dict:
+                if kwargs["threshold"] == 0.3:
+                    raise RuntimeError("band call failed")
+                return super().extract(text, schema, **kwargs)
+
+        model = BandFailsModel(main)
+        settings = ExtractionSettings(
+            entity_threshold=0.5, band_floor=0.3, candidates_enabled=True
+        )
+
+        result = await GlinerExtractor(model=model, settings=settings).extract(
+            chunk, _ONE_PAIR_SCHEMA
+        )
+
+        assert [e.text for e in result.entities] == ["Ada Lovelace"]
+        assert result.candidates == []
+
+    async def test_no_band_call_when_candidates_are_off(self) -> None:
+        """Turning candidates off removes the second model call."""
+        model = FakeModel()
+
+        result = await GlinerExtractor(
+            model=model, settings=ExtractionSettings(candidates_enabled=False)
+        ).extract(_chunk(), _ONE_PAIR_SCHEMA)
+
+        assert len(model.calls) == 1
+        assert result.candidates == []
+
+    async def test_extract_maps_relation_and_confidence(self) -> None:
+        """Kept entities and a relation come back with their scores."""
+        chunk = _chunk("Ada works at Acme.")
+        ada = {"text": "Ada", "confidence": 0.9, "start": 0, "end": 3}
+        acme = {"text": "Acme", "confidence": 0.8, "start": 13, "end": 17}
+        edge = {
+            "head": {**ada, "confidence": 0.85},
+            "tail": {**acme, "confidence": 0.85},
+        }
+        model = FakeModel(
+            {
+                "entities": {"Person": [ada], "Organization": [acme]},
+                "relation_extraction": {"WORKS_AT": [edge]},
+            }
+        )
+
+        result = await GlinerExtractor(
+            model=model, settings=ExtractionSettings(candidates_enabled=False)
+        ).extract(chunk, _ONE_PAIR_SCHEMA)
+
+        assert [(e.label, e.text, e.confidence) for e in result.entities] == [
+            ("Person", "Ada", 0.9),
+            ("Organization", "Acme", 0.8),
+        ]
+        (relation,) = result.relations
+        assert (relation.source_index, relation.target_index) == (0, 1)
+        assert relation.confidence == 0.85
         assert result.extractor_name == "gliner"
-
-    async def test_extract_disambiguates_duplicate_mention_text(self) -> None:
-        """Two mentions with identical text resolve to their own entity index."""
-
-        class MockModel:
-            def create_schema(self) -> "MockModel":
-                return self
-
-            def entities(self, labels: list[str]) -> "MockModel":
-                return self
-
-            def relations(self, labels: list[str]) -> "MockModel":
-                return self
-
-            def extract(
-                self, text: str, schema: object, include_spans=False, **_: object
-            ) -> dict:
-                return {
-                    "entities": {
-                        "Person": [
-                            {"text": "Ada", "start": 0, "end": 3},
-                            {"text": "Ada", "start": 27, "end": 30},
-                        ],
-                        "Organization": [{"text": "Acme", "start": 15, "end": 19}],
-                    },
-                    "relation_extraction": {
-                        "WORKS_AT": [
-                            {
-                                "head": {"text": "Ada", "start": 27, "end": 30},
-                                "tail": {"text": "Acme", "start": 15, "end": 19},
-                            }
-                        ]
-                    },
-                }
-
-        chunk = _chunk("Ada met Bob at Acme; later Ada left.")
-        assert chunk.text.index("Ada", 1) == 27
-        assert chunk.text.index("Acme") == 15
-        result = await GlinerExtractor(model=MockModel()).extract(
-            chunk, _ONE_PAIR_SCHEMA
-        )
-
-        assert len(result.entities) == 3
-        assert len(result.relations) == 1
-        # The relation must target the second "Ada" mention (index 1), not the first.
-        assert result.relations[0].source_index == 1
-        assert result.relations[0].target_index == 2
-
-    async def test_extract_drops_relations_the_schema_does_not_permit(self) -> None:
-        """A relation whose endpoint labels the schema forbids is dropped."""
-
-        class MockModel:
-            def create_schema(self) -> "MockModel":
-                return self
-
-            def entities(self, labels: list[str]) -> "MockModel":
-                return self
-
-            def relations(self, labels: list[str]) -> "MockModel":
-                return self
-
-            def extract(
-                self, text: str, schema: object, include_spans=False, **_: object
-            ) -> dict:
-                return {
-                    "entities": {
-                        "Person": [{"text": "Ada", "start": 0, "end": 3}],
-                        "Organization": [{"text": "Acme", "start": 13, "end": 17}],
-                    },
-                    "relation_extraction": {
-                        # Reversed: Organization -> Person is not a declared pattern.
-                        "WORKS_AT": [
-                            {
-                                "head": {"text": "Acme", "start": 13, "end": 17},
-                                "tail": {"text": "Ada", "start": 0, "end": 3},
-                            }
-                        ]
-                    },
-                }
-
-        result = await GlinerExtractor(model=MockModel()).extract(
-            _chunk("Ada works at Acme."), _ONE_PAIR_SCHEMA
-        )
-        assert len(result.entities) == 2
-        assert result.relations == []
-
-    async def test_extract_drops_self_referencing_relation(self) -> None:
-        """A relation whose head and tail resolve to the same entity is dropped.
-
-        A malformed relation naming the same mention as both endpoints must
-        not abort the whole chunk: ExtractedRelation rejects a self-reference
-        outright, so _to_result has to catch it first.
-        """
-
-        class MockModel:
-            def create_schema(self) -> "MockModel":
-                return self
-
-            def entities(self, labels: list[str]) -> "MockModel":
-                return self
-
-            def relations(self, labels: list[str]) -> "MockModel":
-                return self
-
-            def extract(
-                self, text: str, schema: object, include_spans=False, **_: object
-            ) -> dict:
-                return {
-                    "entities": {
-                        "Person": [{"text": "Ada", "start": 0, "end": 3}],
-                    },
-                    "relation_extraction": {
-                        "KNOWS": [
-                            {
-                                "head": {"text": "Ada", "start": 0, "end": 3},
-                                "tail": {"text": "Ada", "start": 0, "end": 3},
-                            }
-                        ]
-                    },
-                }
-
-        result = await GlinerExtractor(model=MockModel()).extract(
-            _chunk(), _KNOWS_SCHEMA
-        )
-
-        assert len(result.entities) == 1
-        assert result.relations == []
-
-    async def test_extract_drops_relation_with_undeclared_label(self) -> None:
-        """A relation label the schema never declares is dropped."""
-
-        class MockModel:
-            def create_schema(self) -> "MockModel":
-                return self
-
-            def entities(self, labels: list[str]) -> "MockModel":
-                return self
-
-            def relations(self, labels: list[str]) -> "MockModel":
-                return self
-
-            def extract(
-                self, text: str, schema: object, include_spans=False, **_: object
-            ) -> dict:
-                return {
-                    "entities": {
-                        "Person": [{"text": "Ada", "start": 0, "end": 3}],
-                        "Organization": [{"text": "Acme", "start": 13, "end": 17}],
-                    },
-                    "relation_extraction": {
-                        # Correct Person -> Organization pair, but the schema
-                        # never declares a FOUNDED relation type at all.
-                        "FOUNDED": [
-                            {
-                                "head": {"text": "Ada", "start": 0, "end": 3},
-                                "tail": {"text": "Acme", "start": 13, "end": 17},
-                            }
-                        ]
-                    },
-                }
-
-        result = await GlinerExtractor(model=MockModel()).extract(
-            _chunk("Ada works at Acme."), _ONE_PAIR_SCHEMA
-        )
-        assert len(result.entities) == 2
-        assert result.relations == []
-
-    async def test_extract_drops_undeclared_entity_and_remaps_relation_indices(
-        self,
-    ) -> None:
-        """An entity with an undeclared label is dropped; relation indices remap."""
-
-        class MockModel:
-            def create_schema(self) -> "MockModel":
-                return self
-
-            def entities(self, labels: list[str]) -> "MockModel":
-                return self
-
-            def relations(self, labels: list[str]) -> "MockModel":
-                return self
-
-            def extract(
-                self, text: str, schema: object, include_spans=False, **_: object
-            ) -> dict:
-                return {
-                    "entities": {
-                        "Person": [{"text": "Ada", "start": 0, "end": 3}],
-                        # Animal is not declared in _ONE_PAIR_SCHEMA at all.
-                        "Animal": [{"text": "Rex", "start": 4, "end": 7}],
-                        "Organization": [{"text": "Acme", "start": 17, "end": 21}],
-                    },
-                    "relation_extraction": {
-                        "WORKS_AT": [
-                            {
-                                "head": {"text": "Ada", "start": 0, "end": 3},
-                                "tail": {"text": "Acme", "start": 17, "end": 21},
-                            }
-                        ]
-                    },
-                }
-
-        chunk = _chunk("Ada Rex works at Acme.")
-        result = await GlinerExtractor(model=MockModel()).extract(
-            chunk, _ONE_PAIR_SCHEMA
-        )
-
-        assert [entity.text for entity in result.entities] == ["Ada", "Acme"]
-        assert len(result.relations) == 1
-        # Acme was originally index 2; after Rex (index 1) is dropped, it must
-        # be remapped to index 1, not left pointing at the old index.
-        assert result.relations[0].source_index == 0
-        assert result.relations[0].target_index == 1
 
     def test_raises_when_gliner2_not_importable(self) -> None:
         """ExtractorMissingExtraError is raised if gliner2 can't be imported."""
@@ -605,23 +407,6 @@ class TestGlinerExtractor:
 
     async def test_concurrent_extract_loads_model_once(self) -> None:
         """Concurrent first calls to extract() load the model exactly once."""
-
-        class MockSchemaBuilder:
-            def entities(self, labels: list[str]) -> "MockSchemaBuilder":
-                return self
-
-            def relations(self, labels: list[str]) -> "MockSchemaBuilder":
-                return self
-
-        class MockModel:
-            def create_schema(self) -> MockSchemaBuilder:
-                return MockSchemaBuilder()
-
-            def extract(
-                self, text: str, schema: object, include_spans=False, **_: object
-            ) -> dict:
-                return {"entities": {}, "relation_extraction": {}}
-
         extractor = GlinerExtractor(settings=ExtractionSettings(model_name="fake"))
         load_started = threading.Event()
         release_load = threading.Event()
@@ -631,7 +416,7 @@ class TestGlinerExtractor:
             load_calls.append(1)
             load_started.set()
             assert release_load.wait(timeout=5), "test deadlocked"
-            extractor._model = MockModel()
+            extractor._model = FakeModel()
             return extractor._model
 
         extractor._ensure_model = blocking_ensure_model
@@ -649,23 +434,6 @@ class TestGlinerExtractor:
 
     async def test_cancelled_waiter_does_not_duplicate_the_model_load(self) -> None:
         """A cancelled first waiter does not stop the load or start a second one."""
-
-        class MockSchemaBuilder:
-            def entities(self, labels: list[str]) -> "MockSchemaBuilder":
-                return self
-
-            def relations(self, labels: list[str]) -> "MockSchemaBuilder":
-                return self
-
-        class MockModel:
-            def create_schema(self) -> MockSchemaBuilder:
-                return MockSchemaBuilder()
-
-            def extract(
-                self, text: str, schema: object, include_spans=False, **_: object
-            ) -> dict:
-                return {"entities": {}, "relation_extraction": {}}
-
         extractor = GlinerExtractor(settings=ExtractionSettings(model_name="fake"))
         load_started = threading.Event()
         release_load = threading.Event()
@@ -675,7 +443,7 @@ class TestGlinerExtractor:
             load_calls.append(1)
             load_started.set()
             assert release_load.wait(timeout=5), "test deadlocked"
-            extractor._model = MockModel()
+            extractor._model = FakeModel()
             return extractor._model
 
         extractor._ensure_model = blocking_ensure_model
@@ -697,97 +465,6 @@ class TestGlinerExtractor:
 
         assert load_calls == [1]
         assert result_two.extractor_name == "gliner"
-
-    async def test_extract_preserves_relation_needing_overwritten_label(self) -> None:
-        """A relation valid only for the first (overwritten) label survives.
-
-        GLiNER can return the same mention span under multiple schema labels.
-        The old span_index overwrote earlier labels with later ones, so a relation
-        whose pattern required the first label would resolve to the wrong entity
-        label and be dropped by normalization. With candidate preservation and
-        pattern-aware resolution, the correct label is found.
-        """
-        chunk = _chunk("Apple released the iPhone.")
-        apple_start = chunk.text.index("Apple")
-        iphone_start = chunk.text.index("iPhone")
-
-        class MockModel:
-            def create_schema(self) -> "MockModel":
-                return self
-
-            def entities(self, labels: list[str]) -> "MockModel":
-                return self
-
-            def relations(self, labels: list[str]) -> "MockModel":
-                return self
-
-            def extract(
-                self, text: str, schema: object, include_spans=False, **_: object
-            ) -> dict:
-                return {
-                    "entities": {
-                        # Product first: Apple gets index 0, iPhone gets index 1
-                        "Product": [
-                            {
-                                "text": "Apple",
-                                "start": apple_start,
-                                "end": apple_start + 5,
-                            },
-                            {
-                                "text": "iPhone",
-                                "start": iphone_start,
-                                "end": iphone_start + 6,
-                            },
-                        ],
-                        # Organization second: same Apple span gets index 2
-                        # (overwrites in old code)
-                        "Organization": [
-                            {
-                                "text": "Apple",
-                                "start": apple_start,
-                                "end": apple_start + 5,
-                            },
-                        ],
-                    },
-                    "relation_extraction": {
-                        # SIMILAR_TO pattern is (Product, Product) — needs
-                        # the overwritten label
-                        "SIMILAR_TO": [
-                            {
-                                "head": {
-                                    "text": "Apple",
-                                    "start": apple_start,
-                                    "end": apple_start + 5,
-                                },
-                                "tail": {
-                                    "text": "iPhone",
-                                    "start": iphone_start,
-                                    "end": iphone_start + 6,
-                                },
-                            }
-                        ],
-                    },
-                }
-
-        result = await GlinerExtractor(model=MockModel()).extract(
-            chunk, _OVERWRITE_LABEL_SCHEMA
-        )
-
-        # Both entities survive (Apple as Product, Apple as Organization,
-        # iPhone as Product)
-        assert len(result.entities) == 3
-        labels = {entity.label for entity in result.entities}
-        assert labels == {"Product", "Organization"}
-
-        # The relation resolves to the Product Apple (index 0),
-        # not the Organization Apple
-        assert len(result.relations) == 1
-        relation = result.relations[0]
-        assert relation.label == "SIMILAR_TO"
-        assert relation.source_index == 0  # Apple as Product
-        assert relation.target_index == 1  # iPhone as Product
-        assert result.entities[relation.source_index].label == "Product"
-        assert result.entities[relation.target_index].label == "Product"
 
 
 class TestGlinerSettings:
@@ -902,6 +579,7 @@ class TestGlinerSettings:
         settings = ExtractionSettings(
             entity_threshold=0.62,
             label_thresholds={"Person": 0.8, "Missing": 0.9},
+            candidates_enabled=False,
         )
 
         await GlinerExtractor(settings=settings, model=Model()).extract(
@@ -982,7 +660,10 @@ class TestGlinerContext:
 
         marker.set("from-caller")
 
-        await GlinerExtractor(model=ContextModel()).extract(_chunk(), DEFAULT_SCHEMA)
+        await GlinerExtractor(
+            model=ContextModel(),
+            settings=ExtractionSettings(candidates_enabled=False),
+        ).extract(_chunk(), DEFAULT_SCHEMA)
 
         assert seen == ["from-caller"]
 
@@ -1848,6 +1529,7 @@ class TestEscalatingExtractor:
         *,
         primary_entities: list | None = None,
         primary_confidences: list[float | None] | None = None,
+        primary_needs_properties: bool = False,
         escalate_entities: list | None = None,
     ) -> tuple[EscalatingExtractor, list[str]]:
         """Build an EscalatingExtractor with a fake primary and escalate_to.
@@ -1872,6 +1554,7 @@ class TestEscalatingExtractor:
             else [],
             relations=[],
             extractor_name="primary",
+            needs_properties=primary_needs_properties,
         )
 
         escalate_result = ExtractionResult(
@@ -1926,6 +1609,18 @@ class TestEscalatingExtractor:
         extractor, ran = self._make_extractor(
             primary_entities=[1, 2],
             primary_confidences=[0.3, 0.4],
+        )
+        result = await extractor.extract(chunk, DEFAULT_SCHEMA)
+        assert ran == ["primary", "escalate"]
+        assert result.extractor_name == "escalate"
+
+    async def test_escalates_when_primary_leaves_properties_unfilled(self) -> None:
+        """A confident primary result that needs properties still escalates."""
+        chunk = _chunk("This is a chunk with enough words to pass the floor.")
+        extractor, ran = self._make_extractor(
+            primary_entities=[1, 2],
+            primary_confidences=[0.9, 0.95],
+            primary_needs_properties=True,
         )
         result = await extractor.extract(chunk, DEFAULT_SCHEMA)
         assert ran == ["primary", "escalate"]
@@ -2042,37 +1737,22 @@ class TestExtractionSpans:
 
     async def test_gliner_span_carries_counts_without_model_load(self) -> None:
         """An injected model emits the gliner span but no model_load span."""
-
-        class FakeModel:
-            def create_schema(self) -> "FakeModel":
-                return self
-
-            def entities(self, descriptions: dict) -> "FakeModel":
-                return self
-
-            def relations(self, descriptions: dict) -> "FakeModel":
-                return self
-
-            def extract(
-                self,
-                text: str,
-                schema: object,
-                include_spans: bool = False,
-                **_: object,
-            ) -> dict:
-                return {
-                    "entities": {
-                        "Person": [{"text": "Ada", "start": 0, "end": 3}],
-                    },
-                    "relation_extraction": {},
-                }
-
+        model = FakeModel(
+            {
+                "entities": {
+                    "Person": [{"text": "Ada", "confidence": 0.9, "start": 0, "end": 3}]
+                },
+                "relation_extraction": {},
+            }
+        )
         provider, exporter = _tracing_provider()
         chunk = _chunk()
         extractor = GlinerExtractor(
-            model=FakeModel(), tracer=provider.get_tracer("test")
+            model=model,
+            settings=ExtractionSettings(candidates_enabled=False),
+            tracer=provider.get_tracer("test"),
         )
-        result = await extractor.extract(chunk, DEFAULT_SCHEMA)
+        result = await extractor.extract(chunk, _ONE_PAIR_SCHEMA)
 
         assert len(result.entities) == 1
         grouped = _spans_by_name(exporter)
@@ -2084,26 +1764,6 @@ class TestExtractionSpans:
 
     async def test_gliner_model_load_span_carries_model_name(self) -> None:
         """Building the model emits one model_load span with the name."""
-
-        class FakeModel:
-            def create_schema(self) -> "FakeModel":
-                return self
-
-            def entities(self, descriptions: dict) -> "FakeModel":
-                return self
-
-            def relations(self, descriptions: dict) -> "FakeModel":
-                return self
-
-            def extract(
-                self,
-                text: str,
-                schema: object,
-                include_spans: bool = False,
-                **_: object,
-            ) -> dict:
-                return {"entities": {}, "relation_extraction": {}}
-
         fake_module = types.ModuleType("gliner2")
         fake_module.AutoExtractor = SimpleNamespace(
             from_pretrained=lambda name: FakeModel()

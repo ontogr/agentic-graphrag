@@ -124,6 +124,8 @@ class TestGlinerExtractorIntegration:
             assert entity.label in {e.label for e in DEFAULT_SCHEMA.entities}
             assert entity.text
             assert entity.char_start < entity.char_end
+            assert entity.confidence is not None
+            assert entity.confidence >= 0.5
 
     @pytest.mark.skipif(not _has_gliner2(), reason="gliner2 not installed")
     async def test_relation_indices_reference_valid_entities(self) -> None:

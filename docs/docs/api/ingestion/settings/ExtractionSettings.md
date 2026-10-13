@@ -13,9 +13,11 @@ Every score is between 0 and 1. `ExtractionLLMSettings` variables start
 with `EXTRACTION_LLM_` and are not read here, so no field may start with
 `llm_`.
 
-Relation thresholds and floors, the entity band, escalation controls, and
-candidate capture are validated configuration only; they do not yet affect
-extraction. `EscalatingExtractor` uses its own escalation parameters.
+The entity and relation thresholds, the relation floor, the entity band and
+the candidate switch shape what `GlinerExtractor` keeps and reports.
+Escalation controls are validated configuration only; they do not yet
+affect extraction. `EscalatingExtractor` uses its own escalation
+parameters.
 
 **Attributes:**
 
@@ -28,8 +30,11 @@ extraction. `EscalatingExtractor` uses its own escalation parameters.
 - [**relation_threshold**](#agrag-ingestion-settings-ExtractionSettings-relation_threshold) (<code>\_Score</code>) – Minimum score for a kept relation.
 - [**relation_floor**](#agrag-ingestion-settings-ExtractionSettings-relation_floor) (<code>\_Score</code>) – Minimum relation score returned by the model.
 - [**band_floor**](#agrag-ingestion-settings-ExtractionSettings-band_floor) (<code>\_Score</code>) – Minimum entity score in the band below the keep threshold.
-- [**label_thresholds**](#agrag-ingestion-settings-ExtractionSettings-label_thresholds) (<code>dict\[str, \_Score\]</code>) – Per-label thresholds that replace
-  `entity_threshold` for matching labels.
+- [**label_thresholds**](#agrag-ingestion-settings-ExtractionSettings-label_thresholds) (<code>dict\[str, \_Score\]</code>) – Per-label thresholds keyed by entity or relation label.
+  An entity label's threshold replaces `entity_threshold` for that
+  label. A relation label's threshold replaces `relation_threshold`
+  as the cut for kept relations, and the model reads that relation at
+  the lower of the threshold and `relation_floor`.
 - [**escalation_threshold**](#agrag-ingestion-settings-ExtractionSettings-escalation_threshold) (<code>\_Score</code>) – Entity score below which a chunk may use the LLM.
 - [**escalation_budget**](#agrag-ingestion-settings-ExtractionSettings-escalation_budget) (<code>\_Score | Literal['all']</code>) – LLM chunk share from 0 to 1, or `"all"` for no
   limit.

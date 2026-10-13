@@ -31,16 +31,18 @@ flowchart TD
 *The local model reads every chunk. The LLM result replaces a weak local result.*
 
 1. The extractor receives one chunk and the schema.
-2. The local model (GLiNER 2.5) proposes entities. Each entity has a label, a text span, and a confidence score. It also proposes relations between the entities.
-3. The cascade examines the result. It escalates in two cases. The local model found no entities in a chunk of at least eight words. Or the mean confidence of the entities is below 0.5.
-4. When the cascade escalates, an LLM reads the same chunk. The schema is part of its prompt. The LLM result replaces the local result. The cascade never combines the two.
-5. Validation removes every entity whose label the schema does not declare. It removes every relation whose label, or whose pair of entity types, the schema does not declare. A pattern that names a parent type also covers the child types of that type. It removes every property that the schema does not declare. Cardinality and symmetry declarations are not enforced on extracted edges.
-6. The result is a list of mentions. A mention is not a graph node yet. It keeps its chunk, label, text, character span, and confidence.
+2. The local model (GLiNER 2.5) reads the chunk once. It sees every entity type and every relation of the schema, each with its description. It returns entities with a text span and a confidence score. It also returns relations between them, with a score.
+3. The extractor keeps an entity when its score is 0.5 or more. It keeps a relation when its score is 0.7 or more and the pair of entity types is one that the schema allows. When a type has a parent type, the model sees both. If it returns the same words under both, the extractor keeps the label with the higher score. On a tie it keeps the child.
+4. The extractor does not throw away what it does not keep. It reports each dropped relation and each weak entity as a candidate, with the reason. You can turn this off.
+5. The cascade examines the result. It escalates in two cases. The local model found no entities in a chunk of at least eight words. Or the mean confidence of the entities is below 0.5.
+6. When the cascade escalates, an LLM reads the same chunk. The schema is part of its prompt. The LLM result replaces the local result. The cascade never combines the two.
+7. The local extractor checks labels and pairs while it reads the model output, so it needs no separate validation. For an LLM result, validation removes every entity whose label the schema does not declare. It removes every relation whose label, or whose pair of entity types, the schema does not declare. A pattern that names a parent type also covers the child types of that type. It removes every property that the schema does not declare. Cardinality and symmetry declarations are not enforced on extracted edges.
+8. The result is a list of mentions. A mention is not a graph node yet. It keeps its chunk, label, text, character span, and confidence.
 
 The cascade is a choice that you make when you open a graph. If you give the graph only the local extractor, no chunk goes to an LLM.
 
 :::note
-The local model reports spans and labels. It does not fill property values. Use an LLM extractor for chunks where you need properties.
+The local model reports spans and labels. It does not fill property values. When a kept entity has a type that declares properties, the result says so, so that an LLM extractor can read the chunk.
 :::
 
 ## Example
@@ -64,6 +66,12 @@ Why use the mean confidence? One uncertain entity does not make a whole chunk we
 Why escalate an empty result only for chunks of eight words or more? A short chunk with no entities is often correct. A long chunk with no entities is usually a miss.
 
 Why validate after extraction? An LLM can invent a type or a property. The schema is the contract. Validation is the last step for every extractor, so the graph never receives an undeclared type.
+
+Why one model call for entities and relations? The model scores both in one pass. A second pass for relations only costs time, and the relation endpoints would need a match to the entities anyway.
+
+Why keep one label for words that return under a parent and a child type? Two labels on one span make two mentions of one thing. The higher score is the model's better guess, and the parent labels are added when the node is written.
+
+Why read the model a second time at a lower score? A lower score changes which overlapping spans the model keeps, so the entities you keep must come from the first read. The second read only looks for weak spans to report.
 
 </details>
 

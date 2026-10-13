@@ -36,9 +36,11 @@ class ExtractionSettings(BaseSettings):
     with ``EXTRACTION_LLM_`` and are not read here, so no field may start with
     ``llm_``.
 
-    Relation thresholds and floors, the entity band, escalation controls, and
-    candidate capture are validated configuration only; they do not yet affect
-    extraction. ``EscalatingExtractor`` uses its own escalation parameters.
+    The entity and relation thresholds, the relation floor, the entity band and
+    the candidate switch shape what ``GlinerExtractor`` keeps and reports.
+    Escalation controls are validated configuration only; they do not yet
+    affect extraction. ``EscalatingExtractor`` uses its own escalation
+    parameters.
 
     Attributes:
         mode: Extractor mode. ``gliner`` runs GLiNER only; ``hybrid`` runs
@@ -50,8 +52,11 @@ class ExtractionSettings(BaseSettings):
         relation_threshold: Minimum score for a kept relation.
         relation_floor: Minimum relation score returned by the model.
         band_floor: Minimum entity score in the band below the keep threshold.
-        label_thresholds: Per-label thresholds that replace
-            ``entity_threshold`` for matching labels.
+        label_thresholds: Per-label thresholds keyed by entity or relation label.
+            An entity label's threshold replaces ``entity_threshold`` for that
+            label. A relation label's threshold replaces ``relation_threshold``
+            as the cut for kept relations, and the model reads that relation at
+            the lower of the threshold and ``relation_floor``.
         escalation_threshold: Entity score below which a chunk may use the LLM.
         escalation_budget: LLM chunk share from 0 to 1, or ``"all"`` for no
             limit.
