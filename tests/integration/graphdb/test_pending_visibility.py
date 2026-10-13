@@ -12,8 +12,12 @@ import pytest
 import pytest_asyncio
 
 from agrag.cypher.community_read import hydrate_communities_by_id_query
-from agrag.cypher.entities import fetch_all_by_label_query, fetch_entity_neighbors_query
-from agrag.cypher.relations import shortest_path_distance_query
+from agrag.cypher.entities import (
+    NODE_IDENTITY_LABEL,
+    fetch_all_by_label_query,
+    fetch_entity_neighbors_query,
+)
+from agrag.cypher.relations import bfs_expand_query, shortest_path_distance_query
 from agrag.graphdb import build_graph_store
 from agrag.graphdb.base import GraphStore
 from agrag.ingestion._document_lifecycle import find_document
@@ -225,5 +229,49 @@ class TestPendingVisibility:
             found = await find_document(store, document_key=key)
 
             assert found is None
+        finally:
+            await _drop(store, tag)
+
+    @pytest.mark.parametrize(
+        ("chunk_pending", "mention_pending"),
+        [(True, True), (True, False), (False, True)],
+        ids=["both_pending", "only_chunk_pending", "only_mention_pending"],
+    )
+    async def test_bfs_document_scope_ignores_pending_evidence(
+        self, store: GraphStore, chunk_pending: bool, mention_pending: bool
+    ) -> None:
+        """An entity is not in a document on the strength of pending evidence."""
+        tag, job = uuid4().hex, str(uuid4())
+        seed, target, chunk = (str(uuid4()) for _ in range(3))
+        try:
+            await _create(
+                store,
+                tag,
+                f"CREATE (s:{NODE_IDENTITY_LABEL} {{id: $seed, probe: $tag}}) "
+                f"CREATE (t:{NODE_IDENTITY_LABEL} {{id: $target, probe: $tag}}) "
+                f"CREATE (c:{NODE_IDENTITY_LABEL}:Chunk "
+                "{id: $chunk, probe: $tag, document_id: 'doc-pending', "
+                "_pending_job_id: $chunk_job}) "
+                "CREATE (s)-[:KNOWS]->(t) "
+                "CREATE (c)-[:MENTIONED_IN {_pending_job_id: $mention_job}]->(t)",
+                seed=seed,
+                target=target,
+                chunk=chunk,
+                chunk_job=job if chunk_pending else None,
+                mention_job=job if mention_pending else None,
+            )
+            query, params = bfs_expand_query(document_ids=["doc-pending"])
+
+            rows = await store.execute_read(
+                query,
+                {
+                    **params,
+                    "seed_ids": [seed],
+                    "job_id": None,
+                    "document_ids": ["doc-pending"],
+                },
+            )
+
+            assert rows == []
         finally:
             await _drop(store, tag)
