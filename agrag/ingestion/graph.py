@@ -34,6 +34,7 @@ from agrag.common.schema_fingerprint import (
 )
 from agrag.embedding.base import Embedder
 from agrag.graphdb.base import GraphStore
+from agrag.ingestion._escalation import format_escalation
 from agrag.ingestion._ingest import (
     CleanupStep,
     add_documents,
@@ -51,7 +52,6 @@ from agrag.ingestion._walk import SourcesType
 from agrag.ingestion.community import detect_communities
 from agrag.ingestion.extract import (
     BAMLExtractor,
-    EscalatingExtractor,
     ExtractionLLMSettings,
     Extractor,
     ExtractorMissingExtraError,
@@ -62,6 +62,7 @@ from agrag.ingestion.reports import (
     AddResult,
     CommunityDetectionReport,
     ConsolidationReport,
+    EscalationReport,
     ReevaluationReport,
     UpdateResult,
 )
@@ -121,15 +122,6 @@ def _extraction_settings_of(extractor: Extractor | None) -> ExtractionSettings:
     if isinstance(extractor, GlinerExtractor):
         return extractor.settings
     return ExtractionSettings()
-
-
-def _wrapped_llm(extractor: Extractor | LLMExtractor | None) -> LLMExtractor | None:
-    """Find an LLM used by an explicitly composed escalation pipeline."""
-    if isinstance(extractor, LLMExtractor):
-        return extractor
-    if isinstance(extractor, EscalatingExtractor):
-        return _wrapped_llm(extractor.escalate_to) or _wrapped_llm(extractor.primary)
-    return None
 
 
 def _check_slots(
@@ -256,8 +248,7 @@ class Graph:
                 None uses settings from a GLiNER extractor, or
                 the ExtractionSettings defaults. Pass the same object to both.
             llm_extractor: The LLM slot used in ``hybrid`` and ``llm`` modes.
-                None uses the LLM in an injected EscalatingExtractor, or builds
-                a BAMLExtractor when LLM settings are configured.
+                None builds a BAMLExtractor when LLM settings are configured.
             chunker: The chunker that splits every document. None uses
                 ``Chunker()``.
             embed_heading_path: Whether chunk embeddings include the chunk's
@@ -278,9 +269,7 @@ class Graph:
             if extraction_settings is not None
             else _extraction_settings_of(extractor)
         )
-        llm_slot = (
-            llm_extractor if llm_extractor is not None else _wrapped_llm(extractor)
-        )
+        llm_slot = llm_extractor
         if llm_slot is None and settings.mode != "gliner":
             llm_slot = _default_llm_extractor(tracer)
         _check_slots(settings, extractor, llm_slot, extraction_settings)
@@ -584,6 +573,9 @@ class Graph:
                 were unavailable.
                 These pairs stay undecided. ``in_batch_groups`` counts only
                 groups with at least two mentions from this batch.
+                ``escalation`` counts the chunks the LLM extractor read in this
+                call. The call logs that report at INFO when an LLM extractor
+                is set.
 
         Raises:
             ValueError: The call got zero, or more than one, of ``source``, ``text``,
@@ -596,7 +588,7 @@ class Graph:
             ValueError: The input contains multiple documents with the same
                 ``document_key``.
         """
-        return await add_documents(
+        result = await add_documents(
             source,
             text=text,
             documents=documents,
@@ -610,6 +602,8 @@ class Graph:
             graph_store=self._graph_store,
             embedder=self._embedder,
             extractor=self._extractor,
+            llm_extractor=self._llm_extractor,
+            extraction_settings=self.extraction_settings,
             vector_store=self._vector_store,
             retrieval_settings=self._retrieval_settings,
             cutover_settings=self._cutover_settings,
@@ -620,6 +614,8 @@ class Graph:
             cleanup=self._cleanup(error_policy),
             tracer=self._tracer,
         )
+        self._log_escalation(result.escalation)
+        return result
 
     async def update(
         self,
@@ -684,7 +680,7 @@ class Graph:
             ``Graph.add()``; both callers observe the same pipeline behavior
             for the same input.
         """
-        return await update_document(
+        result = await update_document(
             document_key,
             text=text,
             source=source,
@@ -696,6 +692,8 @@ class Graph:
             graph_store=self._graph_store,
             embedder=self._embedder,
             extractor=self._extractor,
+            llm_extractor=self._llm_extractor,
+            extraction_settings=self.extraction_settings,
             vector_store=self._vector_store,
             retrieval_settings=self._retrieval_settings,
             cutover_settings=self._cutover_settings,
@@ -706,6 +704,9 @@ class Graph:
             cleanup=self._cleanup(error_policy),
             tracer=self._tracer,
         )
+        if result.add_result is not None:
+            self._log_escalation(result.add_result.escalation)
+        return result
 
     async def delete_document(self, document_key: str) -> UpdateResult:
         """Soft-delete a document by closing its current HAS_PART edges.
@@ -779,6 +780,17 @@ class Graph:
             max_llm_pairs=self._max_llm_pairs,
             error_policy=error_policy,
         )
+
+    def _log_escalation(self, report: EscalationReport) -> None:
+        """Log an escalation report when the graph has an LLM extractor.
+
+        Args:
+            report: The report of one add or update call.
+        """
+        if self._llm_extractor is None:
+            return
+        for line in format_escalation(report, self.extraction_settings):
+            logger.info("%s", line)
 
     async def deactivate_match(self, match_id: UUID) -> list[ResolvedEntity]:
         """Deactivate a semantic match and synchronize replacement retrieval vectors.

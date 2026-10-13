@@ -15,13 +15,14 @@ from agrag.common.data_models.chunk import Chunk
 from agrag.common.data_models.default_schema import DEFAULT_SCHEMA
 from agrag.common.data_models.extraction import ExtractionResult
 from agrag.common.data_models.provenance import TextProvenance
+from agrag.ingestion._ingest_pipeline import extract_chunks
 from agrag.ingestion.extract import (
     BAMLExtractor,
-    EscalatingExtractor,
     ExtractionLLMSettings,
     GlinerExtractor,
 )
 from agrag.ingestion.settings import ExtractionSettings
+from agrag.loaders.types import ErrorPolicy
 
 
 _PARAGRAPH = (
@@ -177,50 +178,36 @@ class TestGlinerExtractorIntegration:
         assert result.entities
 
 
-# ── EscalatingExtractor ────────────────────────────────────────────────
+# ── Escalation ─────────────────────────────────────────────────────────
 
 
-class TestEscalatingExtractorIntegration:
-    """EscalatingExtractor runs GLiNER2 first, escalating to the LLM when weak."""
-
-    @pytest.mark.skipif(
-        not (_has_llm_endpoint() and _has_gliner2()),
-        reason="Both LLM endpoint and gliner2 required",
-    )
-    async def test_escalating_extractor_produces_valid_results(self) -> None:
-        """EscalatingExtractor returns valid extraction from either path.
-
-        Whether GLiNER finds entities (no escalation) or returns empty
-        (escalation to LLM), the result must always be valid. Escalation
-        logic is covered by unit tests; this integration test verifies the
-        two extractors compose correctly end-to-end.
-        """
-        settings = ExtractionLLMSettings.from_openai_compatible_env()
-        extractor = EscalatingExtractor(
-            primary=GlinerExtractor(),
-            escalate_to=BAMLExtractor(settings=settings),
-            min_chunk_words=2,
-        )
-        result = await extractor.extract(_chunk(), DEFAULT_SCHEMA)
-
-        assert isinstance(result, ExtractionResult)
-        assert len(result.entities) > 0
-        assert result.extractor_name in ("gliner", "baml")
+class TestEscalationIntegration:
+    """GLiNER2 reads every chunk and the LLM reads the weakest ones."""
 
     @pytest.mark.skipif(
         not (_has_llm_endpoint() and _has_gliner2()),
         reason="Both LLM endpoint and gliner2 required",
     )
-    async def test_uses_gliner_when_confident(self) -> None:
-        """EscalatingExtractor keeps GLiNER's result when confidence is high."""
+    async def test_budget_all_sends_every_eligible_chunk_to_the_llm(self) -> None:
+        """With no ceiling, escalated equals eligible and the result is valid."""
         settings = ExtractionLLMSettings.from_openai_compatible_env()
-        extractor = EscalatingExtractor(
-            primary=GlinerExtractor(),
-            escalate_to=BAMLExtractor(settings=settings),
-            min_confidence=0.01,  # Very low threshold — GLiNER should pass
+        chunk = _chunk()
+        first, llm = GlinerExtractor(), BAMLExtractor(settings=settings)
+        batch = await extract_chunks(
+            [chunk],
+            start_index=0,
+            extractor=first,
+            schema=DEFAULT_SCHEMA,
+            error_policy=ErrorPolicy.RAISE,
+            settings=ExtractionSettings(
+                escalation_budget="all",
+                min_escalation_words=2,
+                entity_threshold=1.0,
+            ),
+            llm_extractor=llm,
         )
-        result = await extractor.extract(_chunk(), DEFAULT_SCHEMA)
 
-        assert isinstance(result, ExtractionResult)
-        assert result.extractor_name == "gliner"
-        assert len(result.entities) > 0
+        assert batch.failures == []
+        assert batch.report.eligible == 1
+        assert batch.report.escalated == batch.report.eligible
+        assert batch.report.total == 1

@@ -7,6 +7,7 @@ One class per module under this package; this init re-exports them so
 from agrag.ingestion.reports.add_result import AddResult
 from agrag.ingestion.reports.community_detection_report import CommunityDetectionReport
 from agrag.ingestion.reports.consolidation_report import ConsolidationReport
+from agrag.ingestion.reports.escalation_report import EscalationReport
 from agrag.ingestion.reports.reevaluation_report import ReevaluationReport
 from agrag.ingestion.reports.update_result import UpdateResult
 
@@ -15,6 +16,7 @@ __all__ = [
     "AddResult",
     "CommunityDetectionReport",
     "ConsolidationReport",
+    "EscalationReport",
     "ReevaluationReport",
     "UpdateResult",
 ]

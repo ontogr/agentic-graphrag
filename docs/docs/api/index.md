@@ -19,7 +19,7 @@ The top-level `agrag` package exports nothing. Import each name from the package
 | `Neo4jGraphStore` | `from agrag.graphdb import Neo4jGraphStore, build_graph_store` | The graph store. It reads the `NEO4J_*` settings. See [agrag.graphdb](graphdb/index.md). |
 | Vector stores | `from agrag.vectordb import QdrantVectorStore, WeaviateVectorStore, MilvusVectorStore, build_vector_store` | Optional dedicated vector stores for dense and hybrid search. See [agrag.vectordb](vectordb/index.md). |
 | `build_embedder` | `from agrag.embedding import build_embedder` | Builds a dense embedder from a model name. See [agrag.embedding](embedding/index.md). |
-| Extractors | `from agrag.ingestion import GlinerExtractor, BAMLExtractor, EscalatingExtractor` | Read one chunk and return entities and relations. GLiNER runs locally. BAML calls an LLM. The escalating extractor runs GLiNER first and calls the LLM for weak chunks. |
+| Extractors | `from agrag.ingestion import GlinerExtractor, BAMLExtractor` | Read one chunk and return entities and relations. GLiNER runs locally. BAML calls an LLM. `Graph` sends weak chunks to the LLM extractor you pass as `llm_extractor`. |
 | `ErrorPolicy` | `from agrag.loaders import ErrorPolicy` | The action for a source that fails: `RAISE`, `SKIP`, or `QUARANTINE`. See [agrag.loaders](loaders/index.md). |
 | `SearchEngine`, `RetrievalSettings` | `from agrag.retrieval import SearchEngine, RetrievalSettings` | Runs retrieval recipes over the graph. See [agrag.retrieval](retrieval/index.md). |
 | `build_agent` | `from agrag.agents import build_agent` | Builds the planner, researcher, and verifier agent. Accessing it needs the `agents` extra. See [agrag.agents](agents/index.md). |

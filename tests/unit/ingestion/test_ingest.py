@@ -10,7 +10,7 @@ from agrag.common.data_models.document import Document, DocumentFamily, SourceFo
 from agrag.common.data_models.extraction import ExtractedEntity, ExtractedRelation
 from agrag.common.data_models.provenance import TextProvenance
 from agrag.ingestion._ingest import _group_by_document, _merge_add_results
-from agrag.ingestion.reports import AddResult
+from agrag.ingestion.reports import AddResult, EscalationReport
 from agrag.ingestion.stats import ChunkingStats, IngestStats, ResolutionStats
 
 
@@ -156,7 +156,10 @@ class TestMergeAddResultsResolution:
         )
 
         merged = _merge_add_results(
-            [first, second], ingestion=IngestStats(), chunking=ChunkingStats()
+            [first, second],
+            ingestion=IngestStats(),
+            chunking=ChunkingStats(),
+            escalation=EscalationReport(),
         )
 
         assert merged.resolution.failed_llm_requests == 11
