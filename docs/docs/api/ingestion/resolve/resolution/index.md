@@ -20,6 +20,7 @@ returns the result.
 - [**find_exact_matches**](find_exact_matches.md) – Return each mention index's matching persisted Entity, if it has one.
 - [**resolve_among**](resolve_among.md) – Resolve a fixed set of persisted entities by comparing same-label pairs.
 - [**resolve_batch**](resolve_batch.md) – Resolve one extraction batch against itself and the persisted graph.
+- [**resolve_created**](resolve_created.md) – Resolve newly committed entities against everything committed.
 - [**resolve_persisted**](resolve_persisted.md) – Resolve persisted entities against each other.
 
 **Attributes:**
