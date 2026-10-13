@@ -809,7 +809,34 @@ class TestValidateExtraction:
         with caplog.at_level("WARNING", logger="agrag.ingestion.extract"):
             validate_extraction(result, _ONE_PAIR_SCHEMA)
 
-        assert "Dropped 1 entities and 0 relations from custom" in caplog.text
+        assert "Dropped 1 entities, 0 relations and 0 properties from custom" in (
+            caplog.text
+        )
+
+    def test_logs_dropped_properties_when_no_entity_is_dropped(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """An undeclared property key is logged even when no entity is dropped."""
+        person = ExtractedEntity(
+            chunk_id=uuid4(),
+            label="Person",
+            text="Ada",
+            char_start=0,
+            char_end=3,
+            properties={"shoe_size": "9"},
+        )
+        result = ExtractionResult(
+            entities=[person],
+            relations=[],
+            extractor_name="custom",
+        )
+
+        with caplog.at_level("WARNING", logger="agrag.ingestion.extract"):
+            validate_extraction(result, _ONE_PAIR_SCHEMA)
+
+        assert "Dropped 0 entities, 0 relations and 1 properties from custom" in (
+            caplog.text
+        )
 
 
 class TestDescribeEntityType:
@@ -1700,6 +1727,43 @@ class TestEscalatingExtractor:
         result = await extractor.extract(chunk, DEFAULT_SCHEMA)
         assert ran == ["primary"]
         assert result.extractor_name == "primary"
+
+    async def test_escalates_when_primary_only_reports_undeclared_labels(
+        self,
+    ) -> None:
+        """Entities the schema drops do not make the primary result strong."""
+
+        class UndeclaredPrimary(Extractor):
+            async def extract(self, chunk, schema):  # noqa: ANN001
+                return ExtractionResult(
+                    entities=[
+                        ExtractedEntity(
+                            chunk_id=uuid4(),
+                            label="Ghost",
+                            text="Nobody",
+                            char_start=0,
+                            char_end=6,
+                            confidence=0.9,
+                        )
+                    ],
+                    relations=[],
+                    extractor_name="primary",
+                )
+
+        class FallbackExtractor(Extractor):
+            async def extract(self, chunk, schema):  # noqa: ANN001
+                return ExtractionResult(
+                    entities=[], relations=[], extractor_name="escalate"
+                )
+
+        extractor = EscalatingExtractor(
+            primary=UndeclaredPrimary(), escalate_to=FallbackExtractor()
+        )
+        chunk = _chunk("This is a chunk with more than eight words in it.")
+
+        result = await extractor.extract(chunk, DEFAULT_SCHEMA)
+
+        assert result.extractor_name == "escalate"
 
     async def test_escalates_on_low_mean_confidence(self) -> None:
         """Mean confidence below threshold triggers escalation."""

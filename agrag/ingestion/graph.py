@@ -281,13 +281,13 @@ class Graph:
         mode = effective_mode(settings, llm_available=llm_slot is not None)
         if settings.mode == "hybrid" and mode == "gliner":
             logger.warning(_MSG_DEGRADE)
-        if mode == "gliner":
-            _warn_properties_in_gliner_mode(self._schema)
         if extractor is None and settings.mode != "llm":
             extractor = _default_gliner_extractor(settings, tracer)
         pipeline_extractor = extractor if extractor is not None else llm_slot
         if pipeline_extractor is None:
             raise RuntimeError("Graph has no extractor for the selected mode")
+        if mode == "gliner" and isinstance(pipeline_extractor, GlinerExtractor):
+            _warn_properties_in_gliner_mode(self._schema)
         self.extraction_settings = settings
         self._effective_mode = mode
         self._extractor = pipeline_extractor

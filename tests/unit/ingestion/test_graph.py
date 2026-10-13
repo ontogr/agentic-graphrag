@@ -430,6 +430,7 @@ class TestGraphExtractionSettings:
 
         records = _properties_records(caplog)
         assert len(records) == 1
+        assert records[0].levelno == logging.WARNING
         assert "Person" in records[0].getMessage()
 
     async def test_gliner_mode_without_declared_properties_logs_no_warning(

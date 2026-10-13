@@ -184,6 +184,7 @@ def validate_extraction(
     }
     valid_entities: list[ExtractedEntity] = []
     index_remap: dict[int, int] = {}
+    dropped_properties = 0
     for old_index, entity in enumerate(result.entities):
         entity_type = entity_types_by_label.get(entity.label)
         if entity_type is None:
@@ -197,6 +198,7 @@ def validate_extraction(
                 if key in entity_type.properties
             }
             if declared != entity.properties:
+                dropped_properties += len(entity.properties) - len(declared)
                 valid_entity = entity.model_copy(update={"properties": declared})
         valid_entities.append(valid_entity)
 
@@ -223,12 +225,13 @@ def validate_extraction(
 
     dropped_entities = len(result.entities) - len(valid_entities)
     dropped_relations = len(result.relations) - len(valid_relations)
-    if dropped_entities or dropped_relations:
+    if dropped_entities or dropped_relations or dropped_properties:
         logger.warning(
-            "Dropped %d entities and %d relations from %s "
+            "Dropped %d entities, %d relations and %d properties from %s "
             "that the schema does not declare",
             dropped_entities,
             dropped_relations,
+            dropped_properties,
             result.extractor_name,
         )
     return result.model_copy(
@@ -927,7 +930,9 @@ class EscalatingExtractor(Extractor):
             "agrag.extraction.escalating",
             attributes={"agrag.chunk_id": str(chunk.id)},
         ) as span:
-            result = await self.primary.extract(chunk, schema)
+            result = validate_extraction(
+                await self.primary.extract(chunk, schema), schema
+            )
             escalate = self._should_escalate(result, chunk)
             span.set_attribute("agrag.escalated", escalate)
             if escalate:
