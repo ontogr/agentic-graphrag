@@ -1,0 +1,75 @@
+---
+sidebar_position: 3
+---
+
+# Choose an extraction mode
+
+Choose a mode based on whether you want local extraction, LLM review, or LLM extraction for every eligible chunk. `hybrid` is the default. It runs GLiNER on every chunk and can send selected results to an LLM.
+
+Set `EXTRACTION_MODE` in the environment, or set `mode` in `ExtractionSettings`:
+
+```bash
+EXTRACTION_MODE=gliner
+```
+
+```python
+from agrag.ingestion import ExtractionSettings
+
+settings = ExtractionSettings(mode="gliner")
+```
+
+Pass the settings to `Graph.open` or `Graph` as `extraction_settings`.
+
+## Compare the modes
+
+| Mode | What runs on each chunk | Requirements | Use it when |
+|---|---|---|---|
+| `gliner` | The local GLiNER model. No extraction LLM runs. | Install the `extract` extra. | You want local extraction without an extraction LLM. |
+| `hybrid` (default) | GLiNER runs on every chunk. An LLM may then read selected chunks. | Install the `extract` extra and configure an extraction LLM. | You want an LLM to review selected GLiNER results. |
+| `llm` | The LLM reads every chunk that meets `min_escalation_words`. GLiNER does not run. | Configure an extraction LLM. | You want the LLM to extract without GLiNER. |
+
+`llm` mode defaults to a minimum of 8 words per chunk. Set `min_escalation_words` to change that limit. The `extract` extra is not needed in `llm` mode.
+
+## Choose hybrid escalation settings
+
+In `hybrid` mode, a chunk is eligible for the LLM when a kept entity has a score below `escalation_threshold`, when the chunk has no kept entities and meets `min_escalation_words`, or when a kept entity's type declares properties. The default escalation threshold is 0.75, and the default minimum word count is 8. Per-label entity thresholds can change which entities GLiNER keeps.
+
+The `escalation_budget` sets the share of chunks sent to the LLM in each batch. Its default is 0.2, or 20 percent, rounded up to a whole chunk. A positive budget sends at least one eligible chunk; zero sends none. The weakest eligible chunks go first. Set the budget to `"all"` to remove the cap. The threshold and budget affect only `hybrid` mode; `min_escalation_words` also applies in `llm` mode.
+
+The LLM receives GLiNER's kept entities as candidates. Agrag combines non-empty LLM results with the GLiNER entities and relations. If an LLM call fails, or its answer has no entities while GLiNER found some, the chunk keeps the GLiNER result and the report counts a failure. An empty LLM answer is valid when GLiNER also found no entities.
+
+## Run hybrid mode without an LLM
+
+If `hybrid` mode has no configured LLM, the graph uses `gliner` mode and logs one warning. The warning names `EXTRACTION_LLM_CLIENTS`, `LLM_BASE_URL`, and `LLM_MODEL_ID`. Configure an LLM to use hybrid mode, or set `mode` to `gliner` to choose local extraction explicitly.
+
+Read `graph.effective_mode` to see the mode selected for the graph. After `Graph.add`, read `result.escalation.mode` for the mode reported by that call.
+
+## Compare the measured runtimes
+
+These timings come from one test setup, not a general benchmark. The setup used a CPU with four threads, the GLiNER2.5 base model, a local 2B model, and a hosted model behind a public endpoint. Your runtimes depend on your hardware and models.
+
+- GLiNER2.5 base took 3.3 seconds per chunk with entity and relation extraction. The test used 20 chunks of 300 to 450 words.
+- The local 2B model took 65 to 80 seconds per chunk.
+- The hosted model took 12 to 26 seconds per chunk.
+
+In that setup, `llm` mode with the local 2B model took about 20 times as long per chunk as GLiNER. These measurements do not establish the runtime you will get with another model or setup.
+
+## Handle extraction errors
+
+`Graph.open` and `Graph` raise `ValueError` for invalid extractor slots and settings. For example, `extractor=` cannot be an `LLMExtractor`, `llm_extractor=` cannot be a local `Extractor`, `llm` mode cannot use `extractor=`, and `gliner` mode cannot use `llm_extractor=`. `llm` mode also requires a configured or passed LLM extractor. A mismatch between explicit `extraction_settings` and a passed `GlinerExtractor`'s settings also raises `ValueError`.
+
+If GLiNER is not installed for `gliner` or `hybrid` mode, graph construction raises `ExtractorMissingExtraError`. Install the `extract` extra. This error is not a `ValueError`.
+
+In `llm` mode, an LLM failure follows the `error_policy` passed to `Graph.add`. The default is `RAISE`; `SKIP` and `QUARANTINE` record a failed chunk instead. A parsed answer with no entities is a valid empty result.
+
+In `hybrid` mode, an LLM failure never stops the call. The chunk keeps its GLiNER result, and the escalation report counts the failure.
+
+## Extract properties
+
+GLiNER returns entity spans and types, but it does not fill property values. In `gliner` mode, the graph logs one warning if the schema has entity types with properties. Use `hybrid` or `llm` mode when you need an LLM to extract property values.
+
+## Related guides
+
+- [Extract and resolve entities](./extract-and-resolve.mdx)
+- [Control LLM cost during extraction](./control-llm-cost-during-extraction.mdx)
+- [Configuration reference](../reference/configuration.mdx)

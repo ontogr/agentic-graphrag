@@ -99,7 +99,7 @@ Leiden clustering groups related entities into communities. `Graph.detect_commun
 
 Load OWL and RDFS Turtle ontologies with `load_schema("ontology.ttl")` after installing the `schema-formats` extra. See the [OWL and RDFS Turtle import reference](https://ontogr.github.io/agentic-graphrag/stable/reference/owl-import).
 
-Use `DEFAULT_SCHEMA` for general text or provide a schema for a specific domain. Add a preset such as `OPERATIONS` for more types. The same schema guides extraction, validation, resolution, storage, and query generation.
+Use `DEFAULT_SCHEMA` for general text, or provide a schema for a specific domain. The same schema guides extraction, validation, resolution, storage, and query generation.
 
 Write a schema as a short dict, a list of labels or a YAML file. `extends` builds on the default schema:
 
@@ -120,6 +120,26 @@ schema = load_schema(
     }
 )
 ```
+
+### Default schema and presets
+
+`DEFAULT_SCHEMA` has nine entity types: Person, Organization, Location, Event, Product, Software, Publication, Dataset, and Project. It has eight relation types: WORKS_FOR, PART_OF, LOCATED_IN, OWNS, AUTHORED, PARTICIPATED_IN, DEPENDS_ON, and SUPPLIES. Each relation allows only the source and target types that it names.
+
+Presets add entity types to a base schema. `OPERATIONS` adds Facility, Service, and Occupation. `LEGAL` adds Contract and Regulation. A preset adds types only. The default relations do not accept preset types, so define a relation in your own schema to connect them.
+
+Use `extends` to build a schema on a base, such as `DEFAULT_SCHEMA` or a preset. A child type that redeclares a base type must use `override`. Use `exclude` to remove base types or relations.
+
+### Extraction modes
+
+Set `EXTRACTION_MODE` to choose how the graph reads text. The default is `hybrid`.
+
+| Mode | What runs on each chunk | Use it when |
+|---|---|---|
+| `gliner` | The local GLiNER model. No extraction LLM runs. | You want no extraction LLM cost. |
+| `hybrid` | GLiNER on every chunk, then an LLM on the weakest eligible chunks within the budget. | You have an LLM and want it to review GLiNER's result. |
+| `llm` | An LLM on every chunk that meets `min_escalation_words` (8 by default). GLiNER does not run. | You use a hosted model. |
+
+When `hybrid` runs without an extraction LLM, the graph runs as `gliner` and logs a warning. See [Choose an extraction mode](https://ontogr.github.io/agentic-graphrag/latest/guides/choose-an-extraction-mode).
 
 ## Architecture
 
