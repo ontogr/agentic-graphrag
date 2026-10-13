@@ -32,6 +32,7 @@ from agrag.cypher.candidates import (
 from agrag.cypher.entities import (
     MERGE_ALIAS_LABEL,
     NODE_IDENTITY_LABEL,
+    PENDING_TAGGED_NODE_LABELS,
     is_safe_identifier,
     upsert_node_query,
     validate_identifier,
@@ -43,11 +44,14 @@ from agrag.cypher.schema import (
     candidate_state_index_query,
     cutover_job_document_key_constraint_query,
     cutover_job_status_index_query,
+    list_relation_types_query,
     merge_alias_constraint_query,
     merge_key_constraint_name,
     merge_key_constraint_query,
     node_id_constraint_name,
     node_id_constraint_query,
+    pending_node_index_query,
+    pending_relation_index_query,
     relation_id_constraint_name,
     relation_id_constraint_query,
     vector_index_dimensions_query,
@@ -350,6 +354,8 @@ class Neo4jGraphStore(GraphStore):
         self._cutover_job_constraint_lock = asyncio.Lock()
         self._cutover_job_status_index_ready = False
         self._cutover_job_status_index_lock = asyncio.Lock()
+        self._pending_tag_indexes_ready = False
+        self._pending_tag_indexes_lock = asyncio.Lock()
         self._candidate_schema_ready = False
         self._candidate_schema_lock = asyncio.Lock()
         self._relation_type_constraints_ready: set[str] = set()
@@ -526,6 +532,7 @@ class Neo4jGraphStore(GraphStore):
             await self._ensure_merge_alias_constraint()
             await self._ensure_cutover_job_constraint()
             await self._ensure_cutover_job_status_index()
+            await self._ensure_pending_tag_indexes()
             await self._ensure_candidate_schema()
             async with self.session() as session:
                 try:
@@ -553,11 +560,18 @@ class Neo4jGraphStore(GraphStore):
         constraint on ``id`` for every known relationship type, which backs
         the stale-relationship cleanup ``upsert_relation_query`` performs on
         endpoint changes.
+
+        Also creates the range indexes on the pending tag property
+        (``_pending_job_id``) that commit and rollback use to find a job's
+        rows: one per label in ``PENDING_TAGGED_NODE_LABELS`` and one per
+        known relationship type. The CutoverJob status index and the
+        candidate schema are created here as well.
         """
         await self._ensure_identity_constraint()
         await self._ensure_merge_alias_constraint()
         await self._ensure_cutover_job_constraint()
         await self._ensure_cutover_job_status_index()
+        await self._ensure_pending_tag_indexes()
         await self._ensure_candidate_schema()
         # Read the existing names once so the cost does not grow with the
         # number of constraints already in the database. Creates keep
@@ -573,6 +587,7 @@ class Neo4jGraphStore(GraphStore):
                 await self.execute_write(merge_key_constraint_query(label))
         for rel_type in await self._all_relation_types():
             if relation_id_constraint_name(rel_type) in existing:
+                await self.execute_write(pending_relation_index_query(rel_type))
                 self._relation_type_constraints_ready.add(rel_type)
                 continue
             await self._ensure_relation_constraint(rel_type)
@@ -638,6 +653,17 @@ class Neo4jGraphStore(GraphStore):
             await self.execute_write(cutover_job_status_index_query())
             self._cutover_job_status_index_ready = True
 
+    async def _ensure_pending_tag_indexes(self) -> None:
+        """Create the pending-tag node indexes once for commit and rollback."""
+        if self._pending_tag_indexes_ready:
+            return
+        async with self._pending_tag_indexes_lock:
+            if self._pending_tag_indexes_ready:
+                return
+            for label in PENDING_TAGGED_NODE_LABELS:
+                await self.execute_write(pending_node_index_query(label))
+            self._pending_tag_indexes_ready = True
+
     async def _ensure_candidate_schema(self) -> None:
         """Create candidate constraints and indexes once."""
         if self._candidate_schema_ready:
@@ -673,6 +699,7 @@ class Neo4jGraphStore(GraphStore):
             if rel_type in self._relation_type_constraints_ready:
                 return
             await self.execute_write(relation_id_constraint_query(rel_type))
+            await self.execute_write(pending_relation_index_query(rel_type))
             self._relation_type_constraints_ready.add(rel_type)
 
     async def ensure_relation_constraint(self, rel_type: str) -> None:
@@ -763,9 +790,7 @@ class Neo4jGraphStore(GraphStore):
         Returns:
             The relationship type names.
         """
-        rows = await self.execute_read(
-            "CALL db.relationshipTypes() YIELD relationshipType RETURN relationshipType"
-        )
+        rows = await self.execute_read(list_relation_types_query())
         live = {
             row["relationshipType"]
             for row in rows

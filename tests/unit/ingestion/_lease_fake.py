@@ -9,22 +9,25 @@ working.
 """
 
 from collections.abc import Mapping
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Any
 
 from agrag.cypher.cutover_job_write import (
     acquire_lease_query,
     begin_rollback_query,
     claim_job_query,
-    clear_pending_tag_query,
+    clear_pending_node_tags_query,
     commit_job_query,
+    delete_pending_nodes_query,
     finish_cleaning_query,
     job_status_query,
+    lock_rolling_back_job_query,
     record_parts_closed_query,
     rollback_job_query,
     start_cleaning_query,
-    steal_expired_lease_query,
+    steal_terminal_job_query,
 )
+from agrag.cypher.entities import PENDING_TAGGED_NODE_LABELS
 from agrag.cypher.relations import close_has_part_query
 
 
@@ -75,9 +78,9 @@ class CutoverJobLeaseFake:
 
     def _handlers(self) -> dict[str, Any]:
         """Map each Cutover Job query to its in-memory implementation."""
-        return {
+        handlers: dict[str, Any] = {
             acquire_lease_query(): self._acquire,
-            steal_expired_lease_query(): self._steal,
+            steal_terminal_job_query(): self._steal,
             commit_job_query(): lambda p: self._transition(p, "pending", "committed"),
             start_cleaning_query(): lambda p: self._transition(
                 p, "committed", "cleaning"
@@ -87,10 +90,14 @@ class CutoverJobLeaseFake:
             begin_rollback_query(): self._begin_rollback,
             job_status_query(): self._job_status,
             record_parts_closed_query(): self._record_parts_closed,
-            clear_pending_tag_query(): self._clear_tags,
+            lock_rolling_back_job_query(): self._lock_rolling_back,
             rollback_job_query(): self._rollback,
             close_has_part_query(): self._close_has_part,
         }
+        for label in PENDING_TAGGED_NODE_LABELS:
+            handlers[clear_pending_node_tags_query(label)] = self._clear_tags
+            handlers[delete_pending_nodes_query(label)] = self._delete_tagged_nodes
+        return handlers
 
     def _acquire(self, params: dict[str, Any]) -> list[dict[str, Any]]:
         """MERGE on document_key: the first claimant creates the job node."""
@@ -124,19 +131,36 @@ class CutoverJobLeaseFake:
     def _clear_tags(self, params: dict[str, Any]) -> list[dict[str, Any]]:
         """Report the tag clear; the fake holds no tagged nodes."""
         del params
-        return [{"cleared_nodes": 0, "cleared_relationships": 0}]
+        return [{"cleared": 0}]
 
-    def _rollback(self, params: dict[str, Any]) -> list[dict[str, Any]]:
-        """Delete a job only while rollback holds its token fence."""
+    def _delete_tagged_nodes(self, params: dict[str, Any]) -> list[dict[str, Any]]:
+        """Report the tagged-node delete; the fake holds no tagged nodes."""
+        del params
+        return [{"deleted": 0}]
+
+    def _rolling_back_job(self, params: dict[str, Any]) -> dict[str, Any] | None:
+        """Return the job when it is rolling back under the caller's token."""
         for job in self._cutover_jobs.values():
             if (
                 job["id"] == str(params["job_id"])
                 and job["status"] == "rolling_back"
                 and job["lease_token"] == str(params["lease_token"])
             ):
-                job["status"] = "rolled_back"
-                return [{"deleted_nodes": 0, "deleted_relationships": 0}]
-        return []
+                return job
+        return None
+
+    def _lock_rolling_back(self, params: dict[str, Any]) -> list[dict[str, Any]]:
+        """Confirm the rollback fence without changing the job."""
+        job = self._rolling_back_job(params)
+        return [] if job is None else [{"id": job["id"]}]
+
+    def _rollback(self, params: dict[str, Any]) -> list[dict[str, Any]]:
+        """Mark the job rolled back only while rollback holds its token fence."""
+        job = self._rolling_back_job(params)
+        if job is None:
+            return []
+        job["status"] = "rolled_back"
+        return [{"id": job["id"]}]
 
     def _begin_rollback(self, params: dict[str, Any]) -> list[dict[str, Any]]:
         """Move a pending job into rollback when its token still matches."""
@@ -176,19 +200,17 @@ class CutoverJobLeaseFake:
         return [{"closed": getattr(self, "closed_has_part_edges", 0)}]
 
     def _steal(self, params: dict[str, Any]) -> list[dict[str, Any]]:
-        """Take over a job only when its lease lapsed or it went terminal.
+        """Take over a job only when it is done or rolled back.
 
-        Mirrors ``steal_expired_lease_query``: the steal adopts the new
+        Mirrors ``steal_terminal_job_query``: the steal adopts the new
         run's id, verb, token, and expiry, so a document that has been
-        mutated before can be mutated again.
+        mutated before can be mutated again. Pending and rolling_back jobs
+        never match, even with an expired lease.
         """
         job = self._cutover_jobs.get(str(params["document_key"]))
         if job is None:
             return []
-        expired = job["lease_expires_at"] < datetime.now(UTC)
-        if job["status"] in ("done", "rolled_back") or (
-            job["status"] == "pending" and expired
-        ):
+        if job["status"] in ("done", "rolled_back"):
             job["id"] = str(params["job_id"])
             job["status"] = "pending"
             job["verb"] = params["verb"]

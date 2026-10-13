@@ -1,6 +1,8 @@
 """Cypher writes for the Cutover Job crash-recovery machine."""
 
 from agrag.common.data_models.cutover_job import CUTOVER_JOB_LABEL
+from agrag.common.data_models.graph_record import PENDING_JOB_ID_PROPERTY
+from agrag.cypher.entities import validate_identifier, validate_identifier_syntax
 
 
 def _job_lock_clause() -> str:
@@ -39,14 +41,16 @@ def acquire_lease_query() -> str:
     )
 
 
-def steal_expired_lease_query() -> str:
-    """Build Cypher taking over a job whose lease lapsed or went terminal.
+def steal_terminal_job_query() -> str:
+    """Build Cypher taking over a job already in a terminal state.
 
-    Matches a job for ``$document_key`` that is either still pending with
-    an expired lease (its worker died without committing) or already in a
-    terminal state (a previous run finished and left the node behind), and
-    resets it to pending under the caller's identity and token. Committed
-    and cleaning jobs never match: they are mid-roll-forward under the
+    Matches a job for ``$document_key`` only when it is ``done`` or
+    ``rolled_back``, meaning a previous run left the node behind, and
+    resets it to pending under the caller's identity and token. A pending
+    or rolling_back job with an expired lease never matches: its worker
+    died while its tagged rows and staged vectors still exist, so the
+    caller rolls it back first (see ``_acquire_lease``). Committed and
+    cleaning jobs never match either: they are mid-roll-forward under the
     resume hook, and stealing one would fork the cleanup phase.
 
     The steal adopts ``$job_id`` as well as ``$lease_token``: every later
@@ -65,9 +69,8 @@ def steal_expired_lease_query() -> str:
     return (
         f"MATCH (job:{CUTOVER_JOB_LABEL} {{document_key: $document_key}}) "
         f"{_job_lock_clause()}"
-        "WHERE job.lease_token = $expected_lease_token AND ("
-        "job.status IN ['done', 'rolled_back'] "
-        "OR (job.status = 'pending' AND job.lease_expires_at < datetime())) "
+        "WHERE job.lease_token = $expected_lease_token "
+        "AND job.status IN ['done', 'rolled_back'] "
         "SET job.id = $job_id, job.status = 'pending', job.verb = $verb, "
         "job.lease_token = $lease_token, "
         "job.lease_expires_at = datetime($lease_expires_at), "
@@ -194,28 +197,134 @@ def commit_job_query() -> str:
     )
 
 
-def clear_pending_tag_query() -> str:
-    """Build Cypher clearing the pending tag off everything a job created.
+def clear_pending_node_tags_query(label: str) -> str:
+    """Build Cypher clearing the pending tag off a job's nodes with ``label``.
 
-    Runs inside the same transaction as ``commit_job_query``: the commit
-    flip and the tag removal land atomically, so a crash between them is
-    impossible. External vector-store payloads carry the mirrored
-    ``_pending`` boolean and are cleared through the VectorStore API by
-    the caller, not here; the native vector-index path reads node
-    properties, so it sees this same removal.
+    Runs once per label in ``PENDING_TAGGED_NODE_LABELS``, inside the same
+    transaction as ``commit_job_query``: the commit flip and the tag removal
+    land atomically, so a crash between them is impossible. The label in the
+    ``MATCH`` lets the per-label pending index serve the lookup. External
+    vector-store payloads carry the mirrored ``_pending`` boolean and are
+    cleared through the VectorStore API by the caller, not here; the native
+    vector-index path reads node properties, so it sees this same removal.
+
+    Args:
+        label: The node label. Must be a well-formed identifier; the
+            candidate label is accepted.
 
     Returns:
-        Parameterized Cypher expecting $job_id. Returns the count of
-        nodes and relationships cleared.
+        Parameterized Cypher expecting $job_id. Returns ``cleared``, the
+        number of nodes whose tag was removed.
+
+    Raises:
+        ValueError: ``label`` is not a well-formed identifier.
     """
+    safe_label = validate_identifier_syntax(label)
     return (
-        "MATCH (n) WHERE n._pending_job_id = $job_id "
-        "REMOVE n._pending_job_id "
-        "WITH count(n) AS cleared_nodes "
-        "OPTIONAL MATCH ()-[r]->() WHERE r._pending_job_id = $job_id "
-        "REMOVE r._pending_job_id, r._pending_created, "
+        f"MATCH (n:{safe_label}) WHERE n.{PENDING_JOB_ID_PROPERTY} = $job_id "
+        f"REMOVE n.{PENDING_JOB_ID_PROPERTY} "
+        "RETURN count(n) AS cleared"
+    )
+
+
+def clear_pending_relation_tags_query(rel_type: str) -> str:
+    """Build Cypher clearing the pending bookkeeping off a job's relationships.
+
+    Removes the job tag together with the creation flag and the previous
+    ``active`` value, since a relationship that survives commit no longer
+    needs any of them. Runs in the same commit transaction as
+    ``clear_pending_node_tags_query``.
+
+    Args:
+        rel_type: The relationship type. Must be a safe identifier.
+
+    Returns:
+        Parameterized Cypher expecting $job_id. Returns ``cleared``, the
+        number of relationships whose tag was removed.
+
+    Raises:
+        ValueError: ``rel_type`` is not a safe identifier.
+    """
+    safe_type = validate_identifier(rel_type)
+    return (
+        f"MATCH ()-[r:{safe_type}]->() WHERE r.{PENDING_JOB_ID_PROPERTY} = $job_id "
+        f"REMOVE r.{PENDING_JOB_ID_PROPERTY}, r._pending_created, "
         "r._pending_previous_active "
-        "RETURN cleared_nodes, count(r) AS cleared_relationships"
+        "RETURN count(r) AS cleared"
+    )
+
+
+def delete_pending_relations_query(rel_type: str) -> str:
+    """Build Cypher deleting the relationships a job created.
+
+    Only relationships the job created are deleted; a relationship it merely
+    updated is left for ``restore_pending_relations_query`` to revert.
+
+    Args:
+        rel_type: The relationship type. Must be a safe identifier.
+
+    Returns:
+        Parameterized Cypher expecting $job_id. Returns ``deleted``, the
+        number of relationships removed.
+
+    Raises:
+        ValueError: ``rel_type`` is not a safe identifier.
+    """
+    safe_type = validate_identifier(rel_type)
+    return (
+        f"MATCH ()-[r:{safe_type}]->() "
+        f"WHERE r.{PENDING_JOB_ID_PROPERTY} = $job_id AND r._pending_created = true "
+        "DELETE r RETURN count(r) AS deleted"
+    )
+
+
+def restore_pending_relations_query(rel_type: str) -> str:
+    """Build Cypher reverting a job's updates to pre-existing relationships.
+
+    Sets ``active`` back to the value saved before the job touched the
+    relationship, then removes the pending bookkeeping. A relationship with
+    no saved value keeps its current ``active``.
+
+    Args:
+        rel_type: The relationship type. Must be a safe identifier.
+
+    Returns:
+        Parameterized Cypher expecting $job_id. Returns no rows; the caller
+        needs only the side effect.
+
+    Raises:
+        ValueError: ``rel_type`` is not a safe identifier.
+    """
+    safe_type = validate_identifier(rel_type)
+    return (
+        f"MATCH ()-[r:{safe_type}]->() WHERE r.{PENDING_JOB_ID_PROPERTY} = $job_id "
+        "SET r.active = coalesce(r._pending_previous_active, r.active) "
+        f"REMOVE r.{PENDING_JOB_ID_PROPERTY}, r._pending_created, "
+        "r._pending_previous_active"
+    )
+
+
+def delete_pending_nodes_query(label: str) -> str:
+    """Build Cypher deleting the nodes a job created with ``label``.
+
+    ``DETACH DELETE`` also removes every relationship on the node, tagged or
+    not.
+
+    Args:
+        label: The node label. Must be a well-formed identifier; the
+            candidate label is accepted.
+
+    Returns:
+        Parameterized Cypher expecting $job_id. Returns ``deleted``, the
+        number of nodes removed.
+
+    Raises:
+        ValueError: ``label`` is not a well-formed identifier.
+    """
+    safe_label = validate_identifier_syntax(label)
+    return (
+        f"MATCH (n:{safe_label}) WHERE n.{PENDING_JOB_ID_PROPERTY} = $job_id "
+        "DETACH DELETE n RETURN count(n) AS deleted"
     )
 
 
@@ -288,31 +397,41 @@ def finish_cleaning_query() -> str:
     )
 
 
-def rollback_job_query() -> str:
-    """Delete a rolling-back job's tagged graph rows under its lease token.
+def lock_rolling_back_job_query() -> str:
+    """Lock a rolling-back job's node and confirm its fencing token.
 
-    The query removes tagged relationships and nodes only while the job
-    remains in ``rolling_back`` under the caller's token.
+    Takes the job's write lock before reading the token, so the rollback
+    transaction waits out any concurrent lease change instead of racing it.
+    Run it first in the rollback transaction, before the per-label deletes.
 
     Returns:
-        Parameterized Cypher expecting $job_id and $lease_token. Returns
-        deletion counts, or no row when the fence does not hold.
+        Parameterized Cypher expecting $job_id and $lease_token. Returns the
+        job id when the job is still ``rolling_back`` under that token, no
+        row otherwise.
     """
     return (
         f"MATCH (job:{CUTOVER_JOB_LABEL} {{id: $job_id}}) "
         f"{_job_lock_clause()}"
         "WHERE job.lease_token = $lease_token AND job.status = 'rolling_back' "
-        "OPTIONAL MATCH ()-[r]->() WHERE r._pending_job_id = $job_id "
-        "AND r._pending_created = true "
-        "DELETE r "
-        "WITH job, count(r) AS deleted_relationships "
-        "OPTIONAL MATCH ()-[r]->() WHERE r._pending_job_id = $job_id "
-        "SET r.active = coalesce(r._pending_previous_active, r.active) "
-        "REMOVE r._pending_job_id, r._pending_created, r._pending_previous_active "
-        "WITH job, deleted_relationships "
-        "OPTIONAL MATCH (n) WHERE n._pending_job_id = $job_id "
-        "DETACH DELETE n "
-        "WITH job, count(n) AS deleted_nodes, deleted_relationships "
+        "RETURN job.id AS id"
+    )
+
+
+def rollback_job_query() -> str:
+    """Delete a rolling-back job's node under its lease token.
+
+    Removes only the job node. The job's tagged nodes and relationships are
+    removed by the per-label and per-type statements in the same
+    transaction, so this runs last and the job node stays as the fence
+    until then.
+
+    Returns:
+        Parameterized Cypher expecting $job_id and $lease_token. Returns one
+        row with ``id`` when the fence holds, no row otherwise.
+    """
+    return (
+        f"MATCH (job:{CUTOVER_JOB_LABEL} {{id: $job_id}}) "
+        "WHERE job.lease_token = $lease_token AND job.status = 'rolling_back' "
         "DETACH DELETE job "
-        "RETURN deleted_nodes, deleted_relationships"
+        "RETURN $job_id AS id"
     )
