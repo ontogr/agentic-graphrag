@@ -139,6 +139,8 @@ Set `EXTRACTION_MODE` to choose how the graph reads text. The default is `hybrid
 | `hybrid` | GLiNER on every chunk, then an LLM on the weakest eligible chunks within the budget. | You have an LLM and want it to review GLiNER's result. |
 | `llm` | An LLM on every chunk that meets `min_escalation_words` (8 by default). GLiNER does not run. | You use a hosted model. |
 
+For the default extractors, install `extract` for `gliner`, both `extract` and `llm` for `hybrid`, or `llm` for `llm` mode. Custom extractors use their own dependencies.
+
 When `hybrid` runs without an extraction LLM, the graph runs as `gliner` and logs a warning. See [Choose an extraction mode](https://ontogr.github.io/agentic-graphrag/latest/guides/choose-an-extraction-mode).
 
 ## Architecture
