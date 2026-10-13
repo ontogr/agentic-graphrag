@@ -46,16 +46,6 @@ If `hybrid` mode has no configured LLM, the graph uses `gliner` mode and logs on
 
 Read `graph.effective_mode` to see the mode selected for the graph. After `Graph.add`, read `result.escalation.mode` for the mode reported by that call.
 
-## Compare the measured runtimes
-
-These timings come from one test setup, not a general benchmark. The setup used a CPU with four threads, the GLiNER2.5 base model, a local 2B model, and a hosted model behind a public endpoint. Your runtimes depend on your hardware and models.
-
-- GLiNER2.5 base took 3.3 seconds per chunk with entity and relation extraction. The test used 20 chunks of 300 to 450 words.
-- The local 2B model took 65 to 80 seconds per chunk.
-- The hosted model took 12 to 26 seconds per chunk.
-
-In that setup, `llm` mode with the local 2B model took about 20 times as long per chunk as GLiNER. These measurements do not establish the runtime you will get with another model or setup.
-
 ## Handle extraction errors
 
 `Graph.open` and `Graph` raise `ValueError` for invalid extractor slots and settings. For example, `extractor=` cannot be an `LLMExtractor`, `llm_extractor=` cannot be a local `Extractor`, `llm` mode cannot use `extractor=`, and `gliner` mode cannot use `llm_extractor=`. `llm` mode also requires a configured or passed LLM extractor. A mismatch between explicit `extraction_settings` and a passed `GlinerExtractor`'s settings also raises `ValueError`.
