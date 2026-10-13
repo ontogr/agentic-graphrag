@@ -615,6 +615,7 @@ class Graph:
             registry=self._registry,
             embed_heading_path=self._embed_heading_path,
             max_llm_pairs=self._max_llm_pairs,
+            write_candidates=self.extraction_settings.candidates_enabled,
             cleanup=self._cleanup(error_policy),
             tracer=self._tracer,
         )
@@ -718,6 +719,7 @@ class Graph:
             registry=self._registry,
             embed_heading_path=self._embed_heading_path,
             max_llm_pairs=self._max_llm_pairs,
+            write_candidates=self.extraction_settings.candidates_enabled,
             cleanup=self._cleanup(error_policy),
             tracer=self._tracer,
         )

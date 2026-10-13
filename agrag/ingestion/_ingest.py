@@ -17,6 +17,7 @@ from opentelemetry.trace import Tracer
 
 from agrag.chunking import Chunker
 from agrag.chunking.chunker import ChunkedDocument, ChunkPlacement
+from agrag.common.data_models.candidate import CandidateRecord
 from agrag.common.data_models.chunk import Chunk
 from agrag.common.data_models.document import (
     Document,
@@ -53,6 +54,7 @@ from agrag.ingestion.stats import (
     ResolutionStats,
     StorageStats,
 )
+from agrag.ingestion.stats.dropped import sum_dropped
 from agrag.loaders.base import Loader
 from agrag.loaders.common import build_prose_document, text_sections
 from agrag.loaders.loader_registry import LoaderRegistry
@@ -144,11 +146,12 @@ def _without_extraction_stamps(
     )
 
 
-def _group_by_document(
+def _group_by_document(  # noqa: PLR0912,PLR0917
     chunks: list[Chunk],
     documents: list[Document],
     entities: list[ExtractedEntity],
     relations: list[ExtractedRelation],
+    candidates: list[CandidateRecord],
     extraction_failures: list[StageFailure],
 ) -> list[
     tuple[
@@ -157,6 +160,7 @@ def _group_by_document(
         list[Document],
         list[ExtractedEntity],
         list[ExtractedRelation],
+        list[CandidateRecord],
         list[StageFailure],
     ]
 ]:
@@ -225,6 +229,15 @@ def _group_by_document(
                 update={"source_index": source_index, "target_index": target_index}
             )
         )
+    candidates_by_key: dict[str, list[CandidateRecord]] = {
+        key: [] for key in ordered_keys
+    }
+    for candidate in candidates:
+        owner_key = _or_first(
+            key_by_chunk_id.get(candidate.chunk_id),
+            kind=f"Candidate of chunk {candidate.chunk_id}",
+        )
+        candidates_by_key.setdefault(owner_key, []).append(candidate)
     failures_by_key: dict[str, list[StageFailure]] = {key: [] for key in ordered_keys}
     for failure in extraction_failures:
         try:
@@ -244,6 +257,7 @@ def _group_by_document(
             documents_by_key[key],
             entities_by_key[key],
             relations_by_key[key],
+            candidates_by_key[key],
             failures_by_key[key],
         )
         for key in ordered_keys
@@ -332,6 +346,13 @@ def _merge_add_results(
             relations_extracted=sum(
                 result.extraction.relations_extracted for result in results
             ),
+            dropped=sum_dropped(result.extraction.dropped for result in results),
+            candidates_written=sum(
+                result.extraction.candidates_written for result in results
+            ),
+            candidates_skipped=sum(
+                result.extraction.candidates_skipped for result in results
+            ),
             failures=extraction_items,
             failures_total=extraction_total,
             failures_truncated=extraction_truncated,
@@ -362,6 +383,7 @@ def _merge_add_results(
             conflicts_resolved=sum(
                 result.merge.conflicts_resolved for result in results
             ),
+            dropped=sum_dropped(result.merge.dropped for result in results),
             failures=merge_items,
             failures_total=merge_total,
             failures_truncated=merge_truncated,
@@ -429,6 +451,7 @@ async def _commit_batch(  # noqa: PLR0913
     tracer: Tracer,
     embed_heading_path: bool,
     max_llm_pairs: int,
+    write_candidates: bool,
     cleanup: CleanupStep,
 ) -> list[AddResult]:
     """Write one extracted walk batch as one Cutover Job per document.
@@ -450,6 +473,7 @@ async def _commit_batch(  # noqa: PLR0913
         tracer: The tracer for the write spans.
         embed_heading_path: Whether chunk vectors include the heading path.
         max_llm_pairs: The cap on LLM-judged entity pairs per document.
+        write_candidates: Whether candidates are written to the graph.
         cleanup: The post-commit cleanup step of each Cutover Job.
 
     Returns:
@@ -463,12 +487,14 @@ async def _commit_batch(  # noqa: PLR0913
         doc_documents,
         doc_entities,
         doc_relations,
+        doc_candidates,
         doc_failures,
     ) in _group_by_document(
         flat_batch,
         batch,
         extracted.entities,
         extracted.relations,
+        extracted.candidates,
         extracted.failures,
     ):
         written_chunks, written_documents = (
@@ -491,12 +517,14 @@ async def _commit_batch(  # noqa: PLR0913
                 list[Document],
                 list[ExtractedEntity],
                 list[ExtractedRelation],
+                list[CandidateRecord],
                 list[StageFailure],
             ] = (
                 written_chunks,
                 written_documents,
                 doc_entities,
                 doc_relations,
+                doc_candidates,
                 doc_failures,
             ),
         ) -> AddResult:
@@ -505,6 +533,7 @@ async def _commit_batch(  # noqa: PLR0913
                 slice_documents,
                 slice_entities,
                 slice_relations,
+                slice_candidates,
                 slice_failures,
             ) = _slice
             ingested = await ingest_chunks(
@@ -527,6 +556,8 @@ async def _commit_batch(  # noqa: PLR0913
                 tracer=tracer,
                 embed_heading_path=embed_heading_path,
                 max_llm_pairs=max_llm_pairs,
+                candidates=slice_candidates,
+                write_candidates=write_candidates,
                 deferred=_deferred,
             )
             created_ids.extend(ingested.created_entity_ids)
@@ -546,6 +577,7 @@ async def _commit_batch(  # noqa: PLR0913
             components=components,
             deferred=deferred,
             created_entity_ids=created_entity_ids,
+            candidate_document_node_id=Document.node_id_for(document_key=document_key),
             tracer=tracer,
         )
         partials.append(_with_cleanup_failures(partial, cleanup_failures))
@@ -576,6 +608,7 @@ async def add_documents(  # noqa: PLR0912,PLR0915,PLR0913
     registry: LoaderRegistry,
     embed_heading_path: bool,
     max_llm_pairs: int,
+    write_candidates: bool,
     cleanup: CleanupStep,
     tracer: Tracer,
 ) -> AddResult:
@@ -687,6 +720,7 @@ async def add_documents(  # noqa: PLR0912,PLR0915,PLR0913
                     tracer=tracer,
                     embed_heading_path=embed_heading_path,
                     max_llm_pairs=max_llm_pairs,
+                    write_candidates=write_candidates,
                     cleanup=cleanup,
                 )
             )
@@ -739,6 +773,7 @@ async def update_document(  # noqa: PLR0913
     registry: LoaderRegistry,
     embed_heading_path: bool,
     max_llm_pairs: int,
+    write_candidates: bool,
     cleanup: CleanupStep,
     tracer: Tracer,
 ) -> UpdateResult:
@@ -892,6 +927,8 @@ async def update_document(  # noqa: PLR0913
                 tracer=tracer,
                 embed_heading_path=embed_heading_path,
                 max_llm_pairs=max_llm_pairs,
+                candidates=extracted.candidates,
+                write_candidates=write_candidates,
                 deferred=deferred,
                 reuse_chunks=in_place,
             )
@@ -932,6 +969,11 @@ async def update_document(  # noqa: PLR0913
                 )
                 if in_place and found is not None
                 else None
+            ),
+            candidate_document_node_id=(
+                found.document_node_id
+                if found is not None
+                else Document.node_id_for(document_key=document_key)
             ),
         )
         return UpdateResult(
@@ -981,6 +1023,7 @@ async def delete_document(  # noqa: PLR0913
             cleanup=cleanup,
             deferred=DeferredWrites(),
             close_document_node_id=found.document_node_id,
+            candidate_document_node_id=found.document_node_id,
             tracer=tracer,
         )
         return UpdateResult(

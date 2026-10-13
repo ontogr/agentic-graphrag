@@ -82,10 +82,10 @@ class TestGroupByDocument:
         unlisted_chunk = _chunk(_doc(key="unlisted"))
 
         with caplog.at_level(logging.WARNING, logger=LOGGER_NAME):
-            slices = _group_by_document([unlisted_chunk], [listed], [], [], [])
+            slices = _group_by_document([unlisted_chunk], [listed], [], [], [], [])
 
         assert len(slices) == 1
-        _, slice_chunks, _, _, _, _ = slices[0]
+        _, slice_chunks, _, _, _, _, _ = slices[0]
         assert slice_chunks == [unlisted_chunk]
         assert len(_warnings(caplog)) == 1
 
@@ -115,11 +115,11 @@ class TestGroupByDocument:
 
         with caplog.at_level(logging.WARNING, logger=LOGGER_NAME):
             slices = _group_by_document(
-                [chunk_a, chunk_b], [doc_a, doc_b], entities, relations, []
+                [chunk_a, chunk_b], [doc_a, doc_b], entities, relations, [], []
             )
 
         relations_by_key = {
-            key: slice_relations for key, _, _, _, slice_relations, _ in slices
+            key: slice_relations for key, _, _, _, slice_relations, _, _ in slices
         }
         assert [
             (rel.label, rel.source_index, rel.target_index)

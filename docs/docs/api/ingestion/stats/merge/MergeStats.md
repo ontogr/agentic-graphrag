@@ -15,6 +15,8 @@ Merge-stage results.
 - [**nodes_updated**](#agrag-ingestion-stats-merge-MergeStats-nodes_updated) (<code>int</code>) – Existing entities that absorbed new mention data.
 - [**conflicts_resolved**](#agrag-ingestion-stats-merge-MergeStats-conflicts_resolved) (<code>int</code>) – Total property/description conflicts resolved
   across every merge this call performed.
+- [**dropped**](#agrag-ingestion-stats-merge-MergeStats-dropped) (<code>list\[[DroppedCount](../dropped/DroppedCount.md)\]</code>) – Relations removed because an endpoint has no merged entity
+  or both endpoints became one entity.
 - [**failures**](#agrag-ingestion-stats-merge-MergeStats-failures) (<code>list\[[StageFailure](../../../common/data_models/stage_failure/StageFailure.md)\]</code>) – Includes an LLM failure during description
   summarization. The merge still falls back to concatenation and
   completes, but the failure is recorded here. Also includes a
@@ -27,6 +29,12 @@ Merge-stage results.
 
 ```python
 conflicts_resolved: int = 0
+```
+
+## `dropped` \{#agrag-ingestion-stats-merge-MergeStats-dropped}
+
+```python
+dropped: list[DroppedCount] = Field(default_factory=list)
 ```
 
 ## `failures` \{#agrag-ingestion-stats-merge-MergeStats-failures}

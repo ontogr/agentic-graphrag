@@ -5,6 +5,7 @@ from __future__ import annotations
 from pydantic import BaseModel, Field
 
 from agrag.common.data_models.stage_failure import StageFailure
+from agrag.ingestion.stats.dropped import DroppedCount
 
 
 class MergeStats(BaseModel):
@@ -15,6 +16,8 @@ class MergeStats(BaseModel):
         nodes_updated: Existing entities that absorbed new mention data.
         conflicts_resolved: Total property/description conflicts resolved
             across every merge this call performed.
+        dropped: Relations removed because an endpoint has no merged entity
+            or both endpoints became one entity.
         failures: Includes an LLM failure during description
             summarization. The merge still falls back to concatenation and
             completes, but the failure is recorded here. Also includes a
@@ -27,6 +30,7 @@ class MergeStats(BaseModel):
     nodes_created: int = 0
     nodes_updated: int = 0
     conflicts_resolved: int = 0
+    dropped: list[DroppedCount] = Field(default_factory=list)
     failures: list[StageFailure] = Field(default_factory=list)
     failures_total: int = 0
     failures_truncated: bool = False

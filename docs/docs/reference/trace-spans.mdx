@@ -128,6 +128,7 @@ agrag.ingestion.add
       agrag.storage.embed_chunks
       agrag.storage.upsert_relations
       agrag.storage.upsert_mentioned_in
+      agrag.storage.upsert_candidates            only with candidates
       agrag.storage.embed_survivors
     agrag.merge.rebuild_components
 ```
@@ -153,6 +154,7 @@ agrag.ingestion.add
 | `agrag.storage.upsert_documents` | `agrag.record_count`, `agrag.nodes_written` |
 | `agrag.storage.upsert_relations` | `agrag.record_count`, `agrag.relationships_written` |
 | `agrag.storage.upsert_mentioned_in` | `agrag.record_count`, `agrag.relationships_written` |
+| `agrag.storage.upsert_candidates` | `agrag.record_count`, `agrag.candidates_written` |
 | `agrag.storage.embed_survivors` | none |
 | `agrag.community.embed_batch` | `agrag.batch_size` |
 
@@ -216,8 +218,8 @@ Each LLM path also opens one small domain span carrying its own ids and counts.
 
 | Path | Domain span | Attributes |
 |---|---|---|
-| Extraction, BAML | `agrag.extraction.baml` | `agrag.chunk_id`, `agrag.entities_extracted`, `agrag.relations_extracted`, `agrag.extraction.heading_context` (bool, whether a section line was sent) |
-| Extraction, GLiNER | `agrag.extraction.gliner`, and `agrag.extraction.model_load` around the one-time model build | the same counts. `agrag.model` is on the load span |
+| Extraction, BAML | `agrag.extraction.baml` | `agrag.chunk_id`, `agrag.entities_extracted`, `agrag.relations_extracted`, `agrag.candidates_extracted`, `agrag.extraction.heading_context` (bool, whether a section line was sent) |
+| Extraction, GLiNER | `agrag.extraction.gliner`, and `agrag.extraction.model_load` around the one-time model build | `agrag.chunk_id`, `agrag.entities_extracted`, `agrag.relations_extracted`, `agrag.candidates_extracted`. `agrag.model` is on the load span |
 | Extraction, escalate | `agrag.extraction.escalate` | `agrag.chunks_total`, `agrag.chunks_eligible`, `agrag.chunks_escalated` |
 | Resolution | `agrag.resolution.llm_verify` | `agrag.pair_count`, `agrag.match_count`, `agrag.uncertain_count`, `agrag.request_failed` (bool), `agrag.llm_unavailable` (bool) |
 | Merge | `agrag.merge.resolve_description` | `agrag.description_count`, `agrag.summarized` (bool) |

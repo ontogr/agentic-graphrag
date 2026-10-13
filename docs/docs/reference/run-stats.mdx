@@ -1,0 +1,54 @@
+---
+title: Run statistics
+---
+
+# Run statistics
+
+`Graph.add` returns an `AddResult`. `Graph.update` returns an `UpdateResult` whose `add_result` contains the extraction and merge summaries. This page describes discarded-item counts and candidate writes. See the [Python API](../api/index.md) for other fields.
+
+## Extraction statistics
+
+`AddResult.extraction` is an `ExtractionStats`.
+
+| Field | Meaning |
+| --- | --- |
+| `dropped` | `DroppedCount` entries for items extraction discarded. Each entry has `kind`, `label`, `reason` and `count`. The list is filled whether or not candidates are written. |
+| `candidates_written` | Number of candidate records written to the graph. |
+| `candidates_skipped` | Number of discarded items not written because a reviewer already approved or rejected the same candidate, or because a relation's ends became one entity. |
+
+## Merge statistics
+
+`AddResult.merge.dropped` lists relations that the merge stage could not write. Each entry has the same `DroppedCount` fields.
+
+## Drop reasons
+
+| Reason | Kind | Meaning |
+| --- | --- | --- |
+| `off_pattern` | relation | The relation label is declared, but the schema allows no pattern for its endpoint types. |
+| `below_relation_cut` | relation | The relation score is below its threshold. |
+| `unresolved_endpoint` | relation | An endpoint does not match a kept entity span. |
+| `entity_band` | entity | The entity score is between the band floor and entity threshold. This reason is absent when the GLiNER candidate pass is disabled or the mode is `llm`. |
+| `property` | property | The LLM returned a property key that the entity type does not declare. |
+| `unmapped_endpoint` | relation | A relation endpoint has no merged entity. This reason appears in `merge.dropped`. |
+| `merged_self_loop` | relation | Both relation endpoints became one entity. This reason appears in `merge.dropped`. |
+
+Property conflicts are counted in `merge.conflicts_resolved`, not in `merge.dropped`.
+
+## Candidate kinds by mode
+
+Set the mode with `ExtractionSettings.mode` or `EXTRACTION_MODE`. The table lists the candidate kinds each mode can write.
+
+| Kind | `gliner` | `hybrid` | `llm` |
+| --- | --- | --- | --- |
+| `off_pattern` | Yes | Yes | Yes |
+| `below_relation_cut` | Yes | Yes | No |
+| `unresolved_endpoint` | Yes | Yes | No |
+| `entity_band` | Yes | Yes | No |
+| `property` | No | Yes, for custom schemas with properties | Yes, for custom schemas with properties |
+
+An `off_pattern` candidate in `llm` mode has confidence `0.0`, because the model does not return a score. A property candidate uses the holder entity's confidence, or `0.0` when the entity has no score.
+
+## Related
+
+- How-to: [Turn candidates off](../guides/turn-off-candidates.mdx).
+- Explanation: [Candidates](../concepts/candidates.mdx).

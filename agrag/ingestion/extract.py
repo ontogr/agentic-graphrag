@@ -17,6 +17,7 @@ from opentelemetry.trace import Tracer
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from agrag.common.data_models.candidate import CandidateRecord
 from agrag.common.data_models.chunk import Chunk
 from agrag.common.data_models.extraction import (
     ExtractedEntity,
@@ -193,8 +194,9 @@ def validate_extraction(
     survives only when its label is a declared EntityType, and keeps only the
     property keys that EntityType declares. A relation survives only when both
     of its entities survive and ``schema.allows`` accepts its label and
-    resolved (source label, target label) pair. Relation indices are remapped
-    to the surviving entities. A drop is logged with a count.
+    resolved (source label, target label) pair. Property keys the schema does
+    not declare are returned as property candidates. Relation indices are
+    remapped to the surviving entities. A drop is logged with a count.
 
     Args:
         result: The extractor's result, before schema validation.
@@ -203,13 +205,14 @@ def validate_extraction(
     Returns:
         A copy of ``result`` holding only schema-declared entities and
         relations, with relation indices remapped and each entity's properties
-        limited to its declared keys. ``candidates`` and ``needs_properties``
-        are unchanged.
+        limited to its declared keys. Undeclared properties are candidates.
+        Existing candidates and ``needs_properties`` are preserved.
     """
     entity_types_by_label = {
         entity_type.label: entity_type for entity_type in schema.entities
     }
     valid_entities: list[ExtractedEntity] = []
+    candidates = list(result.candidates)
     index_remap: dict[int, int] = {}
     dropped_properties = 0
     for old_index, entity in enumerate(result.entities):
@@ -227,6 +230,20 @@ def validate_extraction(
             if declared != entity.properties:
                 dropped_properties += len(entity.properties) - len(declared)
                 valid_entity = entity.model_copy(update={"properties": declared})
+                score = entity.confidence if entity.confidence is not None else 0.0
+                candidates.extend(
+                    CandidateRecord(
+                        kind="property",
+                        label=key,
+                        text=str(value),
+                        source_text=entity.text,
+                        confidence=score,
+                        reason="property",
+                        chunk_id=entity.chunk_id,
+                    )
+                    for key, value in entity.properties.items()
+                    if key not in entity_type.properties
+                )
         valid_entities.append(valid_entity)
 
     valid_relations: list[ExtractedRelation] = []
@@ -262,7 +279,11 @@ def validate_extraction(
             result.extractor_name,
         )
     return result.model_copy(
-        update={"entities": valid_entities, "relations": valid_relations}
+        update={
+            "entities": valid_entities,
+            "relations": valid_relations,
+            "candidates": candidates,
+        }
     )
 
 
@@ -610,6 +631,7 @@ class GlinerExtractor(Extractor):
             result = decode_gliner(raw, band_raw, chunk, schema, settings)
             span.set_attribute("agrag.entities_extracted", len(result.entities))
             span.set_attribute("agrag.relations_extracted", len(result.relations))
+            span.set_attribute("agrag.candidates_extracted", len(result.candidates))
             return result
 
     async def _load_model(self) -> object:
@@ -859,6 +881,7 @@ class BAMLExtractor(LLMExtractor):
             result = validate_extraction(self._to_result(raw, chunk, schema), schema)
             span.set_attribute("agrag.entities_extracted", len(result.entities))
             span.set_attribute("agrag.relations_extracted", len(result.relations))
+            span.set_attribute("agrag.candidates_extracted", len(result.candidates))
             return result
 
     def _default_client(self) -> object:

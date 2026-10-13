@@ -75,7 +75,7 @@ Class: `ExtractionSettings`. Prefix: `EXTRACTION_`.
 | `EXTRACTION_ESCALATION_THRESHOLD` | `0.75` | A chunk is eligible for the LLM in `hybrid` mode when one of its entities scores below this value. |
 | `EXTRACTION_ESCALATION_BUDGET` | `0.2` | The share of the chunks in a batch that the LLM extractor can read, from `0` to `1`, or `all`. The value is rounded up. `all` sets no limit, and `0` means no chunk goes to the LLM. |
 | `EXTRACTION_MIN_ESCALATION_WORDS` | `8` | Minimum words in a chunk with no entities for the LLM to read it. Used in `llm` mode and for the empty-result case in `hybrid` mode. |
-| `EXTRACTION_CANDIDATES_ENABLED` | `true` | Whether `GlinerExtractor` reports rejected relations and band entities as candidates in its result. Enabling it adds a second model call per chunk. Ingestion does not store these candidates yet. |
+| `EXTRACTION_CANDIDATES_ENABLED` | `true` | Set to `false` to stop writing candidates. The dropped counts stay on. Disabling candidates also skips GLiNER's second model call for band entities. |
 
 All score values must be between `0` and `1`. `EXTRACTION_LABEL_THRESHOLDS` must be one JSON object. For example, the following `.env` values configure every field:
 

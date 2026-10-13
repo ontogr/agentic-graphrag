@@ -1117,6 +1117,45 @@ class TestBAMLExtractor:
 
         assert result.entities[0].properties == {"role": "engineer"}
 
+    async def test_extract_reports_an_undeclared_property_as_a_candidate(self) -> None:
+        """A stripped property key returns as a candidate with its holder text."""
+        chunk = _chunk("Ada is an engineer.")
+        result = await BAMLExtractor(
+            client=_ParsingClient(
+                _reply(
+                    entities=[("Person", "Ada")],
+                    properties={"Ada": {"role": "engineer", "shoe_size": "9"}},
+                )
+            )
+        ).extract(chunk, _PROPERTY_SCHEMA)
+
+        [candidate] = result.candidates
+        assert (candidate.kind, candidate.label, candidate.reason) == (
+            "property",
+            "shoe_size",
+            "property",
+        )
+        assert (candidate.text, candidate.source_text) == ("9", "Ada")
+        assert candidate.confidence == 0.0
+        assert candidate.chunk_id == chunk.id
+        assert result.entities[0].properties == {"role": "engineer"}
+
+    async def test_extract_does_not_report_declared_properties_as_candidates(
+        self,
+    ) -> None:
+        """A declared property stays on its entity without a candidate."""
+        result = await _extract(
+            _reply(
+                entities=[("Person", "Ada")],
+                properties={"Ada": {"role": "engineer"}},
+            ),
+            "Ada is an engineer.",
+            _PROPERTY_SCHEMA,
+        )
+
+        assert result.candidates == []
+        assert result.entities[0].properties == {"role": "engineer"}
+
     @staticmethod
     async def test_missing_required_property_is_logged_and_entity_kept(
         caplog: pytest.LogCaptureFixture,
