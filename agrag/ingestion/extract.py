@@ -23,7 +23,7 @@ from agrag.common.data_models.extraction import (
     ExtractedRelation,
     ExtractionResult,
 )
-from agrag.common.data_models.graph_schema import GraphSchema
+from agrag.common.data_models.graph_schema import GraphSchema, PropertySpec
 from agrag.ingestion._gliner_decode import decode_gliner
 from agrag.ingestion._mentions import endpoint_key, locate_mentions
 from agrag.ingestion.settings import ExtractionSettings
@@ -53,6 +53,17 @@ def _candidate_specs(
     return [{"label": entity.label, "text": entity.text} for entity in candidates]
 
 
+def _describe_property(name: str, spec: PropertySpec) -> str:
+    """Return one declared property with its type, requiredness and guidance."""
+    details = [spec.type]
+    if spec.required:
+        details.append("required")
+    if spec.enum:
+        details.append(f"one of {', '.join(spec.enum)}")
+    text = f"{name} ({'; '.join(details)})"
+    return f"{text}: {spec.description}" if spec.description else text
+
+
 def _describe_properties(schema: GraphSchema) -> str | None:
     """Return the guidance for the entity ``properties`` field, or None.
 
@@ -72,9 +83,7 @@ def _describe_properties(schema: GraphSchema) -> str | None:
         if not entity_type.properties:
             continue
         declared = ", ".join(
-            f"{name} ({spec.type}; one of {', '.join(spec.enum)})"
-            if spec.enum
-            else f"{name} ({spec.type})"
+            _describe_property(name, spec)
             for name, spec in entity_type.properties.items()
         )
         lines.append(f"{entity_type.label}: {declared}")
@@ -110,15 +119,24 @@ def _resolve_relation_pair(
 
     BAML identifies endpoints only by surface text (compared by
     ``endpoint_key``, so case and whitespace differences do not matter), so
-    each endpoint text can match several entities. Walk candidate source and
-    target indices in order and return the first pair whose endpoint labels
-    satisfy the schema, including inherited labels and symmetry. Return None
-    when the relation label is undeclared, an endpoint text matches no entity,
-    or every pairing self-references. Callers drop such relations rather than
-    raise.
+    each endpoint text can match several entities. Entities whose text equals
+    the endpoint exactly come first, so a normalized match never outranks the
+    mention the model named. Walk candidate source and target indices in order
+    and return the first pair whose endpoint labels satisfy the schema,
+    including inherited labels and symmetry. Return None when the relation
+    label is undeclared, an endpoint text matches no entity, or every pairing
+    self-references. Callers drop such relations rather than raise.
     """
-    source_candidates = text_index.get(endpoint_key(relation.source_text), [])  # ty: ignore[unresolved-attribute]
-    target_candidates = text_index.get(endpoint_key(relation.target_text), [])  # ty: ignore[unresolved-attribute]
+    source_text = relation.source_text  # ty: ignore[unresolved-attribute]
+    target_text = relation.target_text  # ty: ignore[unresolved-attribute]
+    source_candidates = sorted(
+        text_index.get(endpoint_key(source_text), []),
+        key=lambda index: valid_raw_entities[index][0].text != source_text,
+    )
+    target_candidates = sorted(
+        text_index.get(endpoint_key(target_text), []),
+        key=lambda index: valid_raw_entities[index][0].text != target_text,
+    )
     for source_index in source_candidates:
         for target_index in target_candidates:
             if source_index == target_index:
@@ -307,20 +325,22 @@ _JSON_DECODER = json.JSONDecoder()
 def _reply_holds_answer(reply: str) -> bool:
     """Return whether reply holds a JSON answer, even an empty one.
 
-    A JSON object with an ``entities`` key or an empty JSON list counts.
-    Anything else, such as prose or a cut-off object, does not.
+    A JSON object with an ``entities`` key counts, even inside prose. An empty
+    list counts only when it is the whole reply, optionally in a code fence,
+    because an empty list inside prose or a cut-off object is not an answer.
     """
-    # Prose can surround the JSON, so every opening brace and bracket is tried.
+    body = reply.strip().removeprefix("```json").removeprefix("```")
+    if body.removesuffix("```").strip() == "[]":
+        return True
+    # Prose can surround the JSON, so every opening brace is tried.
     for start, char in enumerate(reply):
-        if char not in "{[":
+        if char != "{":
             continue
         try:
             value, _ = _JSON_DECODER.raw_decode(reply, start)
         except ValueError:
             continue
         if isinstance(value, dict) and "entities" in value:
-            return True
-        if value == []:
             return True
     return False
 

@@ -933,9 +933,8 @@ class TestBAMLExtractor:
                 extractor._default_client()
             assert exc_info.value.extra == "llm"
 
-    async def test_labels_travel_in_the_enum_values_and_the_section_is_passed(
-        self,
-    ) -> None:
+    @staticmethod
+    async def test_labels_travel_in_the_enum_values_and_the_section_is_passed() -> None:
         """The section reaches the model and every declared label is offered."""
         chunk = Chunk(
             id=uuid4(),
@@ -954,7 +953,8 @@ class TestBAMLExtractor:
         assert "KNOWS" in prompt
         assert _KNOWS_SCHEMA.relations[0].description in prompt
 
-    async def test_finds_the_span_from_the_name_alone(self) -> None:
+    @staticmethod
+    async def test_finds_the_span_from_the_name_alone() -> None:
         """The model gives no offsets; the span comes from the chunk text."""
         text = "Ada Lovelace worked at the Analytical Engine Company."
         result = await _extract(
@@ -968,7 +968,8 @@ class TestBAMLExtractor:
         assert entity.text == "Analytical Engine Company"
         assert entity.char_start == text.index("Analytical")
 
-    async def test_maps_relation_endpoints_to_entity_indices(self) -> None:
+    @staticmethod
+    async def test_maps_relation_endpoints_to_entity_indices() -> None:
         """Relation endpoints, given as text, become entity indices."""
         result = await _extract(
             _reply(
@@ -999,7 +1000,8 @@ class TestBAMLExtractor:
         (relation,) = result.relations
         assert (relation.source_index, relation.target_index) == (0, 1)
 
-    async def test_drops_a_relation_whose_endpoint_is_not_an_entity(self) -> None:
+    @staticmethod
+    async def test_drops_a_relation_whose_endpoint_is_not_an_entity() -> None:
         """A relation that names a text no entity carries is dropped."""
         result = await _extract(
             _reply(
@@ -1065,7 +1067,8 @@ class TestBAMLExtractor:
 
         assert [entity.text for entity in result.entities] == ["Ada"]
 
-    async def test_drops_an_entity_with_empty_text(self) -> None:
+    @staticmethod
+    async def test_drops_an_entity_with_empty_text() -> None:
         """An empty name never reaches ExtractedEntity."""
         result = await _extract(
             _reply(entities=[("Person", "Ada"), ("Person", "")]),
@@ -1075,7 +1078,8 @@ class TestBAMLExtractor:
 
         assert [entity.text for entity in result.entities] == ["Ada"]
 
-    async def test_does_not_find_a_name_inside_a_longer_word(self) -> None:
+    @staticmethod
+    async def test_does_not_find_a_name_inside_a_longer_word() -> None:
         """A name does not match inside a longer word, as in 'Canada'."""
         result = await _extract(
             _reply(entities=[("Person", "Ada")]), "She lives in Canada.", _KNOWS_SCHEMA
@@ -1083,7 +1087,8 @@ class TestBAMLExtractor:
 
         assert result.entities == []
 
-    async def test_entities_found_only_in_the_heading_are_dropped(self) -> None:
+    @staticmethod
+    async def test_entities_found_only_in_the_heading_are_dropped() -> None:
         """The heading is context for the model and is never searched."""
         chunk = Chunk(
             id=uuid4(),
@@ -1112,7 +1117,8 @@ class TestBAMLExtractor:
 
         assert result.entities[0].properties == {"role": "engineer"}
 
-    async def test_adds_a_properties_field_only_for_property_schemas(self) -> None:
+    @staticmethod
+    async def test_adds_a_properties_field_only_for_property_schemas() -> None:
         """The answer shape has `properties` exactly when a type declares one."""
 
         async def prompt_for(schema: GraphSchema) -> str:
@@ -1131,7 +1137,8 @@ class TestBAMLExtractor:
 
         assert result.entities[0].properties == {}
 
-    async def test_keeps_two_labels_on_one_span(self) -> None:
+    @staticmethod
+    async def test_keeps_two_labels_on_one_span() -> None:
         """One name under two labels keeps both labels on the same span."""
         result = await _extract(
             _reply(entities=[("Product", "Apple"), ("Organization", "Apple")]),
@@ -1145,7 +1152,8 @@ class TestBAMLExtractor:
         }
         assert len({(e.char_start, e.char_end) for e in result.entities}) == 1
 
-    async def test_keeps_two_relation_labels_between_one_pair(self) -> None:
+    @staticmethod
+    async def test_keeps_two_relation_labels_between_one_pair() -> None:
         """Two valid relation labels between one pair both survive."""
         result = await _extract(
             _reply(
@@ -1165,7 +1173,8 @@ class TestBAMLExtractor:
         }
         assert all((r.source_index, r.target_index) == (0, 1) for r in result.relations)
 
-    async def test_keeps_a_relation_that_needs_the_second_label(self) -> None:
+    @staticmethod
+    async def test_keeps_a_relation_that_needs_the_second_label() -> None:
         """A relation valid only for the second label of a name survives."""
         result = await _extract(
             _reply(
@@ -1185,7 +1194,8 @@ class TestBAMLExtractor:
         assert relation.label == "SELLS"
         assert result.entities[relation.source_index].label == "Organization"
 
-    async def test_one_relation_stays_one_edge_when_names_repeat(self) -> None:
+    @staticmethod
+    async def test_one_relation_stays_one_edge_when_names_repeat() -> None:
         """One relation between repeated names is a single edge."""
         result = await _extract(
             _reply(
@@ -1205,7 +1215,8 @@ class TestBAMLExtractor:
         assert relation.source_index in {0, 1}
         assert relation.target_index in {2, 3}
 
-    async def test_drops_a_relation_to_a_dropped_entity(self) -> None:
+    @staticmethod
+    async def test_drops_a_relation_to_a_dropped_entity() -> None:
         """A relation to an entity that was not in the chunk is dropped too."""
         result = await _extract(
             _reply(
@@ -1219,7 +1230,8 @@ class TestBAMLExtractor:
         assert [entity.text for entity in result.entities] == ["Ada"]
         assert result.relations == []
 
-    async def test_drops_a_relation_the_patterns_do_not_permit(self) -> None:
+    @staticmethod
+    async def test_drops_a_relation_the_patterns_do_not_permit() -> None:
         """A relation whose endpoint labels are in the wrong order is dropped."""
         result = await _extract(
             _reply(
@@ -1233,7 +1245,8 @@ class TestBAMLExtractor:
         assert len(result.entities) == 2
         assert result.relations == []
 
-    async def test_parser_drops_labels_outside_the_schema(self) -> None:
+    @staticmethod
+    async def test_parser_drops_labels_outside_the_schema() -> None:
         """An entity or relation with an undeclared label never reaches agrag."""
         result = await _extract(
             _reply(
@@ -1247,7 +1260,8 @@ class TestBAMLExtractor:
         assert [entity.label for entity in result.entities] == ["Person"]
         assert result.relations == []
 
-    async def test_entity_only_schema_has_no_relations_field(self) -> None:
+    @staticmethod
+    async def test_entity_only_schema_has_no_relations_field() -> None:
         """A schema with no relation types shows the model no relation field."""
         client = _ParsingClient(_reply(entities=[("Person", "Ada")]))
         result = await BAMLExtractor(client=client).extract(
@@ -1260,7 +1274,8 @@ class TestBAMLExtractor:
         assert [entity.text for entity in result.entities] == ["Ada"]
         assert result.relations == []
 
-    async def test_entities_and_relations_carry_no_confidence(self) -> None:
+    @staticmethod
+    async def test_entities_and_relations_carry_no_confidence() -> None:
         """The LLM path reports no score."""
         result = await _extract(
             _reply(
@@ -1274,7 +1289,8 @@ class TestBAMLExtractor:
         assert all(entity.confidence is None for entity in result.entities)
         assert all(relation.confidence is None for relation in result.relations)
 
-    async def test_extract_with_injected_client_skips_settings(self) -> None:
+    @staticmethod
+    async def test_extract_with_injected_client_skips_settings() -> None:
         """An injected client works without EXTRACTION_LLM_CLIENTS env vars."""
         extractor = BAMLExtractor(
             client=_ParsingClient(_reply(entities=[("Person", "Ada")]))
@@ -1285,7 +1301,8 @@ class TestBAMLExtractor:
 
         assert [entity.text for entity in result.entities] == ["Ada"]
 
-    async def test_prompt_offers_only_declared_labels_and_descriptions(self) -> None:
+    @staticmethod
+    async def test_prompt_offers_only_declared_labels_and_descriptions() -> None:
         """The rendered request lists the schema's labels, not PLACEHOLDER.
 
         Renders the real BAML request with the type builder the extractor
@@ -1304,7 +1321,8 @@ class TestBAMLExtractor:
         assert "char_start" not in prompt
         assert "char_end" not in prompt
 
-    async def test_prompt_has_no_type_pairs_and_lists_each_label_once(self) -> None:
+    @staticmethod
+    async def test_prompt_has_no_type_pairs_and_lists_each_label_once() -> None:
         """Each label appears once with its description and no pair arrows."""
         client = _ParsingClient(_reply())
         await BAMLExtractor(client=client).extract(
@@ -1371,7 +1389,8 @@ class TestBAMLExtractor:
             for relation in result.relations
         ] == [(0, 1)]
 
-    async def test_prose_reply_is_unparsable(self, monkeypatch) -> None:
+    @staticmethod
+    async def test_prose_reply_is_unparsable(monkeypatch) -> None:
         """Prose parses to an empty result; the extractor reports it as a failure."""
         prose = "I could not find any entities in this text."
         monkeypatch.setattr(
@@ -1383,7 +1402,14 @@ class TestBAMLExtractor:
 
     @pytest.mark.parametrize(
         "reply",
-        ["", "{}", '{"foo": 1}', '{"entities": [{"label": "Per'],
+        [
+            "",
+            "{}",
+            '{"foo": 1}',
+            '{"entities": [{"label": "Per',
+            '{"entities": [], "relations": [',
+            "Use an empty list such as [] when nothing applies.",
+        ],
     )
     async def test_reply_without_an_answer_is_unparsable(
         self, monkeypatch, reply: str
@@ -1427,11 +1453,13 @@ class TestBAMLExtractor:
 
         assert result.entities == []
 
-    async def test_a_raised_call_error_propagates(self) -> None:
+    @staticmethod
+    async def test_a_raised_call_error_propagates() -> None:
         """A client error is not turned into an unparsable-reply error."""
 
         class Failing:
-            async def ExtractEntitiesAndRelations(self, *args):  # noqa: N802
+            @staticmethod
+            async def ExtractEntitiesAndRelations(*args):  # noqa: N802
                 raise RuntimeError("provider down")
 
         with pytest.raises(RuntimeError, match="provider down"):

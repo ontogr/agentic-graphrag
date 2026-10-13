@@ -43,11 +43,10 @@ def mention_key(text: str) -> str:
 def _occurrences(key: str, chunk_text: str) -> list[tuple[int, int]]:
     """Return the (start, end) of each whole-word match of key in chunk_text."""
     body = r"\s+".join(re.escape(word) for word in key.split(" "))
-    # Word boundaries apply only where the edge character is a word
-    # character, so "$5M" and "U.S." still match next to punctuation.
-    before = r"(?<!\w)" if re.match(r"\w", key[0]) else ""
-    after = r"(?!\w)" if re.match(r"\w", key[-1]) else ""
-    return [match.span() for match in re.finditer(before + body + after, chunk_text)]
+    # Both edges need a non-word neighbor, even when the mention edge is
+    # punctuation, so "U.S." does not match inside "U.S.A.".
+    pattern = r"(?<!\w)" + body + r"(?!\w)"
+    return [match.span() for match in re.finditer(pattern, chunk_text)]
 
 
 def locate_mentions(
