@@ -64,7 +64,7 @@ Class: `ExtractionSettings`. Prefix: `EXTRACTION_`.
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `EXTRACTION_MODE` | `hybrid` | Selects `gliner`, `hybrid`, or `llm`. `hybrid` without an LLM uses `gliner` and logs a warning. `llm` reads every chunk with the LLM extractor, and the word minimum applies to it. See [Control LLM cost during extraction](../guides/control-llm-cost-during-extraction.mdx). |
+| `EXTRACTION_MODE` | `hybrid` | Selects `gliner`, `hybrid`, or `llm`. If no LLM extractor is available, `hybrid` selects `gliner` and logs a warning. `llm` mode sends chunks that meet the word minimum to the LLM. See [Choose an extraction mode](../guides/choose-an-extraction-mode.mdx) for tradeoffs and [Control LLM cost during extraction](../guides/control-llm-cost-during-extraction.mdx) for budget details. |
 | `EXTRACTION_MODEL_NAME` | `fastino/gliner2.5-base-v1` | GLiNER checkpoint loaded by `GlinerExtractor`. |
 | `EXTRACTION_DTYPE` | `fp32` | Model precision: `fp32`, `fp16`, or `bf16`. The model loads in `fp32` before the extractor casts it. |
 | `EXTRACTION_ENTITY_THRESHOLD` | `0.5` | Minimum score for a kept entity span. |

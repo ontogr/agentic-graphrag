@@ -19,7 +19,7 @@
 
 </div>
 
-Agentic GraphRAG is a modular, schema-driven system. It builds knowledge graphs from unstructured and structured data. A knowledge graph links typed entities with relations. It retrieves evidence across graph and vector indexes. It answers questions with agentic reasoning and cites its evidence.
+Agentic GraphRAG builds schema-defined knowledge graphs from documents and structured data. It stores source text alongside entities and relations, retrieves evidence from the graph and vector indexes, and can answer questions with citations to that evidence.
 
 A plain vector search finds passages that look like your question. It cannot join a fact in one document to a fact in another. "Who founded the company that Satya Nadella works at?" needs two facts from two places. A graph joins them.
 
@@ -30,7 +30,7 @@ A plain vector search finds passages that look like your question. It cannot joi
 - One ingestion API for raw text, files, directories, globs, and prebuilt documents.
 - Structure-aware loading with Docling for rich documents and core readers for text, XML, and records. Sections, tables, and figures go into the graph, and one section-aware chunker packs every format.
 - Schema-driven extraction with runtime-defined entity types, relation types, and valid graph patterns.
-- Local extraction with GLiNER 2.5. Pass an LLM extractor to `Graph` to send weak local results to the LLM, up to a budget. You need no LLM key to build a graph.
+- Local extraction with GLiNER 2.5. In `hybrid` mode, pass an LLM extractor to `Graph` to review selected chunks up to a budget. The local model still runs on every chunk. A graph can be built without an extraction LLM, but GLiNER runs locally and needs its model dependencies.
 - Tiered entity resolution combining exact, fuzzy, embedding, and LLM-verified matching. An unsure comparison never matches.
 - Non-destructive matching. Fuzzy, embedding, and LLM matches write `MATCHES` edges and a derived `ResolvedEntity`. The original entities and their provenance stay in the graph.
 - Pluggable storage with Neo4j for graph data and native vectors, plus Qdrant, Weaviate, and Milvus/Zilliz for dedicated vector search.
@@ -99,7 +99,7 @@ Leiden clustering groups related entities into communities. `Graph.detect_commun
 
 Load OWL and RDFS Turtle ontologies with `load_schema("ontology.ttl")` after installing the `schema-formats` extra. See the [OWL and RDFS Turtle import reference](https://ontogr.github.io/agentic-graphrag/stable/reference/owl-import).
 
-Use `DEFAULT_SCHEMA` for general text, or provide a schema for a specific domain. The same schema guides extraction, validation, resolution, storage, and query generation.
+Use `DEFAULT_SCHEMA` for general text, or provide a schema for a specific domain. The schema guides extraction and validation, and supplies type information to retrieval and query generation.
 
 Write a schema as a short dict, a list of labels or a YAML file. `extends` builds on the default schema:
 
@@ -141,7 +141,7 @@ Set `EXTRACTION_MODE` to choose how the graph reads text. The default is `hybrid
 
 For the default extractors, install `extract` for `gliner`, both `extract` and `llm` for `hybrid`, or `llm` for `llm` mode. Custom extractors use their own dependencies.
 
-When `hybrid` runs without an extraction LLM, the graph runs as `gliner` and logs a warning. See [Choose an extraction mode](https://ontogr.github.io/agentic-graphrag/latest/guides/choose-an-extraction-mode).
+When `hybrid` has no extraction LLM available, `Graph` selects GLiNER mode and logs a warning. Check `graph.effective_mode` to see the selected mode. See [Choose an extraction mode](https://ontogr.github.io/agentic-graphrag/latest/guides/choose-an-extraction-mode) for the tradeoffs.
 
 ## Architecture
 

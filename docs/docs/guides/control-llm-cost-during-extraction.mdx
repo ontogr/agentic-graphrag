@@ -5,7 +5,7 @@ description: Limit how many chunks an LLM reads during extraction, and read the 
 
 # Control LLM cost during extraction
 
-A local model reads every chunk first. An LLM then reads only the chunks where the local result is weak, up to a budget that you set. Use this guide to set the budget and to read the report that each run returns.
+In `hybrid` mode, a local model reads every chunk, then an LLM can review eligible chunks up to a budget. Eligibility includes low-confidence or empty results and chunks with entities that declare properties. Use this guide to set the budget and interpret the run report. For other mode tradeoffs, see [Choose an extraction mode](./choose-an-extraction-mode.mdx).
 
 ## Before you start
 
@@ -22,16 +22,16 @@ Set the mode with `EXTRACTION_MODE`, or with `ExtractionSettings(mode=...)`. The
 | Mode | Local model | LLM | What the LLM reads |
 | --- | --- | --- | --- |
 | `gliner` | Reads every chunk | Not used | Nothing |
-| `hybrid` | Reads every chunk | Reads the weak chunks, up to the budget | The text of each weak chunk |
+| `hybrid` | Reads every chunk | Reads eligible chunks, up to the budget | Chunk text and the local entities |
 | `llm` | Not used | Reads every chunk with at least `EXTRACTION_MIN_ESCALATION_WORDS` words | The text only |
 
 The threshold and the budget apply only in `hybrid`. The `llm` mode uses only the word minimum.
 
-Without an LLM extractor, `hybrid` runs as `gliner` and logs one warning. The run report names the mode that ran. `llm` needs an LLM extractor. Graph construction raises an error when it has none.
+If no LLM extractor is available, `hybrid` selects `gliner` and logs a warning. The graph's `effective_mode` and the run report identify the selected mode. `llm` mode requires an LLM extractor; graph construction raises an error when none is available.
 
 ## Turn on the LLM tier
 
-Pass the LLM extractor as `llm_extractor`. Without it, no chunk goes to an LLM, and the budget has no effect.
+`Graph` can build the LLM extractor from `EXTRACTION_LLM_CLIENTS`, or from `LLM_BASE_URL` and `LLM_MODEL_ID`. If those settings are absent, pass an LLM extractor as `llm_extractor`. Without either configuration, `hybrid` falls back to the local extractor and the budget has no effect.
 
 {/* pmd-metadata: notest */}
 
@@ -64,7 +64,7 @@ A chunk is eligible in three cases:
 
 1. One of its entities scores below the escalation threshold.
 2. It has no entities and at least `EXTRACTION_MIN_ESCALATION_WORDS` words.
-3. One of its entities has a type that declares properties. Only an LLM fills property values.
+3. One of its entities has a type with declared or inherited properties. The default local extractor does not fill property values; the LLM extractor does.
 
 The budget is a share of all chunks in a batch, not a share of the eligible chunks. The result is rounded up. For example, a budget of `0.2` on a batch of 12 chunks lets the LLM read 3 chunks. The LLM reads the weakest eligible chunks first. The chunk with the lowest entity score comes first, and chunks with no entities come last. Chunks with equal scores keep their order in the batch.
 
@@ -72,7 +72,7 @@ The budget is a share of all chunks in a batch, not a share of the eligible chun
 
 ## How the LLM result combines with the local result
 
-The escalation step reads the weak chunk with the LLM. Its answer and the first result combine as a union:
+The escalation step sends an eligible chunk's text and local entities to the LLM. The two results combine as a union:
 
 1. The LLM entities come first. An LLM entity with the same name as a local entity takes the local span and score. The LLM label wins when the two labels differ.
 2. Local entities that the LLM did not return are added back, with their local span and score.
@@ -109,7 +109,7 @@ The report has these fields:
 | `mode` | The mode that the run used. |
 | `total` | The chunks that the run read. |
 | `skipped_short` | The chunks that `llm` mode did not send to the LLM because they were shorter than the word minimum. |
-| `eligible` | The chunks whose local result was weak. |
+| `eligible` | In `hybrid`, chunks with a low-confidence kept entity, no kept entities and enough words, or a kept entity whose type declares properties. |
 | `escalated` | The eligible chunks that the LLM read. |
 | `left_for_gliner` | The eligible chunks that kept the local result because the budget ran out. |
 | `lowest_score_left` | The lowest entity score among the chunks in `left_for_gliner`. |

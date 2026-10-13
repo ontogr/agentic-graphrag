@@ -6,15 +6,15 @@ description: How a planner, a researcher, and a verifier turn a question into a 
 
 # Agent loop
 
-The agent loop turns one question into a cited answer. A planner splits the question. A researcher gathers evidence from the graph. A verifier reviews that evidence before the planner answers.
+The agent loop turns one question into a cited answer through repeated research and evidence review. The planner divides the question, the researcher searches the graph, and the verifier checks whether each part has support. The loop can search again when evidence is missing, but it cannot make unsupported source material true.
 
 ## Why it exists
 
-One search often answers only part of a question. "Who worked with Charles Babbage, and where?" needs two facts, and they can sit in different passages. A single vector search returns the closest passages. It does not check that the question is fully answered.
+One search can miss part of a multi-part question. "Who worked with Charles Babbage, and where?" needs two facts that may sit in different passages. The planner separates those questions, and the verifier exposes gaps before the answer is written.
 
 The loop splits the question, so each part gets its own search. It reviews the evidence before it answers. A gap sends the agent back to search again instead of guessing.
 
-Every claim in the answer carries a citation key. Each key points to stored evidence, so you can check the answer yourself.
+The answer uses citation keys that point to evidence gathered during the run. Keys make claims traceable; they do not guarantee that the source itself is correct.
 
 ## How it works
 

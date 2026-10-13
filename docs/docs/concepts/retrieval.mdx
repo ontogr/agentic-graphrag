@@ -6,13 +6,13 @@ description: How Agentic GraphRAG finds evidence for a query with several search
 
 # Retrieval
 
-Retrieval finds the evidence that answers a query. It runs several search methods at the same time, merges their results, and can widen and re-order them before it returns the top results.
+Retrieval gathers ranked evidence from chunks, entities, communities, or graph queries. A recipe selects the search methods and optional expansion or re-ranking steps, then returns a bounded list of results.
 
 ## Why it exists
 
 Graph data answers questions in different ways. A fact can sit in a source passage, on an entity, in a relation between entities, or in a summary of a whole topic. No single search finds all four. A name lookup works for "Ada Lovelace". It does not work for "the main themes in this corpus".
 
-Retrieval gives each kind of evidence its own search method. A recipe picks the methods for a query. Reciprocal Rank Fusion merges the results, so no method's score scale takes over.
+Each evidence type needs a different search. A recipe chooses which searches to combine, and Reciprocal Rank Fusion (RRF) combines their rankings without assuming that their raw scores use the same scale. More expansion can improve coverage, but it also adds work and can introduce less direct evidence.
 
 ## How it works
 
@@ -111,7 +111,7 @@ A recipe is a named list of configuration values. It is data, so you can read it
 
 ## Fusion
 
-Reciprocal Rank Fusion scores an item by its rank in each list, not by its raw score. An item that two methods find scores higher than an item that one method finds. Each method gives an item one vote, at its best rank. A method cannot lift an item by returning it twice.
+Reciprocal Rank Fusion scores an item by its rank in each list, not by its raw score. An item found by multiple methods can outrank an item found by one method. Each method gives an item one vote at its best rank, so duplicate hits from one method do not add weight.
 
 Fusion runs even when a recipe has one method. It also removes duplicates, so the re-ranker never sees the same item twice.
 

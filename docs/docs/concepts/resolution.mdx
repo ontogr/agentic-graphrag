@@ -6,13 +6,13 @@ description: How Agentic GraphRAG decides which mentions name the same real-worl
 
 # Entity resolution
 
-Entity resolution decides which mentions name the same real-world thing. It only decides. The page [Matching and resolved entities](./resolved-entities.mdx) explains what Agentic GraphRAG writes after a decision.
+Entity resolution decides whether extracted mentions refer to the same real-world entity. The ingestion pipeline records those decisions and derives resolved entities without rewriting the original entities' facts. See [Matching and resolved entities](./resolved-entities.mdx) for how those records work.
 
 ## Why it exists
 
 One thing has many names. A corpus can say "Charles Babbage", "Babbage Charles", and "C. Babbage". A graph with three nodes splits the evidence. A search then finds only a part of it.
 
-A wrong match costs more than a missed match. A missed match can be found later. A wrong match mixes the facts of two different things. For this reason, every tier avoids merging when it is not sure. A pair that no tier could judge, for example because the LLM request failed, is undecided rather than rejected. Existing matches for that pair stay in place.
+A wrong match can mix facts from two entities, while a missed match can be reconsidered later. The resolver therefore treats uncertain pairs differently from rejected pairs. If no tier can decide, such as when an LLM request fails, the pair stays undecided and an existing match remains in place.
 
 ## How it works
 
@@ -42,7 +42,7 @@ flowchart TD
 5. Cluster tier. Ambiguous pairs are grouped by average similarity. A tight group is a match without an LLM call.
 6. LLM tier. An LLM reads each remaining pair with its context. It answers match, no match, or uncertain. Only a match merges. A failed request also leaves the pair undecided. The LLM sees at most 500 pairs for each label, most similar first; entity indices break ties. Pairs over the cap stay undecided and are counted in the resolution result.
 
-If no LLM is configured, the remaining pairs stay undecided. The graph does not merge them. A resolution call logs one warning, and `reevaluate` keeps any existing match edge for those pairs.
+The tier thresholds trade speed and cost against judgment quality. Cheap exact and name-based checks handle clear cases first; only ambiguous pairs reach the LLM, and the per-label cap leaves some pairs undecided rather than allowing unbounded calls. If no LLM is configured, the remaining pairs stay undecided. A resolution call logs one warning, and `reevaluate` keeps existing match edges for those pairs.
 
 ## Two scopes
 

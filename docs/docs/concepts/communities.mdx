@@ -6,13 +6,13 @@ description: How Agentic GraphRAG groups connected entities and writes a short r
 
 # Communities
 
-A community is a group of connected entities. Many relations connect the members. Agentic GraphRAG finds communities when you ask, and it writes a short report for each one.
+A community is a cluster of related entities summarized for broad questions. The report complements source chunks and individual relations; it does not replace them as evidence.
 
 ## Why it exists
 
 Some questions have no single chunk as an answer. "What are the main themes in this corpus?" needs a broad view. A list of every fact is too long to read.
 
-A community report gives that view. It summarizes one cluster of the graph in a title, a summary, and a few findings. A search can return the report and skip the low-level edges.
+A community report gives a compact view of one cluster through a title, summary, and findings. Retrieval can use the report to find a topic, then return the underlying entities or chunks for detail. Because an LLM can make errors in a report, treat its claims as a guide and compare them with source evidence.
 
 ## How it works
 
@@ -31,13 +31,13 @@ flowchart TD
 
 *Groups with many attested relations get an LLM report. Small groups get a simple one.*
 
-1. You call `Graph.detect_communities`. `Graph.add` never calls it.
-2. Agentic GraphRAG reads every relation between entities. It weights each relation by the number of chunks that state it. A relation with no source chunk weighs zero.
-3. Leiden clustering splits the entities into groups. The clustering is hierarchical. Agentic GraphRAG keeps only the first level, which holds the broadest groups, and only groups of two or more entities.
-4. Agentic GraphRAG sums the weight of the relations inside each group. This is the internal weight. It also ranks each member by its own internal weight.
-5. A group with an internal weight of 5 or more gets an LLM report. The report has a title, a summary, a rating from 0 to 10, a reason for the rating, and findings. A smaller group gets a simple report. Its title lists the three top members. Its rating is half of its internal weight, up to 10. If no LLM is available or a call fails, Agentic GraphRAG writes the simple report and records the failure.
-6. Agentic GraphRAG embeds each title and summary, so that retrieval can search communities.
-7. Agentic GraphRAG deletes the earlier communities and writes the new ones. Each detection replaces the last.
+Community detection is an explicit, graph-wide operation. `Graph.add` does not run it automatically, because clustering reads the full graph and replaces the previous partition.
+
+When you call `Graph.detect_communities`, Agentic GraphRAG weights each entity relation by the number of source chunks that support it. Unsupported relations weigh zero. Leiden clustering creates a hierarchy, but the graph keeps only the broadest level and groups with at least two entities.
+
+For each group, the graph sums its internal relation weights. Groups with a total weight of at least 5 get an LLM report with a title, summary, rating, reason, and findings. Smaller groups get a simple report whose title lists the three top members and whose rating is half the internal weight, capped at 10. If no LLM is available or a call fails, the graph uses the simple report and records the failure.
+
+The graph embeds each report title and summary for retrieval. Applying the result replaces the previous communities rather than merging two partitions.
 
 A dry run is the default. It returns the groups without reports.
 
@@ -66,7 +66,7 @@ Why keep only the first level? One level of groups is enough for retrieval. It a
 
 Why rebuild every time? A full rebuild gives one clean partition. There is no rule for merging an old partition with a new one.
 
-Why run on request? Clustering reads the whole graph. You choose when to pay for it.
+Community detection reads the whole graph and replaces the previous partition. Running it on request keeps that cost out of ordinary ingestion and lets you decide when reports need a refresh.
 
 </details>
 

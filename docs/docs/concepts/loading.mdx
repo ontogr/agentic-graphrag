@@ -6,11 +6,11 @@ description: How Agentic GraphRAG picks a loader for each source and what a load
 
 # Loading documents
 
-A loader turns a source into one or more documents. Agentic GraphRAG picks the loader from the file extension. Each prose document comes with its sections: the headings and the content under them.
+A loader converts a source into documents with normalized text, identity, and structure. The loader registry usually selects a parser by extension, while record formats can produce one document per row or record.
 
 ## Why it exists
 
-Real corpora mix formats: Markdown notes, PDFs, spreadsheets, chat exports. The later stages must not care which one they get. A loader hides the format and returns one shape: a document with text, source details and a stable identity.
+Later ingestion stages need a consistent document model, even when sources differ. The loader preserves useful structure such as headings and tables while recording a stable identity for updates. Parser choice affects that identity and the source locations available to citations.
 
 ## How it works
 
@@ -73,7 +73,7 @@ Why does a document hash depend on the loader? A text loader hashes the decoded 
 
 Why do offsets point into the normalized text? Every chunk offset counts characters in the text after normalization. If you need offsets in the raw source, choose no normalization.
 
-Why does each format have its own winner? Docling reads AsciiDoc structure better than the core reader, which scans for headings only. So docling wins for AsciiDoc, Markdown and HTML. For CSV the core loader wins: it is the only claimant, and a CSV row needs its own identity. A blanket rule such as "installed extras win" chooses the wrong loader for some formats.
+Why does the registry prefer a format-specific loader? Different parsers preserve different structure. Docling reads AsciiDoc, Markdown, and HTML structure, while the core CSV loader gives each row its own identity. Choosing by extension and declared preference avoids treating every installed parser as an equally good fit.
 
 Why is docling an extra? Optional formats ship behind extras. A text-only install stays small.
 

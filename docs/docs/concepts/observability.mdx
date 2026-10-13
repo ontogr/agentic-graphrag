@@ -6,7 +6,7 @@ description: How Agentic GraphRAG records what it does as OpenTelemetry traces, 
 
 # Observability
 
-Agentic GraphRAG records what it does as OpenTelemetry traces. You supply the tracer. Agentic GraphRAG never installs one for you.
+Agentic GraphRAG records operations as OpenTelemetry traces when you provide a tracer. Traces connect the duration, inputs, outputs, and failures of related work across ingestion, retrieval, and agent runs.
 
 ## Why it exists
 
@@ -41,7 +41,7 @@ flowchart TD
 
 A span is one timed step. Each span has a name, a start and end time, a status, and attributes. The attributes hold counts, ids, and the text of the step. The Trace spans reference lists every span and attribute.
 
-Spans hold full text. That includes the question, the evidence, the request and response of each model call, and graph queries with their parameter values. Vectors are left out. Request headers of model calls never appear.
+Spans can hold full text, including questions, evidence, model requests and responses, and graph queries with parameter values. They omit vectors and model request headers. Because traces can contain source text and query data, choose a destination and retention policy that fit your data controls.
 
 ## Failures
 

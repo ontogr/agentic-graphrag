@@ -6,15 +6,15 @@ description: How Agentic GraphRAG turns documents into a knowledge graph and ans
 
 # Architecture
 
-Agentic GraphRAG has two flows. The ingestion flow turns documents into a knowledge graph. The query flow answers a question from that graph.
+Agentic GraphRAG has two connected flows: ingestion builds a graph from source documents, and retrieval uses that graph to find evidence for questions. The graph keeps links between facts and their source text, so an answer can use both structure and passages.
 
 ## Why it exists
 
-A vector search finds passages that look like the question. It cannot follow a link between two facts that sit in different documents.
+A vector search finds passages that resemble a question, but it does not connect facts across passages. A graph adds those links while retaining the source text needed to support an answer.
 
 Agentic GraphRAG stores the facts as a graph and keeps the source text next to them. A question can use both: the passage that states a fact, and the entities that connect passages.
 
-The system splits the work into small components. Each component has one job and one interface. You can replace the embedder, the graph store or the vector store without changing the rest.
+The components separate source parsing, graph construction, and search. You can replace storage or embedding components through their interfaces, but the graph queries still depend on Neo4j and Cypher today. The [Graph storage](./graph-storage.mdx) page explains that boundary.
 
 ## How it works
 
@@ -38,20 +38,9 @@ flowchart TD
 
 *The ingestion flow writes to the stores. The query flow reads from them. The vector store is optional. The Agent loop page shows the plan, research and verify steps in detail.*
 
-The ingestion flow has five stages:
+Ingestion loads each source as a document, chunks its text, extracts and resolves entity mentions, then stores the graph and embeddings. The [Ingestion pipeline](./ingestion.mdx) page explains how these stages handle updates and failures.
 
-1. Load. A loader reads each source and makes documents.
-2. Chunk. A chunker splits each document into chunks. It records where each chunk came from.
-3. Extract (see [Extraction](./extraction.mdx)). An extractor finds entities and relations in each chunk.
-4. Resolve (see [Entity resolution](./resolution.mdx)). The resolver decides which mentions name the same thing.
-5. Store. The graph store keeps documents with their sections, tables and figures, chunks, entities and relations. An embedder adds vectors.
-
-The query flow has four steps:
-
-1. The planner splits the question into sub-questions. The [Agent loop](./agent-loop.mdx) page describes the planner, the researcher and the verifier.
-2. The researcher searches the graph and the chunks.
-3. The verifier decides whether the evidence answers each sub-question.
-4. The planner writes the answer and cites its evidence.
+At query time, a planner can split a question, a researcher can search for evidence, and a verifier can find unanswered parts before the planner writes a cited answer. The [Agent loop](./agent-loop.mdx) page explains when the agent searches again and where its limits apply.
 
 You call `Graph.add` for the first flow and `build_agent` for the second. Both use the same graph store, embedder and schema.
 

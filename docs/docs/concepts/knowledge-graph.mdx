@@ -6,13 +6,13 @@ description: The node and edge kinds Agentic GraphRAG writes to Neo4j, and why i
 
 # Knowledge graph
 
-Agentic GraphRAG keeps documents, chunks, entities and community summaries in one property graph in Neo4j.
+The knowledge graph stores source structure, searchable chunks, extracted entities, and links between them in Neo4j. This lets retrieval move from a match to related facts and back to the text that supports them.
 
 ## Why it exists
 
 Every fact in an answer must trace back to text. A graph of only entities cannot show where a fact came from. A graph of only text cannot connect facts.
 
-Agentic GraphRAG keeps both in one graph. An entity points to the chunks that mention it. A chunk points to the document that holds it. You can walk from an answer back to its source.
+Agentic GraphRAG keeps both text and structure in one graph. An entity links to the chunks that mention it, and a chunk links to its document and sections. Retrieval can therefore use relationships without losing the path back to source evidence.
 
 ## How it works
 
@@ -34,7 +34,7 @@ flowchart LR
 
 *The node kinds and their edges. Entity nodes use your schema's type names as labels. `HAS_PART` also joins a document to each section, table and figure.*
 
-The graph has these kinds of node:
+The main node kinds serve different roles in retrieval and provenance:
 
 1. Document: one node for each logical document. Its `document_key` stays the same when the content changes. It holds the source location, the title, the current content hash, optional `published_at` and `content_date` dates, and the name, version and fingerprints of the schema and extraction setup that produced it.
 2. Section: one heading of a document, or the unheaded content when the document has no headings yet. It holds the heading, its depth, and its page range or character range. It holds no text. The chunks under it hold the text. A section has a stable `section_key` that stays the same while the heading path and the place among sections with that path stay the same.
