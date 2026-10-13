@@ -593,6 +593,44 @@ class TestCombineResults:
         ]
         assert triples == [("WORKS_AT", 0, 1)]
 
+    def test_mentions_with_the_same_name_keep_their_own_measurements(self) -> None:
+        """Two first-result mentions with one name do not share a measurement."""
+        chunk = _chunk()
+        first_ada = ExtractedEntity(
+            chunk_id=chunk.id,
+            label="Person",
+            text="Ada",
+            char_start=0,
+            char_end=3,
+            confidence=0.6,
+        )
+        second_ada = first_ada.model_copy(
+            update={"char_start": 10, "char_end": 13, "confidence": 0.9}
+        )
+        primary = ExtractionResult(
+            entities=[first_ada, second_ada],
+            relations=[
+                ExtractedRelation(
+                    chunk_id=chunk.id, label="KNOWS", source_index=1, target_index=0
+                )
+            ],
+            extractor_name="gliner",
+        )
+        llm = ExtractionResult(
+            entities=[self._llm_entity(chunk, "Ada")],
+            relations=[],
+            extractor_name="baml",
+        )
+
+        combined = combine_results(primary, llm)
+
+        spans = [(e.char_start, e.confidence) for e in combined.entities]
+        assert spans == [(0, 0.6), (10, 0.9)]
+        triples = [
+            (r.label, r.source_index, r.target_index) for r in combined.relations
+        ]
+        assert triples == [("KNOWS", 1, 0)]
+
     def test_first_relations_are_added_with_new_indices(self) -> None:
         """A GLiNER relation is re-pointed to the combined list.
 
@@ -701,3 +739,12 @@ class TestKeptEntities:
         kept = kept_entities(_result(chunk, 0.9, 0.4, None), ExtractionSettings())
 
         assert [e.confidence for e in kept] == [0.9, None]
+
+    def test_label_threshold_replaces_the_entity_threshold(self) -> None:
+        """A span kept by its label's threshold stays a candidate."""
+        chunk = _chunk()
+        settings = ExtractionSettings(label_thresholds={"Person": 0.2})
+
+        kept = kept_entities(_result(chunk, 0.3, label="Person"), settings)
+
+        assert [e.confidence for e in kept] == [0.3]

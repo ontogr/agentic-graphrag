@@ -304,7 +304,6 @@ async def _extract_llm_only(
         mode="llm",
         total=len(chunks),
         skipped_short=len(chunks) - len(selected),
-        eligible=len(selected),
         escalated=len(selected),
         failed=len(failures),
         escalation_seconds=seconds,

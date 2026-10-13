@@ -69,12 +69,14 @@ def kept_entities(
 ) -> list[ExtractedEntity]:
     """Return the entities of a result that count as kept spans.
 
-    A kept span has a score at or above ``settings.entity_threshold``, or no
-    score. Phase 2 passes these entities to the LLM extractor as candidates.
+    A kept span has a score at or above its label's threshold in
+    ``settings.label_thresholds``, or the ``settings.entity_threshold`` when its
+    label has none, or no score. Phase 2 passes these entities to the LLM
+    extractor as candidates.
 
     Args:
         result: The first extractor's result for one chunk.
-        settings: The entity threshold.
+        settings: The entity threshold and the per-label thresholds.
 
     Returns:
         The kept entities in result order.
@@ -82,7 +84,9 @@ def kept_entities(
     return [
         entity
         for entity in result.entities
-        if entity.confidence is None or entity.confidence >= settings.entity_threshold
+        if entity.confidence is None
+        or entity.confidence
+        >= settings.label_thresholds.get(entity.label, settings.entity_threshold)
     ]
 
 
@@ -230,12 +234,14 @@ def combine_results(
     The result is the union of both answers. The LLM entities come first.
     An LLM entity with the same normalized name as a first-result entity takes
     that entity's span, text and confidence, because the local model measured
-    them; the LLM label and properties win. An LLM entity with no first-result
-    match keeps its own offsets and has no confidence. First-result entities
-    that the LLM did not return are appended unchanged. The LLM relations keep
-    their indices. The first result's relations are re-pointed to the combined
-    entity list and added unless the same source, label and target is already
-    there. An empty LLM answer returns the first result unchanged.
+    them; the LLM label and properties win. Each first-result entity is matched
+    at most once, in order, so two mentions that share a name keep their own
+    measurements. An LLM entity with no unmatched first-result entity keeps its
+    own offsets and has no confidence. First-result entities that the LLM did
+    not return are appended unchanged. The LLM relations keep their indices.
+    The first result's relations are re-pointed to the combined entity list and
+    added unless the same source, label and target is already there. An empty
+    LLM answer returns the first result unchanged.
 
     Args:
         primary: The first extractor's result for the chunk.
@@ -247,17 +253,21 @@ def combine_results(
     """
     if not escalated.entities:
         return primary
-    measured: dict[str, ExtractedEntity] = {}
-    for entity in primary.entities:
-        measured.setdefault(endpoint_key(entity.text), entity)
+    unmatched: dict[str, list[int]] = {}
+    for index, entity in enumerate(primary.entities):
+        unmatched.setdefault(endpoint_key(entity.text), []).append(index)
     entities: list[ExtractedEntity] = []
-    position: dict[str, int] = {}
+    # Maps each first-result index to its combined index. Relations are
+    # re-pointed through this map, so two mentions with the same name stay apart.
+    combined_index: dict[int, int] = {}
     for llm_entity in escalated.entities:
-        key = endpoint_key(llm_entity.text)
-        first = measured.get(key)
-        if first is None:
+        candidates = unmatched.get(endpoint_key(llm_entity.text))
+        if not candidates:
             combined = llm_entity.model_copy(update={"confidence": None})
         else:
+            first_index = candidates.pop(0)
+            first = primary.entities[first_index]
+            combined_index[first_index] = len(entities)
             combined = llm_entity.model_copy(
                 update={
                     "text": first.text,
@@ -266,18 +276,16 @@ def combine_results(
                     "confidence": first.confidence,
                 }
             )
-        position.setdefault(key, len(entities))
         entities.append(combined)
-    for entity in primary.entities:
-        key = endpoint_key(entity.text)
-        if key not in position:
-            position[key] = len(entities)
+    for index, entity in enumerate(primary.entities):
+        if index not in combined_index:
+            combined_index[index] = len(entities)
             entities.append(entity)
     relations = list(escalated.relations)
     seen = {(r.source_index, r.label, r.target_index) for r in relations}
     for relation in primary.relations:
-        source = position[endpoint_key(primary.entities[relation.source_index].text)]
-        target = position[endpoint_key(primary.entities[relation.target_index].text)]
+        source = combined_index[relation.source_index]
+        target = combined_index[relation.target_index]
         if (source, relation.label, target) in seen:
             continue
         seen.add((source, relation.label, target))

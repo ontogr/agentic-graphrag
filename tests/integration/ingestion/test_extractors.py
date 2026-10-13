@@ -200,11 +200,14 @@ class TestEscalationIntegration:
             schema=DEFAULT_SCHEMA,
             error_policy=ErrorPolicy.RAISE,
             settings=ExtractionSettings(
-                escalation_budget="all", min_escalation_words=2
+                escalation_budget="all",
+                min_escalation_words=2,
+                entity_threshold=1.0,
             ),
             llm_extractor=llm,
         )
 
         assert batch.failures == []
+        assert batch.report.eligible == 1
         assert batch.report.escalated == batch.report.eligible
         assert batch.report.total == 1

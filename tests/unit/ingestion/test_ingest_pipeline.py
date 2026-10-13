@@ -1217,7 +1217,7 @@ class TestExtractChunksModes:
         assert [e.text for e in entities] == ["Grace"]
         assert failures == []
         assert (report.mode, report.total, report.skipped_short) == ("llm", 2, 1)
-        assert report.eligible == report.escalated == 1
+        assert (report.eligible, report.escalated) == (0, 1)
 
     async def test_llm_mode_ignores_the_budget(self) -> None:
         """Llm mode sends every long chunk even when the budget is zero."""

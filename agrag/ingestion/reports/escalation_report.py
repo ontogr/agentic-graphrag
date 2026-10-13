@@ -24,7 +24,9 @@ class EscalationReport(BaseModel):
         skipped_short: In ``llm`` mode, the chunks under ``min_escalation_words``
             words that were not sent to the LLM extractor. Zero in other modes.
         eligible: The chunks whose first result was weak enough to escalate.
-        escalated: The eligible chunks that the LLM extractor was called on.
+            Zero in ``llm`` mode, which has no first result to judge.
+        escalated: The chunks that the LLM extractor was called on. In ``llm``
+            mode these are the chunks that were not skipped short.
         left_for_gliner: The eligible chunks that kept the first result because
             the budget ran out.
         lowest_score_left: The lowest span score among the chunks counted in
