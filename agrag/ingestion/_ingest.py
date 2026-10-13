@@ -10,6 +10,7 @@ import contextlib
 import hashlib
 import logging
 from collections.abc import Awaitable, Callable, Iterable, Sequence
+from functools import partial as bind
 from uuid import UUID
 
 from opentelemetry.trace import Tracer
@@ -449,9 +450,10 @@ async def _commit_batch(  # noqa: PLR0913
 
         async def _pending(
             job_id: UUID,
+            *,
+            created_ids: list[UUID],
             _components: list[MatchComponent] = components,
             _deferred: DeferredWrites = deferred,
-            _created: list[UUID] = created_entity_ids,
             _slice: tuple[
                 list[Chunk],
                 list[Document],
@@ -495,9 +497,10 @@ async def _commit_batch(  # noqa: PLR0913
                 max_llm_pairs=max_llm_pairs,
                 deferred=_deferred,
             )
-            _created.extend(ingested.created_entity_ids)
+            created_ids.extend(ingested.created_entity_ids)
             return ingested.add_result
 
+        pending_write = bind(_pending, created_ids=created_entity_ids)
         partial, cleanup_failures, _ = await run_cutover_job(
             verb="add",
             document_key=document_key,
@@ -506,7 +509,7 @@ async def _commit_batch(  # noqa: PLR0913
             vector_store=vector_store,
             vector_collections=vector_collections,
             settings=cutover_settings,
-            pending_write=_pending,
+            pending_write=pending_write,
             cleanup=cleanup,
             components=components,
             deferred=deferred,
