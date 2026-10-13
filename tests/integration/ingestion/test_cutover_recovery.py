@@ -50,7 +50,8 @@ class TestCutoverRecovery:
 
         async def pending(job_id: UUID) -> str:
             await store.execute_write(
-                "CREATE (:RollbackProbe {probe: $probe, _pending_job_id: $job})",
+                "CREATE (:_MergeAlias {probe: $probe, id: randomUUID(), "
+                "_pending_job_id: $job})",
                 {"probe": probe, "job": str(job_id)},
             )
             return "pending"
@@ -84,7 +85,7 @@ class TestCutoverRecovery:
             assert result == ("pending", "cleaned", 1)
             rows = await store.execute_read(
                 "MATCH (j:CutoverJob {document_key: $probe}) "
-                "MATCH (n:RollbackProbe {probe: $probe}) "
+                "MATCH (n:_MergeAlias {probe: $probe}) "
                 "RETURN j.status AS status, j.parts_closed AS parts_closed, "
                 "n._pending_job_id AS pending_job",
                 {"probe": probe},
@@ -115,7 +116,8 @@ class TestCutoverRecovery:
             await store.execute_write(
                 "CREATE (:CutoverJob {id: $job, document_key: $probe, "
                 "status: $status, lease_token: $token, probe: $probe}) "
-                "CREATE (:RollbackProbe {probe: $probe, _pending_job_id: $job})",
+                "CREATE (:_MergeAlias {probe: $probe, id: randomUUID(), "
+                "_pending_job_id: $job})",
                 {"job": job, "probe": probe, "status": status, "token": token},
             )
 
@@ -123,7 +125,7 @@ class TestCutoverRecovery:
             assert await store.execute_write(rollback_job_query(), params) == []
             rows = await store.execute_read(
                 "MATCH (j:CutoverJob {id: $job}) "
-                "MATCH (n:RollbackProbe {probe: $probe}) "
+                "MATCH (n:_MergeAlias {probe: $probe}) "
                 "RETURN j.status AS status, j.lease_token AS token, "
                 "n._pending_job_id AS pending_job",
                 {"job": job, "probe": probe},
@@ -149,7 +151,8 @@ class TestCutoverRecovery:
                 "CREATE (:CutoverJob {id: $job, document_key: $probe, "
                 "status: 'rolling_back', lease_token: $token, probe: $probe, "
                 "lease_expires_at: datetime() + duration({seconds: $seconds})}) "
-                "CREATE (:RollbackProbe {probe: $probe, _pending_job_id: $job})",
+                "CREATE (:_MergeAlias {probe: $probe, id: randomUUID(), "
+                "_pending_job_id: $job})",
                 {
                     "job": job,
                     "token": token,

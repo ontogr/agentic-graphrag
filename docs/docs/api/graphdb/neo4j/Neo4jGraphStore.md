@@ -226,6 +226,12 @@ constraint on `id` for every known relationship type, which backs
 the stale-relationship cleanup `upsert_relation_query` performs on
 endpoint changes.
 
+Also creates the range indexes on the pending tag property
+(`_pending_job_id`) that commit and rollback use to find a job's
+rows: one per label in `PENDING_TAGGED_NODE_LABELS` and one per
+known relationship type. The CutoverJob status index and the
+candidate schema are created here as well.
+
 ## `setup_indexes` \{#agrag-graphdb-neo4j-Neo4jGraphStore-setup_indexes}
 
 ```python

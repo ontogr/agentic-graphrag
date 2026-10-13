@@ -10,7 +10,7 @@ import asyncio
 import importlib.util
 from datetime import UTC, datetime, timedelta
 from typing import Any
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 
@@ -20,16 +20,15 @@ from agrag.cypher.cutover_job_write import (
     acquire_lease_query,
     begin_rollback_query,
     claim_pending_job_query,
-    clear_pending_tag_query,
     commit_job_query,
     finish_cleaning_query,
     renew_lease_query,
-    rollback_job_query,
     start_cleaning_query,
 )
 from agrag.cypher.schema import cutover_job_document_key_constraint_query
 from agrag.graphdb import build_graph_store
 from agrag.ingestion._cutover import run_cutover_job
+from agrag.ingestion._pending_rows import rollback_job_rows
 from agrag.ingestion._resume import resume_incomplete_jobs
 from agrag.ingestion.settings import CutoverJobSettings
 
@@ -433,70 +432,15 @@ class TestCutoverJobLeaseLifetime:
 
 
 @pytest.mark.skipif(neo4j_missing, reason="neo4j extra not installed")
-class TestClearPendingTagAndRollbackAgainstRealNeo4j:
-    """Tag-clearing and rollback executed against a real Neo4j instance.
+class TestRollbackJobRowsAgainstRealNeo4j:
+    """Rollback executed against a real Neo4j instance.
 
-    Both queries chain an aggregating ``WITH`` after the node-tag step and
-    then match tagged relationships: a relationship match with zero rows
-    silently drops the whole result row unless it is optional, which no
-    substring-based unit test can catch. These tests seed real tagged data,
-    including the zero-tagged-relationship case, and assert against actual
-    query execution.
+    The rollback statements chain per-label and per-type matches, and a
+    relationship match with zero rows silently drops the whole result row
+    unless it is optional, which no substring-based unit test can catch. These
+    tests run the rollback against a real job, including the case where the
+    job tagged no relationships.
     """
-
-    async def _seed_tagged_graph(self, store: Any, job_id: str) -> None:
-        await store.execute_write(
-            "CREATE (a:TestCutoverPending {name: 'a', _pending_job_id: $job_id}) "
-            "CREATE (b:TestCutoverPending {name: 'b', _pending_job_id: $job_id}) "
-            "CREATE (a)-[:TEST_REL {_pending_job_id: $job_id}]->(b) "
-            "CREATE (c:TestCutoverPending {name: 'c', _pending_job_id: $job_id})",
-            {"job_id": job_id},
-        )
-
-    async def test_clear_pending_tag_clears_nodes_and_relationship(self) -> None:
-        """Clearing removes the tag from tagged nodes and a tagged edge."""
-        store = build_graph_store("neo4j")
-        await store.connect()
-        job_id = str(uuid4())
-        try:
-            await self._seed_tagged_graph(store, job_id)
-            rows = await store.execute_write(
-                clear_pending_tag_query(), {"job_id": job_id}
-            )
-            assert rows == [{"cleared_nodes": 3, "cleared_relationships": 1}]
-            remaining = await store.execute_read(
-                "MATCH (n:TestCutoverPending) "
-                "WHERE n._pending_job_id IS NOT NULL RETURN count(n) AS c",
-                {},
-            )
-            assert remaining[0]["c"] == 0
-        finally:
-            await store.execute_write(
-                "MATCH (n:TestCutoverPending) DETACH DELETE n", {}
-            )
-            await store.close()
-
-    async def test_clear_pending_tag_with_no_relationships_still_returns_a_row(
-        self,
-    ) -> None:
-        """Clearing with zero tagged relationships still reports node count."""
-        store = build_graph_store("neo4j")
-        await store.connect()
-        job_id = str(uuid4())
-        try:
-            await store.execute_write(
-                "CREATE (a:TestCutoverPending {name: 'a', _pending_job_id: $job_id})",
-                {"job_id": job_id},
-            )
-            rows = await store.execute_write(
-                clear_pending_tag_query(), {"job_id": job_id}
-            )
-            assert rows == [{"cleared_nodes": 1, "cleared_relationships": 0}]
-        finally:
-            await store.execute_write(
-                "MATCH (n:TestCutoverPending) DETACH DELETE n", {}
-            )
-            await store.close()
 
     async def test_rollback_with_no_relationships_still_deletes_the_job_node(
         self,
@@ -520,11 +464,11 @@ class TestClearPendingTagAndRollbackAgainstRealNeo4j:
             begun = await store.execute_write(
                 begin_rollback_query(), {"job_id": job_id, "lease_token": token}
             )
-            rows = await store.execute_write(
-                rollback_job_query(), {"job_id": job_id, "lease_token": token}
+            rolled_back = await rollback_job_rows(
+                store, job_id=UUID(job_id), token=UUID(token)
             )
             assert begun == [{"id": job_id}]
-            assert rows == [{"deleted_nodes": 1, "deleted_relationships": 0}]
+            assert rolled_back is True
             job_left = await store.execute_read(
                 f"MATCH (job:{CUTOVER_JOB_LABEL} {{id: $job_id}}) RETURN job",
                 {"job_id": job_id},
@@ -565,11 +509,11 @@ class TestClearPendingTagAndRollbackAgainstRealNeo4j:
             begun = await store.execute_write(
                 begin_rollback_query(), {"job_id": job_id, "lease_token": token}
             )
-            rows = await store.execute_write(
-                rollback_job_query(), {"job_id": job_id, "lease_token": token}
+            rolled_back = await rollback_job_rows(
+                store, job_id=UUID(job_id), token=UUID(token)
             )
             assert begun == [{"id": job_id}]
-            assert rows == [{"deleted_nodes": 0, "deleted_relationships": 0}]
+            assert rolled_back is True
             job_left = await store.execute_read(
                 f"MATCH (job:{CUTOVER_JOB_LABEL} {{id: $job_id}}) RETURN job",
                 {"job_id": job_id},

@@ -15,11 +15,20 @@ from uuid import uuid4
 from agrag.cypher.cutover_job_write import (
     claim_job_query,
     claim_pending_job_query,
+    delete_pending_nodes_query,
     finish_cleaning_query,
+    lock_rolling_back_job_query,
     renew_lease_query,
     rollback_job_query,
 )
+from agrag.cypher.entities import PENDING_TAGGED_NODE_LABELS
+from agrag.cypher.schema import list_relation_types_query
 from agrag.ingestion._resume import resume_incomplete_jobs
+
+
+_DELETE_NODES_QUERIES = {
+    delete_pending_nodes_query(label) for label in PENDING_TAGGED_NODE_LABELS
+}
 
 
 class _FakeResumeStore:
@@ -47,12 +56,18 @@ class _FakeResumeStore:
     async def execute_read(
         self, query: str, parameters: dict[str, Any] | None = None
     ) -> list[dict[str, Any]]:
-        """Return every still-incomplete job's row."""
+        """Return every still-incomplete job's row, and no relationship types."""
+        if query == list_relation_types_query():
+            return []
         return [
             dict(job)
             for job in self.jobs.values()
             if job["status"] in {"pending", "rolling_back", "committed", "cleaning"}
         ]
+
+    async def run_in_transaction(self, work: Any) -> Any:
+        """Run the rollback work against this store as its transaction."""
+        return await work(self)
 
     async def execute_write(
         self, query: str, parameters: dict[str, Any] | None = None
@@ -60,20 +75,26 @@ class _FakeResumeStore:
         """Dispatch one resume-phase query against the in-memory job table."""
         params = parameters or {}
         job_id = str(params.get("job_id"))
-        if query == rollback_job_query():
-            return self._rollback_claimed(job_id, params)
-        if query == claim_job_query():
-            return self._claim(job_id, params)
-        if query == claim_pending_job_query():
-            return self._claim_pending(job_id, params)
-        if query == renew_lease_query():
-            return self._renew(job_id, params)
-        if query == finish_cleaning_query():
-            rows = self._finish(job_id, params)
-            if self.finish_delay_seconds:
-                await asyncio.sleep(self.finish_delay_seconds)
-            return rows
-        raise AssertionError(f"unexpected query: {query!r}")
+        if query in _DELETE_NODES_QUERIES:
+            return [{"deleted": 0}]
+        handler = self._handlers().get(query)
+        if handler is None:
+            raise AssertionError(f"unexpected query: {query!r}")
+        rows = handler(job_id, params)
+        if query == finish_cleaning_query() and self.finish_delay_seconds:
+            await asyncio.sleep(self.finish_delay_seconds)
+        return rows
+
+    def _handlers(self) -> dict[str, Any]:
+        """Map each resume-phase query to its in-memory implementation."""
+        return {
+            lock_rolling_back_job_query(): self._lock_rolling_back,
+            rollback_job_query(): self._rollback_claimed,
+            claim_job_query(): self._claim,
+            claim_pending_job_query(): self._claim_pending,
+            renew_lease_query(): self._renew,
+            finish_cleaning_query(): self._finish,
+        }
 
     def _claim(self, job_id: str, params: dict[str, Any]) -> list[dict[str, Any]]:
         """Claim one committed or cleaning job for recovery."""
@@ -108,6 +129,19 @@ class _FakeResumeStore:
             str(params["lease_expires_at"])
         )
         job["lease_expired"] = False
+        return [{"id": job_id}]
+
+    def _lock_rolling_back(
+        self, job_id: str, params: dict[str, Any]
+    ) -> list[dict[str, Any]]:
+        """Confirm a rolling-back job is still held by the recovery claimant."""
+        job = self.jobs.get(job_id)
+        if (
+            job is None
+            or job["status"] != "rolling_back"
+            or job["lease_token"] != str(params["lease_token"])
+        ):
+            return []
         return [{"id": job_id}]
 
     def _rollback_claimed(
