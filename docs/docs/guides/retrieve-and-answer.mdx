@@ -5,7 +5,7 @@ sidebar_position: 4
 
 # Retrieve and answer
 
-This guide shows how to use `SearchEngine` to retrieve entities and chunks from a knowledge graph. It also shows how to use `build_agent` to get cited answers.
+Use `SearchEngine` when your application needs retrieved entities or chunks. Use `build_agent` when you want the system to search, combine evidence, and return a cited answer. The direct-search example needs no agent LLM; the agent examples do.
 
 ## Prerequisites
 
@@ -19,7 +19,7 @@ pip install 'agentic-graphrag[agents]'
 
 Each code block on this page is complete. It opens a graph with `DEFAULT_SCHEMA`, adds two sentences, and closes the graph at the end. The agent examples read `LLM_BASE_URL`, `LLM_MODEL_ID`, and `LLM_API_KEY` from the environment or from `.env`.
 
-## Direct SearchEngine Usage
+## Search directly
 
 `SearchEngine` searches entity labels that exist in your graph. The example below ingests its data with `DEFAULT_SCHEMA`, so its labels match. If you ingested with another schema, pass that schema's labels in `entity_labels`.
 
@@ -63,7 +63,9 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
-## Using build_agent
+An empty result is not an error. Check that the search labels match the schema used for ingestion, then confirm that the graph has indexed the documents. See [Troubleshoot common errors](./troubleshoot-common-errors.mdx#a-search-returns-nothing) for other causes.
+
+## Answer with an agent
 
 {/* pmd-metadata: fixture:llm_env */}
 
@@ -118,7 +120,7 @@ asyncio.run(main())
 
 The deep-agent path returns LangChain message objects, so the last message's text is `.content`. The optional-dependency fallback returns dictionaries, as shown above. `graph_schema` tells the researcher's prompt and the generated-query tool which labels and relationship types the graph uses. Omit it to use the engine's own schema, which falls back to `DEFAULT_SCHEMA` when the engine was built without one. If you pass a schema that differs from the engine's schema, `build_agent` raises `ValueError`. The prompt can never describe a graph that the engine does not search.
 
-### Scoping agent retrieval
+### Limit which documents the agent can search
 
 By default, the agent's tools search the whole graph. Pass `SearchFilters` to
 limit every tool search by document set, tenant, or label:
@@ -215,7 +217,7 @@ If the generated query fails, `query_graph_directly` returns an error message, n
 
 `compute_over_evidence` stands outside the three groups. It computes a count, a sum, or a comparison over numbers the researcher already read from earlier tool results. It never queries the graph.
 
-## Available Recipes
+## Available recipes
 
 | Recipe | Methods | BFS | Reranker |
 |--------|---------|-----|----------|

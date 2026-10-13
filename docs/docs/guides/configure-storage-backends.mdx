@@ -5,8 +5,7 @@ title: Configure storage backends
 
 # Configure storage backends
 
-This guide sets up an embedder, a vector store, and a graph store. Use it
-before you store or search embeddings.
+Every graph needs an embedder and a graph store. Add a separate vector store only when you want to mirror embeddings outside the graph store. Choose an embedder model first, then use the same model and vector dimensions when you create the index or collection.
 
 ## Before you start
 
@@ -14,7 +13,7 @@ Each code block on this page is complete. It opens and closes its own connection
 
 ## Install
 
-Install the core package. Then install one extra for each backend you use.
+Install the core package and the extras for the backends you chose. You need `neo4j` for the graph store; you need one vector-store extra only when using a separate `VectorStore`.
 
 ```bash
 uv pip install agentic-graphrag
@@ -25,8 +24,7 @@ uv pip install "agentic-graphrag[milvus]"        # Milvus vector store
 uv pip install "agentic-graphrag[neo4j]"         # Neo4j graph store
 ```
 
-You must install at least one vector store extra to use `VectorStore`. You
-must install the `neo4j` extra to use `GraphStore`.
+Install `embed-local` only for Sentence Transformers models. The default FastEmbed model does not need it.
 
 ## Set up the embedder
 
@@ -131,9 +129,7 @@ Set the variables for the one backend you use.
 | Weaviate | `WEAVIATE_URL`, `WEAVIATE_API_KEY`, `WEAVIATE_REQUIRE_TLS` |
 | Milvus | `MILVUS_URI`, `MILVUS_TOKEN`, `MILVUS_REQUIRE_TLS` |
 
-The default URLs point at plaintext `localhost`, for the Docker Compose
-services `make dev-services-up` starts. If a URL uses a plaintext scheme (`http`), points at a non-local host, and carries an
-API key or token, the configuration check raises an error. Use `https://` for any remote deployment.
+The default URLs point at plaintext `localhost`, for the Docker Compose services `make dev-services-up` starts. If a URL uses a plaintext scheme (`http`), points at a non-local host, and carries an API key or token, the configuration check raises an error. Use `https://` for any remote deployment.
 
 An unauthenticated backend on a private network (a VPC, a cluster-internal
 service) is not flagged by default, since the configuration cannot tell a private

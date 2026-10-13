@@ -4,7 +4,7 @@ sidebar_position: 2
 
 # Extract and resolve entities
 
-This guide shows how to extract entities and relations from chunks, and how to resolve duplicate mentions into groups.
+Use an extractor directly when you need to inspect extraction results, or pass extractors to `Graph` to extract and resolve entities during ingestion. This guide covers both paths and explains which results are retained when a model cannot decide.
 
 ## Before you start
 
@@ -51,15 +51,11 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
-### What the extractor does with the model answer
+### What the extractor keeps
 
-- A name must appear in the chunk text, with the same case and on word boundaries. A name that does not appear is dropped, and so is every relation that uses it.
-- A name can span a line break in the chunk. The model does not need to copy the break.
-- When a name appears more than once, the extractor uses the first occurrence for the first time the model lists it, the second occurrence for the second listing, and so on. A listing with no occurrence left is dropped.
-- A label that the schema does not declare is dropped before it reaches the graph.
-- When an entity type declares properties, the model also returns a value for each property that the text states. When no entity type declares properties, the model is not asked for any.
-- A property key that the entity type does not declare is removed from the entity and returned as a property candidate. This happens only for schemas with properties and chunks that the LLM reads.
-- The extractor sets no confidence score on LLM entities or relations.
+The extractor keeps a name only when it appears in the chunk with matching case and whole-word boundaries. It locates repeated names in order, accepts names that span a line break, and drops names that it cannot locate. It also drops undeclared labels and relations that use a dropped entity.
+
+For entity types with properties, the LLM returns values stated in the text. The extractor removes undeclared property keys and returns them as property candidates. LLM entities and relations have no confidence score.
 
 To record what the extractor does, pass a `tracer` to it. See [Trace an agent run](./trace-an-agent-run.mdx).
 
@@ -91,7 +87,7 @@ Only `BAMLExtractor` uses the heading path. The local extractor reads the chunk 
 
 | Variable | Default | Effect |
 | --- | --- | --- |
-| `EXTRACTION_MODEL_NAME` | `fastino/gliner2.5-base-v1` | GLiNER checkpoint to load. `fastino/gliner2.5-small-v1` uses less memory and has lower accuracy. |
+| `EXTRACTION_MODEL_NAME` | `fastino/gliner2.5-base-v1` | GLiNER checkpoint to load. Choose a checkpoint based on its requirements and evaluate its results on representative documents. |
 | `EXTRACTION_DTYPE` | `fp32` | Model precision: `fp32`, `fp16`, or `bf16`. |
 | `EXTRACTION_ENTITY_THRESHOLD` | `0.5` | Lowest entity score kept, unless a label has its own threshold. |
 | `EXTRACTION_LABEL_THRESHOLDS` | `{}` | JSON object of per-label thresholds. |
@@ -228,7 +224,7 @@ Alternatively, use `ExtractionLLMSettings.from_openai_compatible_env()` to read 
 
 ## Resolution runs inside every write
 
-You never call resolution directly. `graph.add()` resolves every batch automatically. Exact-name identity groups mentions without evidence. A fuzzy fast path merges near-identical names. Embedding similarity decides the rest. A capped LLM tier reviews only the ambiguous band, starting with the most similar pairs. If pairs tie, their entity indices set the order. Pairs over the cap stay undecided. Raw entity nodes are permanent. Confirmed non-exact matches persist as `MATCHES` edges with a derived resolved node. No call deletes a node.
+`Graph.add` runs resolution as part of ingestion. Exact, fuzzy, and embedding tiers handle candidate pairs before the capped LLM tier reviews remaining ambiguous pairs. The LLM considers pairs in similarity order, with entity indices breaking ties. Pairs outside the cap stay undecided. Resolution preserves the original entity nodes. Confirmed non-exact matches are stored as `MATCHES` edges and represented by a derived resolved entity.
 
 ```python
 import asyncio

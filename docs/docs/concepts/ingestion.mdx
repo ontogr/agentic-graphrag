@@ -6,13 +6,13 @@ description: The stages that turn sources into a graph, and how a failed run rec
 
 # Ingestion pipeline
 
-`Graph.add` turns sources into graph content in six stages. One call handles text, files, folders and prebuilt documents.
+`Graph.add` turns sources into graph records through loading, chunking, extraction, resolution, merging, and storage. All input forms converge on this pipeline after loading, so later stages treat them consistently.
 
 ## Why it exists
 
-Ingestion has many parts that can fail: a corrupt file, a slow model call, a lost database connection. One pipeline gives every source the same steps, the same summary and the same failure rules.
+These stages include slow model calls and writes that can fail independently. A single pipeline gives each stage a place to report failures and lets the storage job expose all writes together only after commit.
 
-The same pipeline also backs `Graph.update`. New content and changed content take the same path, so they behave the same way.
+`Graph.update` uses the same pipeline but can skip work when stored fingerprints show that the document or its processing settings have not changed. The tables below explain which changes require rechunking or re-extraction.
 
 ## How it works
 
@@ -102,7 +102,7 @@ Why does extraction run on each chunk alone? A relation between two entities tha
 
 Why a job and not a database transaction? Extraction makes slow model calls. A database transaction cannot stay open through them. The job tags writes instead, and one short transaction commits them.
 
-Why does the pipeline write last? Resolution needs every mention of the batch before it can decide which are the same. Writing after that step avoids writing an entity twice.
+Why does resolution happen before entity writes? The resolver needs the batch's mentions together to compare them. Writing after that decision avoids creating duplicate exact-name entities.
 
 Why does the error policy apply to each source? One bad file must not stop a run of thousands. `RAISE` stops at the first failure. `SKIP` counts the failure. `QUARANTINE` records the reason.
 

@@ -6,13 +6,13 @@ description: Where Agentic GraphRAG keeps the graph and the embeddings, and how 
 
 # Graph storage
 
-Agentic GraphRAG keeps the graph in Neo4j. It can also copy every embedding into a separate vector database, which adds keyword and blended search.
+Neo4j is the system of record for graph data. An optional vector database stores a copy of embeddings and adds keyword or blended search, at the cost of another service to operate.
 
 ## Why it exists
 
-A graph and a vector index do different jobs. The graph holds entities and the relations between them, and it lets the engine walk from one entity to the next. A vector index finds items whose meaning is close to a query. A graph search needs both.
+A graph and a vector index answer different questions. The graph stores relations and provenance, while a vector index finds text or entities that are semantically close to a query. Retrieval can combine the initial matches with graph context when its recipe requests a walk.
 
-Neo4j holds the graph and has vector indexes of its own. That is enough for dense search, and it means one service to run. A dedicated vector database adds keyword search and a weighted blend of the two. Agentic GraphRAG lets you pick either setup.
+Neo4j's own vector indexes support dense search without a second service. A dedicated vector database adds keyword and blended search, which can help with exact terms such as identifiers. The benefit must outweigh the added deployment, backup, and synchronization work.
 
 ## How it works
 

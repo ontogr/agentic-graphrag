@@ -5,7 +5,7 @@ sidebar_position: 5
 
 # Trace an agent run
 
-This guide shows how to record OpenTelemetry spans for each `build_agent` run. To build the agent first, see [Retrieve and answer](./retrieve-and-answer.mdx).
+Record OpenTelemetry spans to see which tools and model calls an agent used. Start with the in-memory example to inspect a run locally, or send spans to an OTLP collector. Traces include full question, tool-input, and evidence text. To build the agent first, see [Retrieve and answer](./retrieve-and-answer.mdx).
 
 ## Prerequisites
 
@@ -19,7 +19,7 @@ Without the `observability` extra, `build_agent(tracer=...)` raises `AgentMissin
 
 ## Record spans in memory
 
-The block below does three things. It creates a tracer with an in-memory exporter. It passes the tracer to `build_agent` and runs the agent. It then reads the tool spans from the exporter.
+The example stores spans in memory, runs the agent with that tracer, and prints tool-span names with their parent spans. It does not send data to a collector.
 
 {/* pmd-metadata: fixture:llm_env */}
 
@@ -116,7 +116,7 @@ Pass this `tracer` to `build_agent` as in the previous section. Call `provider.s
 
 ## Spans always hold full text
 
-Spans hold the question, the tool inputs, and the evidence text. There is no option to hide them on the agent path. To record less, redact in the exporter with a `SpanProcessor` that scrubs span attributes before export, or run without a tracer.
+Spans hold the question, the tool inputs, and the evidence text. The agent path has no option to omit that text. If the trace must contain less data, add a `SpanProcessor` that scrubs span attributes before export, or run without a tracer.
 
 ## Trace the rest of the library with the same tracer
 

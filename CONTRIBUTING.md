@@ -4,7 +4,7 @@ Thanks for taking the time to contribute.
 
 ## Getting started
 
-You need [uv](https://docs.astral.sh/uv/) and Python 3.11+.
+You need Python 3.11 or newer and [uv](https://docs.astral.sh/uv/).
 
 ```bash
 git clone git@github.com:ontogr/agentic-graphrag.git
@@ -13,24 +13,37 @@ make sync
 uv run pre-commit install
 ```
 
-## Making a change
+`make sync` installs the project dependencies, including optional dependencies and development tools. Unit tests do not need external services. Integration, end-to-end, and documentation tests may need services or credentials. Do not put credentials in Git. Use a local `.env` file for settings that read one.
 
-1. Fork the repository. Branch off `main`.
-2. Make your change, with tests. Tests live in `tests/unit/` and mirror the
-   package structure, one `Test<Feature>` class per `test_<feature>.py`.
-3. Run the checks:
+## Make and test a change
+
+1. Fork the repository and create a branch from `main`.
+2. Make the change and add or update tests where needed. Unit tests live under `tests/unit/`; integration tests live under `tests/integration/`.
+3. While you work, run a focused test by passing a test file or test name to pytest. For example:
 
    ```bash
-   make lint-all   # format, lint, type check
-   make test       # unit tests with coverage
+   uv run pytest tests/unit/graphdb/test_neo4j.py -q
    ```
 
-4. Open a pull request. Use a [conventional commit](https://www.conventionalcommits.org/en/v1.0.0/) prefix in the title: `fix:`, `feat:`, `build:`, `chore:`, `ci:`, `docs:`, `style:`, `refactor:`, `perf:`, `test:`.
+   Replace the path with the test file for the behavior you changed. A focused test gives faster feedback; it does not replace the full unit suite.
+4. Before you open a pull request, run the unit suite and non-mutating lint and type checks:
+
+   ```bash
+   make test
+   make lint-check
+   make lint-typing
+   ```
+
+   `make test` runs unit tests with coverage. `make lint-check` checks Ruff formatting and lint without changing files. `make lint-typing` runs `ty`. `make lint-all` runs auto-formatting and unsafe lint fixes, so it can change files. Use it only when you want those changes.
+5. Open a pull request. Use a [conventional commit](https://www.conventionalcommits.org/en/v1.0.0/) prefix in the title: `fix:`, `feat:`, `build:`, `chore:`, `ci:`, `docs:`, `style:`, `refactor:`, `perf:`, `test:`.
 
 ## Tests
 
 - Unit tests must not touch the network. Sockets are disabled by default.
-- Tests that need external services (databases, APIs) go in `tests/integration/` and are marked `@pytest.mark.integration`. Run them with `make test-integration`.
+- Tests that need external services go in `tests/integration/`. `tests/conftest.py` applies the `integration`, `enable_socket`, and flaky rerun markers to tests in that directory. Do not add those markers by hand.
+- Run integration tests with `make test-integration`. They need the relevant external services and configuration. `make dev-services-up` starts the local Neo4j, Qdrant, Weaviate, and Milvus services used by integration tests. `make dev-services-down` stops them and removes their data.
+- Run serial end-to-end tests with `make test-e2e`. They need a reachable Neo4j database. Do not run them against a database used by another test suite.
+- `make test-all` runs the unit, integration, and end-to-end suites. These broader suites need the services described above.
 - Aim for 80-90% coverage on new code. Do not write assertion-free tests to hit a number.
 
 ## Style
@@ -70,8 +83,8 @@ cd docs && npm run serve   # serves docs/build/ at http://localhost:3000/agentic
 
 If you push to `main` with changes under `docs/`, `agrag/`, or `pyproject.toml`, the site builds and deploys automatically via `.github/workflows/docs.yml`.
 
-- Every Python block in the docs must run. `make docs-test` runs them (it needs Neo4j, see the Makefile). Mark a block that cannot run with `notest`.
-- Blocks that need an LLM endpoint use a `python fixture:llm_env` fence and run only when `LLM_BASE_URL` and `LLM_API_KEY` are set.
+- `make docs-test` runs Python blocks in the getting-started and guide pages. The tests need a reachable Neo4j database through `NEO4J_*`. Some blocks clear that database, so use a throwaway database and set `DOCS_TEST_ALLOW_NEO4J_RESET=1` to confirm the reset. Blocks that need an LLM endpoint skip unless `LLM_BASE_URL` and `LLM_API_KEY` are set.
+- Label the opening fence `python fixture:llm_env` to attach the LLM fixture to a code block. Add `notest` to the opening fence for code that cannot run as a docs test. Both forms match the syntax used by the documentation test tooling and existing guides.
 - The landing page is `docs/src/pages/index.js`.
 
 ## Setup Commands
@@ -80,14 +93,20 @@ If you push to `main` with changes under `docs/`, `agrag/`, or `pyproject.toml`,
 | --- | --- |
 | `make sync` | Install all dependencies |
 | `make test` | Run unit tests with coverage |
+| `make test-integration` | Run integration tests with external services |
+| `make test-e2e` | Run serial end-to-end tests with Neo4j |
+| `make test-all` | Run unit, integration, and end-to-end tests |
+| `make dev-services-up` | Start local Neo4j, Qdrant, Weaviate, and Milvus services |
+| `make dev-services-down` | Stop local services and remove their data |
 | `make test-eval` | Run judged and real-agent evals (needs Neo4j and an LLM key) |
 | `make test-eval-extraction` | Score the extractor on the KPI-EDGAR gold set (needs an LLM key) |
 | `make test-eval-verifier` | Score the verifier verdicts on the FinQA-derived set (needs an LLM key) |
 | `make test-eval-resolution` | Score entity resolution on the gold set (needs an LLM key) |
 | `make test-eval-answer` | Score Agentic GraphRAG answers on the FinQA fixture (needs Neo4j and an LLM key) |
 | `make test-eval-trajectory` | Score agent trajectories on the tiny corpus (needs Neo4j and an LLM key) |
-| `make lint-all` | Format, lint, and type check |
 | `make lint-check` | Check formatting and lint without modifying files |
+| `make lint-typing` | Type check with `ty` |
+| `make lint-all` | Format, apply lint fixes, type check, check typos, and audit GitHub Actions |
 | `make security` | Run Bandit and uv audit |
 | `make changelog` | Rebuild `CHANGELOG.md` from the git history with git-cliff. It needs the full history and the release tags, and stops if they are missing |
 | `make wheel-test` | Build the wheel and import it from a clean environment |

@@ -6,15 +6,15 @@ description: How Agentic GraphRAG turns chunk text into typed entity and relatio
 
 # Extraction
 
-Extraction reads one chunk and lists its entities and relations. Every result must match a schema that you define.
+Extraction turns a chunk into entity and relation mentions, not graph nodes. The schema defines which types and relation patterns the extractor can return; later resolution decides which mentions share an entity.
 
 ## Why it exists
 
-A chunk is plain text. A graph needs typed facts, such as "Charles Babbage designed the Analytical Engine". Extraction finds those facts.
+A chunk is plain text. Extraction turns statements in that text into typed facts, such as "Charles Babbage designed the Analytical Engine". It records where each mention came from so later stages can validate and resolve it.
 
 A schema keeps the facts consistent. It names the valid entity types and relation types. It also names the pairs of types that each relation can join. An extractor cannot add a type that the schema does not declare.
 
-Extraction can also cost a lot. An LLM that reads every chunk charges for every chunk. A small model on your machine reads every chunk at no API cost. An LLM can then read only the chunks where the small model looks weak, up to a budget.
+The trade-off is coverage against cost. A local model can screen every chunk without API calls, while an LLM can add context-sensitive results at additional cost. Hybrid mode sends selected chunks to the LLM, subject to an escalation budget; GLiNER-only mode avoids those calls, while LLM-only mode sends chunks directly to the LLM.
 
 ## How it works
 
@@ -34,15 +34,15 @@ flowchart TD
 2. The local model (GLiNER 2.5) reads the chunk once. It sees every entity type and every relation of the schema, each with its description. It returns entities with a text span and a confidence score. It also returns relations between them, with a score.
 3. The extractor keeps an entity when its score is 0.5 or more. It keeps a relation when its score is 0.7 or more and the pair of entity types is one that the schema allows. When a type has a parent type, the model sees both. If it returns the same words under both, the extractor keeps the label with the higher score. On a tie it keeps the child.
 4. The extractor reports rejected relations and weak entities as [candidates](./candidates.mdx), with a reason. Validation also reports each undeclared property as a property candidate. Property candidates occur only on chunks read by the LLM tier and only when the schema declares properties. You can turn candidate reporting off.
-5. After the local model has read every chunk of a batch, the graph ranks the chunks. A chunk is eligible when one of its entities scores below 0.75, when it has no entities and at least eight words, or when one of its entities has a type that declares properties. The weakest eligible chunks come first.
+5. In hybrid mode, after the local model has read every chunk of a batch, the graph ranks eligible chunks. With default settings, a chunk is eligible when a kept entity scores below 0.75, when it has no kept entities and at least eight words, or when a kept entity's type has declared or inherited properties. The weakest eligible chunks come first.
 6. An LLM reads the eligible chunks in that order, until the budget is used. The budget is 20% of the chunks in a batch by default. The schema is part of the prompt. Its entities and the local entities combine into one result. An LLM entity with the name of a local entity keeps the local span and score. A local entity that the LLM did not return stays in the result. If the LLM call fails or gives no usable answer, the chunk keeps the local result.
 7. The pipeline validates the result of every extractor, including an extractor that you write. Validation removes every entity whose label the schema does not declare. It removes every relation whose label, or whose pair of entity types, the schema does not declare. A pattern that names a parent type also covers the child types of that type. It removes undeclared properties from entities and returns them as property candidates. Cardinality and symmetry declarations are not enforced on extracted edges. The pipeline logs how many entities, relations and properties it dropped.
 8. The result is a list of mentions. A mention is not a graph node yet. It keeps its chunk, label, text, character span, and confidence.
 
-You choose the LLM tier when you open a graph. If you pass no `llm_extractor`, no chunk goes to an LLM.
+The graph's extraction mode and available LLM settings determine whether an LLM reads chunks. In `hybrid` or `llm` mode, omitting `llm_extractor` still lets the graph build its default BAML extractor from configured environment settings. If those settings are absent, hybrid mode runs locally; use `mode="gliner"` to disable LLM extraction explicitly. See [Choose an extraction mode](../guides/choose-an-extraction-mode.mdx) for the mode and model settings.
 
 :::note
-The local model reports spans and labels. It does not fill property values. When a kept entity has a type that declares properties, the result says so, so that an LLM extractor can read the chunk. Graph logs a warning when it is built in gliner mode and an entity type declares properties. The LLM reports labels and names only; the extractor finds the spans in the text.
+The local model reports spans and labels, but does not fill property values. A kept entity with declared or inherited properties makes its chunk eligible for LLM review, subject to the hybrid budget. Graph logs a warning when it runs in GLiNER-only mode with declared properties. The LLM reports labels, names, and property values; the extractor finds the names' spans in the text.
 :::
 
 ## Example
