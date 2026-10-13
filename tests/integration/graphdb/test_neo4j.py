@@ -16,7 +16,11 @@ from uuid import uuid4
 
 import pytest
 
-from agrag.common.data_models.graph_record import NodeRecord, RelationRecord
+from agrag.common.data_models.graph_record import (
+    DeferredWrites,
+    NodeRecord,
+    RelationRecord,
+)
 from agrag.common.data_models.vector_record import Distance
 from agrag.cypher._pending_filter import pending_filter_clause
 from agrag.cypher.entities import (
@@ -547,6 +551,7 @@ class TestNeo4jGraphStoreIntegration:
         label = validate_identifier(f"Chunk_{uuid4().hex[:8]}")
         try:
             job_id = uuid4()
+            deferred = DeferredWrites()
             committed_id, new_id = uuid4(), uuid4()
             await store.upsert_nodes(
                 label,
@@ -559,6 +564,7 @@ class TestNeo4jGraphStoreIntegration:
                     NodeRecord(id=new_id, labels=[label], properties={"v": 1}),
                 ],
                 pending_job_id=job_id,
+                deferred=deferred,
             )
             relation_id = uuid4()
             relation_result = await store.upsert_relations(
@@ -572,6 +578,7 @@ class TestNeo4jGraphStoreIntegration:
                     )
                 ],
                 pending_job_id=job_id,
+                deferred=deferred,
             )
 
             rows = await store.execute_read(
@@ -580,7 +587,13 @@ class TestNeo4jGraphStoreIntegration:
             )
             tags = {row["id"]: row["tag"] for row in rows}
             assert tags == {str(committed_id): None, str(new_id): str(job_id)}
-            assert {row["id"]: row["v"] for row in rows}[str(committed_id)] == 2
+            assert {row["id"]: row["v"] for row in rows}[str(committed_id)] == 1
+            deferred_ids = [
+                record["id"]
+                for _, parameters in deferred.entries
+                for record in parameters["records"]
+            ]
+            assert deferred_ids == [str(committed_id)]
 
             visible = await store.execute_read(
                 f"MATCH (n:{label}) WHERE {pending_filter_clause('n')} "

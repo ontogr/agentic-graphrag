@@ -608,6 +608,7 @@ async def apply_merge(
     )
     from agrag.graphdb.errors import GraphStoreAliasConflictError  # noqa: PLC0415
     from agrag.graphdb.serialize import node_params  # noqa: PLC0415
+    from agrag.ingestion._deferred import run_staged_transaction  # noqa: PLC0415
 
     if pending_job_id is not None and deferred is None:
         raise ValueError("deferred is required when pending_job_id is set")
@@ -617,7 +618,7 @@ async def apply_merge(
     survivor_id = str(plan.survivor.id)
     survivor_query = upsert_survivor_query(stored_labels)
 
-    async def write(txn: GraphStoreTransaction) -> None:
+    async def write(txn: GraphStoreTransaction, staged: DeferredWrites | None) -> None:
         # Everything except source_chunk_ids/merge_count is applied as-is;
         # those two go through upsert_survivor_query's atomic accumulation
         # instead, using node_params only to get their driver-safe encoding,
@@ -635,8 +636,8 @@ async def apply_merge(
         params["new_source_chunk_ids"] = [str(cid) for cid in plan.new_source_chunk_ids]
         params["merge_count_delta"] = plan.merge_count_delta
         rows = await txn.execute_write(survivor_query, {"records": [params]})
-        if deferred is not None:
-            deferred.add_unwritten(survivor_query, [params], rows)
+        if staged is not None:
+            staged.add_unwritten(survivor_query, [params], rows)
         accepted_merge_keys = plan.accepted_merge_keys or [plan.survivor.merge_key]
         alias_rows = await txn.execute_write(
             upsert_merge_alias_query(),
@@ -654,7 +655,7 @@ async def apply_merge(
         if conflicts:
             raise GraphStoreAliasConflictError(conflicts)
 
-    await graph_store.run_in_transaction(write)
+    await run_staged_transaction(graph_store, write, deferred=deferred)
 
 
 def mentioned_in_id(chunk_id: UUID, entity_id: UUID) -> UUID:

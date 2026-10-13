@@ -6,8 +6,8 @@ The commit transaction replays that list after the job flips to committed, so
 committed rows change only together with the commit.
 """
 
-from collections.abc import Mapping, Sequence
-from typing import Any
+from collections.abc import Awaitable, Callable, Mapping, Sequence
+from typing import Any, TypeVar
 
 from agrag.common.data_models.graph_record import DeferredWrites
 from agrag.graphdb.base import GraphStore, GraphStoreTransaction
@@ -15,6 +15,8 @@ from agrag.graphdb.errors import GraphStoreWriteConflictError
 
 
 _REPLAY_BATCH_SIZE = 256
+
+_T = TypeVar("_T")
 
 
 async def write_or_defer(
@@ -41,6 +43,42 @@ async def write_or_defer(
     if deferred is not None:
         deferred.add_unwritten(query, records, rows, require_all=False)
     return rows
+
+
+async def run_staged_transaction(
+    graph_store: GraphStore,
+    work: Callable[[GraphStoreTransaction, DeferredWrites | None], Awaitable[_T]],
+    *,
+    deferred: DeferredWrites | None,
+) -> _T:
+    """Run a transaction callback and publish its deferred writes on commit.
+
+    Neo4j reruns a callback after a transient failure, and a rolled-back
+    callback leaves no rows behind. Each attempt stages its deferred writes in
+    a fresh list, and only the attempt that commits adds its list to
+    ``deferred``. Entries from failed or retried attempts never reach the
+    commit transaction.
+
+    Args:
+        graph_store: The store that runs the transaction.
+        work: The transaction callback. It receives the staging list for the
+            current attempt, or None when ``deferred`` is None.
+        deferred: The job's list. None when there is no job.
+
+    Returns:
+        Whatever ``work`` returns.
+    """
+    staged: DeferredWrites | None = None
+
+    async def attempt(transaction: GraphStoreTransaction) -> _T:
+        nonlocal staged
+        staged = DeferredWrites() if deferred is not None else None
+        return await work(transaction, staged)
+
+    result = await graph_store.run_in_transaction(attempt)
+    if deferred is not None and staged is not None:
+        deferred.entries.extend(staged.entries)
+    return result
 
 
 async def replay_deferred(txn: GraphStoreTransaction, deferred: DeferredWrites) -> None:

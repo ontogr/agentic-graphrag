@@ -14,6 +14,7 @@ import pytest
 import pytest_asyncio
 
 from agrag.common.data_models.entity import Entity
+from agrag.common.data_models.graph_record import DeferredWrites
 from agrag.graphdb import build_graph_store
 from agrag.graphdb.base import GraphStore
 from agrag.graphdb.entities import load_entities
@@ -73,7 +74,10 @@ class TestLoadEntitiesIntegration:
         try:
             await store.upsert_nodes(label, [committed.to_node_record()])
             await store.upsert_nodes(
-                label, [pending.to_node_record()], pending_job_id=uuid4()
+                label,
+                [pending.to_node_record()],
+                pending_job_id=uuid4(),
+                deferred=DeferredWrites(),
             )
 
             result = await load_entities(store, [committed.id, pending.id])

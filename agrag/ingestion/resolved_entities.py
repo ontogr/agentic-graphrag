@@ -37,6 +37,7 @@ from agrag.cypher.resolution_write import (
 from agrag.graphdb.base import GraphStore, GraphStoreTransaction
 from agrag.graphdb.entities import load_entities
 from agrag.graphdb.serialize import parse_entity_node
+from agrag.ingestion._deferred import run_staged_transaction
 from agrag.ingestion.merge import compute_merge
 from agrag.ingestion.resolve.resolver import ResolvedMatch
 
@@ -243,7 +244,9 @@ async def write_matches_and_rebuild(
             "Every match decision must reference a supplied component member"
         )
 
-    async def write(transaction: GraphStoreTransaction) -> RebuildResult:
+    async def write(
+        transaction: GraphStoreTransaction, staged: DeferredWrites | None
+    ) -> RebuildResult:
         component_members = members
         for decision in decisions:
             first_id, second_id = sorted(
@@ -264,8 +267,8 @@ async def write_matches_and_rebuild(
             )
             if not match_rows:
                 raise ValueError("Cannot rebuild a match whose entities do not exist")
-            if deferred is not None and match_rows[0].get("written") is False:
-                deferred.add(
+            if staged is not None and match_rows[0].get("written") is False:
+                staged.add(
                     upsert_matches_query(),
                     {**match_params, "pending_job_id": None},
                 )
@@ -292,11 +295,11 @@ async def write_matches_and_rebuild(
             schema=schema,
             pending_job_id=pending_job_id,
             decided_at=max(decision.decided_at for decision in decisions),
-            deferred=deferred,
+            deferred=staged,
             tracer=tracer,
         )
 
-    return await graph_store.run_in_transaction(write)
+    return await run_staged_transaction(graph_store, write, deferred=deferred)
 
 
 async def rebuild_resolved_entities(
