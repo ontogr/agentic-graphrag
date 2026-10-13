@@ -156,36 +156,35 @@ def _resolve_relation_pair(
     return None
 
 
-def _normalize_extraction_result(
+def validate_extraction(
     result: ExtractionResult, schema: GraphSchema
 ) -> ExtractionResult:
-    """Drop LLM entities and relations that the schema does not declare.
+    """Drop entities and relations that the schema does not declare.
 
-    An entity survives only when its label is a declared EntityType, and
-    keeps only the property keys that EntityType declares. An extractor
-    can report a property the schema never defined (an LLM inventing a
-    field, or a schema that dropped a property after the model was
-    prompted), and compute_merge has no schema of its own to filter against
-    later. A relation survives only when its label is a declared
-    RelationType and the resolved (source label, target label) pair, checked
-    against the surviving entities, satisfies ``schema.allows``. A relation
-    pointing at a dropped entity is dropped too.
-    Surviving relation indices are remapped to the filtered entity list.
+    The pipeline applies this to the result of every extractor, so a custom
+    extractor cannot send an undeclared label to the graph. An entity
+    survives only when its label is a declared EntityType, and keeps only the
+    property keys that EntityType declares. A relation survives only when both
+    of its entities survive and ``schema.allows`` accepts its label and
+    resolved (source label, target label) pair. Relation indices are remapped
+    to the surviving entities. A drop is logged with a count.
 
     Args:
-        result: The extractor's raw result, before schema validation.
+        result: The extractor's result, before schema validation.
         schema: The schema entities and relations are validated against.
 
     Returns:
-        A new ExtractionResult holding only schema-declared entities and
-        relations, with relation indices remapped to the filtered entities
-        and each entity's properties limited to its declared keys.
+        A copy of ``result`` holding only schema-declared entities and
+        relations, with relation indices remapped and each entity's properties
+        limited to its declared keys. ``candidates`` and ``needs_properties``
+        are unchanged.
     """
     entity_types_by_label = {
         entity_type.label: entity_type for entity_type in schema.entities
     }
     valid_entities: list[ExtractedEntity] = []
     index_remap: dict[int, int] = {}
+    dropped_properties = 0
     for old_index, entity in enumerate(result.entities):
         entity_type = entity_types_by_label.get(entity.label)
         if entity_type is None:
@@ -199,6 +198,7 @@ def _normalize_extraction_result(
                 if key in entity_type.properties
             }
             if declared != entity.properties:
+                dropped_properties += len(entity.properties) - len(declared)
                 valid_entity = entity.model_copy(update={"properties": declared})
         valid_entities.append(valid_entity)
 
@@ -223,12 +223,19 @@ def _normalize_extraction_result(
             )
         )
 
-    return ExtractionResult(
-        entities=valid_entities,
-        relations=valid_relations,
-        extractor_name=result.extractor_name,
-        candidates=result.candidates,
-        needs_properties=result.needs_properties,
+    dropped_entities = len(result.entities) - len(valid_entities)
+    dropped_relations = len(result.relations) - len(valid_relations)
+    if dropped_entities or dropped_relations or dropped_properties:
+        logger.warning(
+            "Dropped %d entities, %d relations and %d properties from %s "
+            "that the schema does not declare",
+            dropped_entities,
+            dropped_relations,
+            dropped_properties,
+            result.extractor_name,
+        )
+    return result.model_copy(
+        update={"entities": valid_entities, "relations": valid_relations}
     )
 
 
@@ -312,7 +319,8 @@ class Extractor(ABC):
         ``extract`` once for each chunk. ``GlinerExtractor`` is a local
         extractor, ``LLMExtractor`` marks the LLM role, and
         ``EscalatingExtractor`` runs a local extractor before an LLM when its
-        result is weak.
+        result is weak. ``Graph`` drops any entity or relation whose label the
+        schema does not declare, and logs the count.
 
         ``Graph`` runs up to ``max_concurrency`` ``extract`` calls at the same
         time. An extractor that is not safe to call from several tasks at once
@@ -731,9 +739,7 @@ class BAMLExtractor(LLMExtractor):
                 tracer=self._tracer,
                 function="ExtractEntitiesAndRelations",
             )
-            result = _normalize_extraction_result(
-                self._to_result(raw, chunk, schema), schema
-            )
+            result = validate_extraction(self._to_result(raw, chunk, schema), schema)
             span.set_attribute("agrag.entities_extracted", len(result.entities))
             span.set_attribute("agrag.relations_extracted", len(result.relations))
             return result
@@ -807,7 +813,7 @@ class BAMLExtractor(LLMExtractor):
 
         Each entity's ``properties`` pass through as reported; schema
         validation of the property keys happens later, in
-        ``_normalize_extraction_result``.
+        ``validate_extraction``.
         """
         if chunk.id is None:
             raise ValueError("Chunk must have an id for extraction.")
@@ -924,7 +930,9 @@ class EscalatingExtractor(Extractor):
             "agrag.extraction.escalating",
             attributes={"agrag.chunk_id": str(chunk.id)},
         ) as span:
-            result = await self.primary.extract(chunk, schema)
+            result = validate_extraction(
+                await self.primary.extract(chunk, schema), schema
+            )
             escalate = self._should_escalate(result, chunk)
             span.set_attribute("agrag.escalated", escalate)
             if escalate:
