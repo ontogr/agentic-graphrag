@@ -504,14 +504,11 @@ async def compute_merge(  # noqa: PLR0912
 
 
 def relation_id(source_id: UUID, target_id: UUID, rel_type: str) -> UUID:
-    """Return the deterministic id for a domain relationship triple.
+    """Return the committed id for a domain relationship triple.
 
-    Two concurrent ``add()`` calls resolving the same ``(source_id,
-    target_id, rel_type)`` triple can both miss the existing-relation lookup
-    and each try to create it. Since this id depends only on the triple, both
-    writers compute the same one, so ``upsert_relation_query``'s ``MERGE``
-    converges to a single edge instead of two parallel ones with unrelated
-    random ids. Mirrors ``mentioned_in_id``.
+    This is the identity a relation has once committed. While a Cutover Job is
+    pending, the job creates the relation under ``pending_relation_id`` and the
+    commit folds it into this id.
 
     Args:
         source_id: The relationship's source Entity id.
@@ -522,6 +519,23 @@ def relation_id(source_id: UUID, target_id: UUID, rel_type: str) -> UUID:
         The relationship id. Same triple always returns the same id.
     """
     return uuid5(NAMESPACE_OID, f"{rel_type}:{source_id}:{target_id}")
+
+
+def pending_relation_id(job_id: UUID, canonical_id: UUID) -> UUID:
+    """Return the id a Cutover Job gives a relation it creates.
+
+    Two jobs that create the same relation must not address one row. The job
+    writes the relation under this id, and the commit folds it into the
+    canonical id.
+
+    Args:
+        job_id: The in-flight job's id.
+        canonical_id: The id ``relation_id`` gives the same triple.
+
+    Returns:
+        The job-scoped relation id.
+    """
+    return uuid5(NAMESPACE_OID, f"PendingRelation:{job_id}:{canonical_id}")
 
 
 def has_part_id(document_node_id: UUID, node_id: UUID, version_id: UUID | str) -> UUID:

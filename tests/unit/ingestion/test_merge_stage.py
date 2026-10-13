@@ -76,6 +76,7 @@ async def _merge(
     store: AsyncMock,
     *,
     error_policy: ErrorPolicy = ErrorPolicy.SKIP,
+    job_id: UUID | None = None,
 ) -> Any:
     ctx = StageContext(
         graph_store=store,
@@ -83,7 +84,7 @@ async def _merge(
         vector_store=None,
         error_policy=error_policy,
         tracer=get_tracer(None),
-        job_id=None,
+        job_id=job_id,
         deferred=None,
     )
     return await merge_stage(
@@ -229,6 +230,92 @@ class TestMergeStage:
         assert [(f.item_id, f.error_type) for f in result.stats.failures] == [
             ("WORKS_AT", "RuntimeError")
         ]
+
+    async def test_new_relation_under_a_job_gets_a_job_scoped_id(self) -> None:
+        """A new relation under a job gets its own id and names the canonical id."""
+        chunk_id = uuid4()
+        alice, acme = _existing("Alice"), _existing("Acme")
+        canonical_id = domain_relation_id(alice.id, acme.id, "WORKS_AT")
+        relations = [
+            ExtractedRelation(
+                chunk_id=chunk_id, label="WORKS_AT", source_index=0, target_index=1
+            )
+        ]
+        batch = _batch([[0], [1]], exact_matches={0: alice, 1: acme})
+
+        first = await _merge(
+            [_mention("Alice"), _mention("Acme")],
+            relations,
+            batch,
+            _store(),
+            job_id=uuid4(),
+        )
+        second = await _merge(
+            [_mention("Alice"), _mention("Acme")],
+            relations,
+            batch,
+            _store(),
+            job_id=uuid4(),
+        )
+
+        [first_record] = first.relation_records
+        [second_record] = second.relation_records
+        assert first_record.id != canonical_id
+        assert second_record.id != canonical_id
+        assert first_record.id != second_record.id
+        assert first_record.properties["_canonical_id"] == str(canonical_id)
+        assert second_record.properties["_canonical_id"] == str(canonical_id)
+
+    async def test_stored_relation_keeps_its_id_under_a_job(self) -> None:
+        """A relation already in the graph keeps its stored id under a job."""
+        alice, acme = _existing("Alice"), _existing("Acme")
+        relation_id = uuid4()
+        store = _store(
+            [
+                {
+                    "id": str(relation_id),
+                    "source_id": str(alice.id),
+                    "target_id": str(acme.id),
+                    "source_chunk_ids": [str(uuid4())],
+                }
+            ]
+        )
+        relations = [
+            ExtractedRelation(
+                chunk_id=uuid4(), label="WORKS_AT", source_index=0, target_index=1
+            )
+        ]
+        batch = _batch([[0], [1]], exact_matches={0: alice, 1: acme})
+
+        result = await _merge(
+            [_mention("Alice"), _mention("Acme")],
+            relations,
+            batch,
+            store,
+            job_id=uuid4(),
+        )
+
+        [record] = result.relation_records
+        assert record.id == relation_id
+        assert "_canonical_id" not in record.properties
+
+    async def test_relation_without_a_job_uses_the_canonical_id(self) -> None:
+        """Outside a job a new relation takes the canonical id and no pointer."""
+        alice, acme = _existing("Alice"), _existing("Acme")
+        relations = [
+            ExtractedRelation(
+                chunk_id=uuid4(), label="WORKS_AT", source_index=0, target_index=1
+            )
+        ]
+        batch = _batch([[0], [1]], exact_matches={0: alice, 1: acme})
+
+        result = await _merge(
+            [_mention("Alice"), _mention("Acme")], relations, batch, _store()
+        )
+
+        [record] = result.relation_records
+        assert record.id == domain_relation_id(alice.id, acme.id, "WORKS_AT")
+        assert "_canonical_id" not in record.properties
 
     async def test_raises_failed_relation_lookup_under_raise(self) -> None:
         """Under ErrorPolicy.RAISE a failed relation read propagates."""

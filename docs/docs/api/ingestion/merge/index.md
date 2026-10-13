@@ -27,7 +27,8 @@ separate step.
 - [**mentioned_in_id**](mentioned_in_id.md) – Return the deterministic id for a new Chunk MENTIONED_IN Entity edge.
 - [**merge_properties**](merge_properties.md) – Return field-resolved properties and records of every real conflict.
 - [**next_chunk_id**](next_chunk_id.md) – Return the deterministic id for a Chunk -[:NEXT_CHUNK]-> Chunk edge.
-- [**relation_id**](relation_id.md) – Return the deterministic id for a domain relationship triple.
+- [**pending_relation_id**](pending_relation_id.md) – Return the id a Cutover Job gives a relation it creates.
+- [**relation_id**](relation_id.md) – Return the committed id for a domain relationship triple.
 - [**resolve_description**](resolve_description.md) – Resolve a description field, trying LLM summarization.
 - [**select_canonical**](select_canonical.md) – Return the canonical entity and the rest, from two or more entities.
 
