@@ -11,7 +11,7 @@ See [Chunking](../concepts/chunking.mdx) for how the chunker works.
 
 ## See the default settings
 
-A `Graph` holds one `Chunker`. Its settings are `size`, `min_size` and `tokenizer`.
+A `Graph` holds one `Chunker`. Its settings are `size`, `min_size`, `tokenizer`, `splitter` and `tables`.
 
 ```python
 from agrag.chunking import Chunker
@@ -26,6 +26,8 @@ print(chunker.fingerprint)
 | `size` | 600 | The most tokens in a chunk. |
 | `min_size` | a quarter of `size` | A chunk with fewer tokens carries on into the next section. |
 | `tokenizer` | `o200k_base` | The tokenizer that counts tokens. |
+| `splitter` | `chonkie-<installed version>` | The version of the installed splitter package that cuts text. The value depends on your environment. |
+| `tables` | `1` | The version of the table rendering rules. |
 
 `size` and `min_size` count the text of the units. The blank lines that join units are not counted, so a chunk can pass `size` by a few tokens. `min_size` must be smaller than `size`.
 

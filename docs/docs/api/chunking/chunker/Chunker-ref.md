@@ -96,6 +96,9 @@ settings() -> dict[str, Any]
 
 Return the settings as plain data.
 
+The splitter and table rendering versions are included, so an upgrade
+that changes the chunks also changes the fingerprint.
+
 ## `size` \{#agrag-chunking-chunker-Chunker-size}
 
 ```python

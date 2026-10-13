@@ -3,6 +3,7 @@
 from collections.abc import Callable
 from dataclasses import dataclass
 from functools import cached_property
+from importlib.metadata import version
 from typing import Any, Literal
 from uuid import UUID
 
@@ -38,6 +39,12 @@ from agrag.common.fingerprint import fingerprint_of
 
 DEFAULT_SIZE = 600
 DEFAULT_TOKENIZER = "o200k_base"
+# The splitter is chonkie's, so its package version names its behavior.
+SPLITTER_VERSION = f"chonkie-{version('chonkie')}"
+# Bump this number by hand whenever _tables.py renders a table differently. A
+# hash of the module source would catch every edit, but it would also change
+# for edits that leave the output alone.
+TABLE_RENDERING_VERSION = 1
 CHUNKER_NAME = "section"
 _SEPARATOR = "\n\n"
 _MIN_CHARACTERS_PER_PIECE = 24
@@ -179,11 +186,17 @@ class Chunker:
         return self.size // 4 if self.min_size is None else self.min_size
 
     def settings(self) -> dict[str, Any]:
-        """Return the settings as plain data."""
+        """Return the settings as plain data.
+
+        The splitter and table rendering versions are included, so an upgrade
+        that changes the chunks also changes the fingerprint.
+        """
         return {
             "size": self.size,
             "min_size": self.effective_min_size,
             "tokenizer": self.tokenizer,
+            "splitter": SPLITTER_VERSION,
+            "tables": TABLE_RENDERING_VERSION,
         }
 
     @cached_property

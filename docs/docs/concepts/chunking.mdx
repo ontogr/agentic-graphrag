@@ -57,6 +57,8 @@ A report has a section "Results" with three short paragraphs and a table. The ch
 
 Suppose you change `size` from 600 to 400 and call `Graph.update` for the file. Agentic GraphRAG chunks it again, even though the text did not change. The settings fingerprint changed, so the chunk ids change.
 
+The fingerprint also covers the version of the splitter and a number for the table rendering rules, so an upgrade that changes chunks makes `Graph.update` chunk again.
+
 <details>
 <summary>Design choices</summary>
 
