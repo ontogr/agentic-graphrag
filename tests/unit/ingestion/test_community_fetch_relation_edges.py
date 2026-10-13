@@ -31,37 +31,6 @@ class TestFetchRelationEdges:
         assert edges[0][2] == 2.0
         assert edges[1][2] == 0.0
 
-    async def test_use_cursor_false_uses_skip_pagination(self) -> None:
-        """use_cursor=False pages via SKIP and still computes weights."""
-        mock_store = AsyncMock()
-        mock_store.execute_read.side_effect = [
-            [
-                {
-                    "source_id": str(i),
-                    "target_id": str(i + 1),
-                    "source_chunk_ids": ["x"],
-                    "rel_type": "KNOWS",
-                }
-                for i in range(5)
-            ],
-            [
-                {
-                    "source_id": "done",
-                    "target_id": "done2",
-                    "source_chunk_ids": [],
-                    "rel_type": "KNOWS",
-                }
-            ],
-        ]
-        edges = await fetch_relation_edges(mock_store, page_size=5, use_cursor=False)
-        assert len(edges) == 6
-        assert edges[-1] == ("done", "done2", 0.0, "KNOWS")
-        assert mock_store.execute_read.call_count == 2
-        first_call_params = mock_store.execute_read.call_args_list[0].args[1]
-        assert first_call_params == {"skip": 0, "limit": 5}
-        second_call_params = mock_store.execute_read.call_args_list[1].args[1]
-        assert second_call_params == {"skip": 5, "limit": 5}
-
     async def test_pagination_resumes_past_shared_endpoint_group(self) -> None:
         """A page boundary inside a same-(a,b) group still yields every row.
 

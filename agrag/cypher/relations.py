@@ -137,7 +137,8 @@ def bfs_expand_query(
         direction: Which way a hop walks each relationship. Defaults
             to ``"both"``.
         document_ids: Optional document ids that must mention each result
-            entity through a ``MENTIONED_IN`` edge.
+            entity through a ``MENTIONED_IN`` edge. A chunk and a mention
+            count only when committed, or written by the job in ``$job_id``.
         labels: Optional labels that returned neighbors must have at
             least one of.
         job_id: The in-flight Cutover Job's id, or null outside a job.
@@ -178,9 +179,11 @@ def bfs_expand_query(
     )
     document_suffix = (
         " AND EXISTS { "
-        "MATCH (neighbor)<-[:MENTIONED_IN]-"
+        "MATCH (neighbor)<-[scoped_mention:MENTIONED_IN]-"
         f"(scoped_chunk:{NODE_IDENTITY_LABEL}:Chunk) "
-        "WHERE scoped_chunk.document_id IN $document_ids }"
+        "WHERE scoped_chunk.document_id IN $document_ids "
+        f"AND {pending_filter_clause('scoped_chunk', 'job_id')} "
+        f"AND {pending_filter_clause('scoped_mention', 'job_id')} }}"
         if document_ids
         else ""
     )
@@ -341,46 +344,17 @@ def entities_mentioned_in_chunks_query() -> str:
     )
 
 
-def fetch_all_relations_query() -> str:
-    """Build Cypher paginating every live domain relationship.
-
-    Used by Graph.detect_communities() to build the weighted edge list for
-    clustering. Excludes MENTIONED_IN and MEMBER_OF (system edges, not
-    entity-graph topology) and any endpoint that is a Chunk or a Community.
-
-    ``ORDER BY`` includes ``type(r)`` and ``r.id`` after ``(a.id, b.id)``
-    because two distinct relationships (different types, or the same type
-    with different ids) can share the same endpoints -- see
-    ``upsert_relation_query``. Without a total order, Neo4j does not
-    guarantee a stable row order across separate paged queries, so a page
-    boundary falling inside such a group can duplicate or drop rows.
-
-    Returns:
-        Parameterized Cypher expecting $skip and $limit. Returns each
-        relation's source_id, target_id, source_chunk_ids, and rel_type.
-    """
-    return (
-        f"MATCH (a:{NODE_IDENTITY_LABEL})-[r]->(b:{NODE_IDENTITY_LABEL}) "
-        f"WHERE NOT a:Chunk AND NOT b:Chunk "
-        f"AND NOT a:Community AND NOT b:Community "
-        f"AND NOT type(r) IN {_NON_ENTITY_RELATIONS} "
-        f"AND {pending_filter_clause('r')} "
-        f"RETURN a.id AS source_id, b.id AS target_id, "
-        f"r.source_chunk_ids AS source_chunk_ids, "
-        f"type(r) AS rel_type "
-        f"ORDER BY a.id, b.id, type(r), coalesce(r.id, '') SKIP $skip LIMIT $limit"
-    )
-
-
 def fetch_all_relations_query_cursor() -> str:
     """Build Cypher paginating every live domain relationship via keyset.
 
-    Keyset variant of ``fetch_all_relations_query`` for large graphs
-    where ``SKIP`` becomes expensive. Orders by ``(a.id, b.id, type(r),
-    r.id)`` and pages by the last seen tuple; the first page uses
-    ``last_a=""``, ``last_b=""``, ``last_type=""`` and ``last_rel_id=""``.
-    Like the offset variant, it excludes every edge an in-flight Cutover
-    Job wrote.
+    Pages every live domain relationship by keyset, so cost does not grow
+    with the page number. Orders by ``(a.id, b.id, type(r), r.id)`` and
+    pages by the last seen tuple; the first page uses ``last_a=""``,
+    ``last_b=""``, ``last_type=""`` and ``last_rel_id=""``. It excludes
+    every edge an in-flight Cutover Job wrote. Used by
+    Graph.detect_communities() to build the weighted edge list for
+    clustering; it skips MENTIONED_IN and MEMBER_OF (system edges, not
+    entity-graph topology) and any endpoint that is a Chunk or a Community.
 
     The relationship type and id break ties on ``(a.id, b.id)``: two
     distinct relationships (different types, or the same type with

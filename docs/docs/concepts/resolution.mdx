@@ -35,7 +35,7 @@ flowchart TD
 
 *A pair goes down the tiers. The first tier that is sure decides.*
 
-1. Only mentions with the same label are compared. A `Person` is never compared with a `Location`.
+1. Only mentions with the same label are compared. The label is the type of the mention, not a parent type. A `Vendor` is never compared with an `Organization`. A `Person` is never compared with a `Location`.
 2. Exact tier. Two mentions match when their text is equal after trimming spaces and ignoring letter case.
 3. Fuzzy tier. The tier compares the words of both names and ignores their order. A score of 0.97 or more is a match. A lower score is not a rejection. It only means that the fast path does not apply.
 4. Embedding tier. Each name becomes a vector. A cosine similarity of 0.95 or more is a match. A similarity below 0.80 drops the pair. A similarity from 0.80 to 0.95 makes the pair ambiguous.

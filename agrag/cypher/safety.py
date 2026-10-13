@@ -7,6 +7,12 @@ from agrag.common.data_models.graph_record import PENDING_JOB_ID_PROPERTY
 
 
 _WRITE_KEYWORDS = frozenset({"CREATE", "MERGE", "DELETE", "SET", "REMOVE", "DROP"})
+# These clauses read from, or switch to, somewhere the read transaction does
+# not protect: LOAD CSV sends graph text to a URL under the store's
+# credentials, USE targets another database, SHOW lists schema and users.
+# Matching is by token, like the write keywords, so a property named ``use``
+# is also rejected.
+_DENIED_KEYWORDS = frozenset({"LOAD", "USE", "SHOW"})
 # CALL is allowed only for these read-only procedures. Anything else,
 # including a CALL subquery, is rejected because an arbitrary procedure
 # call can perform writes (the vector queryNodes procedure is the one the
@@ -75,6 +81,11 @@ _TYPED_PATH = re.compile(
     rf"\s*(?:\w+)?\s*:\s*({_LABEL_NAME}(?:\s*\|\s*:?\s*{_LABEL_NAME})*)\s*\*"
 )
 _SUBQUERY_SCOPE = re.compile(r"\bCALL\s*\([^()]*\)\s*\{", flags=re.IGNORECASE)
+_NEGATION_BEFORE = re.compile(r"\bNOT\s*\(*\s*$", flags=re.IGNORECASE)
+_PROJECTION_CLAUSE = re.compile(
+    r"\b(MATCH|WHERE|WITH|RETURN|ORDER|UNWIND|CALL|YIELD)\b", flags=re.IGNORECASE
+)
+_CASE_EXPRESSION = re.compile(r"\b(CASE|END)\b", flags=re.IGNORECASE)
 
 
 def _enclosing_span(text: str, position: int) -> tuple[int, int]:
@@ -140,6 +151,42 @@ def _or_beside_guard(text: str, position: int) -> bool:
         if start < 0:
             return False
         position = start
+
+
+def _negated_at_any_level(text: str, position: int) -> bool:
+    """Report whether a NOT applies to position through any enclosing group.
+
+    The NOT may sit directly before the guard or before any parenthesis
+    group around it, so ``NOT (a AND guard)`` inverts the guard too.
+    """
+    current = position
+    while current >= 0:
+        if _NEGATION_BEFORE.search(text[:current]):
+            return True
+        current, _ = _enclosing_span(text, current)
+    return False
+
+
+def _guard_filters_rows(text: str, position: int) -> bool:
+    """Report whether the guard at position can remove rows.
+
+    Only a guard in a ``WHERE`` clause filters rows. A guard that follows a
+    ``WITH``, ``RETURN``, ``ORDER BY``, ``UNWIND``, ``CALL``, ``YIELD`` or
+    ``MATCH`` only computes a value, and a negated guard
+    (``NOT n._pending_job_id IS NULL``) selects only pending rows. A guard
+    inside a ``CASE`` expression also yields a value rather than a filter.
+    None of these count.
+    """
+    if _negated_at_any_level(text, position):
+        return False
+    before = text[:position]
+    clauses = list(_PROJECTION_CLAUSE.finditer(before))
+    if not clauses or clauses[-1].group(1).upper() != "WHERE":
+        return False
+    depth = 0
+    for token in _CASE_EXPRESSION.finditer(before, clauses[-1].end()):
+        depth += 1 if token.group(1).upper() == "CASE" else -1
+    return depth <= 0
 
 
 def strip_cypher_syntax(query: str) -> str:
@@ -232,12 +279,16 @@ def reject_write_cypher(query: str) -> None:
     name (e.g. ``RETURN n.set``) is also rejected, acceptable for a
     pre-filter that guards model-generated text.
 
+    LOAD, USE and SHOW are rejected too: they read from a URL, switch
+    database or list schema, which a read transaction does not stop.
+
     Args:
         query: The Cypher text a BAML call produced.
 
     Raises:
-        UnsafeCypherError: The query contains a write keyword outside
-            a string literal, comment, or backtick identifier.
+        UnsafeCypherError: The query contains a write keyword, a LOAD,
+            USE or SHOW clause, or a disallowed CALL, outside a string
+            literal, comment, or backtick identifier.
     """
     stripped = strip_cypher_syntax(query)
 
@@ -246,6 +297,11 @@ def reject_write_cypher(query: str) -> None:
         if token.upper() in _WRITE_KEYWORDS:
             raise UnsafeCypherError(
                 f"Generated Cypher contains write keyword "
+                f"'{token.upper()}': {query[:200]}"
+            )
+        if token.upper() in _DENIED_KEYWORDS:
+            raise UnsafeCypherError(
+                f"Generated Cypher contains disallowed keyword "
                 f"'{token.upper()}': {query[:200]}"
             )
 
@@ -281,9 +337,12 @@ def require_pending_guard(query: str) -> None:
     clause a guard sits in, so a guard in one WHERE clause satisfies a
     variable bound in another. It rejects a guard that shares a WHERE
     clause with an OR, because the OR can let pending rows through. It
-    rejects ``UNION``, because it cannot check each branch. It rejects
-    unnamed variables, because they have no name to guard. A query that
-    fails the check can be regenerated.
+    ignores a guard that is negated, sits in a CASE expression, or sits
+    outside a WHERE clause (such as a WITH or RETURN projection), because
+    none of these removes pending rows. It rejects ``UNION``, because
+    it cannot check each branch. It rejects unnamed variables, because
+    they have no name to guard. A query that fails the check can be
+    regenerated.
 
     Args:
         query: The Cypher text a BAML call produced.
@@ -325,7 +384,8 @@ def require_pending_guard(query: str) -> None:
     for alias in sorted(aliases):
         guard = rf"\b{alias}\.{PENDING_JOB_ID_PROPERTY}\s+IS\s+NULL\b"
         if not any(
-            not _or_beside_guard(stripped, match.start())
+            _guard_filters_rows(stripped, match.start())
+            and not _or_beside_guard(stripped, match.start())
             for match in re.finditer(guard, stripped, flags=re.IGNORECASE)
         ):
             raise MissingPendingGuardError(
@@ -365,11 +425,8 @@ def _is_positive_where_filter(text: str, position: int) -> bool:
     clauses = list(_CLAUSE_TOKEN.finditer(text[:position]))
     if not clauses or clauses[-1].group(1).upper() != "WHERE":
         return False
-    current = position
-    while current >= 0:
-        if re.search(r"\bNOT\s*\(*\s*$", text[:current], flags=re.IGNORECASE):
-            return False
-        current, _ = _enclosing_span(text, current)
+    if _negated_at_any_level(text, position):
+        return False
     return not _or_beside_guard(text, position)
 
 

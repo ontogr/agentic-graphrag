@@ -23,10 +23,7 @@ from agrag.common.validation import (
     require_positive_max_concurrency,
 )
 from agrag.cypher.community_write import delete_communities_batch_query
-from agrag.cypher.relations import (
-    fetch_all_relations_query,
-    fetch_all_relations_query_cursor,
-)
+from agrag.cypher.relations import fetch_all_relations_query_cursor
 from agrag.embedding.base import Embedder
 from agrag.graphdb.base import GraphStore, GraphStoreTransaction
 from agrag.graphdb.entities import load_entities
@@ -63,7 +60,7 @@ class CommunityDetectionMissingExtraError(Exception):
 
 
 async def fetch_relation_edges(
-    graph_store: GraphStore, *, page_size: int = 5000, use_cursor: bool = True
+    graph_store: GraphStore, *, page_size: int = 5000
 ) -> list[WeightedEdge]:
     """Return every live domain relation as a weighted edge tuple.
 
@@ -74,59 +71,30 @@ async def fetch_relation_edges(
     one edge tuple per type. graspologic_native sums parallel-edge
     weights when it builds its own adjacency.
 
-    Supports cursor (keyset) pagination for large graphs where ``SKIP``
-    is expensive, and legacy ``SKIP`` pagination for callers that need
-    it.
+    Pages by keyset on ``(a.id, b.id, type(r), r.id)``.
 
     Args:
         graph_store: Where the relations are read from.
         page_size: Rows fetched per page.
-        use_cursor: When True uses keyset pagination on ``(a.id, b.id,
-            type(r), r.id)``; when False uses ``SKIP`` pagination.
 
     Returns:
         Edge tuples as (source_id_str, target_id_str, weight, rel_type).
     """
     edges: list[WeightedEdge] = []
-    if use_cursor:
-        last_a = ""
-        last_b = ""
-        last_type = ""
-        last_rel_id = ""
-        while True:
-            rows = await graph_store.execute_read(
-                fetch_all_relations_query_cursor(),
-                {
-                    "last_a": last_a,
-                    "last_b": last_b,
-                    "last_type": last_type,
-                    "last_rel_id": last_rel_id,
-                    "limit": page_size,
-                },
-            )
-            if not rows:
-                break
-            for row in rows:
-                scids = row.get("source_chunk_ids") or []
-                edges.append(
-                    (
-                        str(row["source_id"]),
-                        str(row["target_id"]),
-                        float(len(scids)),
-                        str(row["rel_type"]),
-                    )
-                )
-            if len(rows) < page_size:
-                break
-            last_a = str(rows[-1]["source_id"])
-            last_b = str(rows[-1]["target_id"])
-            last_type = str(rows[-1]["rel_type"])
-            last_rel_id = str(rows[-1]["rel_id"])
-        return edges
-    skip = 0
+    last_a = ""
+    last_b = ""
+    last_type = ""
+    last_rel_id = ""
     while True:
         rows = await graph_store.execute_read(
-            fetch_all_relations_query(), {"skip": skip, "limit": page_size}
+            fetch_all_relations_query_cursor(),
+            {
+                "last_a": last_a,
+                "last_b": last_b,
+                "last_type": last_type,
+                "last_rel_id": last_rel_id,
+                "limit": page_size,
+            },
         )
         if not rows:
             break
@@ -142,7 +110,10 @@ async def fetch_relation_edges(
             )
         if len(rows) < page_size:
             break
-        skip += page_size
+        last_a = str(rows[-1]["source_id"])
+        last_b = str(rows[-1]["target_id"])
+        last_type = str(rows[-1]["rel_type"])
+        last_rel_id = str(rows[-1]["rel_id"])
     return edges
 
 

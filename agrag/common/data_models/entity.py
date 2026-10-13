@@ -1,5 +1,6 @@
 """A permanent mention-level graph node, accumulated by exact-name matching."""
 
+from collections.abc import Sequence
 from uuid import UUID
 
 from pydantic import Field
@@ -71,12 +72,21 @@ class Entity(DataPoint):
         """
         return f"{self.label}:{normalize_text(self.name)}"
 
-    def to_node_record(self) -> NodeRecord:
+    def to_node_record(self, *, ancestor_labels: Sequence[str] = ()) -> NodeRecord:
         """Return this entity as a GraphStore write record.
 
         Name, merge_key, merge_count, and source_chunk_ids are
         flattened into properties as plain JSON-safe values. GraphStore has
         no reason to know these fields are special.
+
+        Args:
+            ancestor_labels: Labels of this entity's parent types, nearest
+                first. They follow the entity's own label, so a query on a
+                parent label also finds the node. Empty for a root type.
+
+        Returns:
+            A NodeRecord whose labels are the entity's own label followed by
+            ``ancestor_labels``.
         """
         properties: dict[str, object] = {
             **self.properties,
@@ -88,4 +98,8 @@ class Entity(DataPoint):
         }
         if self.embedding is not None:
             properties["embedding"] = self.embedding
-        return NodeRecord(id=self.id, labels=[self.label], properties=properties)
+        return NodeRecord(
+            id=self.id,
+            labels=[self.label, *ancestor_labels],
+            properties=properties,
+        )

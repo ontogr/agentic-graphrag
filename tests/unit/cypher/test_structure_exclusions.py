@@ -8,7 +8,6 @@ import pytest
 
 from agrag.cypher.relations import (
     bfs_expand_query,
-    fetch_all_relations_query,
     fetch_all_relations_query_cursor,
     relationship_types_from_query,
 )
@@ -23,7 +22,6 @@ class TestRelationListings:
     @pytest.mark.parametrize(
         "query",
         [
-            fetch_all_relations_query(),
             fetch_all_relations_query_cursor(),
             relationship_types_from_query(),
         ],
