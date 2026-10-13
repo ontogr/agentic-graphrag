@@ -43,6 +43,10 @@ class Chunk(DataPoint):
             written before chunkers were recorded.
         chunker_hash: The fingerprint of the settings of the chunker that made this
             chunk. ``None`` for a chunk written before chunkers were recorded.
+        schema_fingerprint: The structure hash of the schema of the run that made
+            this chunk. ``None`` for a chunk written before runs were recorded.
+        extraction_fingerprint: The hash of the descriptions, extraction settings
+            and model name of that run. ``None`` for the same chunks.
         section_ids: The node ids of the sections whose text the chunk holds, in
             reading order. Empty for a document with no sections.
     """
@@ -56,6 +60,8 @@ class Chunk(DataPoint):
     content_kind: Literal["text", "table"] = "text"
     chunker: str | None = None
     chunker_hash: str | None = None
+    schema_fingerprint: str | None = None
+    extraction_fingerprint: str | None = None
     embedding: list[float] | None = None
     section_ids: list[UUID] = Field(default_factory=list)
 
@@ -154,6 +160,10 @@ class Chunk(DataPoint):
             properties["chunker"] = self.chunker
         if self.chunker_hash is not None:
             properties["chunker_hash"] = self.chunker_hash
+        if self.schema_fingerprint is not None:
+            properties["schema_fingerprint"] = self.schema_fingerprint
+        if self.extraction_fingerprint is not None:
+            properties["extraction_fingerprint"] = self.extraction_fingerprint
         if self.section_ids:
             properties["section_ids"] = [str(i) for i in self.section_ids]
         if self.embedding is not None:

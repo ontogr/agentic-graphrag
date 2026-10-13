@@ -55,6 +55,7 @@ from agrag.common.data_models.resolved_entity import (
     RESOLVED_ENTITY_LABEL,
 )
 from agrag.common.data_models.vector_record import Distance, VectorHit
+from agrag.common.schema_fingerprint import RunRecord, run_record
 from agrag.embedding.base import Embedder
 from agrag.graphdb.base import GraphStore
 from agrag.ingestion import Graph
@@ -71,7 +72,11 @@ from agrag.ingestion.extract import (
     GlinerExtractor,
     LLMExtractor,
 )
-from agrag.ingestion.settings import ExtractionSettings, effective_mode
+from agrag.ingestion.settings import (
+    EXTRACTION_PROMPT_ID,
+    ExtractionSettings,
+    effective_mode,
+)
 from agrag.llm.client_config import LLMClientConfig
 from agrag.loaders.prose import TextLoader
 from agrag.loaders.types import ErrorPolicy, ReadOptions
@@ -245,6 +250,45 @@ async def _open_graph(store: _MockGraphStore | None = None) -> Graph:
         embedder=_MockEmbedder(),
         extractor=_MockExtractor(),
     )
+
+
+def _graph_record(graph: Graph) -> RunRecord:
+    """Return the run record the graph stamps on the documents it writes.
+
+    Every graph in these tests opens with DEFAULT_SCHEMA.
+    """
+    return run_record(
+        DEFAULT_SCHEMA,
+        graph.extraction_settings,
+        effective_mode=graph.effective_mode,
+        llm_model=graph.llm_model_name,
+        prompt_id=EXTRACTION_PROMPT_ID,
+    )
+
+
+def _matching_chunk_row(graph: Graph) -> dict[str, str | None]:
+    """Return the stamps of an open chunk written by the graph's current run."""
+    record = _graph_record(graph)
+    return {
+        "chunker_hash": graph.chunker.fingerprint,
+        "schema_fingerprint": record.schema_fingerprint,
+        "extraction_fingerprint": record.extraction_fingerprint,
+    }
+
+
+def _stored_version_reader(
+    node_row: dict[str, str], chunk_rows: list[dict[str, str | None]]
+) -> AsyncMock:
+    """Return an execute_read fake that answers the two update lookups."""
+
+    async def _read(query: str, *args: object, **kwargs: object) -> list[dict]:
+        if "chunker_hash" in query:
+            return chunk_rows
+        if "current_content_hash" in query:
+            return [node_row]
+        return []
+
+    return AsyncMock(side_effect=_read)
 
 
 class _RecordingOpenStore(_MockGraphStore):
@@ -843,18 +887,14 @@ class TestGraphUpdate:
         """An NFKC-equivalent update does not replace the current version."""
         store = _MockGraphStore()
         graph = await _open_graph(store)
-        node_id = uuid4()
+        node_row = {
+            "id": str(uuid4()),
+            "current_content_hash": hashlib.sha256(b"K").hexdigest(),
+        }
         monkeypatch.setattr(
             store,
             "execute_read",
-            AsyncMock(
-                return_value=[
-                    {
-                        "id": str(node_id),
-                        "current_content_hash": hashlib.sha256(b"K").hexdigest(),
-                    }
-                ]
-            ),
+            _stored_version_reader(node_row, [_matching_chunk_row(graph)]),
         )
         writes = AsyncMock(return_value=[])
         monkeypatch.setattr(store, "execute_write", writes)
@@ -1175,45 +1215,56 @@ class TestGraphChunking:
         self,
         graph: Graph,
         store: _MockGraphStore,
-        stored_hash: str | None,
         *,
-        has_chunk: bool = True,
+        chunk_rows: list[dict[str, str | None]],
     ) -> bool:
         node_row = {
             "id": str(uuid4()),
             "current_content_hash": hashlib.sha256(self._TEXT.encode()).hexdigest(),
         }
-        chunk_rows = [{"chunker_hash": stored_hash}] if has_chunk else []
-
-        async def _read(query: str, *args: object, **kwargs: object) -> list[dict]:
-            if "current_content_hash" in query:
-                return [node_row]
-            if "chunker_hash" in query:
-                return chunk_rows
-            return []
-
-        with mock.patch.object(store, "execute_read", new=AsyncMock(side_effect=_read)):
+        reader = _stored_version_reader(node_row, chunk_rows)
+        with mock.patch.object(store, "execute_read", new=reader):
             result = await graph.update("memory://doc", text=self._TEXT)
         return result.no_op
 
-    async def test_update_is_a_no_op_when_content_and_chunker_are_unchanged(
-        self,
+    async def test_update_is_a_no_op_when_every_stamp_is_unchanged(self) -> None:
+        """Same content, chunker, schema and extraction setup: nothing runs."""
+        graph, store = await self._open()
+
+        assert (
+            await self._update(graph, store, chunk_rows=[_matching_chunk_row(graph)])
+            is True
+        )
+
+    @pytest.mark.parametrize(
+        "stamp_overrides",
+        [
+            pytest.param({"chunker_hash": "0123456789abcdef"}, id="chunker"),
+            pytest.param({"schema_fingerprint": "0123456789abcdef"}, id="schema"),
+            pytest.param(
+                {"extraction_fingerprint": "0123456789abcdef"}, id="extraction"
+            ),
+            pytest.param(
+                {
+                    "chunker_hash": None,
+                    "schema_fingerprint": None,
+                    "extraction_fingerprint": None,
+                },
+                id="chunks-without-run-record",
+            ),
+        ],
+    )
+    async def test_update_is_not_a_no_op_when_a_stamp_differs(
+        self, stamp_overrides: dict[str, str | None]
     ) -> None:
-        """The stored fingerprint equals the chunker's, so nothing runs."""
+        """A changed or missing stamp on the open chunk means the update runs."""
+        graph, store = await self._open()
+        chunk_row = {**_matching_chunk_row(graph), **stamp_overrides}
+
+        assert await self._update(graph, store, chunk_rows=[chunk_row]) is False
+
+    async def test_update_after_delete_re_adds_the_document(self) -> None:
+        """A document without an open chunk is not a no-op, even for the same text."""
         graph, store = await self._open()
 
-        assert await self._update(graph, store, graph.chunker.fingerprint) is True
-
-    async def test_update_rechunks_when_only_the_chunker_changed(self) -> None:
-        """Same content with a different stored fingerprint runs the full update."""
-        graph, store = await self._open()
-
-        assert await self._update(graph, store, "0123456789abcdef") is False
-
-    async def test_update_treats_chunks_without_a_fingerprint_as_unchanged(
-        self,
-    ) -> None:
-        """A chunk from before chunkers were recorded does not force a re-chunk."""
-        graph, store = await self._open()
-
-        assert await self._update(graph, store, None) is True
+        assert await self._update(graph, store, chunk_rows=[]) is False

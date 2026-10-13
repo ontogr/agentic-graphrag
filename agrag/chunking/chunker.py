@@ -1,7 +1,5 @@
 """The section chunker: one packer that serves every source format."""
 
-import hashlib
-import json
 from collections.abc import Callable
 from dataclasses import dataclass
 from functools import cached_property
@@ -35,6 +33,7 @@ from agrag.common.data_models.structure import (
     unit_keys,
     version_id,
 )
+from agrag.common.fingerprint import fingerprint_of
 
 
 DEFAULT_SIZE = 600
@@ -46,19 +45,6 @@ _MIN_CHARACTERS_PER_PIECE = 24
 
 class ChunkingError(Exception):
     """A chunker could not split a document without changing its text."""
-
-
-def fingerprint_of(value: object) -> str:
-    """Return a short stable hash of a JSON-safe value.
-
-    Args:
-        value: Data made of dicts, lists, strings, numbers, booleans and ``None``.
-
-    Returns:
-        The first 16 hex characters of the SHA-256 of the canonical JSON.
-    """
-    canonical = json.dumps(value, sort_keys=True, separators=(",", ":"))
-    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:16]
 
 
 def _by_page(spans: list[PageSpan]) -> list[PageSpan]:
@@ -285,6 +271,8 @@ class _Run:
         self._is_text = bool(units) and all(offsets)
         self._sections = document.sections
         self._version = version_id(document)
+        self._schema_fingerprint = document.schema_fingerprint
+        self._extraction_fingerprint = document.extraction_fingerprint
         keys = section_keys(document)
         self._section_ids = [node_id(key, self._version) for key in keys]
         self._unit_ids = {
@@ -456,6 +444,8 @@ class _Run:
                 content_kind=kind,
                 chunker=CHUNKER_NAME,
                 chunker_hash=fingerprint,
+                schema_fingerprint=self._schema_fingerprint,
+                extraction_fingerprint=self._extraction_fingerprint,
                 section_ids=section_ids,
             )
         )

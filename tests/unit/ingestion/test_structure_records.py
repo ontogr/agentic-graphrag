@@ -156,9 +156,12 @@ class TestBuildStructure:
         data_section = records.sections[1].id
 
         under_data = sorted(
-            (r.properties["order"], r.end_id)
-            for r in records.relations
-            if r.start_id == data_section
+            (
+                (r.properties["order"], r.end_id)
+                for r in records.relations
+                if r.start_id == data_section
+            ),
+            key=lambda pair: pair[0],
         )
 
         kinds = []

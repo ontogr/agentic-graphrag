@@ -87,6 +87,70 @@ def close_has_part_query() -> str:
     )
 
 
+def delete_document_mentions_query() -> str:
+    """Build Cypher deleting the committed evidence of a document's open chunks.
+
+    An in-place re-extract keeps its chunks, so the old ``MENTIONED_IN`` edges
+    would still count as evidence and the prune would keep every entity of the
+    old run. The commit transaction runs this after the flip and before the
+    deferred writes are replayed. An edge the new run writes again is a write
+    over a committed edge, so it is deferred and replayed after this delete.
+    Edges the job itself created still carry its tag and are kept.
+
+    Returns:
+        Parameterized Cypher expecting ``$document_node_id``. Returns the number
+        of edges deleted.
+    """
+    return (
+        f"MATCH (d:{NODE_IDENTITY_LABEL}:Document {{id: $document_node_id}})"
+        f"-[p:{HAS_PART}]->(c:{NODE_IDENTITY_LABEL}:Chunk)"
+        "-[m:MENTIONED_IN]->() "
+        f"WHERE p.invalid_at IS NULL AND {pending_filter_clause('p')} "
+        f"AND {pending_filter_clause('c')} AND {pending_filter_clause('m')} "
+        "DELETE m RETURN count(m) AS removed"
+    )
+
+
+def retract_document_relation_evidence_query() -> str:
+    """Build Cypher removing a document's committed evidence from relations.
+
+    A relation records the chunks that evidence it in ``source_chunk_ids``. An
+    in-place re-extract keeps its chunks, so a relation that only the old run
+    produced would keep the document's chunk ids and stay visible. This takes
+    the document's open chunks and the entities they mention, removes those
+    chunk ids from every committed outgoing relation of those entities, and
+    deletes each relation left without evidence. Relations the job created
+    still carry its tag and are kept. The commit transaction runs this before
+    the MENTIONED_IN edges are deleted, since it reads them.
+
+    Returns:
+        Parameterized Cypher expecting ``$document_node_id``. Returns ``retracted``,
+        the relations that lost evidence, and ``deleted``, the relations removed.
+    """
+    return (
+        f"MATCH (d:{NODE_IDENTITY_LABEL}:Document {{id: $document_node_id}})"
+        f"-[p:{HAS_PART}]->(c:{NODE_IDENTITY_LABEL}:Chunk)"
+        f"-[m:MENTIONED_IN]->(entity:{NODE_IDENTITY_LABEL}) "
+        f"WHERE p.invalid_at IS NULL AND {pending_filter_clause('p')} "
+        f"AND {pending_filter_clause('c')} AND {pending_filter_clause('m')} "
+        "WITH collect(DISTINCT c.id) AS chunk_ids, "
+        "collect(DISTINCT entity) AS entities "
+        "UNWIND entities AS entity "
+        f"MATCH (entity)-[r]->(:{NODE_IDENTITY_LABEL}) "
+        f"WHERE {pending_filter_clause('r')} "
+        "AND r.source_chunk_ids IS NOT NULL "
+        "AND any(cid IN r.source_chunk_ids WHERE cid IN chunk_ids) "
+        "SET r.source_chunk_ids = "
+        "[cid IN r.source_chunk_ids WHERE NOT cid IN chunk_ids] "
+        "WITH r, size(r.source_chunk_ids) = 0 AS emptied "
+        "WITH count(r) AS retracted, "
+        "count(CASE WHEN emptied THEN r END) AS deleted, "
+        "collect(CASE WHEN emptied THEN r END) AS doomed "
+        "FOREACH (relation IN doomed | DELETE relation) "
+        "RETURN retracted, deleted"
+    )
+
+
 def bfs_expand_query(
     *,
     depth: int = 2,
