@@ -24,8 +24,16 @@ import pytest
 
 from agrag.common.data_models.chunk import Chunk
 from agrag.common.data_models.document import Document, DocumentFamily, SourceFormat
-from agrag.common.data_models.extraction import ExtractedEntity, ExtractionResult
-from agrag.common.data_models.graph_schema import EntityType, GraphSchema
+from agrag.common.data_models.extraction import (
+    ExtractedEntity,
+    ExtractedRelation,
+    ExtractionResult,
+)
+from agrag.common.data_models.graph_schema import (
+    EntityType,
+    GraphSchema,
+    RelationType,
+)
 from agrag.common.schema_fingerprint import schema_fingerprint
 from agrag.cypher.entities import validate_identifier
 from agrag.embedding.base import Embedder
@@ -82,15 +90,22 @@ class _RecordingEmbedder(Embedder):
 
 
 class _KeywordExtractor(Extractor):
-    """Extractor that emits one mention per configured keyword in a chunk."""
+    """Extractor that emits one mention per keyword and relations between them."""
 
-    def __init__(self, mentions: dict[str, tuple[str, str]]) -> None:
+    def __init__(
+        self,
+        mentions: dict[str, tuple[str, str]],
+        relations: Sequence[tuple[str, str, str]] = (),
+    ) -> None:
         """Map each keyword to the (label, name) it produces.
 
         Args:
             mentions: Lowercase keyword to the entity label and name it yields.
+            relations: (relation label, source keyword, target keyword) triples.
+                A relation is emitted for a chunk where both keywords occur.
         """
         self._mentions = mentions
+        self._relations = tuple(relations)
         self.fail_marker: str | None = None
 
     async def extract(self, chunk: Chunk, schema: GraphSchema) -> ExtractionResult:
@@ -98,10 +113,12 @@ class _KeywordExtractor(Extractor):
         if self.fail_marker is not None and self.fail_marker in chunk.text:
             raise RuntimeError("extractor unavailable")
         found: list[ExtractedEntity] = []
+        index_of: dict[str, int] = {}
         for keyword, (label, name) in self._mentions.items():
             match = re.search(rf"\b{keyword}\b", chunk.text, re.IGNORECASE)
             if match is None:
                 continue
+            index_of[keyword] = len(found)
             found.append(
                 ExtractedEntity(
                     chunk_id=chunk.id,
@@ -111,7 +128,19 @@ class _KeywordExtractor(Extractor):
                     char_end=match.end(),
                 )
             )
-        return ExtractionResult(entities=found, relations=[], extractor_name="keyword")
+        relations = [
+            ExtractedRelation(
+                chunk_id=chunk.id,
+                label=label,
+                source_index=index_of[source],
+                target_index=index_of[target],
+            )
+            for label, source, target in self._relations
+            if source in index_of and target in index_of
+        ]
+        return ExtractionResult(
+            entities=found, relations=relations, extractor_name="keyword"
+        )
 
 
 def _content_hash(text: str) -> str:
@@ -147,6 +176,8 @@ class _Env:
     store: GraphStore
     person: str
     place: str
+    knows: str
+    mentors: str
 
     def key(self, name: str) -> str:
         """Return the document key for a short name."""
@@ -158,14 +189,32 @@ class _Env:
 
 
 def _schema(
-    env: _Env, *, person_description: str = "A person.", with_place: bool = True
+    env: _Env,
+    *,
+    person_description: str = "A person.",
+    with_place: bool = True,
+    with_relations: bool = False,
 ) -> GraphSchema:
-    """Build the schema of one run, with or without the place label."""
+    """Build the schema of one run, with or without the place and relations."""
     entities = [EntityType(label=env.person, description=person_description)]
     if with_place:
         entities.append(EntityType(label=env.place, description="A place."))
+    relations: list[RelationType] = []
+    if with_relations:
+        relations = [
+            RelationType(
+                label=env.knows,
+                description="A person knows another person.",
+                patterns=[(env.person, env.person)],
+            ),
+            RelationType(
+                label=env.mentors,
+                description="A person mentors another person.",
+                patterns=[(env.person, env.person)],
+            ),
+        ]
     return GraphSchema(
-        name="schema_change", version="1", entities=entities, relations=[]
+        name="schema_change", version="1", entities=entities, relations=relations
     )
 
 
@@ -177,6 +226,36 @@ def _people(env: _Env) -> dict[str, tuple[str, str]]:
 def _full(env: _Env) -> dict[str, tuple[str, str]]:
     """Return the keyword mentions that yield the two people and the place."""
     return {**_people(env), "paris": (env.place, "Paris")}
+
+
+def _knows(env: _Env) -> tuple[str, str, str]:
+    """Return the relation Ada knows Bob, which both runs extract."""
+    return (env.knows, "ada", "bob")
+
+
+def _mentors(env: _Env) -> tuple[str, str, str]:
+    """Return the relation Ada mentors Bob, which only the first run extracts."""
+    return (env.mentors, "ada", "bob")
+
+
+async def _relations(store: GraphStore, rel_type: str) -> list[dict[str, Any]]:
+    """Return the endpoints and sorted chunk ids of each relation of one type."""
+    rows = await store.execute_read(
+        f"MATCH (a)-[r:{rel_type}]->(b) "
+        "RETURN a.name AS source, b.name AS target, "
+        "r.source_chunk_ids AS chunk_ids",
+    )
+    return sorted(
+        (
+            {
+                "source": str(row["source"]),
+                "target": str(row["target"]),
+                "chunk_ids": sorted(str(cid) for cid in row["chunk_ids"] or []),
+            }
+            for row in rows
+        ),
+        key=lambda relation: (relation["source"], relation["target"]),
+    )
 
 
 async def _open(
@@ -271,6 +350,8 @@ async def _search_chunks(
 async def _cleanup(env: _Env) -> None:
     """Remove only the nodes this run created."""
     store = env.store
+    for rel_type in (env.knows, env.mentors):
+        await store.execute_write(f"MATCH ()-[r:{rel_type}]->() DELETE r")
     for label in (env.person, env.place):
         await store.execute_write(f"MATCH (n:{label}) DETACH DELETE n")
         await store.execute_write(
@@ -307,13 +388,17 @@ class TestSchemaChangeUpdate:
             store=store,
             person=validate_identifier(f"Person_{run}"),
             place=validate_identifier(f"Place_{run}"),
+            knows=validate_identifier(f"Knows_{run}"),
+            mentors=validate_identifier(f"Mentors_{run}"),
         )
         try:
             yield env
         finally:
             try:
                 await _cleanup(env)
-                await drop_schema_for(store, env.person, env.place)
+                await drop_schema_for(
+                    store, env.person, env.place, env.knows, env.mentors
+                )
             finally:
                 await store.close()
 
@@ -371,7 +456,10 @@ class TestSchemaChangeUpdate:
         key = env.key("doc")
         text = env.text(_BODY)
         first = await _open(
-            env, _schema(env), _KeywordExtractor(_full(env)), _RecordingEmbedder()
+            env,
+            _schema(env, with_relations=True),
+            _KeywordExtractor(_full(env), [_knows(env), _mentors(env)]),
+            _RecordingEmbedder(),
         )
         await first.add(documents=[_document(key, text)])
         before_rows = await _open_chunks(env.store, key)
@@ -380,8 +468,8 @@ class TestSchemaChangeUpdate:
         second_embedder = _RecordingEmbedder()
         second = await _open(
             env,
-            _schema(env, person_description="A human being."),
-            _KeywordExtractor(_people(env)),
+            _schema(env, person_description="A human being.", with_relations=True),
+            _KeywordExtractor(_people(env), [_knows(env)]),
             second_embedder,
         )
         result = await second.update(key, text=text)
@@ -401,6 +489,9 @@ class TestSchemaChangeUpdate:
         assert await _entity_names(env.store, env.person) == ["Ada", "Bob"]
         chunk_ids = _chunk_ids(after_rows)
         assert await _mentioned_names(env.store, chunk_ids) == ["Ada", "Bob"]
+        knows = await _relations(env.store, env.knows)
+        assert knows == [{"source": "Ada", "target": "Bob", "chunk_ids": chunk_ids}]
+        assert await _relations(env.store, env.mentors) == []
 
         again = await second.update(key, text=text)
 
@@ -408,6 +499,7 @@ class TestSchemaChangeUpdate:
         artifact = {
             "no_op": result.no_op,
             "entities": await _entity_names(env.store, env.person),
+            "relations": knows,
             "chunk_ids_kept": _chunk_ids(after_rows) == _chunk_ids(before_rows),
             "chunks_embedded": chunks_embedded,
             "schema_fingerprint_kept": True,
@@ -423,11 +515,11 @@ class TestSchemaChangeUpdate:
         """A changed extraction setting keeps the chunks, like a description."""
         key = env.key("doc")
         text = env.text(_BODY)
-        schema = _schema(env)
+        schema = _schema(env, with_relations=True)
         first = await _open(
             env,
             schema,
-            _KeywordExtractor(_full(env)),
+            _KeywordExtractor(_full(env), [_knows(env), _mentors(env)]),
             _RecordingEmbedder(),
             extraction_settings=ExtractionSettings(mode="gliner", entity_threshold=0.5),
         )
@@ -444,7 +536,7 @@ class TestSchemaChangeUpdate:
         second = await _open(
             env,
             schema,
-            _KeywordExtractor(without_paris),
+            _KeywordExtractor(without_paris, [_knows(env)]),
             second_embedder,
             extraction_settings=ExtractionSettings(mode="gliner", entity_threshold=0.9),
         )
@@ -462,12 +554,18 @@ class TestSchemaChangeUpdate:
         assert after["extraction_fingerprint"] != before["extraction_fingerprint"]
         stamped = {row["extraction_fingerprint"] for row in after_rows}
         assert stamped == {after["extraction_fingerprint"]}
+        knows = await _relations(env.store, env.knows)
+        assert knows == [
+            {"source": "Ada", "target": "Bob", "chunk_ids": _chunk_ids(after_rows)}
+        ]
+        assert await _relations(env.store, env.mentors) == []
 
         again = await second.update(key, text=text)
 
         assert again.no_op is True
         artifact = {
             "no_op": result.no_op,
+            "relations": knows,
             "chunk_ids_kept": _chunk_ids(after_rows) == _chunk_ids(before_rows),
             "chunks_embedded": chunks_embedded,
             "schema_fingerprint_kept": True,
@@ -475,6 +573,57 @@ class TestSchemaChangeUpdate:
             "repeat_no_op": again.no_op,
         }
         written = write_artifact("schema_change_extraction_settings", artifact)
+        assert written == artifact
+
+    async def test_in_place_update_keeps_relation_evidenced_by_other_document(
+        self, env: _Env
+    ) -> None:
+        """A relation another document evidences survives an in-place update."""
+        key = env.key("doc")
+        other_key = env.key("other")
+        text = env.text(_BODY)
+        other_text = env.text("Ada and Bob met again.")
+        first = await _open(
+            env,
+            _schema(env, with_relations=True),
+            _KeywordExtractor(_full(env), [_knows(env), _mentors(env)]),
+            _RecordingEmbedder(),
+        )
+        await first.add(
+            documents=[_document(key, text), _document(other_key, other_text)]
+        )
+        own_chunk_ids = _chunk_ids(await _open_chunks(env.store, key))
+        other_chunk_ids = _chunk_ids(await _open_chunks(env.store, other_key))
+
+        second = await _open(
+            env,
+            _schema(env, person_description="A human being.", with_relations=True),
+            _KeywordExtractor(_people(env), [_knows(env)]),
+            _RecordingEmbedder(),
+        )
+        result = await second.update(key, text=text)
+
+        assert result.no_op is False
+        knows = await _relations(env.store, env.knows)
+        assert knows == [
+            {
+                "source": "Ada",
+                "target": "Bob",
+                "chunk_ids": sorted([*own_chunk_ids, *other_chunk_ids]),
+            }
+        ]
+        mentors = await _relations(env.store, env.mentors)
+        assert mentors == [
+            {"source": "Ada", "target": "Bob", "chunk_ids": sorted(other_chunk_ids)}
+        ]
+        assert _chunk_ids(await _open_chunks(env.store, key)) == own_chunk_ids
+        artifact = {
+            "relations": knows,
+            "relations_only_the_other_document_evidences": mentors,
+            "own_chunk_count": len(own_chunk_ids),
+            "other_chunk_count": len(other_chunk_ids),
+        }
+        written = write_artifact("schema_change_shared_relation", artifact)
         assert written == artifact
 
     async def test_update_after_delete_with_same_text_restores_document(

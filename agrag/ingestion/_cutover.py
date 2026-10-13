@@ -27,7 +27,10 @@ from agrag.cypher.cutover_job_write import (
     steal_terminal_job_query,
 )
 from agrag.cypher.documents import set_chunk_extraction_fingerprint_query
-from agrag.cypher.relations import delete_document_mentions_query
+from agrag.cypher.relations import (
+    delete_document_mentions_query,
+    retract_document_relation_evidence_query,
+)
 from agrag.graphdb.base import GraphStore, GraphStoreTransaction
 from agrag.ingestion._deferred import replay_deferred
 from agrag.ingestion._document_lifecycle import close_open_has_part_edges
@@ -44,7 +47,11 @@ class CutoverJobLeaseError(Exception):
 
 @dataclass(frozen=True, slots=True)
 class InPlaceRefresh:
-    """What the commit transaction changes for a re-extract that keeps its chunks."""
+    """What the commit transaction changes for a re-extract that keeps its chunks.
+
+    The commit removes the document's old entity mentions and its evidence from
+    relations, then stamps the kept chunks with the new extraction fingerprint.
+    """
 
     document_node_id: UUID
     chunk_ids: Sequence[UUID]
@@ -381,9 +388,11 @@ async def _commit_pending_writes(
 
     The deferred writes over committed rows run right after the flip, so a
     replay that hits a row another job owns rolls the whole commit back.
-    When ``in_place`` is set, the document's committed MENTIONED_IN edges are
-    dropped before the replay and the kept chunks are stamped with the new
-    extraction fingerprint after it.
+    When ``in_place`` is set, the document's committed evidence is retracted
+    before the replay: its chunk ids leave the relations they evidence, relations
+    left with no evidence are deleted, and its committed MENTIONED_IN edges are
+    dropped. The kept chunks are then stamped with the new extraction
+    fingerprint.
     """
     job_arg = str(job_id)
     token_arg = str(token)
@@ -402,11 +411,16 @@ async def _commit_pending_writes(
         # The delete must precede the replay: the replay re-creates the edges
         # the new run found again. It only matches committed edges, so the
         # job's own new edges, still tagged, survive.
+        # Relations the new run finds again are deferred writes over committed
+        # rows. The replay writes them back, including one deleted here, and
+        # the relations it does not find stay gone. The retraction reads the
+        # MENTIONED_IN edges, so it runs before they are deleted.
         if in_place is not None:
+            document_params = {"document_node_id": str(in_place.document_node_id)}
             await txn.execute_write(
-                delete_document_mentions_query(),
-                {"document_node_id": str(in_place.document_node_id)},
+                retract_document_relation_evidence_query(), document_params
             )
+            await txn.execute_write(delete_document_mentions_query(), document_params)
         await replay_deferred(txn, deferred)
         if in_place is not None:
             await txn.execute_write(
@@ -473,8 +487,8 @@ async def run_cutover_job(
         close_document_node_id: The document whose open HAS_PART edges are
             closed by the commit, if any.
         in_place: The refresh of a document that keeps its chunks, if any. Its
-            MENTIONED_IN edges are replaced and its chunks are re-stamped in the
-            commit transaction.
+            entity and relation evidence is replaced and its chunks are
+            re-stamped in the commit transaction.
         keep_node_ids: Structure nodes that stay open when the old version is
             closed.
         tracer: Opens the job span. None disables it.
