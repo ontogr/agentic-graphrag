@@ -484,10 +484,13 @@ class BatchResult:
         add_result: The stats of every stage of the batch.
         structure_node_ids: The Section, Table and Figure ids of the batch.
             A document update keeps these nodes when it closes the old version.
+        created_entity_ids: The ids of the entities the batch created. The
+            post-commit cleanup reconciles them against everything committed since.
     """
 
     add_result: AddResult
     structure_node_ids: list[UUID]
+    created_entity_ids: list[UUID]
 
 
 async def embed_chunks_stage(
@@ -605,6 +608,7 @@ async def _resolve_and_merge(
         return ResolutionStats(), MergeStageResult(
             stats=MergeStats(),
             survivors={},
+            created_entity_ids=[],
             resolved_vector_failures=[],
             relation_records=[],
             mentioned_in_records=[],
@@ -689,8 +693,8 @@ async def ingest_chunks(
             and the chunks are not embedded.
 
     Returns:
-        The stats of every stage, the chunks when ``return_chunks`` is set, and
-        the structure node ids the batch wrote.
+        The stats of every stage, the chunks when ``return_chunks`` is set, the
+        structure node ids the batch wrote, and the entity ids it created.
 
     Raises:
         ValueError: ``job_id`` is set and ``deferred`` is None.
@@ -784,6 +788,7 @@ async def ingest_chunks(
     return BatchResult(
         add_result=add_result,
         structure_node_ids=nodes.structure_node_ids,
+        created_entity_ids=merge.created_entity_ids,
     )
 
 

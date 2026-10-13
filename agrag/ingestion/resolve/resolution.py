@@ -20,7 +20,7 @@ from agrag.common.data_models.provenance import TextProvenance
 from agrag.common.data_models.stage_failure import StageFailure
 from agrag.common.data_models.structure import HAS_CHILD, HAS_DOCUMENT, HAS_PART
 from agrag.common.text import normalize_text
-from agrag.cypher.entities import fetch_by_merge_keys_query
+from agrag.cypher.entities import fetch_all_by_label_query, fetch_by_merge_keys_query
 from agrag.embedding.base import Embedder
 from agrag.graphdb.base import GraphStore
 from agrag.graphdb.serialize import parse_entity_node
@@ -59,6 +59,11 @@ SYSTEM_RELATION_TYPES = [
     "MATCHES",
     "RESOLVED_AS",
 ]
+
+
+# The most committed entities of one label compared whole when the candidate
+# search finds none.
+FALLBACK_ENTITY_LIMIT = 128
 
 
 @dataclass
@@ -440,6 +445,141 @@ async def resolve_persisted(
         similarity_by_pair=similarity_by_pair,
     )
     return result, failures
+
+
+async def resolve_created(
+    created: list[Entity],
+    *,
+    graph_store: GraphStore,
+    embedder: Embedder,
+    vector_store: VectorStore | None,
+    vector_collection: str,
+    entity_labels: Sequence[str],
+    tracer: Tracer | None,
+    max_llm_pairs: int,
+    error_policy: ErrorPolicy,
+) -> tuple[list[Entity], ResolutionResult, list[StageFailure]]:
+    """Resolve newly committed entities against everything committed.
+
+    Each created entity looks up its committed candidates, so a near-duplicate
+    that another job committed first becomes a pair. Only the created entities
+    start a comparison; the candidates they find are compared with them and
+    never with each other. When the search finds no candidate for any entity
+    and the label holds few committed entities, all of them are candidates.
+
+    Args:
+        created: The committed entities to resolve.
+        graph_store: Where the candidate and neighbor reads run.
+        embedder: Embeds entity names for candidate search and fuzzy review.
+        vector_store: Optional vector store the candidate search reads.
+        vector_collection: Collection name for the candidate search.
+        entity_labels: The labels the schema defines.
+        tracer: Traces the resolver.
+        max_llm_pairs: The most ambiguous pairs per label sent to the LLM.
+        error_policy: RAISE propagates a failed candidate read; any other
+            policy records it and leaves that entity out of this pass.
+
+    Returns:
+        The created entities followed by the candidates they found, the
+        resolver result indexed like that list, and one StageFailure per
+        entity whose candidate read failed.
+
+    Raises:
+        Exception: A candidate read failed and ``error_policy`` is RAISE.
+    """
+    pool = list(created)
+    index_by_id = {entity.id: index for index, entity in enumerate(pool)}
+    mentions, chunks_by_id = _synthesize_mentions(pool)
+    candidate_source = GraphCandidateSource(
+        graph_store=graph_store,
+        embedder=embedder,
+        vector_store=vector_store,
+        vector_collection=vector_collection,
+        entity_labels=entity_labels,
+    )
+    candidates_by_index: dict[int, set[int]] = {}
+    similarity_by_pair: dict[tuple[int, int], float] = {}
+    failures: list[StageFailure] = []
+    failed_indices: set[int] = set()
+
+    def add_candidate(index: int, candidate: Entity, score: float | None) -> None:
+        candidate_index = index_by_id.get(candidate.id)
+        if candidate_index is None:
+            candidate_index = len(pool)
+            index_by_id[candidate.id] = candidate_index
+            pool.append(candidate)
+            candidate_mention, candidate_chunk = _synthetic_entity_mention(candidate)
+            mentions.append(candidate_mention)
+            chunks_by_id[candidate_mention.chunk_id] = candidate_chunk
+        candidates_by_index.setdefault(index, set()).add(candidate_index)
+        if score is not None:
+            pair = (min(index, candidate_index), max(index, candidate_index))
+            similarity_by_pair[pair] = score
+
+    created_count = len(created)
+    for index, mention in enumerate(list(mentions)):
+        candidates, failure = await read_candidates(
+            candidate_source, mention, error_policy=error_policy
+        )
+        if failure is not None:
+            failures.append(failure)
+            failed_indices.add(index)
+            continue
+        for candidate, score in candidates:
+            if candidate.id != pool[index].id and candidate.label == mention.label:
+                add_candidate(index, candidate, score)
+    if not candidates_by_index:
+        # With no indexed candidates at all, a small graph is compared whole,
+        # as consolidation does, so an unindexed duplicate is still found.
+        for label in {entity.label for entity in created}:
+            rows = await graph_store.execute_read(
+                fetch_all_by_label_query(label),
+                {"skip": 0, "limit": FALLBACK_ENTITY_LIMIT + 1},
+            )
+            if len(rows) > FALLBACK_ENTITY_LIMIT:
+                continue
+            for row in rows:
+                committed = parse_entity_node(row.get("n"))
+                if committed is None:
+                    continue
+                for index in range(created_count):
+                    if (
+                        index not in failed_indices
+                        and created[index].label == label
+                        and created[index].id != committed.id
+                    ):
+                        add_candidate(index, committed, None)
+    peers_by_index = {
+        index: sorted(kept)
+        for index, candidate_indices in candidates_by_index.items()
+        if (kept := candidate_indices - failed_indices)
+    }
+    similarity_by_pair = {
+        pair: score
+        for pair, score in similarity_by_pair.items()
+        if failed_indices.isdisjoint(pair)
+    }
+    persisted_neighbors = await fetch_persisted_neighbors(
+        [entity.id for entity in pool],
+        graph_store=graph_store,
+        exclude_relation_types=SYSTEM_RELATION_TYPES,
+    )
+    resolver = _build_resolver(
+        chunks_by_id,
+        peers_by_index,
+        embedder=embedder,
+        tracer=tracer,
+        max_llm_pairs=max_llm_pairs,
+    )
+    result = await resolver.resolve(
+        mentions,
+        neighbors_by_index={
+            index: persisted_neighbors.get(entity.id, [])
+            for index, entity in enumerate(pool)
+        },
+        similarity_by_pair=similarity_by_pair,
+    )
+    return pool, result, failures
 
 
 async def resolve_among(

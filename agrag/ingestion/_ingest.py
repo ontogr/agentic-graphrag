@@ -57,7 +57,9 @@ from agrag.vectordb.base import VectorStore
 
 logger = logging.getLogger(__name__)
 
-CleanupStep = Callable[[list[UUID], list[UUID]], Awaitable[list[StageFailure]]]
+CleanupStep = Callable[
+    [list[UUID], list[UUID], list[UUID]], Awaitable[list[StageFailure]]
+]
 
 
 def _vector_collections(retrieval_settings: RetrievalSettings) -> tuple[str, str, str]:
@@ -540,11 +542,13 @@ async def add_documents(  # noqa: PLR0912,PLR0915,PLR0913
         ):
             components: list[MatchComponent] = []
             deferred = DeferredWrites()
+            created_entity_ids: list[UUID] = []
 
             async def _pending(
                 job_id: UUID,
                 _components: list[MatchComponent] = components,
                 _deferred: DeferredWrites = deferred,
+                _created: list[UUID] = created_entity_ids,
                 _slice: tuple[
                     list[Chunk],
                     list[Document],
@@ -588,6 +592,7 @@ async def add_documents(  # noqa: PLR0912,PLR0915,PLR0913
                     max_llm_pairs=max_llm_pairs,
                     deferred=_deferred,
                 )
+                _created.extend(batch.created_entity_ids)
                 return batch.add_result
 
             partial, cleanup_failures, _ = await run_cutover_job(
@@ -602,6 +607,7 @@ async def add_documents(  # noqa: PLR0912,PLR0915,PLR0913
                 cleanup=cleanup,
                 components=components,
                 deferred=deferred,
+                created_entity_ids=created_entity_ids,
                 tracer=tracer,
             )
             partials.append(_with_cleanup_failures(partial, cleanup_failures))
@@ -729,11 +735,13 @@ async def update_document(  # noqa: PLR0913
 
         components: list[MatchComponent] = []
         deferred = DeferredWrites()
-        # The pending write fills the structure ids, and run_cutover_job reads
-        # them only after that write, so the list is shared rather than copied.
+        # The pending write fills the structure and created entity ids, and
+        # run_cutover_job reads them only after that write, so the lists are
+        # shared rather than copied.
         keep_node_ids: list[UUID] = [
             chunk.id for chunk in chunks if chunk.id is not None
         ]
+        created_entity_ids: list[UUID] = []
 
         async def _pending(job_id: UUID) -> AddResult:
             batch = await ingest_chunks(
@@ -760,6 +768,7 @@ async def update_document(  # noqa: PLR0913
                 reuse_chunks=in_place,
             )
             keep_node_ids.extend(batch.structure_node_ids)
+            created_entity_ids.extend(batch.created_entity_ids)
             return batch.add_result
 
         add_result, cleanup_failures, parts_closed = await run_cutover_job(
@@ -778,6 +787,7 @@ async def update_document(  # noqa: PLR0913
                 None if in_place or found is None else found.document_node_id
             ),
             keep_node_ids=keep_node_ids,
+            created_entity_ids=created_entity_ids,
             tracer=tracer,
             in_place=(
                 InPlaceRefresh(

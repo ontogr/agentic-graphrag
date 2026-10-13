@@ -58,7 +58,7 @@ class TestCutoverRecovery:
             )
             return "pending"
 
-        async def cleanup(_: list[UUID], __: list[UUID]) -> str:
+        async def cleanup(_: list[UUID], __: list[UUID], ___: list[UUID]) -> str:
             return "cleaned"
 
         try:
@@ -198,7 +198,7 @@ class TestCutoverRecovery:
             )
             return "pending"
 
-        async def cleanup(_: list[UUID], __: list[UUID]) -> str:
+        async def cleanup(_: list[UUID], __: list[UUID], ___: list[UUID]) -> str:
             return "cleaned"
 
         try:

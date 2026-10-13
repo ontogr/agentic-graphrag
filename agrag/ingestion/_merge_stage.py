@@ -45,6 +45,8 @@ class MergeStageResult:
     Attributes:
         stats: The merge counts and the capped merge failures.
         survivors: The merged entities this call wrote, keyed by id.
+        created_entity_ids: The ids of survivors that no committed entity existed
+            for, so this call created them.
         resolved_vector_failures: Failures from syncing resolved-entity vectors.
         relation_records: Domain relations between the batch's survivors, merged
             with the relations the graph already holds.
@@ -54,6 +56,7 @@ class MergeStageResult:
 
     stats: MergeStats
     survivors: dict[UUID, Entity]
+    created_entity_ids: list[UUID]
     resolved_vector_failures: list[StageFailure]
     relation_records: list[RelationRecord]
     mentioned_in_records: list[RelationRecord]
@@ -101,6 +104,7 @@ async def merge_stage(
         nodes_created,
         nodes_updated,
         conflicts_resolved,
+        created_entity_ids,
     ) = await _merge_mention_groups(
         entities,
         batch,
@@ -146,6 +150,7 @@ async def merge_stage(
     return MergeStageResult(
         stats=stats,
         survivors=survivors,
+        created_entity_ids=created_entity_ids,
         resolved_vector_failures=resolved_vector_failures,
         relation_records=relation_records,
         mentioned_in_records=mentioned_in_records,
@@ -159,17 +164,19 @@ async def _merge_mention_groups(
     ctx: StageContext,
     *,
     graph_schema: GraphSchema,
-) -> tuple[dict[UUID, Entity], dict[int, UUID], int, int, int]:
+) -> tuple[dict[UUID, Entity], dict[int, UUID], int, int, int, list[UUID]]:
     """Merge each resolved group into a survivor and count the outcomes.
 
     Failed groups are appended to ``merge_failures`` and left out of the
     returned survivors. The returned counts are ``nodes_created``,
-    ``nodes_updated`` and ``conflicts_resolved``.
+    ``nodes_updated`` and ``conflicts_resolved``. The returned
+    ``created_entity_ids`` lists the survivors that had no existing entity.
     """
     pending_job_id = str(ctx.job_id) if ctx.job_id is not None else None
     resolved_tracer = ctx.tracer
     survivors: dict[UUID, Entity] = {}
     mention_to_entity: dict[int, UUID] = {}
+    created_entity_ids: list[UUID] = []
     nodes_created = 0
     nodes_updated = 0
     conflicts_resolved = 0
@@ -245,6 +252,7 @@ async def _merge_mention_groups(
             conflicts_resolved += len(plan.conflicts)
             if not existing_for_group:
                 nodes_created += 1
+                created_entity_ids.append(plan.survivor.id)
             else:
                 nodes_updated += 1
             span.set_attribute("agrag.conflicts_resolved", len(plan.conflicts))
@@ -257,6 +265,7 @@ async def _merge_mention_groups(
         nodes_created,
         nodes_updated,
         conflicts_resolved,
+        created_entity_ids,
     )
 
 
