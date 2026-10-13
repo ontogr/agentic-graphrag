@@ -31,7 +31,11 @@ from agrag.common.data_models.extraction import (
     ExtractionResult,
 )
 from agrag.common.data_models.graph_record import UpsertFailure, UpsertResult
-from agrag.common.data_models.graph_schema import GraphSchema
+from agrag.common.data_models.graph_schema import (
+    EntityType,
+    GraphSchema,
+    RelationType,
+)
 from agrag.common.data_models.provenance import TextProvenance
 from agrag.common.data_models.stage_failure import StageFailure
 from agrag.embedding.base import Embedder
@@ -89,6 +93,36 @@ def _placements(chunks: list[Chunk]) -> dict[UUID, ChunkPlacement]:
         for chunk in chunks
         if chunk.id is not None
     }
+
+
+# Schema whose only relation is a Person -> Person KNOWS, so fixtures that
+# emit KNOWS keep their relations through schema validation.
+_KNOWS_SCHEMA = GraphSchema(
+    name="knows",
+    version="1",
+    entities=[EntityType(label="Person", description="A named individual.")],
+    relations=[
+        RelationType(
+            label="KNOWS",
+            description="A person knows another person.",
+            patterns=[("Person", "Person")],
+        )
+    ],
+)
+
+# Schema that declares only Person and a Person -> Person RELATED_TO relation.
+_RELATED_TO_SCHEMA = GraphSchema(
+    name="related-to",
+    version="1",
+    entities=[EntityType(label="Person", description="A named individual.")],
+    relations=[
+        RelationType(
+            label="RELATED_TO",
+            description="A person is related to another person.",
+            patterns=[("Person", "Person")],
+        )
+    ],
+)
 
 
 class _ZeroEmbedder(Embedder):
@@ -273,7 +307,7 @@ class TestIngestChunks:
             [chunk],
             start_index=0,
             extractor=_BadRelation(),
-            schema=DEFAULT_SCHEMA,
+            schema=_KNOWS_SCHEMA,
             error_policy=ErrorPolicy.SKIP,
             tracer=provider.get_tracer("test"),
         )
@@ -633,14 +667,14 @@ class TestExtractChunks:
             first,
             start_index=0,
             extractor=extractor,
-            schema=DEFAULT_SCHEMA,
+            schema=_KNOWS_SCHEMA,
             error_policy=ErrorPolicy.RAISE,
         )
         entities_two, relations_two, _ = await extract_chunks(
             second,
             start_index=len(entities_one),
             extractor=extractor,
-            schema=DEFAULT_SCHEMA,
+            schema=_KNOWS_SCHEMA,
             error_policy=ErrorPolicy.RAISE,
         )
 
@@ -649,6 +683,54 @@ class TestExtractChunks:
         assert [rel.source_index for rel in relations_two] == [2]
         assert [rel.target_index for rel in relations_two] == [3]
         assert len(entities_one) + len(entities_two) == 4
+
+    async def test_label_outside_the_schema_is_dropped_not_raised(self) -> None:
+        """An undeclared label is dropped and the batch still succeeds."""
+
+        class _RogueExtractor(Extractor):
+            async def extract(
+                self, chunk: Chunk, schema: GraphSchema
+            ) -> ExtractionResult:
+                chunk_id = chunk.id or uuid4()
+                person = ExtractedEntity(
+                    chunk_id=chunk_id,
+                    label="Person",
+                    text="Ada",
+                    char_start=0,
+                    char_end=3,
+                )
+                ghost = ExtractedEntity(
+                    chunk_id=chunk_id,
+                    label="Bad Label",
+                    text="Acme",
+                    char_start=4,
+                    char_end=8,
+                )
+                return ExtractionResult(
+                    entities=[person, ghost],
+                    relations=[
+                        ExtractedRelation(
+                            chunk_id=chunk_id,
+                            label="RELATED_TO",
+                            source_index=0,
+                            target_index=1,
+                        )
+                    ],
+                    extractor_name="rogue",
+                )
+
+        doc = _doc(key="rogue")
+        entities, relations, failures = await extract_chunks(
+            [_chunk(doc)],
+            start_index=0,
+            extractor=_RogueExtractor(),
+            schema=_RELATED_TO_SCHEMA,
+            error_policy=ErrorPolicy.RAISE,
+        )
+
+        assert [entity.label for entity in entities] == ["Person"]
+        assert relations == []
+        assert failures == []
 
 
 class _RecordingEmbedder(Embedder):

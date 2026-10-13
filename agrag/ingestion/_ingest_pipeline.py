@@ -47,7 +47,7 @@ from agrag.ingestion._storage import (
     write_nodes_stage,
     write_relations_stage,
 )
-from agrag.ingestion.extract import Extractor, LLMExtractor
+from agrag.ingestion.extract import Extractor, LLMExtractor, validate_extraction
 from agrag.ingestion.reports import AddResult
 from agrag.ingestion.resolve.zone_classifier import MAX_LLM_PAIRS
 from agrag.ingestion.resolved_entities import MatchComponent
@@ -89,6 +89,7 @@ async def extract_chunks(
             ) as span:
                 try:
                     result = await extractor.extract(chunk, schema)
+                    result = validate_extraction(result, schema)
                 except Exception as exc:
                     if error_policy is ErrorPolicy.RAISE:
                         raise
