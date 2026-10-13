@@ -23,6 +23,7 @@ from uuid import UUID, uuid4
 from opentelemetry.trace import Tracer
 
 from agrag.common.data_models.cutover_job import CutoverJobStatus
+from agrag.common.data_models.stage_failure import StageFailure
 from agrag.cypher.cutover_job_read import find_incomplete_jobs_query
 from agrag.cypher.cutover_job_write import (
     claim_job_query,
@@ -46,7 +47,8 @@ async def resume_incomplete_jobs(
     vector_store: Any = None,
     vector_collections: Sequence[str] = (),
     roll_forward: (
-        Callable[[list[UUID], list[UUID], list[UUID]], Awaitable[object]] | None
+        Callable[[list[UUID], list[UUID], list[UUID]], Awaitable[list[StageFailure]]]
+        | None
     ) = None,
     lease_ttl_seconds: int | None = None,
     tracer: Tracer | None = None,
@@ -62,10 +64,10 @@ async def resume_incomplete_jobs(
             written to.
         roll_forward: Runs one rolled-forward job's cleanup. It receives the
             job's affected-entity snapshot, its component seed ids and the
-            entities it created. An exception leaves the job in ``cleaning``
-            for a later open. None rolls forward only jobs that recorded none
-            of these lists, because a job with work left cannot finish without
-            it.
+            entities it created. An exception or a returned failure leaves
+            the job in ``cleaning`` for a later open. None rolls forward only
+            jobs that recorded none of these lists, because a job with work
+            left cannot finish without it.
         lease_ttl_seconds: Lease duration for a resume claimant. None reads
             ``CutoverJobSettings`` when the function runs.
         tracer: Opens this pass's span.
@@ -222,7 +224,8 @@ async def _roll_forward(
     vector_store: Any,
     vector_collections: Sequence[str],
     roll_forward: (
-        Callable[[list[UUID], list[UUID], list[UUID]], Awaitable[object]] | None
+        Callable[[list[UUID], list[UUID], list[UUID]], Awaitable[list[StageFailure]]]
+        | None
     ),
     lease_token: str,
     lease_ttl_seconds: int,
@@ -236,8 +239,9 @@ async def _roll_forward(
     pending, and the terminal ``done`` flip. All three are idempotent, so a resume
     that dies part way through simply re-runs them on the next open.
 
-    A cleanup that raises leaves the job in ``cleaning`` — terminal only
-    once its cleanup actually completed — so a later open retries it.
+    A cleanup that raises or returns failures leaves the job in ``cleaning``
+    — terminal only once its cleanup actually completed — so a later open
+    retries it.
 
     Returns:
         Whether this open completed cleanup and marked the job done.
@@ -321,7 +325,8 @@ async def _finish_roll_forward(
     vector_store: Any,
     vector_collections: Sequence[str],
     roll_forward: (
-        Callable[[list[UUID], list[UUID], list[UUID]], Awaitable[object]] | None
+        Callable[[list[UUID], list[UUID], list[UUID]], Awaitable[list[StageFailure]]]
+        | None
     ),
     lease_token: str,
     stop_renewal: asyncio.Event,
@@ -333,11 +338,14 @@ async def _finish_roll_forward(
         return False
     if roll_forward is not None and has_work:
         try:
-            await roll_forward(
+            failures = await roll_forward(
                 affected_entity_ids, component_seed_ids, created_entity_ids
             )
         except Exception as exc:  # noqa: BLE001
             record_swallowed_exception(exc)
+            return False
+        # A recorded failure keeps the job in cleaning so a later open retries it.
+        if failures:
             return False
     try:
         await clear_pending_vectors(

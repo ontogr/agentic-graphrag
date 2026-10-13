@@ -98,8 +98,9 @@ def _document(key: str, text: str) -> Document:
 class TestConcurrentAdds:
     """Two adds that overlap in time and name one entity differently."""
 
+    @staticmethod
     async def test_name_variants_end_in_one_resolved_entity(
-        self, monkeypatch: pytest.MonkeyPatch
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Both adds resolve before either commits, yet the variants are linked."""
         store = build_graph_store("neo4j")
