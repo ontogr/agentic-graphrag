@@ -111,7 +111,6 @@ class ReadOptions:
         max_document_bytes: The largest source, prose or record, the loader will read.
         store_text: When false, the document text is an empty string.
         store_raw_record: When true, a record document keeps its raw row data.
-        on_error: The error policy to apply inside the reader.
         text_column: The column that holds document text. ``None`` uses the first of
             ``text``, ``body``, ``content`` and ``description`` that exists, or the
             last column.
@@ -129,7 +128,6 @@ class ReadOptions:
     max_document_bytes: int = 32 * 1024 * 1024
     store_text: bool = True
     store_raw_record: bool = False
-    on_error: ErrorPolicy = ErrorPolicy.RAISE
 
     text_column: str | None = None
     id_column: str | None = None

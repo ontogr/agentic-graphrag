@@ -5,17 +5,28 @@ sleeping, and pins ``random.uniform`` where exact schedules are asserted.
 Covers immediate success without retrying, retrying transient failures with
 exponential backoff up to ``max_delay_ms``, jitter bounds on every sleep, raising
 the final exception after exhausting retries, ``max_retries=0`` making exactly
-one attempt, the overall ``timeout_ms`` deadline
-cutting retries short, and ``accept_result`` retrying unusable results until
-they pass or budget runs out. TestPermanentBamlFailures verifies BAML client
-errors are classified correctly: invalid-argument and HTTP 401 fail once
-without retrying, while HTTP 429 and 500 are retried.
+one attempt, the overall ``timeout_ms`` deadline cutting retries short, and
+request-level timeouts cancelling slow attempts. TestPermanentBamlFailures
+verifies BAML client errors: invalid-argument and HTTP 401 fail once, while
+HTTP 408, 429 and 500 are retried.
 """
+
+import asyncio
 
 import pytest
 
 from agrag.llm.client_config import RetryConfig
-from agrag.llm.retry import UnusableResultError, call_with_retry
+from agrag.llm.retry import call_with_retry
+
+
+def test_retry_defaults_allow_longer_backoff_and_bound_requests() -> None:
+    """Defaults use second-scale backoff and a five-minute attempt limit."""
+    retry = RetryConfig()
+
+    assert retry.delay_ms == 1_000
+    assert retry.multiplier == 2.0
+    assert retry.max_delay_ms == 30_000
+    assert retry.request_timeout_ms == 300_000
 
 
 def _pin_jitter(monkeypatch) -> None:
@@ -121,6 +132,31 @@ class TestCallWithRetry:
         assert sleeps == [1.0, 1.5, 1.5]
 
 
+class TestDefaultBackoff:
+    """The default retry schedule waits several seconds in total."""
+
+    async def test_default_retries_wait_at_least_three_and_a_half_seconds(
+        self, monkeypatch
+    ) -> None:
+        """Three default waits total at least 3.5 seconds with minimum jitter."""
+        sleeps: list[float] = []
+
+        async def fake_sleep(seconds: float) -> None:
+            sleeps.append(seconds)
+
+        monkeypatch.setattr("agrag.llm.retry.sleep", fake_sleep)
+        monkeypatch.setattr("agrag.llm.retry.random.uniform", lambda low, high: low)
+
+        async def call(options) -> str:
+            raise RuntimeError("rate limited")
+
+        with pytest.raises(RuntimeError):
+            await call_with_retry(call, RetryConfig())
+
+        assert len(sleeps) == 3
+        assert sum(sleeps) >= 3.5
+
+
 class TestPermanentBamlFailures:
     """A BAML error that would fail identically on retry is not retried."""
 
@@ -174,6 +210,23 @@ class TestPermanentBamlFailures:
 
         result = await call_with_retry(call, RetryConfig(max_retries=3))
         assert result == "ok"
+        assert calls == 2
+
+    async def test_http_408_is_still_retried(self, monkeypatch) -> None:
+        """A request-timeout response can succeed on the next try."""
+        from baml_py.errors import BamlClientHttpError  # noqa: PLC0415
+
+        monkeypatch.setattr("agrag.llm.retry.sleep", _no_sleep)
+        calls = 0
+
+        async def call(options) -> str:
+            nonlocal calls
+            calls += 1
+            if calls < 2:
+                raise BamlClientHttpError("client", "timeout", 408, "detail")
+            return "ok"
+
+        assert await call_with_retry(call, RetryConfig(max_retries=3)) == "ok"
         assert calls == 2
 
     async def test_http_500_is_still_retried(self, monkeypatch) -> None:
@@ -293,72 +346,73 @@ class TestTimeout:
 
         with pytest.raises(RuntimeError, match="still failing"):
             await call_with_retry(
-                call, RetryConfig(max_retries=5, delay_ms=1000, timeout_ms=1000)
+                call,
+                RetryConfig(
+                    max_retries=5,
+                    delay_ms=1000,
+                    timeout_ms=1000,
+                    request_timeout_ms=0,
+                ),
             )
         assert sleeps == [pytest.approx(0.1)]
         assert calls == 1
 
-    async def test_rejected_result_past_deadline_raises_unusable(
-        self, monkeypatch
-    ) -> None:
-        """A rejected result past the deadline raises instead of retrying."""
-        monkeypatch.setattr("agrag.llm.retry.sleep", _no_sleep)
-        ticks = iter([0.0, 2000.0])
-        monkeypatch.setattr(
-            "agrag.llm.retry.time.monotonic", lambda: next(ticks, 2000.0)
-        )
 
+class TestRequestTimeout:
+    """request_timeout_ms limits one attempt and can be disabled."""
+
+    async def test_a_hung_attempt_times_out_and_is_retried(self, monkeypatch) -> None:
+        """A timed-out attempt counts as a failure and permits a retry."""
+        monkeypatch.setattr("agrag.llm.retry.sleep", _no_sleep)
         calls = 0
+        cancelled = asyncio.Event()
 
         async def call(options) -> str:
             nonlocal calls
             calls += 1
-            return "bad"
-
-        with pytest.raises(UnusableResultError):
-            await call_with_retry(
-                call,
-                RetryConfig(max_retries=5, timeout_ms=1000),
-                accept_result=lambda r: False,
-            )
-        assert calls == 1
-
-
-class TestAcceptResult:
-    """accept_result retries successful calls whose result is unusable."""
-
-    async def test_later_usable_result_is_returned(self, monkeypatch) -> None:
-        """A rejected result retries; the first accepted one returns."""
-        monkeypatch.setattr("agrag.llm.retry.sleep", _no_sleep)
-
-        calls = 0
-
-        async def call(options) -> str:
-            nonlocal calls
-            calls += 1
-            return "bad" if calls < 2 else "good"
+            if calls == 1:
+                try:
+                    await asyncio.sleep(10)
+                finally:
+                    cancelled.set()
+            return "ok"
 
         result = await call_with_retry(
-            call, RetryConfig(max_retries=3), accept_result=lambda r: r == "good"
+            call, RetryConfig(max_retries=1, request_timeout_ms=20)
         )
-        assert result == "good"
+
+        assert result == "ok"
         assert calls == 2
+        assert cancelled.is_set()
 
-    async def test_always_rejected_result_raises_after_budget(
-        self, monkeypatch
-    ) -> None:
-        """Rejecting every result exhausts the budget like repeated failures."""
-        monkeypatch.setattr("agrag.llm.retry.sleep", _no_sleep)
-
-        calls = 0
+    async def test_zero_disables_the_request_timeout(self) -> None:
+        """A zero request timeout allows an attempt to finish."""
 
         async def call(options) -> str:
-            nonlocal calls
-            calls += 1
-            return "bad"
+            await asyncio.sleep(0.05)
+            return "ok"
 
-        with pytest.raises(UnusableResultError, match="unusable"):
-            await call_with_retry(
-                call, RetryConfig(max_retries=2), accept_result=lambda r: False
-            )
-        assert calls == 3
+        assert await call_with_retry(call, RetryConfig(request_timeout_ms=0)) == "ok"
+
+    async def test_external_cancellation_propagates(self, monkeypatch) -> None:
+        """Cancellation of the whole call is not treated as a retryable failure."""
+        monkeypatch.setattr("agrag.llm.retry.sleep", _no_sleep)
+        started = asyncio.Event()
+        cancelled = asyncio.Event()
+
+        async def call(options) -> str:
+            started.set()
+            try:
+                await asyncio.Event().wait()
+            finally:
+                cancelled.set()
+
+        task = asyncio.create_task(
+            call_with_retry(call, RetryConfig(max_retries=3, request_timeout_ms=0))
+        )
+        await started.wait()
+        task.cancel()
+
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert cancelled.is_set()
