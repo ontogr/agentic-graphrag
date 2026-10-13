@@ -45,6 +45,7 @@ const sidebars = {
       'guides/configure-chunking',
       'concepts/extraction',
       'guides/extract-and-resolve',
+      'guides/control-llm-cost-during-extraction',
       'guides/update-and-delete-documents',
     ]),
     section('Resolve and enrich', [

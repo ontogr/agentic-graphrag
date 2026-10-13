@@ -46,15 +46,20 @@ from agrag.ingestion._ingest_pipeline import (
 )
 from agrag.ingestion._stage_context import StageContext
 from agrag.ingestion._storage import WriteOutcome
-from agrag.ingestion.extract import Extractor
+from agrag.ingestion.extract import Extractor, LLMExtractor
 from agrag.ingestion.graph import Graph
+from agrag.ingestion.reports.escalation_report import EscalationReport
 from agrag.ingestion.resolve import ResolutionResult
 from agrag.ingestion.resolve.candidate_source import GraphCandidateSource
+from agrag.ingestion.settings import ExtractionSettings
 from agrag.ingestion.stats import IngestStats, MergeStats
 from agrag.loaders.types import ErrorPolicy
 from agrag.observability import get_tracer
 from agrag.retrieval.settings import RetrievalSettings
 from tests.unit.ingestion._lease_fake import CutoverJobLeaseFake
+
+
+_SETTINGS = ExtractionSettings()
 
 
 def _doc(*, key: str, text: str = "hello world") -> Document:
@@ -194,19 +199,21 @@ async def _ingest(
     ingestion: IngestStats | None = None,
 ) -> Any:
     """Run extract_chunks + ingest_chunks over fixed input."""
-    entities, relations, failures = await extract_chunks(
+    extracted = await extract_chunks(
         chunks,
         start_index=0,
         extractor=_NoopExtractor(),
         schema=DEFAULT_SCHEMA,
         error_policy=ErrorPolicy.RAISE,
+        settings=_SETTINGS,
+        llm_extractor=None,
     )
     batch = await ingest_chunks(
         chunks,
         documents,
-        entities,
-        relations,
-        failures,
+        extracted.entities,
+        extracted.relations,
+        extracted.failures,
         placements=_placements(chunks),
         graph_store=store,
         embedder=_ZeroEmbedder(),
@@ -272,6 +279,8 @@ class TestIngestChunks:
                 extractor=_Failing(),
                 schema=DEFAULT_SCHEMA,
                 error_policy=ErrorPolicy.RAISE,
+                settings=_SETTINGS,
+                llm_extractor=None,
             )
 
         await asyncio.sleep(0.6)
@@ -303,18 +312,20 @@ class TestIngestChunks:
                     entities=[entity], relations=[loop], extractor_name="bad"
                 )
 
-        _, relations, failures = await extract_chunks(
+        extracted = await extract_chunks(
             [chunk],
             start_index=0,
             extractor=_BadRelation(),
             schema=_KNOWS_SCHEMA,
             error_policy=ErrorPolicy.SKIP,
+            settings=_SETTINGS,
+            llm_extractor=None,
             tracer=provider.get_tracer("test"),
         )
 
         names = [span.name for span in exporter.get_finished_spans()]
-        assert relations == []
-        assert [f.item_id for f in failures] == [str(chunk.id)]
+        assert extracted.relations == []
+        assert [f.item_id for f in extracted.failures] == [str(chunk.id)]
         assert "agrag.extraction.remap_relations" in names
 
     async def test_runs_at_most_the_extractor_max_concurrency_at_once(self) -> None:
@@ -344,6 +355,8 @@ class TestIngestChunks:
             extractor=_Limited(),
             schema=DEFAULT_SCHEMA,
             error_policy=ErrorPolicy.RAISE,
+            settings=_SETTINGS,
+            llm_extractor=None,
         )
 
         assert peak == 2
@@ -663,26 +676,30 @@ class TestExtractChunks:
         second = [_chunk(doc, index=1)]
         extractor = _PairExtractor()
 
-        entities_one, relations_one, _ = await extract_chunks(
+        first_batch = await extract_chunks(
             first,
             start_index=0,
             extractor=extractor,
             schema=_KNOWS_SCHEMA,
             error_policy=ErrorPolicy.RAISE,
+            settings=_SETTINGS,
+            llm_extractor=None,
         )
-        entities_two, relations_two, _ = await extract_chunks(
+        second_batch = await extract_chunks(
             second,
-            start_index=len(entities_one),
+            start_index=len(first_batch.entities),
             extractor=extractor,
             schema=_KNOWS_SCHEMA,
             error_policy=ErrorPolicy.RAISE,
+            settings=_SETTINGS,
+            llm_extractor=None,
         )
 
-        assert [rel.source_index for rel in relations_one] == [0]
-        assert [rel.target_index for rel in relations_one] == [1]
-        assert [rel.source_index for rel in relations_two] == [2]
-        assert [rel.target_index for rel in relations_two] == [3]
-        assert len(entities_one) + len(entities_two) == 4
+        assert [rel.source_index for rel in first_batch.relations] == [0]
+        assert [rel.target_index for rel in first_batch.relations] == [1]
+        assert [rel.source_index for rel in second_batch.relations] == [2]
+        assert [rel.target_index for rel in second_batch.relations] == [3]
+        assert len(first_batch.entities) + len(second_batch.entities) == 4
 
     async def test_label_outside_the_schema_is_dropped_not_raised(self) -> None:
         """An undeclared label is dropped and the batch still succeeds."""
@@ -720,17 +737,554 @@ class TestExtractChunks:
                 )
 
         doc = _doc(key="rogue")
-        entities, relations, failures = await extract_chunks(
+        batch = await extract_chunks(
             [_chunk(doc)],
             start_index=0,
             extractor=_RogueExtractor(),
             schema=_RELATED_TO_SCHEMA,
             error_policy=ErrorPolicy.RAISE,
+            settings=_SETTINGS,
+            llm_extractor=None,
         )
 
-        assert [entity.label for entity in entities] == ["Person"]
-        assert relations == []
+        assert [entity.label for entity in batch.entities] == ["Person"]
+        assert batch.relations == []
+        assert batch.failures == []
+
+
+class _ScoredExtractor(Extractor):
+    """Fake first extractor that scores each chunk by its text.
+
+    The text of a chunk is its score, for example ``"0.6"``. Any text that does
+    not start with ``"0."`` gives no entities.
+    """
+
+    def __init__(self, *, limit: int = 8) -> None:
+        """Create the extractor with a concurrency limit and call counters."""
+        self.max_concurrency = limit
+        self.active = 0
+        self.peak = 0
+        self.calls: list[str] = []
+
+    async def extract(self, chunk: Chunk, schema: GraphSchema) -> ExtractionResult:
+        """Record the call and return one entity scored by the chunk text."""
+        self.active += 1
+        self.peak = max(self.peak, self.active)
+        self.calls.append(chunk.text)
+        await asyncio.sleep(0.01)
+        self.active -= 1
+        entities = (
+            [
+                ExtractedEntity(
+                    chunk_id=chunk.id,
+                    label="Person",
+                    text="Ada",
+                    char_start=0,
+                    char_end=3,
+                    confidence=float(chunk.text),
+                )
+            ]
+            if chunk.text.startswith("0.")
+            else []
+        )
+        return ExtractionResult(entities=entities, relations=[], extractor_name="first")
+
+
+class _UnparsableAnswerError(ValueError):
+    """Raised by a fake LLM extractor whose answer did not parse."""
+
+
+class _LlmExtractor(LLMExtractor):
+    """Fake escalation extractor with a scripted answer for each chunk text.
+
+    A chunk whose text is in ``raises`` raises that error. A chunk whose text is
+    in ``empty`` gets a parsed answer with no entities. With ``echo`` the answer
+    holds the candidates it received, relabelled with ``label``; otherwise it
+    holds one entity named Grace.
+    """
+
+    def __init__(
+        self,
+        *,
+        limit: int = 8,
+        raises: dict[str, Exception] | None = None,
+        empty: set[str] | None = None,
+        label: str = "Person",
+        echo: bool = False,
+    ) -> None:
+        """Create the extractor with a concurrency limit and call counters."""
+        self.max_concurrency = limit
+        self.active = 0
+        self.peak = 0
+        self.calls: list[str] = []
+        self.seen: list[list[str]] = []
+        self._raises = raises or {}
+        self._empty = empty or set()
+        self._label = label
+        self._echo = echo
+
+    async def extract(
+        self,
+        chunk: Chunk,
+        schema: GraphSchema,
+        candidates: Sequence[ExtractedEntity] | None = None,
+    ) -> ExtractionResult:
+        """Record the call, then raise, return no entities, or answer."""
+        self.active += 1
+        self.peak = max(self.peak, self.active)
+        self.calls.append(chunk.text)
+        self.seen.append([entity.text for entity in candidates or []])
+        await asyncio.sleep(0.01)
+        self.active -= 1
+        if chunk.text in self._raises:
+            raise self._raises[chunk.text]
+        if chunk.text in self._empty:
+            return ExtractionResult(entities=[], relations=[], extractor_name="llm")
+        names = self.seen[-1] if self._echo else ["Grace"]
+        return ExtractionResult(
+            entities=[
+                ExtractedEntity(
+                    chunk_id=chunk.id,
+                    label=self._label,
+                    text=name,
+                    char_start=50 + 10 * position,
+                    char_end=50 + 10 * position + len(name),
+                    confidence=None,
+                )
+                for position, name in enumerate(names)
+            ],
+            relations=[],
+            extractor_name="llm",
+        )
+
+
+async def _run_two_phase(
+    texts: list[str],
+    *,
+    first: Extractor,
+    llm: LLMExtractor | None,
+    settings: ExtractionSettings,
+    error_policy: ErrorPolicy = ErrorPolicy.RAISE,
+) -> tuple[list[ExtractedEntity], list[StageFailure], EscalationReport]:
+    """Run extract_chunks over chunks with the given texts."""
+    doc = _doc(key="two-phase")
+    chunks = [_chunk(doc, index=i, text=t) for i, t in enumerate(texts)]
+    batch = await extract_chunks(
+        chunks,
+        start_index=0,
+        extractor=first,
+        schema=DEFAULT_SCHEMA,
+        error_policy=error_policy,
+        settings=settings,
+        llm_extractor=llm,
+    )
+    return batch.entities, batch.failures, batch.report
+
+
+class TestExtractChunksEscalation:
+    """extract_chunks() runs the first extractor on all chunks, then the LLM on some."""
+
+    async def test_llm_runs_only_on_the_weakest_chunks_within_the_budget(self) -> None:
+        """Two of ten chunks escalate, and they are the two weakest."""
+        texts = ["0.9", "0.5", "0.9", "0.55", "0.9", "0.6", "0.9", "0.65", "0.9", "0.9"]
+        first, llm = _ScoredExtractor(), _LlmExtractor()
+
+        _, _, report = await _run_two_phase(
+            texts,
+            first=first,
+            llm=llm,
+            settings=ExtractionSettings(escalation_budget=0.2),
+        )
+
+        assert sorted(first.calls) == sorted(texts)
+        assert sorted(llm.calls) == ["0.5", "0.55"]
+        assert (report.total, report.eligible, report.escalated) == (10, 4, 2)
+        assert report.left_for_gliner == 2
+        assert report.lowest_score_left == 0.6
+
+    async def test_escalated_chunk_keeps_its_gliner_span_next_to_the_llm_entity(
+        self,
+    ) -> None:
+        """The LLM entity comes first, and a GLiNER span the LLM missed is kept."""
+        entities, _, _ = await _run_two_phase(
+            ["0.6"],
+            first=_ScoredExtractor(),
+            llm=_LlmExtractor(),
+            settings=ExtractionSettings(escalation_budget="all"),
+        )
+
+        assert [e.text for e in entities] == ["Grace", "Ada"]
+
+    async def test_chunk_order_of_entities_is_kept(self) -> None:
+        """Entities stay in chunk order, whatever order the LLM finishes in."""
+        entities, _, _ = await _run_two_phase(
+            ["0.6", "0.9", "0.65"],
+            first=_ScoredExtractor(),
+            llm=_LlmExtractor(),
+            settings=ExtractionSettings(escalation_budget="all"),
+        )
+
+        assert [e.text for e in entities] == ["Grace", "Ada", "Ada", "Grace", "Ada"]
+
+    async def test_budget_zero_never_calls_the_llm(self) -> None:
+        """Budget 0 is GLiNER only, and the report still counts eligible chunks."""
+        llm = _LlmExtractor()
+
+        _, _, report = await _run_two_phase(
+            ["0.6", "0.65"],
+            first=_ScoredExtractor(),
+            llm=llm,
+            settings=ExtractionSettings(escalation_budget=0.0),
+        )
+
+        assert llm.calls == []
+        assert (report.eligible, report.escalated, report.left_for_gliner) == (2, 0, 2)
+
+    async def test_no_llm_extractor_means_no_selection(self) -> None:
+        """Without an LLM extractor, hybrid degrades to gliner and counts chunks."""
+        _, _, report = await _run_two_phase(
+            ["0.6", "0.65"],
+            first=_ScoredExtractor(),
+            llm=None,
+            settings=ExtractionSettings(escalation_budget="all"),
+        )
+
+        assert (report.mode, report.total, report.eligible, report.escalated) == (
+            "gliner",
+            2,
+            0,
+            0,
+        )
+
+    async def test_phases_use_their_own_concurrency_limits(self) -> None:
+        """Each phase stays within its own extractor's max_concurrency."""
+        first, llm = _ScoredExtractor(limit=1), _LlmExtractor(limit=3)
+
+        await _run_two_phase(
+            ["0.6"] * 9,
+            first=first,
+            llm=llm,
+            settings=ExtractionSettings(escalation_budget="all"),
+        )
+
+        assert first.peak == 1
+        assert llm.peak == 3
+
+    async def test_failed_first_extraction_is_not_eligible(self) -> None:
+        """A chunk that failed in phase 1 is recorded and never escalated."""
+
+        class _FailsOnce(_ScoredExtractor):
+            async def extract(
+                self, chunk: Chunk, schema: GraphSchema
+            ) -> ExtractionResult:
+                if chunk.text == "bad":
+                    raise ValueError("boom")
+                return await super().extract(chunk, schema)
+
+        llm = _LlmExtractor()
+
+        _, failures, report = await _run_two_phase(
+            ["bad", "0.6"],
+            first=_FailsOnce(),
+            llm=llm,
+            settings=ExtractionSettings(escalation_budget="all"),
+            error_policy=ErrorPolicy.SKIP,
+        )
+
+        assert [f.error_type for f in failures] == ["ValueError"]
+        assert llm.calls == ["0.6"]
+        assert report.total == 2
+
+    async def test_first_extractor_error_under_raise_stops_before_phase_two(
+        self,
+    ) -> None:
+        """A phase-1 error under RAISE propagates before the LLM runs."""
+
+        class _Boom(_ScoredExtractor):
+            async def extract(
+                self, chunk: Chunk, schema: GraphSchema
+            ) -> ExtractionResult:
+                if chunk.text == "bad":
+                    raise RuntimeError("first down")
+                return await super().extract(chunk, schema)
+
+        llm = _LlmExtractor()
+
+        with pytest.raises(RuntimeError, match="first down"):
+            await _run_two_phase(
+                ["0.6", "bad"],
+                first=_Boom(),
+                llm=llm,
+                settings=ExtractionSettings(escalation_budget="all"),
+            )
+
+        assert llm.calls == []
+
+    async def test_llm_error_keeps_the_first_result_even_under_raise(self) -> None:
+        """In hybrid mode an LLM error never aborts, and GLiNER's result stays.
+
+        This is the paid-work case: one exhausted chunk must not discard the
+        results of the other chunks, whatever the error policy. Llm mode has no
+        first result, so it follows the policy (see the llm tests below).
+        """
+        entities, failures, report = await _run_two_phase(
+            ["0.6", "0.65"],
+            first=_ScoredExtractor(),
+            llm=_LlmExtractor(raises={"0.6": RuntimeError("llm down")}),
+            settings=ExtractionSettings(escalation_budget="all"),
+            error_policy=ErrorPolicy.RAISE,
+        )
+
+        assert [e.text for e in entities] == ["Ada", "Grace", "Ada"]
+        assert [f.error_type for f in failures] == ["RuntimeError"]
+        assert (report.escalated, report.failed) == (2, 1)
+
+    async def test_unparsable_answer_keeps_the_first_result(self) -> None:
+        """An answer that did not parse raises in the LLM extractor and is kept out."""
+        entities, failures, report = await _run_two_phase(
+            ["0.6"],
+            first=_ScoredExtractor(),
+            llm=_LlmExtractor(raises={"0.6": _UnparsableAnswerError("not json")}),
+            settings=ExtractionSettings(escalation_budget="all"),
+        )
+
+        assert [e.text for e in entities] == ["Ada"]
+        assert [f.error_type for f in failures] == ["_UnparsableAnswerError"]
+        assert report.failed == 1
+
+    async def test_parsed_empty_answer_keeps_a_first_result_with_entities(
+        self,
+    ) -> None:
+        """An empty parsed answer does not wipe out entities GLiNER found."""
+        entities, failures, report = await _run_two_phase(
+            ["0.6"],
+            first=_ScoredExtractor(),
+            llm=_LlmExtractor(empty={"0.6"}),
+            settings=ExtractionSettings(escalation_budget="all"),
+        )
+
+        assert [e.text for e in entities] == ["Ada"]
         assert failures == []
+        assert (report.escalated, report.failed) == (1, 1)
+
+    async def test_parsed_empty_answer_replaces_an_empty_first_result(self) -> None:
+        """When GLiNER found nothing, an empty answer is accepted and not a failure."""
+        text = "none one two three four five six seven eight nine"
+
+        entities, failures, report = await _run_two_phase(
+            [text],
+            first=_ScoredExtractor(),
+            llm=_LlmExtractor(empty={text}),
+            settings=ExtractionSettings(escalation_budget="all"),
+        )
+
+        assert entities == []
+        assert failures == []
+        assert (report.eligible, report.escalated, report.failed) == (1, 1, 0)
+
+    async def test_report_carries_wall_time_for_each_phase(self) -> None:
+        """Both phases report wall time, and calls equal total and escalated."""
+        _, _, report = await _run_two_phase(
+            ["0.6", "0.9"],
+            first=_ScoredExtractor(),
+            llm=_LlmExtractor(),
+            settings=ExtractionSettings(escalation_budget="all"),
+        )
+
+        assert report.primary_seconds > 0
+        assert report.escalation_seconds > 0
+        assert (report.total, report.escalated) == (2, 1)
+
+    async def test_llm_receives_the_kept_entities_as_candidates(self) -> None:
+        """Phase 2 passes the chunk's kept GLiNER entities to the LLM extractor."""
+        llm = _LlmExtractor()
+
+        await _run_two_phase(
+            ["0.6"],
+            first=_ScoredExtractor(),
+            llm=llm,
+            settings=ExtractionSettings(escalation_budget="all"),
+        )
+
+        assert llm.seen == [["Ada"]]
+
+    async def test_zero_yield_chunk_is_sent_without_candidates(self) -> None:
+        """A chunk with no GLiNER entities reaches the LLM with an empty list."""
+        text = "none one two three four five six seven eight nine"
+        llm = _LlmExtractor()
+
+        await _run_two_phase(
+            [text],
+            first=_ScoredExtractor(),
+            llm=llm,
+            settings=ExtractionSettings(escalation_budget="all"),
+        )
+
+        assert llm.seen == [[]]
+
+    async def test_confirmed_candidate_keeps_gliner_span_and_confidence(self) -> None:
+        """An LLM entity with a candidate's name takes its confidence and span."""
+        entities, _, report = await _run_two_phase(
+            ["0.6"],
+            first=_ScoredExtractor(),
+            llm=_LlmExtractor(echo=True, label="Organization"),
+            settings=ExtractionSettings(escalation_budget="all"),
+        )
+
+        (entity,) = entities
+        assert (entity.label, entity.confidence) == ("Organization", 0.6)
+        assert (entity.char_start, entity.char_end) == (0, 3)
+        assert report.failed == 0
+
+    async def test_llm_label_outside_the_schema_is_validated_away(self) -> None:
+        """A bad LLM label is dropped, so the answer is empty and GLiNER stays."""
+        entities, failures, report = await _run_two_phase(
+            ["0.6"],
+            first=_ScoredExtractor(),
+            llm=_LlmExtractor(label="Spaceship"),
+            settings=ExtractionSettings(escalation_budget="all"),
+        )
+
+        assert [e.text for e in entities] == ["Ada"]
+        assert failures == []
+        assert report.failed == 1
+
+    async def test_spans_name_the_phase(self) -> None:
+        """Each extract_chunk span names its phase; one escalate span wraps phase 2."""
+        exporter = InMemorySpanExporter()
+        provider = TracerProvider()
+        provider.add_span_processor(SimpleSpanProcessor(exporter))
+        doc = _doc(key="spans")
+        chunks = [_chunk(doc, index=0, text="0.6"), _chunk(doc, index=1, text="0.9")]
+
+        await extract_chunks(
+            chunks,
+            start_index=0,
+            extractor=_ScoredExtractor(),
+            schema=DEFAULT_SCHEMA,
+            error_policy=ErrorPolicy.RAISE,
+            settings=ExtractionSettings(escalation_budget="all"),
+            llm_extractor=_LlmExtractor(),
+            tracer=provider.get_tracer("test"),
+        )
+
+        spans = exporter.get_finished_spans()
+        phases = sorted(
+            (s.attributes or {})["agrag.extraction.phase"]
+            for s in spans
+            if s.name == "agrag.extraction.extract_chunk"
+        )
+        (escalate,) = [s for s in spans if s.name == "agrag.extraction.escalate"]
+        assert phases == ["escalation", "primary", "primary"]
+        assert (escalate.attributes or {})["agrag.chunks_total"] == 2
+        assert (escalate.attributes or {})["agrag.chunks_eligible"] == 1
+        assert (escalate.attributes or {})["agrag.chunks_escalated"] == 1
+
+
+class TestExtractChunksModes:
+    """extract_chunks() runs only the phases that the effective mode names."""
+
+    async def test_gliner_mode_never_calls_the_llm(self) -> None:
+        """Gliner mode reads every chunk with GLiNER and never calls the LLM."""
+        first, llm = _ScoredExtractor(), _LlmExtractor()
+        texts = ["0.6", "0.9"]
+
+        _, _, report = await _run_two_phase(
+            texts,
+            first=first,
+            llm=llm,
+            settings=ExtractionSettings(mode="gliner", escalation_budget="all"),
+        )
+
+        assert sorted(first.calls) == sorted(texts)
+        assert llm.calls == []
+        assert (report.mode, report.escalated, report.skipped_short) == ("gliner", 0, 0)
+
+    async def test_llm_mode_never_calls_the_first_extractor(self) -> None:
+        """Llm mode skips GLiNER and sends each long chunk with no candidates."""
+        first, llm = _ScoredExtractor(), _LlmExtractor()
+
+        entities, failures, report = await _run_two_phase(
+            ["one two three", "short"],
+            first=first,
+            llm=llm,
+            settings=ExtractionSettings(mode="llm", min_escalation_words=3),
+        )
+
+        assert first.calls == []
+        assert llm.calls == ["one two three"]
+        assert llm.seen == [[]]
+        assert [e.text for e in entities] == ["Grace"]
+        assert failures == []
+        assert (report.mode, report.total, report.skipped_short) == ("llm", 2, 1)
+        assert (report.eligible, report.escalated) == (0, 1)
+
+    async def test_llm_mode_ignores_the_budget(self) -> None:
+        """Llm mode sends every long chunk even when the budget is zero."""
+        llm = _LlmExtractor()
+
+        _, _, report = await _run_two_phase(
+            ["one two three"],
+            first=_ScoredExtractor(),
+            llm=llm,
+            settings=ExtractionSettings(
+                mode="llm", min_escalation_words=3, escalation_budget=0.0
+            ),
+        )
+
+        assert llm.calls == ["one two three"]
+        assert report.escalated == 1
+
+    async def test_llm_mode_without_an_llm_extractor_raises(self) -> None:
+        """Llm mode cannot run without an LLM extractor and says so."""
+        with pytest.raises(ValueError, match="llm_extractor"):
+            await _run_two_phase(
+                ["one two three"],
+                first=_ScoredExtractor(),
+                llm=None,
+                settings=ExtractionSettings(mode="llm", min_escalation_words=3),
+            )
+
+    async def test_llm_empty_answer_is_a_valid_empty_result(self) -> None:
+        """Llm mode counts a parsed empty answer as no failure."""
+        entities, failures, report = await _run_two_phase(
+            ["one two three"],
+            first=_ScoredExtractor(),
+            llm=_LlmExtractor(empty={"one two three"}),
+            settings=ExtractionSettings(mode="llm", min_escalation_words=3),
+        )
+
+        assert entities == []
+        assert failures == []
+        assert report.failed == 0
+
+    async def test_llm_error_under_raise_stops_the_batch(self) -> None:
+        """Llm mode under RAISE propagates the LLM error."""
+        with pytest.raises(RuntimeError, match="llm down"):
+            await _run_two_phase(
+                ["one two three"],
+                first=_ScoredExtractor(),
+                llm=_LlmExtractor(raises={"one two three": RuntimeError("llm down")}),
+                settings=ExtractionSettings(mode="llm", min_escalation_words=3),
+                error_policy=ErrorPolicy.RAISE,
+            )
+
+    @pytest.mark.parametrize("policy", [ErrorPolicy.SKIP, ErrorPolicy.QUARANTINE])
+    async def test_llm_error_is_recorded_and_counted_failed(
+        self, policy: ErrorPolicy
+    ) -> None:
+        """Llm mode under SKIP or QUARANTINE records the error and counts it failed."""
+        entities, failures, report = await _run_two_phase(
+            ["one two three", "four five six"],
+            first=_ScoredExtractor(),
+            llm=_LlmExtractor(raises={"one two three": RuntimeError("llm down")}),
+            settings=ExtractionSettings(mode="llm", min_escalation_words=3),
+            error_policy=policy,
+        )
+
+        assert [f.error_type for f in failures] == ["RuntimeError"]
+        assert [e.text for e in entities] == ["Grace"]
+        assert (report.failed, report.escalated) == (1, 2)
 
 
 class _RecordingEmbedder(Embedder):

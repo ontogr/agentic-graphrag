@@ -15,6 +15,10 @@ Return type of Graph.add(). One summary per pipeline stage.
 - [**chunking**](#agrag-ingestion-reports-add_result-AddResult-chunking) (<code>[ChunkingStats](../../stats/chunking/ChunkingStats.md)</code>) – The chunker each document got and the chunks it made.
 - [**extraction**](#agrag-ingestion-reports-add_result-AddResult-extraction) (<code>[ExtractionStats](../../stats/extraction/ExtractionStats.md)</code>) – Extractor output across every chunk this call
   processed.
+- [**escalation**](#agrag-ingestion-reports-add_result-AddResult-escalation) (<code>[EscalationReport](../escalation_report/EscalationReport.md)</code>) – How many chunks the LLM extractor read, how many the
+  budget left to the first extractor, how many escalations failed,
+  and the wall time of each phase. Only the chunk count and the
+  first-phase time are set when the graph has no LLM extractor.
 - [**resolution**](#agrag-ingestion-reports-add_result-AddResult-resolution) (<code>[ResolutionStats](../../stats/resolution/ResolutionStats.md)</code>) – Resolution's tier-by-tier match counts.
 - [**merge**](#agrag-ingestion-reports-add_result-AddResult-merge) (<code>[MergeStats](../../stats/merge/MergeStats.md)</code>) – What merge mechanics did with resolution's groups.
 - [**storage**](#agrag-ingestion-reports-add_result-AddResult-storage) (<code>[StorageStats](../../stats/storage/StorageStats.md)</code>) – What made it to GraphStore, and what didn't.
@@ -35,13 +39,11 @@ chunking: ChunkingStats = Field(default_factory=ChunkingStats)
 chunks: list[Chunk] = Field(default_factory=list)
 ```
 
-## `documents` \{#agrag-ingestion-reports-add_result-AddResult-documents}
+## `escalation` \{#agrag-ingestion-reports-add_result-AddResult-escalation}
 
 ```python
-documents: int
+escalation: EscalationReport = Field(default_factory=EscalationReport)
 ```
-
-Proxy to ingestion.documents for backward compatibility.
 
 ## `extraction` \{#agrag-ingestion-reports-add_result-AddResult-extraction}
 
@@ -61,43 +63,11 @@ ingestion: IngestStats = Field(default_factory=IngestStats)
 merge: MergeStats = Field(default_factory=MergeStats)
 ```
 
-## `quarantined` \{#agrag-ingestion-reports-add_result-AddResult-quarantined}
-
-```python
-quarantined: int
-```
-
-Proxy to ingestion.quarantined for backward compatibility.
-
-## `quarantined_items` \{#agrag-ingestion-reports-add_result-AddResult-quarantined_items}
-
-```python
-quarantined_items: list[StageFailure]
-```
-
-Proxy to ingestion.quarantined_items for backward compatibility.
-
 ## `resolution` \{#agrag-ingestion-reports-add_result-AddResult-resolution}
 
 ```python
 resolution: ResolutionStats = Field(default_factory=ResolutionStats)
 ```
-
-## `skipped` \{#agrag-ingestion-reports-add_result-AddResult-skipped}
-
-```python
-skipped: int
-```
-
-Proxy to ingestion.skipped for backward compatibility.
-
-## `sources` \{#agrag-ingestion-reports-add_result-AddResult-sources}
-
-```python
-sources: int
-```
-
-Proxy to ingestion.sources for backward compatibility.
 
 ## `storage` \{#agrag-ingestion-reports-add_result-AddResult-storage}
 

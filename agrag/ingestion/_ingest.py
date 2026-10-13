@@ -35,9 +35,9 @@ from agrag.ingestion._ingest_pipeline import extract_chunks, ingest_chunks
 from agrag.ingestion._structure import placement_map
 from agrag.ingestion._walk import SourcesType, chunk_documents, iter_document_batches
 from agrag.ingestion.extract import Extractor, LLMExtractor
-from agrag.ingestion.reports import AddResult, UpdateResult
+from agrag.ingestion.reports import AddResult, EscalationReport, UpdateResult
 from agrag.ingestion.resolved_entities import MatchComponent
-from agrag.ingestion.settings import CutoverJobSettings
+from agrag.ingestion.settings import CutoverJobSettings, ExtractionSettings
 from agrag.ingestion.stats import (
     ChunkingStats,
     ExtractionStats,
@@ -217,7 +217,11 @@ def _group_by_document(
 
 
 def _merge_add_results(
-    results: list[AddResult], *, ingestion: IngestStats, chunking: ChunkingStats
+    results: list[AddResult],
+    *,
+    ingestion: IngestStats,
+    chunking: ChunkingStats,
+    escalation: EscalationReport,
 ) -> AddResult:
     """Combine per-document job results into one call-level summary.
 
@@ -232,6 +236,9 @@ def _merge_add_results(
         results: One AddResult per document job, in job order.
         ingestion: The call-level ingestion summary from the walk.
         chunking: The call-level chunking summary.
+        escalation: The call-level escalation report, merged across the
+            extraction batches. Escalation runs before the per-document jobs,
+            so the per-job results carry none.
 
     Returns:
         The merged summary, or a zero-stage summary when no job ran.
@@ -253,10 +260,15 @@ def _merge_add_results(
             merge=MergeStats(),
             storage=StorageStats(),
             chunks=[],
+            escalation=escalation,
         )
     if len(results) == 1:
         return results[0].model_copy(
-            update={"ingestion": ingestion, "chunking": chunking}
+            update={
+                "ingestion": ingestion,
+                "chunking": chunking,
+                "escalation": escalation,
+            }
         )
     extraction_items, extraction_total, extraction_truncated = _combine(
         [result.extraction.failures for result in results],
@@ -330,6 +342,7 @@ def _merge_add_results(
             failures_truncated=storage_truncated,
         ),
         chunks=[chunk for result in results for chunk in result.chunks],
+        escalation=escalation,
     )
 
 
@@ -380,6 +393,8 @@ async def add_documents(  # noqa: PLR0912,PLR0915,PLR0913
     graph_store: GraphStore,
     embedder: Embedder,
     extractor: Extractor | LLMExtractor,
+    llm_extractor: LLMExtractor | None,
+    extraction_settings: ExtractionSettings,
     vector_store: VectorStore | None,
     retrieval_settings: RetrievalSettings,
     cutover_settings: CutoverJobSettings,
@@ -411,6 +426,7 @@ async def add_documents(  # noqa: PLR0912,PLR0915,PLR0913
         entities: list[ExtractedEntity] = []
         relations: list[ExtractedRelation] = []
         extraction_failures: list[StageFailure] = []
+        escalation_reports: list[EscalationReport] = []
 
         def _record_document_keys(batch: Sequence[Document]) -> None:
             for document in batch:
@@ -451,6 +467,7 @@ async def add_documents(  # noqa: PLR0912,PLR0915,PLR0913
                 merge=MergeStats(),
                 storage=StorageStats(),
                 chunks=list(chunks) if return_chunks else [],
+                escalation=EscalationReport.merge(escalation_reports),
             )
 
         async for loaded_batch, stats in iter_document_batches(
@@ -478,21 +495,20 @@ async def add_documents(  # noqa: PLR0912,PLR0915,PLR0913
             placements_by_id.update(_placements_of(chunk_batch))
             chunks.extend(flat_batch)
             documents_seen.extend(batch)
-            (
-                batch_entities,
-                batch_relations,
-                batch_failures,
-            ) = await extract_chunks(
+            extracted = await extract_chunks(
                 flat_batch,
                 start_index=len(entities),
                 extractor=extractor,
                 schema=schema,
                 error_policy=error_policy,
+                settings=extraction_settings,
+                llm_extractor=llm_extractor,
                 tracer=tracer,
             )
-            entities.extend(batch_entities)
-            relations.extend(batch_relations)
-            extraction_failures.extend(batch_failures)
+            entities.extend(extracted.entities)
+            relations.extend(extracted.relations)
+            extraction_failures.extend(extracted.failures)
+            escalation_reports.append(extracted.report)
             if on_progress is not None:
                 with contextlib.suppress(Exception):
                     on_progress(_build_partial_add_result())
@@ -593,6 +609,7 @@ async def add_documents(  # noqa: PLR0912,PLR0915,PLR0913
             partials,
             ingestion=ingestion,
             chunking=ChunkingStats.from_documents(documents_seen, chunks),
+            escalation=EscalationReport.merge(escalation_reports),
         )
 
         if on_progress is not None:
@@ -615,6 +632,8 @@ async def update_document(  # noqa: PLR0913
     graph_store: GraphStore,
     embedder: Embedder,
     extractor: Extractor | LLMExtractor,
+    llm_extractor: LLMExtractor | None,
+    extraction_settings: ExtractionSettings,
     vector_store: VectorStore | None,
     retrieval_settings: RetrievalSettings,
     cutover_settings: CutoverJobSettings,
@@ -694,14 +713,19 @@ async def update_document(  # noqa: PLR0913
         )
         chunks = [chunk for cd in chunked for chunk in cd.chunks]
         placements = _placements_of(chunked)
-        entities, relations, extraction_failures = await extract_chunks(
+        extracted = await extract_chunks(
             chunks,
             start_index=0,
             extractor=extractor,
             schema=schema,
             error_policy=error_policy,
+            settings=extraction_settings,
+            llm_extractor=llm_extractor,
             tracer=tracer,
         )
+        entities = extracted.entities
+        relations = extracted.relations
+        extraction_failures = extracted.failures
 
         components: list[MatchComponent] = []
         deferred = DeferredWrites()
@@ -772,7 +796,10 @@ async def update_document(  # noqa: PLR0913
             new_content_hash=document.content_hash,
             parts_closed=parts_closed,
             add_result=_with_cleanup_failures(add_result, cleanup_failures).model_copy(
-                update={"chunking": ChunkingStats.from_documents([document], chunks)}
+                update={
+                    "chunking": ChunkingStats.from_documents([document], chunks),
+                    "escalation": extracted.report,
+                }
             ),
         )
 

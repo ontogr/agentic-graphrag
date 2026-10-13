@@ -15,9 +15,8 @@ with `EXTRACTION_LLM_` and are not read here, so no field may start with
 
 The entity and relation thresholds, the relation floor, the entity band and
 the candidate switch shape what `GlinerExtractor` keeps and reports.
-Escalation controls are validated configuration only; they do not yet
-affect extraction. `EscalatingExtractor` uses its own escalation
-parameters.
+The escalation threshold, budget and minimum word count decide which weak
+chunks go to the LLM extractor in `hybrid` mode.
 
 **Attributes:**
 

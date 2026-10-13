@@ -11,7 +11,10 @@ class ExtractionStats(BaseModel):
     """Extraction-stage results.
 
     Attributes:
-        chunks_processed: Chunks the stage ran the extractor on.
+        chunks_processed: Chunks the stage read. In ``llm`` mode this counts
+            every chunk, including chunks skipped for having fewer than
+            ``min_escalation_words`` words. ``EscalationReport.skipped_short``
+            gives that skipped count.
         entities_extracted: Entities the extractor returned.
         relations_extracted: Relations the extractor returned.
         failures: Per-item failures, capped per call.

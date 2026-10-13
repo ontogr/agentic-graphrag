@@ -104,11 +104,11 @@ settings = ExtractionSettings(dtype="bf16", label_thresholds={"Person": 0.7})
 extractor = GlinerExtractor(settings=settings)
 ```
 
-`Graph` takes the settings from an injected, top-level `GlinerExtractor`. For a custom extractor, pass `extraction_settings=` to `Graph.open`. If you pass settings to both the graph and a top-level GLiNER extractor, their values must match. Graph does not inherit or compare GLiNER settings inside an `EscalatingExtractor`, including nested wrappers. When composing extractors, pass the same settings to Graph and the wrapped GLiNER extractor yourself.
+`Graph` takes the settings from an injected, top-level `GlinerExtractor`. For a custom extractor, pass `extraction_settings=` to `Graph.open`. If you pass settings to both the graph and a top-level GLiNER extractor, their values must match.
 
 See the [configuration reference](../reference/configuration.mdx#local-extraction) for all extraction settings. Each extracted entity and relation has a `confidence` score from the model.
 
-`EXTRACTION_MODE` accepts `gliner`, `hybrid` (the default), and `llm`. `Graph.effective_mode` reports the mode selected for the graph, not the class of the extractor. When `hybrid` has no LLM configured, the mode becomes `gliner` and Graph logs a warning. An injected custom local extractor still runs unchanged in that mode; Graph does not replace it with GLiNER. `Graph` can configure both extractor slots in `hybrid`, but it does not yet escalate automatically between them. To escalate now, compose `GlinerExtractor` and an LLM extractor with `EscalatingExtractor`, as shown below.
+`EXTRACTION_MODE` accepts `gliner`, `hybrid` (the default), and `llm`. `Graph.effective_mode` reports the mode selected for the graph, not the class of the extractor. When `hybrid` has no LLM configured, the mode becomes `gliner` and Graph logs a warning. An injected custom local extractor still runs unchanged in that mode; Graph does not replace it with GLiNER. In `hybrid`, Graph sends the weak chunks to the LLM extractor. See [Control LLM cost during extraction](./control-llm-cost-during-extraction.mdx) for the modes, the budget and the run report.
 
 For LLM-only ingestion, pass `extraction_settings=ExtractionSettings(mode="llm")` and `llm_extractor=BAMLExtractor(...)` to `Graph.open`. Do not pass `extractor=` in that mode. If you omit `llm_extractor=`, `Graph` reads `EXTRACTION_LLM_CLIENTS`, or `LLM_BASE_URL` with `LLM_MODEL_ID`, to build it. `Graph.llm_model_name` reports the configured client models, or the class name of a custom LLM extractor.
 
@@ -158,54 +158,50 @@ The default chunk size fits the model in one pass. See [Configure chunking](./co
 
 ## Run locally first, escalating to an LLM
 
-`GlinerExtractor` runs a local model. `EscalatingExtractor` runs it first and calls the LLM only when the local result is weak. It needs both extras:
+`GlinerExtractor` runs a local model on every chunk. Pass an LLM extractor as `llm_extractor` to `Graph.open`, and the graph sends the LLM only the chunks where the local result is weak, up to a budget. The LLM reads each of those chunks together with the entities that the local model found, and the two results combine. This needs both extras:
 
 ```bash
 uv pip install "agentic-graphrag[extract,llm]"
 ```
 
-The extractor treats a chunk as weak if it has at least `min_chunk_words` words (8 by default) and no entities, or if the mean `confidence` of its entities is below `min_confidence` (0.5 by default). GLiNER keeps entities at or above 0.5 by default, so the mean-confidence condition needs a higher `min_confidence` or a lower entity threshold to fire. For example, set `min_confidence=0.75` on `EscalatingExtractor` to escalate retained entities with a mean score below 0.75.
-
-When you pass an `EscalatingExtractor` with an LLM fallback to `Graph`, use `hybrid` mode. The graph recognizes the wrapped LLM and reports `hybrid` without requiring an environment-configured client. `gliner` mode rejects a wrapper that could invoke an LLM, including nested wrappers.
-
-{/* pmd-metadata: fixture:llm_env */}
+{/* pmd-metadata: notest */}
 
 ```python
 import asyncio
 
-from uuid import uuid4
-
-from agrag.common.data_models.chunk import Chunk
 from agrag.common.data_models import DEFAULT_SCHEMA
-from agrag.common.data_models.provenance import TextProvenance
+from agrag.embedding import build_embedder
+from agrag.graphdb import build_graph_store
+from agrag.ingestion import Graph
 from agrag.ingestion.extract import (
     BAMLExtractor,
-    EscalatingExtractor,
     ExtractionLLMSettings,
     GlinerExtractor,
 )
 
 
 async def main() -> None:
-    text = "Ada Lovelace wrote the first algorithm for the Analytical Engine."
-    chunk = Chunk(
-        id=uuid4(),
-        document_id=uuid4(),
-        text=text,
-        provenance=TextProvenance(char_start=0, char_end=len(text)),
+    graph_store = build_graph_store("neo4j")
+    graph = await Graph.open(
+        schema=DEFAULT_SCHEMA,
+        graph_store=graph_store,
+        embedder=build_embedder("ibm-granite/granite-embedding-small-english-r2"),
+        extractor=GlinerExtractor(),
+        llm_extractor=BAMLExtractor(
+            settings=ExtractionLLMSettings.from_openai_compatible_env()
+        ),
     )
-
-    settings = ExtractionLLMSettings.from_openai_compatible_env()
-    extractor = EscalatingExtractor(
-        primary=GlinerExtractor(),
-        escalate_to=BAMLExtractor(settings=settings),
-    )
-    result = await extractor.extract(chunk, DEFAULT_SCHEMA)
-    print(result.entities)
+    try:
+        result = await graph.add(text="Ada Lovelace wrote the first algorithm.")
+        print(result.escalation)
+    finally:
+        await graph_store.close()
 
 
 asyncio.run(main())
 ```
+
+The `escalation` report shows how many chunks were weak, how many the LLM read, and how many LLM calls failed. The [Control LLM cost during extraction](./control-llm-cost-during-extraction.mdx) guide explains the budget settings and each field of the report.
 
 ## Configure the LLM provider
 

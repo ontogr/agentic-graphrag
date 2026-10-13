@@ -27,7 +27,7 @@ The ingestion package.
 - [**BAMLExtractor**](extract/BAMLExtractor.md) – Extract entities and relations with an LLM through a typed BAML function.
 - [**CommunityDetectionReport**](reports/community_detection_report/CommunityDetectionReport.md) – Report from Graph.detect_communities().
 - [**ConsolidationReport**](reports/consolidation_report/ConsolidationReport.md) – Report from Graph.consolidate().
-- [**EscalatingExtractor**](extract/EscalatingExtractor.md) – Run a cheap extractor on every chunk and a stronger one on weak results.
+- [**EscalationReport**](reports/escalation_report/EscalationReport.md) – How many chunks the LLM extractor read, and how many it left alone.
 - [**ExtractionLLMSettings**](extract/ExtractionLLMSettings.md) – Env-backed LLM client configuration for the extraction role.
 - [**ExtractionSettings**](settings/ExtractionSettings.md) – Configuration for local entity and relation extraction.
 - [**Extractor**](extract/Extractor.md) – Reads one chunk and returns the entities and relations it contains.

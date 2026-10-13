@@ -317,10 +317,9 @@ class Extractor(ABC):
     Note:
         Subclass this class to provide custom extraction. ``Graph`` awaits
         ``extract`` once for each chunk. ``GlinerExtractor`` is a local
-        extractor, ``LLMExtractor`` marks the LLM role, and
-        ``EscalatingExtractor`` runs a local extractor before an LLM when its
-        result is weak. ``Graph`` drops any entity or relation whose label the
-        schema does not declare, and logs the count.
+        extractor. ``LLMExtractor`` marks the LLM role: ``Graph`` gives it only
+        the weakest chunks, as ``llm_extractor``. ``Graph`` drops any entity or
+        relation whose label the schema does not declare, and logs the count.
 
         ``Graph`` runs up to ``max_concurrency`` ``extract`` calls at the same
         time. An extractor that is not safe to call from several tasks at once
@@ -875,94 +874,3 @@ class BAMLExtractor(LLMExtractor):
         return ExtractionResult(
             entities=entities, relations=relations, extractor_name="baml"
         )
-
-
-class EscalatingExtractor(Extractor):
-    """Run a cheap extractor on every chunk and a stronger one on weak results.
-
-    The primary extractor runs first. A chunk escalates when the primary finds
-    no entities in a chunk of at least ``min_chunk_words`` words, when the
-    mean entity confidence is below ``min_confidence``, or when the primary
-    sets ``needs_properties``. An escalated chunk gets
-    the ``escalate_to`` result alone. The two results are never combined. A
-    common pairing is ``GlinerExtractor`` as primary and ``BAMLExtractor`` as
-    fallback.
-
-    Args:
-        primary: Extractor that runs on every chunk.
-        escalate_to: Extractor that replaces the primary result when escalation
-            triggers.
-        min_confidence: Escalate when the primary's mean reported confidence is
-            below this value.
-        min_chunk_words: Treat an empty primary result as weak only when the
-            chunk has at least this many words.
-        tracer: Opens the ``agrag.extraction.escalating`` span. ``None`` opens
-            no recorded span.
-
-    The ``max_concurrency`` of this extractor is the smaller of the two child
-    limits, so a child that must not run concurrently keeps the wrapper serial.
-    """
-
-    def __init__(
-        self,
-        primary: Extractor,
-        escalate_to: Extractor | LLMExtractor,
-        *,
-        min_confidence: float = 0.5,
-        min_chunk_words: int = 8,
-        tracer: Tracer | None = None,
-    ) -> None:
-        """Create an extractor that escalates from a primary to a stronger one."""
-        self.primary = primary
-        self.escalate_to = escalate_to
-        llm_concurrency = escalate_to.max_concurrency or primary.max_concurrency
-        self.max_concurrency = min(primary.max_concurrency, llm_concurrency)
-        self.min_confidence = min_confidence
-        self.min_chunk_words = min_chunk_words
-        self._tracer = tracer
-
-    async def extract(self, chunk: Chunk, schema: GraphSchema) -> ExtractionResult:
-        """Extract with the primary extractor, escalating when it is weak.
-
-        Args:
-            chunk: The chunk to read.
-            schema: The entity and relation types to extract.
-
-        Returns:
-            The primary result, or the escalation result when escalation triggers.
-        """
-        with get_tracer(self._tracer).start_as_current_span(
-            "agrag.extraction.escalating",
-            attributes={"agrag.chunk_id": str(chunk.id)},
-        ) as span:
-            result = validate_extraction(
-                await self.primary.extract(chunk, schema), schema
-            )
-            escalate = self._should_escalate(result, chunk)
-            span.set_attribute("agrag.escalated", escalate)
-            if escalate:
-                if isinstance(self.escalate_to, LLMExtractor):
-                    return await self.escalate_to.extract(
-                        chunk, schema, candidates=result.entities
-                    )
-                return await self.escalate_to.extract(chunk, schema)
-            return result
-
-    def _should_escalate(self, result: ExtractionResult, chunk: Chunk) -> bool:
-        """Return whether result is weak enough to escalate.
-
-        Args:
-            result: The primary extractor's result for chunk.
-            chunk: The chunk result came from, used for its word count.
-        """
-        if result.needs_properties:
-            return True
-        if not result.entities and len(chunk.text.split()) >= self.min_chunk_words:
-            return True
-        confidences = [
-            entity.confidence
-            for entity in result.entities
-            if entity.confidence is not None
-        ]
-        mean_confidence = sum(confidences) / len(confidences) if confidences else None
-        return mean_confidence is not None and mean_confidence < self.min_confidence

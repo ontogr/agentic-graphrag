@@ -325,6 +325,8 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
+`result.escalation` reports the chunks that an LLM extractor read. See [Control LLM cost during extraction](./control-llm-cost-during-extraction.mdx).
+
 An unknown format raises `UnsupportedFormatError`. A format that needs docling, without the extra installed, raises `MissingExtraError`. With `SKIP` or `QUARANTINE`, the policy handles those sources instead of stopping the run.
 
 ## Track progress
