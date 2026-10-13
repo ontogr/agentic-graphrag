@@ -1,0 +1,178 @@
+---
+sidebar_position: 8
+title: Write a custom schema
+description: Write a schema as a short list, as a small extension of the default schema, or as a full replacement.
+---
+
+# Write a custom schema
+
+A schema tells the extractor which entity types and relation types to look for. You can write one in three ways. Use a short list when you only need labels. Use `extends` when you want to keep the default schema and add to it. Write a full dict when you want to replace the default schema.
+
+## Before you start
+
+- Install Agentic GraphRAG. These steps do not need a database.
+- To use the result in a graph, see [Define a graph schema](./define-a-graph-schema.mdx).
+
+## 1. Write a short list
+
+A list holds entity labels and relation strings. A relation string has the form `Source-LABEL->Target`. The function `load_schema` builds a schema from the list.
+
+```python
+from agrag.schema import load_schema
+
+schema = load_schema(["Person", "Machine", "City", "Person-DESIGNED->Machine"])
+
+print([entity.label for entity in schema.entities])
+print([relation.label for relation in schema.relations])
+```
+
+Output:
+
+```text
+['Person', 'Machine', 'City']
+['DESIGNED']
+```
+
+A list has no descriptions. Use the dict form in steps 2 and 3 when you want to give each type a description for the extractor.
+
+## 2. Extend the default schema
+
+Set `extends` to `"default"` to start from the default schema. The new schema keeps every default type and relation. It adds the types and relations that you declare. This example adds a `Vendor` type under `Organization`, and a relation from `Vendor` to `Organization`.
+
+```python
+from agrag.schema import load_schema
+
+schema = load_schema(
+    {
+        "extends": "default",
+        "entities": [
+            {
+                "label": "Vendor",
+                "description": "An organization that sells to others.",
+                "parents": ["Organization"],
+            }
+        ],
+        "relations": ["Vendor-SELLS_TO->Organization"],
+    }
+)
+
+labels = [entity.label for entity in schema.entities]
+print("Vendor" in labels)
+print(schema.ancestors("Vendor"))
+```
+
+Output:
+
+```text
+True
+['Organization']
+```
+
+A relation pattern that names a parent also covers its children. The default `SUPPLIES` relation runs from `Organization` to `Product`, so it accepts a `Vendor` as its source.
+
+Some changes to a default type need an extra key. Declaring a label that the default schema already has, such as `Person`, raises an error. To replace the default type, add `"override": true` to its entity object. To remove a default type or relation, list its label in `exclude`. To let a default relation accept a new type, add a relation object with `add_patterns`, for example `{"label": "LOCATED_IN", "add_patterns": ["Vendor->Location"]}`. The [schema file format](../reference/schema-file-format.mdx) lists the rules for each key.
+
+The shipped names `default`, `operations` and `legal` also work with `load_schema` in place of a file path. For example, `load_schema("operations")` returns the default schema with the operations preset applied. `Graph.open(schema="operations", ...)` accepts the same name.
+
+## 3. Replace the default schema
+
+Leave out `extends` to build a schema that stands alone. The schema replaces the default schema. This example declares three entity types and one relation. The `tier` property uses `enum` to list the allowed values, and `required` to ask the extractor for it. Property types are `string`, `integer`, `float`, `boolean` and `date`. Neither `required` nor `enum` checks the values that the extractor returns.
+
+```python
+from agrag.schema import load_schema
+
+schema = load_schema(
+    {
+        "name": "supply-chain",
+        "version": "1",
+        "entities": [
+            {"label": "Organization", "description": "A company or institution."},
+            {
+                "label": "Vendor",
+                "description": "An organization that sells to others.",
+                "parents": ["Organization"],
+                "properties": {
+                    "tier": {
+                        "type": "string",
+                        "required": True,
+                        "enum": ["gold", "silver"],
+                    }
+                },
+            },
+            {"label": "Product", "description": "A named product."},
+        ],
+        "relations": ["Organization-SUPPLIES->Product"],
+    }
+)
+
+print(schema.node_labels("Vendor"))
+```
+
+Output:
+
+```text
+['Vendor', 'Organization']
+```
+
+`node_labels` returns the type label first, followed by its ancestors.
+
+## Keep the schema in a file
+
+A schema can live in a `.json`, `.yaml` or `.yml` file. The keys are the same as in the dict. This file holds the schema from step 3:
+
+```yaml
+name: supply-chain
+version: "1"
+entities:
+  Organization: A company or institution.
+  Vendor:
+    description: An organization that sells to others.
+    parents: [Organization]
+    properties:
+      tier:
+        type: string
+        required: true
+        enum: [gold, silver]
+  Product: A named product.
+relations:
+  - "Organization-SUPPLIES->Product"
+```
+
+Pass the path to `load_schema`. The example reads a file, so it does not run in the documentation tests.
+
+```python notest
+from agrag.schema import load_schema
+
+schema = load_schema("supply-chain.yaml")
+print(schema.node_labels("Vendor"))
+```
+
+## Fix an error
+
+`load_schema` raises `SchemaLoadError` when the schema is invalid. The error lists every problem. Each problem has a path to the key that caused it. This example misspells `entities` as `entites`.
+
+```python
+from agrag.schema import SchemaLoadError, load_schema
+
+try:
+    load_schema({"entites": [{"label": "Person", "description": "A named person."}]})
+except SchemaLoadError as error:
+    print(error.issues[0].path)
+    print(error)
+```
+
+Output:
+
+```text
+entites
+invalid schema (1 error):
+  entites: unknown key 'entites'. Allowed keys: name, version, entities, relations, extends, exclude. Did you mean 'entities'?
+```
+
+Thresholds, the model name and the data type are extraction settings. Set them in `ExtractionSettings`. A schema key with one of these names is an error. The schema stays the same when you tune the extractor.
+
+## Next
+
+- [Schema file format](../reference/schema-file-format.mdx): every key and short form that `load_schema` accepts.
+- [Define a graph schema](./define-a-graph-schema.mdx): give the schema to a graph.
+- [Use a preset](./use-a-preset.mdx): add the operations or legal entity types.

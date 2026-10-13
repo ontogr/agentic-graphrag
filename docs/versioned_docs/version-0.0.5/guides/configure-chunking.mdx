@@ -1,0 +1,142 @@
+---
+sidebar_position: 2
+title: Configure chunking
+---
+
+# Configure chunking
+
+Set the size of the chunks that Agentic GraphRAG makes. See which settings made each chunk. Change the settings for documents you already added. See [Ingest documents](./ingest-documents.mdx) for the basics of `Graph.add`. Each code block on this page is complete. Blocks that add documents open their own graph and close it at the end.
+
+See [Chunking](../concepts/chunking.mdx) for how the chunker works.
+
+## See the default settings
+
+A `Graph` holds one `Chunker`. Its settings are `size`, `min_size`, `tokenizer`, `splitter` and `tables`.
+
+```python
+from agrag.chunking import Chunker
+
+chunker = Chunker()
+print(chunker.settings())
+print(chunker.fingerprint)
+```
+
+| Setting | Default | Meaning |
+|---|---|---|
+| `size` | 600 | The most tokens in a chunk. |
+| `min_size` | a quarter of `size` | A chunk with fewer tokens carries on into the next section. |
+| `tokenizer` | `o200k_base` | The tokenizer that counts tokens. |
+| `splitter` | `chonkie-<installed version>` | The version of the installed splitter package that cuts text. The value depends on your environment. |
+| `tables` | `1` | The version of the table rendering rules. |
+
+`size` and `min_size` count the text of the units. The blank lines that join units are not counted, so a chunk can pass `size` by a few tokens. `min_size` must be smaller than `size`.
+
+## Set the size
+
+Pass `chunker` to `Graph.open`. This example makes chunks of up to 400 tokens.
+
+```python
+import asyncio
+
+from agrag.chunking import Chunker
+from agrag.common.data_models import DEFAULT_SCHEMA
+from agrag.embedding import build_embedder
+from agrag.graphdb import build_graph_store
+from agrag.ingestion import Graph
+from agrag.ingestion.extract import GlinerExtractor
+
+
+async def main() -> None:
+    graph_store = build_graph_store("neo4j")
+    graph = await Graph.open(
+        schema=DEFAULT_SCHEMA,
+        graph_store=graph_store,
+        embedder=build_embedder("ibm-granite/granite-embedding-small-english-r2"),
+        extractor=GlinerExtractor(),
+        chunker=Chunker(size=400),
+    )
+    try:
+        print(graph.chunker.settings())
+    finally:
+        await graph_store.close()
+
+
+asyncio.run(main())
+```
+
+A smaller size gives sharper search results and more entities for each token of text. A larger size needs fewer extraction calls. Check the embedder: a chunk must fit in its input limit. The default embedder reads 8,192 tokens.
+
+## Check what the chunker made
+
+`Graph.add` returns the counts in `result.chunking`. Pass `return_chunks=True` to get the chunks. Each chunk records the chunker name and the settings fingerprint.
+
+```python
+import asyncio
+
+from agrag.common.data_models import DEFAULT_SCHEMA
+from agrag.embedding import build_embedder
+from agrag.graphdb import build_graph_store
+from agrag.ingestion import Graph
+from agrag.ingestion.extract import GlinerExtractor
+
+TEXT = "Ada wrote the first program.\n\nCharles built the engine.\n\n" * 3
+
+
+async def main() -> None:
+    graph_store = build_graph_store("neo4j")
+    graph = await Graph.open(
+        schema=DEFAULT_SCHEMA,
+        graph_store=graph_store,
+        embedder=build_embedder("ibm-granite/granite-embedding-small-english-r2"),
+        extractor=GlinerExtractor(),
+    )
+    try:
+        result = await graph.add(text=TEXT, return_chunks=True)
+        print(result.chunking)
+        for chunk in result.chunks:
+            print(chunk.chunker, chunk.chunker_hash, chunk.heading_path)
+    finally:
+        await graph_store.close()
+
+
+asyncio.run(main())
+```
+
+`result.chunking` counts the chunks, sections, tables and figures.
+
+## Chunk a document without a graph
+
+`Chunker.chunk` works on a `Document` and needs no database. This is the quickest way to test a size.
+
+```python
+from agrag.chunking import Chunker
+from agrag.common.data_models.document import Document, DocumentFamily, SourceFormat
+
+text = "First paragraph.\n\nSecond paragraph.\n\n" * 20
+document = Document(
+    text=text,
+    title="sample",
+    uri="sample.txt",
+    source_format=SourceFormat.TXT,
+    family=DocumentFamily.PROSE,
+    content_hash="sample",
+    loader_name="text",
+    char_count=len(text),
+)
+
+for size in (50, 200):
+    chunks = Chunker(size=size).chunk(document).chunks
+    print(size, len(chunks))
+```
+
+## Chunk again after you change the size
+
+`Graph.update` compares the stored fingerprint with the current one. A new size chunks the document again, even when the text did not change. Chunks that the old settings made close, and the new chunks open.
+
+## Chat and record files
+
+A chat file has one section for each message. Short neighbouring messages can share a chunk, and a long message is cut at sentence boundaries. A record row has no sections and is one chunk. A row that is over `size` is cut at sentence boundaries.
+
+## Tables
+
+A table that fits in `size` tokens is one chunk. A larger table becomes row groups, and each group starts with the header row. A row that is over `size` on its own becomes its own group.

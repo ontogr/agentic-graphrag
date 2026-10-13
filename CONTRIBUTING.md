@@ -118,8 +118,11 @@ Run `uv run pre-commit install` once to enable the commit hooks.
 
 ## Releasing
 
-1. In a pull request, raise `version` in `pyproject.toml` and run `make docs-version`. It freezes the docs as the new version of the docs site. Commit the new files in `docs/versioned_docs/`, `docs/versioned_sidebars/` and `docs/versions.json`. `make docs-build` fails if the version has no frozen docs.
-2. After the pull request is merged, create a GitHub release with a new tag such as `v0.1.0`. The tag starts the publish to PyPI.
+1. In a pull request, raise `version` in `pyproject.toml` and run `uv lock` to update the package version in `uv.lock`.
+2. Update `CHANGELOG.md` before freezing the docs. Run `uvx git-cliff@2.14.2 --tag v<VERSION> --output CHANGELOG.md`, replacing `<VERSION>` with the package version. The command generates a release section without creating a Git tag. Check the release date and entries, preserve any manually recorded changes, and keep an empty `Unreleased` section with a comparison link from the new tag to `HEAD`.
+3. Run `make docs-version` to freeze the docs and API reference as the new version of the docs site. Include the new files in `docs/versioned_docs/`, `docs/versioned_sidebars/` and `docs/versions.json`. The newest version is served at `/stable/`, and main-branch docs remain at `/latest/`. Point website entry links at `/stable/` when the new snapshot includes their target pages.
+4. Run `make docs-build` and `make wheel-test`. The docs build fails if the package version has no frozen docs or if links are broken. The wheel check builds the package and checks imports in a clean environment.
+5. After the pull request is merged, create a GitHub release targeting the merged commit with a tag that matches the package version, such as `v0.0.5` for `0.0.5`. Copy the version's changelog entries into the release notes. Creating the tag starts the PyPI publish workflow. Check that the workflow succeeds and that PyPI lists the new version. The docs site deploys separately when the release preparation is pushed to `main`.
 
 ## Reporting bugs and requesting features
 
