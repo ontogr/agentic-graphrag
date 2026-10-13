@@ -14,7 +14,8 @@ Resolve newly committed entities against everything committed.
 Each created entity looks up its committed candidates, so a near-duplicate
 that another job committed first becomes a pair. Only the created entities
 start a comparison; the candidates they find are compared with them and
-never with each other.
+never with each other. When the search finds no candidate for any entity
+and the label holds few committed entities, all of them are candidates.
 
 **Parameters:**
 
