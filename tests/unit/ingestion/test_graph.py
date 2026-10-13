@@ -873,6 +873,161 @@ class TestGraphAdd:
         assert result.ingestion.sources == 1
 
 
+class _RecordingExtractor(Extractor):
+    """Logs each extraction and fails on chunks whose first word is fail_on."""
+
+    def __init__(self, events: list[str], fail_on: str | None = None) -> None:
+        """Create the extractor that appends to events."""
+        self.events = events
+        self.fail_on = fail_on
+
+    async def extract(self, chunk: Chunk, schema: GraphSchema) -> ExtractionResult:
+        first_word = chunk.text.split()[0]
+        self.events.append(f"extract {first_word}")
+        if first_word == self.fail_on:
+            raise RuntimeError("extractor down")
+        return ExtractionResult(entities=[], relations=[], extractor_name="rec")
+
+
+def _named_documents(*names: str) -> list[Document]:
+    """Return one short prose document per name, each starting with the name."""
+    documents: list[Document] = []
+    for name in names:
+        text = f"{name} wrote some notes."
+        documents.append(
+            Document(
+                text=text,
+                title=name,
+                uri=f"memory://{name}",
+                document_key=f"memory://{name}",
+                source_format=SourceFormat.TXT,
+                family=DocumentFamily.PROSE,
+                content_hash=name,
+                loader_name="text",
+                char_count=len(text),
+                line_count=1,
+            )
+        )
+    return documents
+
+
+class TestGraphAddWritesEachBatch:
+    """Graph.add writes each walk batch before it extracts the next batch."""
+
+    async def test_first_batch_is_written_before_the_second_is_extracted(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Each document is written right after its own batch is extracted."""
+        events: list[str] = []
+        graph = await Graph.open(
+            schema=DEFAULT_SCHEMA,
+            graph_store=_MockGraphStore(),
+            embedder=_MockEmbedder(),
+            extractor=_RecordingExtractor(events),
+        )
+        docs = _named_documents("alpha", "beta")
+        real_ingest = ingest_module.ingest_chunks
+
+        async def _recording_ingest(*args: object, **kwargs: Any) -> Any:
+            result = await real_ingest(*args, **kwargs)
+            events.append("write")
+            return result
+
+        monkeypatch.setattr(ingest_module, "ingest_chunks", _recording_ingest)
+        monkeypatch.setattr(
+            ingest_module, "iter_document_batches", _one_document_per_batch(docs)
+        )
+
+        result = await graph.add(documents=docs)
+
+        assert events == ["extract alpha", "write", "extract beta", "write"]
+        assert result.extraction.chunks_processed == 2
+        assert result.ingestion.documents == 2
+
+    async def test_a_failure_in_the_second_batch_keeps_the_first_batch(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A later batch that fails leaves the earlier batches written."""
+        events: list[str] = []
+        graph = await Graph.open(
+            schema=DEFAULT_SCHEMA,
+            graph_store=_MockGraphStore(),
+            embedder=_MockEmbedder(),
+            extractor=_RecordingExtractor(events, fail_on="beta"),
+        )
+        docs = _named_documents("alpha", "beta")
+        real_ingest = ingest_module.ingest_chunks
+
+        async def _recording_ingest(*args: object, **kwargs: Any) -> Any:
+            result = await real_ingest(*args, **kwargs)
+            events.append("write")
+            return result
+
+        monkeypatch.setattr(ingest_module, "ingest_chunks", _recording_ingest)
+        monkeypatch.setattr(
+            ingest_module, "iter_document_batches", _one_document_per_batch(docs)
+        )
+
+        with pytest.raises(RuntimeError, match="extractor down"):
+            await graph.add(documents=docs)
+
+        assert events == ["extract alpha", "write", "extract beta"]
+
+    async def test_large_list_writes_first_batch_before_later_failure(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Pre-built documents are written in batches of 100 before the next one."""
+        events: list[str] = []
+        graph = await Graph.open(
+            schema=DEFAULT_SCHEMA,
+            graph_store=_MockGraphStore(),
+            embedder=_MockEmbedder(),
+            extractor=_RecordingExtractor(events, fail_on="doc100"),
+        )
+        docs = _named_documents(*(f"doc{index:03d}" for index in range(101)))
+        real_ingest = ingest_module.ingest_chunks
+
+        async def _recording_ingest(*args: object, **kwargs: Any) -> Any:
+            result = await real_ingest(*args, **kwargs)
+            events.append("write")
+            return result
+
+        monkeypatch.setattr(ingest_module, "ingest_chunks", _recording_ingest)
+
+        with pytest.raises(RuntimeError, match="extractor down"):
+            await graph.add(documents=docs)
+
+        assert events == [
+            *(f"extract doc{index:03d}" for index in range(100)),
+            *["write"] * 100,
+            "extract doc100",
+        ]
+
+    async def test_progress_counts_writes_from_batches_already_committed(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Each progress result counts the writes of the batches committed so far."""
+        graph = await Graph.open(
+            schema=DEFAULT_SCHEMA,
+            graph_store=_MockGraphStore(),
+            embedder=_MockEmbedder(),
+            extractor=_RecordingExtractor([]),
+        )
+        docs = _named_documents("alpha", "beta")
+        monkeypatch.setattr(
+            ingest_module, "iter_document_batches", _one_document_per_batch(docs)
+        )
+        progress: list[Any] = []
+
+        await graph.add(documents=docs, on_progress=progress.append)
+
+        after_first, after_second = progress[0], progress[1]
+        assert after_first.storage.nodes_written == 2
+        assert after_first.storage.relationships_written == 2
+        assert after_second.storage.nodes_written == 4
+        assert after_second.storage.relationships_written == 4
+
+
 class TestGraphUpdate:
     """An update replaces one document version or deletes the document."""
 
