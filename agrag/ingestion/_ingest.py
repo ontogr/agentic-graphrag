@@ -110,6 +110,31 @@ def _with_cleanup_failures(
     return result.model_copy(update={"storage": storage})
 
 
+def _without_extraction_stamps(
+    chunks: list[Chunk], documents: list[Document]
+) -> tuple[list[Chunk], list[Document]]:
+    """Copy chunks and documents with the extraction stamp cleared.
+
+    A version with a failed extraction must not read as current. Without the
+    stamp, the next update sees a missing fingerprint and extracts the document
+    again.
+
+    Args:
+        chunks: The chunks of the version whose extraction failed.
+        documents: The documents of the same version.
+
+    Returns:
+        Copies of the chunks and the documents with no extraction fingerprint.
+    """
+    return (
+        [chunk.model_copy(update={"extraction_fingerprint": None}) for chunk in chunks],
+        [
+            document.model_copy(update={"extraction_fingerprint": None})
+            for document in documents
+        ],
+    )
+
+
 def _group_by_document(
     chunks: list[Chunk],
     documents: list[Document],
@@ -538,6 +563,11 @@ async def add_documents(  # noqa: PLR0912,PLR0915,PLR0913
         ) in _group_by_document(
             chunks, documents_seen, entities, relations, extraction_failures
         ):
+            written_chunks, written_documents = (
+                _without_extraction_stamps(doc_chunks, doc_documents)
+                if doc_failures
+                else (doc_chunks, doc_documents)
+            )
             components: list[MatchComponent] = []
             deferred = DeferredWrites()
 
@@ -552,8 +582,8 @@ async def add_documents(  # noqa: PLR0912,PLR0915,PLR0913
                     list[ExtractedRelation],
                     list[StageFailure],
                 ] = (
-                    doc_chunks,
-                    doc_documents,
+                    written_chunks,
+                    written_documents,
                     doc_entities,
                     doc_relations,
                     doc_failures,
@@ -726,16 +756,12 @@ async def update_document(  # noqa: PLR0913
         entities = extracted.entities
         relations = extracted.relations
         extraction_failures = extracted.failures
-        # A refresh with a failed chunk must not read as current. Dropping the
+        # A version with a failed chunk must not read as current. Dropping the
         # stamps makes the next update extract the document again instead of
         # returning a no-op.
         failed_chunk_ids = {failure.item_id for failure in extraction_failures}
-        if found is not None and failed_chunk_ids:
-            document = document.model_copy(update={"extraction_fingerprint": None})
-            chunks = [
-                chunk.model_copy(update={"extraction_fingerprint": None})
-                for chunk in chunks
-            ]
+        if failed_chunk_ids:
+            chunks, [document] = _without_extraction_stamps(chunks, [document])
 
         components: list[MatchComponent] = []
         deferred = DeferredWrites()

@@ -808,3 +808,45 @@ class TestSchemaChangeUpdate:
         }
         written = write_artifact("schema_change_failed_new_version", artifact)
         assert written == artifact
+
+    async def test_failed_first_add_is_extracted_again_on_next_update(
+        self, env: _Env
+    ) -> None:
+        """A first add whose extraction failed is not treated as current."""
+        key = env.key("doc")
+        text = env.text(_BODY)
+        failing = _KeywordExtractor(_full(env))
+        failing.fail_marker = env.run
+        failing_graph = await _open(env, _schema(env), failing, _RecordingEmbedder())
+        added = await failing_graph.add(
+            documents=[_document(key, text)], error_policy=ErrorPolicy.SKIP
+        )
+
+        assert len(added.extraction.failures) == 1
+        added_rows = await _open_chunks(env.store, key)
+        assert {row["extraction_fingerprint"] for row in added_rows} == {None}
+
+        graph = await _open(
+            env, _schema(env), _KeywordExtractor(_full(env)), _RecordingEmbedder()
+        )
+        retried = await graph.update(key, text=text)
+
+        assert retried.no_op is False
+        retried_ids = _chunk_ids(await _open_chunks(env.store, key))
+        assert await _mentioned_names(env.store, retried_ids) == [
+            "Ada",
+            "Bob",
+            "Paris",
+        ]
+
+        again = await graph.update(key, text=text)
+
+        assert again.no_op is True
+        artifact = {
+            "added_failures": len(added.extraction.failures),
+            "retried_no_op": retried.no_op,
+            "entities_after_retry": await _mentioned_names(env.store, retried_ids),
+            "repeat_no_op": again.no_op,
+        }
+        written = write_artifact("schema_change_failed_first_add", artifact)
+        assert written == artifact

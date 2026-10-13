@@ -541,6 +541,10 @@ class Graph:
         writes a second open version of the document; use ``update`` to
         replace a document.
 
+        If an extraction fails for a chunk, the document and its chunks are
+        written without the extraction stamp, so the next ``update`` extracts
+        them again instead of returning a no-op.
+
         Args:
             source: A file path, a directory, a glob, or a list of these.
             text: Raw text to add as one document.
@@ -640,12 +644,11 @@ class Graph:
         only the old run produced are removed. If the content, the chunker, or
         the schema structure differs, the new version is written. The old
         version closes at the commit, and entities that only the old version
-        produced are removed. If an extraction fails for a chunk during an update
-        of a stored document, the document is not stamped current, so the next
-        update extracts it again. An in-place update keeps the previous evidence
-        of the failed chunk. Chunks
-        written before the fingerprints were recorded are extracted in place
-        when their content, chunker, and schema match. A document closed by
+        produced are removed. If an extraction fails for a chunk, the document is
+        not stamped current, so the next update extracts it again. An in-place
+        update keeps the previous evidence of the failed chunk. Chunks written
+        before the fingerprints were recorded are extracted in place when their
+        content, chunker, and schema match. A document closed by
         ``delete_document`` has no open chunk, so the same text is added again.
 
         The new version ingests under a Cutover Job holding this document's
