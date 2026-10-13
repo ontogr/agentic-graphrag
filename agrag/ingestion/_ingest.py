@@ -726,6 +726,16 @@ async def update_document(  # noqa: PLR0913
         entities = extracted.entities
         relations = extracted.relations
         extraction_failures = extracted.failures
+        # A refresh with a failed chunk must not read as current. Dropping the
+        # stamps makes the next update extract the document again instead of
+        # returning a no-op.
+        failed_chunk_ids = {failure.item_id for failure in extraction_failures}
+        if found is not None and failed_chunk_ids:
+            document = document.model_copy(update={"extraction_fingerprint": None})
+            chunks = [
+                chunk.model_copy(update={"extraction_fingerprint": None})
+                for chunk in chunks
+            ]
 
         components: list[MatchComponent] = []
         deferred = DeferredWrites()
@@ -782,8 +792,15 @@ async def update_document(  # noqa: PLR0913
             in_place=(
                 InPlaceRefresh(
                     document_node_id=found.document_node_id,
-                    chunk_ids=[chunk.id for chunk in chunks if chunk.id is not None],
-                    extraction_fingerprint=run.extraction_fingerprint,
+                    chunk_ids=[
+                        chunk.id
+                        for chunk in chunks
+                        if chunk.id is not None
+                        and str(chunk.id) not in failed_chunk_ids
+                    ],
+                    extraction_fingerprint=(
+                        run.extraction_fingerprint if not failed_chunk_ids else None
+                    ),
                 )
                 if in_place and found is not None
                 else None

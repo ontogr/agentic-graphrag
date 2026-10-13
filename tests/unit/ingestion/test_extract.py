@@ -1118,6 +1118,37 @@ class TestBAMLExtractor:
         assert result.entities[0].properties == {"role": "engineer"}
 
     @staticmethod
+    async def test_missing_required_property_is_logged_and_entity_kept(
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """An entity without a required property stays and a warning names it."""
+        with caplog.at_level("WARNING", logger="agrag.ingestion.extract"):
+            result = await _extract(
+                _reply(entities=[("Person", "Ada")]), "Ada left.", _PROPERTY_SCHEMA
+            )
+
+        assert [entity.text for entity in result.entities] == ["Ada"]
+        assert "missing required properties: role" in caplog.text
+        assert "Person" in caplog.text
+
+    @staticmethod
+    async def test_present_required_property_logs_nothing(
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """An entity that carries its required property logs no warning."""
+        with caplog.at_level("WARNING", logger="agrag.ingestion.extract"):
+            await _extract(
+                _reply(
+                    entities=[("Person", "Ada")],
+                    properties={"Ada": {"role": "author"}},
+                ),
+                "Ada left.",
+                _PROPERTY_SCHEMA,
+            )
+
+        assert "missing required properties" not in caplog.text
+
+    @staticmethod
     async def test_adds_a_properties_field_only_for_property_schemas() -> None:
         """The answer shape has `properties` exactly when a type declares one."""
 

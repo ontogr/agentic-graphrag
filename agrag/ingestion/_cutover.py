@@ -54,13 +54,21 @@ class CutoverJobLeaseError(Exception):
 class InPlaceRefresh:
     """What the commit transaction changes for a re-extract that keeps its chunks.
 
-    The commit removes the document's old entity mentions and its evidence from
-    relations, then stamps the kept chunks with the new extraction fingerprint.
+    The commit removes the old entity mentions and evidence of the refreshed
+    chunks, then stamps them with the new extraction fingerprint. Chunks that
+    were left out of ``chunk_ids`` because their extraction failed keep their
+    evidence and their stamps.
+
+    Attributes:
+        document_node_id: The id of the Document node that owns the chunks.
+        chunk_ids: The open chunks whose old evidence the commit replaces.
+        extraction_fingerprint: The stamp for ``chunk_ids``, or ``None`` when
+            the commit must leave the stamps as they are.
     """
 
     document_node_id: UUID
     chunk_ids: Sequence[UUID]
-    extraction_fingerprint: str
+    extraction_fingerprint: str | None
 
 
 T = TypeVar("T")
@@ -395,13 +403,13 @@ async def _commit_pending_writes(
 
     The deferred writes over committed rows run right after the flip, so a
     replay that hits a row another job owns rolls the whole commit back.
-    When ``in_place`` is set, the document's committed evidence is retracted
-    before the replay: its chunk ids leave the relations they evidence, relations
-    left with no evidence are deleted, and its committed MENTIONED_IN edges are
-    dropped. The kept chunks are then stamped with the new extraction
-    fingerprint. The job's new relations are folded into their canonical ids in
-    the same transaction, and the commit is retried when two jobs promote one
-    relation at the same moment.
+    When ``in_place`` is set, the committed evidence of its chunk ids is
+    retracted before the replay: those chunk ids leave the relations they
+    evidence, relations left with no evidence are deleted, and their committed
+    MENTIONED_IN edges are dropped. The refreshed chunks are then stamped with
+    the new extraction fingerprint, unless it is ``None``. The job's new
+    relations are folded into their canonical ids in the same transaction, and
+    the commit is retried when two jobs promote one relation at the same moment.
     """
     job_arg = str(job_id)
     token_arg = str(token)
@@ -425,14 +433,17 @@ async def _commit_pending_writes(
         # the relations it does not find stay gone. The retraction reads the
         # MENTIONED_IN edges, so it runs before they are deleted.
         if in_place is not None:
-            document_params = {"document_node_id": str(in_place.document_node_id)}
+            refresh_params = {
+                "document_node_id": str(in_place.document_node_id),
+                "chunk_ids": [str(chunk_id) for chunk_id in in_place.chunk_ids],
+            }
             await txn.execute_write(
-                retract_document_relation_evidence_query(), document_params
+                retract_document_relation_evidence_query(), refresh_params
             )
-            await txn.execute_write(delete_document_mentions_query(), document_params)
+            await txn.execute_write(delete_document_mentions_query(), refresh_params)
         await replay_deferred(txn, deferred)
         await fold_job_relations(txn, job_id=job_id)
-        if in_place is not None:
+        if in_place is not None and in_place.extraction_fingerprint is not None:
             await txn.execute_write(
                 set_chunk_extraction_fingerprint_query(),
                 {

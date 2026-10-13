@@ -29,8 +29,9 @@ class UpdateDecision(StrEnum):
 
     Attributes:
         NO_OP: The stored version matches the new input in every stamp.
-        IN_PLACE: Only the extraction setup differs, so the chunks are kept
-            and re-extracted.
+        IN_PLACE: Only the extraction setup differs or was never recorded
+            (a refresh whose extraction failed), so the chunks are kept and
+            re-extracted.
         NEW_VERSION: The content, the chunking, the schema or the stamps are
             missing or differ, so a new version is written.
     """
@@ -68,11 +69,11 @@ class DocumentLookup(BaseModel):
     ) -> UpdateDecision:
         """Pick the update outcome for a new input against the stored version.
 
-        A document without an open chunk, or whose chunk has no extraction
-        stamp, is always rewritten, because its chunks cannot be trusted to
-        match the new run. Any change to the content, the chunking or the
-        schema also rewrites it. Only an extraction change alone keeps the
-        chunks.
+        A document without an open chunk is always written as a new version.
+        So is any change to the content, the chunking or the schema. When those
+        match, the chunks are kept and re-extracted in place if the extraction
+        stamp differs or is missing. A missing stamp marks a version whose
+        extraction failed, so it is retried rather than treated as current.
 
         Args:
             content_hash: The content hash of the new input.
@@ -84,15 +85,14 @@ class DocumentLookup(BaseModel):
         """
         if (
             not self.has_open_chunks
-            or self.current_extraction_fingerprint is None
             or self.current_content_hash != content_hash
             or self.current_chunker_hash != chunker_hash
             or self.current_schema_fingerprint != run.schema_fingerprint
         ):
             return UpdateDecision.NEW_VERSION
-        if self.current_extraction_fingerprint != run.extraction_fingerprint:
-            return UpdateDecision.IN_PLACE
-        return UpdateDecision.NO_OP
+        if self.current_extraction_fingerprint == run.extraction_fingerprint:
+            return UpdateDecision.NO_OP
+        return UpdateDecision.IN_PLACE
 
 
 async def find_document(

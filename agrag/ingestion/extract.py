@@ -109,6 +109,41 @@ def _raw_properties(entity: object) -> dict[str, object]:
     return dict(value) if isinstance(value, dict) else {}
 
 
+def _log_missing_required_properties(
+    chunk_id: UUID, entities: Sequence[ExtractedEntity], schema: GraphSchema
+) -> None:
+    """Log one warning for each entity that omits a required property.
+
+    The entities are kept; the warning only reports the gap. Only properties
+    declared on the entity's own label count. The message holds the label,
+    the chunk id and the property names, never the chunk text.
+
+    Args:
+        chunk_id: The id of the chunk the entities were found in.
+        entities: The entities located in the chunk.
+        schema: The schema whose entity types declare the properties.
+    """
+    required_by_label = {
+        entity_type.label: [
+            name for name, spec in entity_type.properties.items() if spec.required
+        ]
+        for entity_type in schema.entities
+    }
+    for entity in entities:
+        missing = [
+            name
+            for name in required_by_label.get(entity.label, [])
+            if name not in entity.properties
+        ]
+        if missing:
+            logger.warning(
+                "Entity of label %s in chunk %s is missing required properties: %s",
+                entity.label,
+                chunk_id,
+                ", ".join(missing),
+            )
+
+
 def _resolve_relation_pair(
     relation: object,
     text_index: dict[str, list[int]],
@@ -925,6 +960,9 @@ class BAMLExtractor(LLMExtractor):
             )
             for entity, start, end in located
         ]
+        # A missing required property is reported rather than enforced, so the
+        # entity stays in the result and the gap is visible in the logs.
+        _log_missing_required_properties(chunk_id, entities, schema)
         text_index: dict[str, list[int]] = {}
         for index, (entity, _, _) in enumerate(located):
             text_index.setdefault(endpoint_key(entity.text), []).append(index)

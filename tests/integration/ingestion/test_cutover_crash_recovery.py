@@ -15,6 +15,7 @@ the extra installed the tests expect a reachable Neo4j at the default
 import asyncio
 import hashlib
 import importlib.util
+import re
 import unicodedata
 from collections.abc import AsyncIterator, Sequence
 from typing import Any
@@ -46,8 +47,25 @@ _INCOMPLETE_JOB_STATUSES = ["pending", "committed", "cleaning"]
 pytestmark = pytest.mark.asyncio(loop_scope="module")
 
 
+# Names built by ``_grow_component``: a component prefix, a space, then a
+# uuid4 hex stem and one index digit.
+_COMPONENT_NAME = re.compile(r"(.+) [0-9a-f]{32}\d")
+
+
+def _embedding_key(text: str) -> str:
+    """Return the component prefix of a generated name, or the text itself."""
+    match = _COMPONENT_NAME.fullmatch(text)
+    return match.group(1) if match else text
+
+
 class _FixedEmbedder(Embedder):
-    """Deterministic embedder for crash-recovery tests."""
+    """Deterministic embedder for crash-recovery tests.
+
+    Members of one generated component share a vector. Resolution finds
+    persisted candidates by nearest-neighbour search over every Person in
+    the shared store, keeping only the top hits, so unrelated hash vectors
+    would make a member's match depend on what concurrent tests wrote.
+    """
 
     model = "fixed"
 
@@ -56,10 +74,14 @@ class _FixedEmbedder(Embedder):
         return 4
 
     async def embed(self, texts: Sequence[str]) -> list[list[float]]:
-        """Return a vector derived from each text, identical for equal texts."""
+        """Return a vector derived from each text's embedding key.
+
+        Equal keys give equal vectors, so each component member is the
+        exact nearest match for the others.
+        """
         return [
-            [byte / 127.5 - 1.0 for byte in hashlib.sha256(text.encode()).digest()[:4]]
-            for text in texts
+            [byte / 127.5 - 1.0 for byte in hashlib.sha256(key.encode()).digest()[:4]]
+            for key in (_embedding_key(text) for text in texts)
         ]
 
 
