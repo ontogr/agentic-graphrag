@@ -55,7 +55,7 @@ def endpoint_type(labels: Sequence[str], schema: GraphSchema) -> str | None:
 
 
 def declares_property(schema: GraphSchema, entity_label: str, name: str) -> bool:
-    """Check whether an entity type or an ancestor declares a property.
+    """Check whether an entity type directly declares a property.
 
     Args:
         schema: Schema containing entity definitions.
@@ -63,14 +63,12 @@ def declares_property(schema: GraphSchema, entity_label: str, name: str) -> bool
         name: Property name to find.
 
     Returns:
-        Whether the type or any declared ancestor defines the property.
+        Whether the entity type directly defines the property.
     """
-    by_label = {entity.label: entity for entity in schema.entities}
-    return any(
-        name in by_label[label].properties
-        for label in (entity_label, *schema.ancestors(entity_label))
-        if label in by_label
+    entity = next(
+        (entity for entity in schema.entities if entity.label == entity_label), None
     )
+    return entity is not None and name in entity.properties
 
 
 def plan_patch(

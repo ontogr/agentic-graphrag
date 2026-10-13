@@ -7,14 +7,18 @@ write creates the candidate schema itself.
 
 import asyncio
 import importlib.util
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Mapping
+from typing import Any
 from uuid import uuid4
 
 import pytest
 import pytest_asyncio
 
-from agrag.common.data_models.candidate import CANDIDATE_LABEL
+from agrag.candidates import reject_candidates
+from agrag.common.data_models.candidate import CANDIDATE_LABEL, CandidateRecord
+from agrag.common.data_models.chunk import CHUNK_LABEL
 from agrag.common.data_models.graph_record import RelationRecord
+from agrag.cypher.entities import NODE_IDENTITY_LABEL
 from agrag.graphdb import build_graph_store
 from agrag.graphdb.base import GraphStore
 
@@ -54,6 +58,70 @@ async def test_concurrent_first_candidate_writes_both_succeed(
     assert second.failures == []
     assert await fresh_store.blocked_candidate_keys([]) == set()
     assert constraints == [{"name": "candidate_id_unique"}]
+
+
+async def test_write_after_review_transition_is_suppressed_successfully(
+    fresh_store: GraphStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A review between preflight and upsert blocks a twin without a failure."""
+    chunk_id = uuid4()
+    text = f"Candidate {uuid4()}"
+    first = CandidateRecord(
+        kind="entity",
+        label="Person",
+        text=text,
+        confidence=0.8,
+        reason="off_pattern",
+        chunk_id=chunk_id,
+    )
+    second = first.model_copy(update={"id": uuid4()})
+    await fresh_store.execute_write(
+        f"CREATE (chunk:{NODE_IDENTITY_LABEL}:{CHUNK_LABEL} {{id: $id}})",
+        {"id": str(chunk_id)},
+    )
+    assert (await fresh_store.upsert_candidates([first])).written == 1
+
+    preflight_complete = asyncio.Event()
+    continue_write = asyncio.Event()
+    execute_read = fresh_store.execute_read
+
+    async def pause_after_preflight(
+        query: str, parameters: Mapping[str, Any] | None = None
+    ) -> list[dict[str, Any]]:
+        rows = await execute_read(query, parameters)
+        if parameters and parameters.get("keys") == [first.key]:
+            preflight_complete.set()
+            await continue_write.wait()
+        return rows
+
+    monkeypatch.setattr(fresh_store, "execute_read", pause_after_preflight)
+    write_task = asyncio.create_task(fresh_store.upsert_candidates([second]))
+    try:
+        await preflight_complete.wait()
+        review = await reject_candidates(fresh_store, keys=[first.key])
+        assert review.changed == [first.key]
+    finally:
+        continue_write.set()
+
+    result = await write_task
+    candidates = await fresh_store.execute_read(
+        f"MATCH (candidate:{CANDIDATE_LABEL} {{key: $key}}) "
+        "RETURN candidate.id AS id, candidate.state AS state ORDER BY id",
+        {"key": first.key},
+    )
+
+    assert result.written == 1
+    assert result.failures == []
+    assert candidates == [{"id": str(first.id), "state": "rejected"}]
+    await fresh_store.execute_write(
+        f"MATCH (candidate:{CANDIDATE_LABEL} {{id: $id}}) DETACH DELETE candidate",
+        {"id": str(first.id)},
+    )
+    await fresh_store.execute_write(
+        f"MATCH (chunk:{NODE_IDENTITY_LABEL}:{CHUNK_LABEL} {{id: $id}}) "
+        "DETACH DELETE chunk",
+        {"id": str(chunk_id)},
+    )
 
 
 async def test_relation_with_a_candidate_edge_type_is_refused(

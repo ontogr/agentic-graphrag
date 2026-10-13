@@ -9,7 +9,7 @@ sidebar_label: declares_property
 declares_property(schema:GraphSchema, entity_label:str, name:str) -> bool
 ```
 
-Check whether an entity type or an ancestor declares a property.
+Check whether an entity type directly declares a property.
 
 **Parameters:**
 
@@ -19,4 +19,4 @@ Check whether an entity type or an ancestor declares a property.
 
 **Returns:**
 
-- <code>bool</code> – Whether the type or any declared ancestor defines the property.
+- <code>bool</code> – Whether the entity type directly defines the property.

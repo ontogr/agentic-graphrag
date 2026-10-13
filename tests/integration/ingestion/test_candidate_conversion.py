@@ -29,7 +29,7 @@ neo4j_missing = importlib.util.find_spec("neo4j") is None
 class TestCandidateConversionIntegration:
     """Conversion preserves graph identity and removes only handled candidates."""
 
-    async def test_converts_once_and_folds_exact_name(self, tmp_path) -> None:
+    async def test_converts_once_and_folds_exact_name(self, tmp_path) -> None:  # noqa: PLR0915
         """Entity conversion and folding retain evidence and become no-ops."""
         store = build_graph_store("neo4j")
         await store.connect()
@@ -42,7 +42,10 @@ class TestCandidateConversionIntegration:
                 EntityType(
                     label=person,
                     description="A person.",
-                    properties={"score": PropertySpec(type="integer")},
+                    properties={
+                        "score": PropertySpec(type="integer"),
+                        "description": PropertySpec(type="string"),
+                    },
                 )
             ],
             relations=[
@@ -53,10 +56,15 @@ class TestCandidateConversionIntegration:
                 )
             ],
         )
-        candidate_id, fold_id, relation_candidate_id, property_candidate_id = (
-            uuid4() for _ in range(4)
-        )
-        chunk_id, owner_id = uuid4(), uuid4()
+        (
+            candidate_id,
+            fold_id,
+            relation_candidate_id,
+            property_candidate_id,
+            conflicting_property_id,
+            description_candidate_id,
+        ) = (uuid4() for _ in range(6))
+        chunk_id, property_chunk_id, owner_id = uuid4(), uuid4(), uuid4()
         patch = SchemaPatch(
             patch_id=uuid4().hex[:16],
             created_at=datetime.now(UTC),
@@ -66,6 +74,8 @@ class TestCandidateConversionIntegration:
                 fold_id,
                 relation_candidate_id,
                 property_candidate_id,
+                conflicting_property_id,
+                description_candidate_id,
             ],
             additions={"entities": [], "relations": []},
         )
@@ -75,9 +85,12 @@ class TestCandidateConversionIntegration:
                 f"CREATE (owner:{NODE_IDENTITY_LABEL}:{person} {{id: $owner, "
                 "name: 'Existing', merge_key: $merge_key, merge_count: 1, "
                 "source_chunk_ids: []}) "
-                "CREATE (a:_MergeAlias {merge_key: $merge_key, entity_id: $owner})",
+                "CREATE (a:_MergeAlias {merge_key: $merge_key, entity_id: $owner}) "
+                f"CREATE (property_chunk:{NODE_IDENTITY_LABEL}:Chunk "
+                "{id: $property_chunk})",
                 {
                     "chunk": str(chunk_id),
+                    "property_chunk": str(property_chunk_id),
                     "owner": str(owner_id),
                     "merge_key": f"{person}:existing",
                 },
@@ -116,17 +129,36 @@ class TestCandidateConversionIntegration:
                 "schema_fingerprint: 'old', chunk_id: $chunk}) "
                 "WITH relation, property MATCH (chunk:_Node {id: $chunk}) "
                 "CREATE (relation)-[:EVIDENCED_BY]->(chunk) "
-                "CREATE (property)-[:EVIDENCED_BY]->(chunk)",
+                "CREATE (property)-[:EVIDENCED_BY]->(chunk) "
+                "WITH relation, property, chunk "
+                "CREATE (conflict:Candidate {id: $conflict_id, kind: 'property', "
+                "label: 'score', text: '43', source_text: 'Existing', "
+                "source_entity_id: $owner, source_label: $person, state: 'approved', "
+                "count: 1, confidence: 1.0, reason: 'property', "
+                "schema_fingerprint: 'old', chunk_id: $chunk}) "
+                "CREATE (conflict)-[:EVIDENCED_BY]->(chunk) "
+                "WITH relation, property, chunk "
+                "CREATE (description:Candidate {id: $description_id, kind: 'property', "
+                "label: 'description', text: 'A useful person.', "
+                "source_text: 'Existing', source_entity_id: $owner, "
+                "source_label: $person, state: 'approved', count: 1, "
+                "confidence: 1.0, reason: 'property', schema_fingerprint: 'old', "
+                "chunk_id: $property_chunk}) "
+                "WITH description MATCH (property_chunk:_Node {id: $property_chunk}) "
+                "CREATE (description)-[:EVIDENCED_BY]->(property_chunk)",
                 {
                     "relation_id": str(relation_candidate_id),
                     "property_id": str(property_candidate_id),
+                    "conflict_id": str(conflicting_property_id),
+                    "description_id": str(description_candidate_id),
                     "owner": str(owner_id),
                     "person": person,
                     "chunk": str(chunk_id),
+                    "property_chunk": str(property_chunk_id),
                 },
             )
 
-            graph = await Graph.open(
+            graph = Graph(
                 schema=schema,
                 graph_store=store,
                 embedder=_IntegrationEmbedder(),
@@ -137,6 +169,8 @@ class TestCandidateConversionIntegration:
             assert report.folded == 1
             assert report.created_relations == 1
             assert report.set_properties == 1
+            assert report.skipped[str(property_candidate_id)] == "property_conflict"
+            assert report.skipped[str(conflicting_property_id)] == "property_conflict"
             artifact = tmp_path / "conversion-report.json"
             artifact.write_text(report.model_dump_json(indent=2), encoding="utf-8")
             assert artifact.is_file()
@@ -148,7 +182,7 @@ class TestCandidateConversionIntegration:
             )
             assert len(converted) == 1
             assert person in converted[0]["labels"]
-            assert converted[0]["embedding"] == [1.0, 0.0, 0.0]
+            assert converted[0]["embedding"] == [1.0, 0.0, 0.0, 0.0]
             candidate_edges = await store.execute_read(
                 "MATCH (entity:_Node {id: $id})-[edge:SOURCE|TARGET]-() "
                 "RETURN count(edge) AS count",
@@ -172,9 +206,9 @@ class TestCandidateConversionIntegration:
                 "owner.source_chunk_ids AS source_chunk_ids",
                 {"chunk": str(chunk_id), "owner": str(owner_id)},
             )
-            assert folded_owner == [
-                {"merge_count": 2, "source_chunk_ids": [str(chunk_id)]}
-            ]
+            assert folded_owner[0]["merge_count"] == 2
+            assert str(chunk_id) in folded_owner[0]["source_chunk_ids"]
+            assert str(property_chunk_id) in folded_owner[0]["source_chunk_ids"]
             converted_relation = await store.execute_read(
                 "MATCH (owner:_Node {id: $owner})-[edge:WORKS_FOR]->(owner) "
                 "RETURN edge.source_chunk_ids AS chunks",
@@ -185,45 +219,77 @@ class TestCandidateConversionIntegration:
                 f"MATCH (owner:{person} {{id: $owner}}) RETURN owner.score AS score",
                 {"owner": str(owner_id)},
             )
-            assert property_value[0]["score"] == 42
+            assert property_value[0]["score"] is None
+            retained_conflicts = await store.execute_read(
+                "MATCH (c:Candidate) WHERE c.id IN $ids "
+                "RETURN count(*) AS count, collect(DISTINCT c.state) AS states",
+                {
+                    "ids": [
+                        str(property_candidate_id),
+                        str(conflicting_property_id),
+                    ]
+                },
+            )
+            assert retained_conflicts == [{"count": 2, "states": ["approved"]}]
+            property_provenance = await store.execute_read(
+                f"MATCH (owner:{person} {{id: $owner}}) "
+                "RETURN owner.description AS description, "
+                "owner.source_chunk_ids AS source_chunk_ids",
+                {"owner": str(owner_id)},
+            )
+            assert property_provenance[0]["description"] == "A useful person."
+            assert set(property_provenance[0]["source_chunk_ids"]) == {
+                str(chunk_id),
+                str(property_chunk_id),
+            }
 
             repeated = await graph.convert_candidates(patch)
             assert repeated.converted_entities == 0
             assert repeated.folded == 0
             assert repeated.skipped[str(candidate_id)] == "not approved"
             assert repeated.skipped[str(relation_candidate_id)] == "not approved"
-            assert repeated.skipped[str(property_candidate_id)] == "not approved"
+            assert repeated.skipped[str(property_candidate_id)] == "property_conflict"
         finally:
-            await store.execute_write(
-                "MATCH (n:_Node) WHERE n.id IN $ids DETACH DELETE n",
-                {
-                    "ids": [
-                        str(candidate_id),
-                        str(fold_id),
-                        str(relation_candidate_id),
-                        str(property_candidate_id),
-                        str(chunk_id),
-                        str(owner_id),
-                    ]
-                },
-            )
-            await store.execute_write(
-                "MATCH (a:_MergeAlias) WHERE a.entity_id IN $ids DELETE a",
-                {"ids": [str(owner_id), str(candidate_id)]},
-            )
-            await store.execute_write(
-                "MATCH (candidate:Candidate) WHERE candidate.id IN $ids "
-                "DETACH DELETE candidate",
-                {
-                    "ids": [
-                        str(candidate_id),
-                        str(fold_id),
-                        str(relation_candidate_id),
-                        str(property_candidate_id),
-                    ]
-                },
-            )
             await store.close()
+            cleanup_store = build_graph_store("neo4j")
+            await cleanup_store.connect()
+            try:
+                await cleanup_store.execute_write(
+                    "MATCH (n:_Node) WHERE n.id IN $ids DETACH DELETE n",
+                    {
+                        "ids": [
+                            str(candidate_id),
+                            str(fold_id),
+                            str(relation_candidate_id),
+                            str(property_candidate_id),
+                            str(conflicting_property_id),
+                            str(description_candidate_id),
+                            str(chunk_id),
+                            str(property_chunk_id),
+                            str(owner_id),
+                        ]
+                    },
+                )
+                await cleanup_store.execute_write(
+                    "MATCH (a:_MergeAlias) WHERE a.entity_id IN $ids DELETE a",
+                    {"ids": [str(owner_id), str(candidate_id)]},
+                )
+                await cleanup_store.execute_write(
+                    "MATCH (candidate:Candidate) WHERE candidate.id IN $ids "
+                    "DETACH DELETE candidate",
+                    {
+                        "ids": [
+                            str(candidate_id),
+                            str(fold_id),
+                            str(relation_candidate_id),
+                            str(property_candidate_id),
+                            str(conflicting_property_id),
+                            str(description_candidate_id),
+                        ]
+                    },
+                )
+            finally:
+                await cleanup_store.close()
 
 
 class _IntegrationEmbedder(Embedder):
@@ -232,10 +298,10 @@ class _IntegrationEmbedder(Embedder):
     model = "candidate-conversion-test"
 
     async def dimensions(self) -> int:
-        return 3
+        return 4
 
     async def embed(self, texts: Sequence[str]) -> list[list[float]]:
-        return [[1.0, 0.0, 0.0] for _ in texts]
+        return [[1.0, 0.0, 0.0, 0.0] for _ in texts]
 
 
 class _IntegrationExtractor(Extractor):

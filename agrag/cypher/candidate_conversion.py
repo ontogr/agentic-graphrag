@@ -168,7 +168,10 @@ def set_candidate_property_query(property_name: str) -> str:
         f"AND {pending_filter_clause('chunk')} "
         "WITH c, entity, row, collect(DISTINCT chunk.id) AS chunk_ids "
         "WHERE size(chunk_ids) = size(row.chunk_ids) "
-        f"SET entity.{property_name} = row.value "
+        f"SET entity.{property_name} = row.value, "
+        "entity.source_chunk_ids = coalesce(entity.source_chunk_ids, []) + "
+        "[chunk IN row.chunk_ids WHERE NOT chunk IN "
+        "coalesce(entity.source_chunk_ids, [])] "
         "RETURN c.id AS candidate_id, entity.id AS id"
     )
 

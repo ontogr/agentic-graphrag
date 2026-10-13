@@ -84,6 +84,8 @@ def _resolve_endpoint(
     owner_map: dict[str, set[str]],
     labels: dict[str, list[str]],
     schema: GraphSchema,
+    *,
+    expected_type: str | None,
 ) -> tuple[str | None, str | None]:
     owners = (
         {str(entity_id)}
@@ -91,7 +93,9 @@ def _resolve_endpoint(
         else {
             owner
             for key, found in owner_map.items()
-            if text and key.endswith(":" + normalize_text(text))
+            if text
+            and key.endswith(":" + normalize_text(text))
+            and (expected_type is None or key.startswith(expected_type + ":"))
             for owner in found
         }
     )
@@ -137,12 +141,17 @@ async def list_candidates(
         raise ValueError("limit and skip must not be negative.")
     rows = await graph_store.execute_read(
         list_candidates_query(),
-        {**_filter_params(query or CandidateQuery()), "limit": limit, "skip": skip},
+        {
+            **_filter_params(query or CandidateQuery()),
+            "limit": 2**63 - 1 if schema is not None and not include_covered else limit,
+            "skip": 0 if schema is not None and not include_covered else skip,
+        },
     )
     groups = [CandidateGroup.from_row(row) for row in rows]
     if schema is None or include_covered:
         return groups
-    return [group for group in groups if not _is_covered(group, schema)]
+    visible = [group for group in groups if not _is_covered(group, schema)]
+    return visible[skip : skip + limit]
 
 
 async def move_candidates(
@@ -418,8 +427,16 @@ async def _resolve_endpoints(
         if record.kind == "relation":
             sides.append(("target", record.target_entity_id, record.target_text))
         for side, entity_id, text in sides:
+            expected_type = (
+                record.source_label if side == "source" else record.target_label
+            )
             owner, reason = _resolve_endpoint(
-                entity_id, text, owner_map, labels, schema
+                entity_id,
+                text,
+                owner_map,
+                labels,
+                schema,
+                expected_type=expected_type,
             )
             if reason:
                 break

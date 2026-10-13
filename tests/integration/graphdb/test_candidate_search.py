@@ -7,7 +7,6 @@ from uuid import uuid4
 import pytest
 import pytest_asyncio
 
-from agrag.agents.ledger import Ledger
 from agrag.agents.tools.candidates import make_search_candidates_tool
 from agrag.common.data_models.candidate import (
     CANDIDATE_LABEL,
@@ -175,14 +174,14 @@ class TestSearchCandidates:
             assert limited == found[:1]
             assert await engine.search_candidates("!? aa") == []
 
-            ledger = Ledger()
             tool = make_search_candidates_tool(engine)
             response = await tool.ainvoke({"query": f"ACME? {token}"})
             response_lines = response.splitlines()
-            assert response_lines[1].startswith("unreviewed entity ")
-            assert response_lines[2].startswith("unreviewed relation ")
-            assert all("unreviewed" in line.lower() for line in response_lines)
-            assert ledger.keys == []
+            assert '"kind": "entity"' in response_lines[1]
+            assert '"kind": "relation"' in response_lines[2]
+            assert '"state": "pending"' in response_lines[1]
+            assert '"state": "approved"' in response_lines[2]
+            assert "not graph facts" in response_lines[0]
         finally:
             await store.execute_write(
                 f"MATCH (candidate:{CANDIDATE_LABEL}) "

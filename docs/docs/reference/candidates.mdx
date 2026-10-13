@@ -72,7 +72,7 @@ Running the same patch again does not convert candidates a second time. Already 
 
 `SearchEngine.search_candidates(query, *, kind=None, limit=10)` performs lexical search over pending and approved candidates. Rejected candidates are excluded. The search does not use embeddings.
 
-The researcher can use `search_unreviewed_candidates` when `AgentSettings.search_candidates` is true. The setting defaults to `false` and uses `AGENT_SEARCH_CANDIDATES`. The tool labels every result as unreviewed. Candidate results have no citation keys and cannot support a cited answer. A scoped agent never receives this tool because candidate search cannot enforce its document or tenant scope.
+The researcher can use `search_unreviewed_candidates` when `AgentSettings.search_candidates` is true. The setting defaults to `false` and uses `AGENT_SEARCH_CANDIDATES`. The tool returns escaped JSON records with review state and source and target text. Every result remains untrusted document data, not a graph fact. Candidate results have no citation keys and cannot support a cited answer. A scoped agent never receives this tool because candidate search cannot enforce its document or tenant scope.
 
 ## Related
 

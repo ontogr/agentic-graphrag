@@ -35,6 +35,70 @@ neo4j_missing = importlib.util.find_spec("neo4j") is None
 class TestCandidateReview:
     """Review transitions preserve candidate state and create a patch."""
 
+    async def test_covered_relation_keeps_candidate_id_with_typed_endpoint(
+        self,
+    ) -> None:
+        """A covered relation is retained when a known label resolves ambiguity."""
+        store = build_graph_store("neo4j")
+        await store.connect()
+        ids = {name: uuid4() for name in ("chunk", "ada", "person", "org", "edge")}
+        record = CandidateRecord(
+            id=ids["edge"],
+            kind="relation",
+            label="WORKS_FOR",
+            source_text="Ada",
+            target_text="Beacon",
+            target_label="Organization",
+            confidence=0.8,
+            reason="unresolved_endpoint",
+            chunk_id=ids["chunk"],
+        )
+        try:
+            await store.execute_write(
+                f"CREATE (c:{NODE_IDENTITY_LABEL}:{CHUNK_LABEL} {{id: $chunk}}), "
+                "(p:_Node:Person {id: $person, name: 'Beacon', "
+                "merge_key: 'Person:beacon'}), "
+                "(o:_Node:Organization {id: $org, name: 'Beacon', "
+                "merge_key: 'Organization:beacon'}), "
+                "(a:_MergeAlias {merge_key: 'Person:ada', entity_id: $ada}), "
+                "(p_alias:_MergeAlias {merge_key: 'Person:beacon', "
+                "entity_id: $person}), "
+                "(o_alias:_MergeAlias {merge_key: 'Organization:beacon', "
+                "entity_id: $org})",
+                {name: str(value) for name, value in ids.items()},
+            )
+            await store.execute_write(
+                "CREATE (a:_Node:Person {id: $id, name: 'Ada', "
+                "merge_key: 'Person:ada'})",
+                {"id": str(ids["ada"])},
+            )
+            await store.upsert_candidates([record])
+
+            listed = await list_candidates(
+                store,
+                CandidateQuery(label="WORKS_FOR"),
+                schema=DEFAULT_SCHEMA,
+            )
+            assert len(listed) == 1
+            assert listed[0].candidate.source_label is None
+
+            approval = await approve_candidates(store, DEFAULT_SCHEMA, ids=[record.id])
+
+            assert approval.outcome.changed == [record.key]
+            assert approval.patch is not None
+            assert approval.patch.candidate_ids == [record.id]
+            assert approval.patch.additions["relations"] == []
+        finally:
+            await store.execute_write(
+                "MATCH (n) WHERE n.id IN $ids DETACH DELETE n",
+                {"ids": [str(value) for value in ids.values()]},
+            )
+            await store.execute_write(
+                "MATCH (a:_MergeAlias) WHERE a.entity_id IN $ids DELETE a",
+                {"ids": [str(ids[name]) for name in ("ada", "person", "org")]},
+            )
+            await store.close()
+
     async def test_lists_approves_and_rejects_candidates(self) -> None:
         """Approval returns schema additions and rejection remains in the store."""
         store = build_graph_store("neo4j")
@@ -56,6 +120,15 @@ class TestCandidateReview:
             reason="entity_band",
             chunk_id=uuid4(),
         )
+        covered_record = CandidateRecord(
+            kind="entity",
+            label="Person",
+            text="Covered sample",
+            confidence=0.9,
+            reason="entity_band",
+            chunk_id=uuid4(),
+            count=3,
+        )
         try:
             await store.execute_write(
                 f"CREATE (c:{NODE_IDENTITY_LABEL}:{CHUNK_LABEL} {{id: $id}})",
@@ -67,13 +140,21 @@ class TestCandidateReview:
             rejected_candidate = reject_record.model_copy(
                 update={"chunk_id": UUID(chunk_id)}
             )
-            await store.upsert_candidates([approved_candidate, rejected_candidate])
+            covered_candidate = covered_record.model_copy(
+                update={"chunk_id": UUID(chunk_id)}
+            )
+            await store.upsert_candidates(
+                [approved_candidate, rejected_candidate, covered_candidate]
+            )
 
             groups = await list_candidates(
                 store, CandidateQuery(label="ReviewNovelEntity")
             )
             assert len(groups) == 1
             assert groups[0].count == 1
+            visible_page = await list_candidates(store, schema=DEFAULT_SCHEMA, limit=1)
+            assert len(visible_page) == 1
+            assert visible_page[0].candidate.label == "ReviewNovelEntity"
             approval = await approve_candidates(
                 store, DEFAULT_SCHEMA, ids=[approved_candidate.id]
             )
@@ -97,7 +178,14 @@ class TestCandidateReview:
         finally:
             await store.execute_write(
                 "MATCH (n) WHERE n.id IN $ids DETACH DELETE n",
-                {"ids": [chunk_id, str(approve_record.id), str(reject_record.id)]},
+                {
+                    "ids": [
+                        chunk_id,
+                        str(approve_record.id),
+                        str(reject_record.id),
+                        str(covered_record.id),
+                    ]
+                },
             )
             await store.close()
 
@@ -289,7 +377,7 @@ class TestCandidateReview:
                 ],
                 output=patch_path,
             )
-            assert approval.outcome.changed == [records[0].key, records[1].key]
+            assert set(approval.outcome.changed) == {records[0].key, records[1].key}
             assert (
                 approval.outcome.skipped[str(ids["ambiguous_relation"])]
                 == "endpoint_ambiguous"
@@ -399,10 +487,10 @@ class _ReviewEmbedder(Embedder):
     model = "candidate-review-test"
 
     async def dimensions(self) -> int:
-        return 3
+        return 4
 
     async def embed(self, texts: Sequence[str]) -> list[list[float]]:
-        return [[1.0, 0.0, 0.0] for _ in texts]
+        return [[1.0, 0.0, 0.0, 0.0] for _ in texts]
 
 
 class _ReviewExtractor(Extractor):

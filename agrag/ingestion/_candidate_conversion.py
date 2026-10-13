@@ -337,6 +337,9 @@ async def _plan_properties(
     types = {entity.label: entity for entity in schema.entities}
     planned: dict[str, list[dict[str, Any]]] = defaultdict(list)
     handled_candidates: list[str] = []
+    candidates_by_property: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(
+        list
+    )
     for record, chunks in items:
         candidate_id = str(record.id)
         owner = record.source_entity_id
@@ -346,14 +349,7 @@ async def _plan_properties(
         if owner_type is None:
             report.skipped[candidate_id] = "endpoint_missing"
             continue
-        spec = next(
-            (
-                types[label].properties[record.label]
-                for label in (owner_type, *schema.ancestors(owner_type))
-                if label in types and record.label in types[label].properties
-            ),
-            None,
-        )
+        spec = types[owner_type].properties.get(record.label)
         if spec is None:
             report.skipped[candidate_id] = "property_not_declared"
             continue
@@ -365,7 +361,7 @@ async def _plan_properties(
         except ValueError:
             report.skipped[candidate_id] = "bad_value"
             continue
-        planned[record.label].append(
+        candidates_by_property[(str(owner), record.label)].append(
             {
                 "candidate_id": candidate_id,
                 "entity_id": str(owner),
@@ -374,6 +370,13 @@ async def _plan_properties(
             }
         )
         handled_candidates.append(candidate_id)
+    for (_, name), rows in candidates_by_property.items():
+        if len({row["value"] for row in rows}) > 1:
+            for row in rows:
+                report.skipped[row["candidate_id"]] = "property_conflict"
+                handled_candidates.remove(row["candidate_id"])
+            continue
+        planned[name].extend(rows)
     return planned, handled_candidates
 
 
