@@ -17,11 +17,18 @@ Summary of an update or soft deletion.
 - [**new_content_hash**](#agrag-ingestion-reports-update_result-UpdateResult-new_content_hash) (<code>str | None</code>) – Hash written by an update, or `None` on deletion.
 - [**parts_closed**](#agrag-ingestion-reports-update_result-UpdateResult-parts_closed) (<code>int</code>) – Number of open HAS_PART edges closed.
 - [**add_result**](#agrag-ingestion-reports-update_result-UpdateResult-add_result) (<code>[AddResult](../add_result/AddResult.md) | None</code>) – Ingestion details for changed content, if any.
+- [**decision**](#agrag-ingestion-reports-update_result-UpdateResult-decision) (<code>[UpdateDecision](../../../common/data_models/update_decision/UpdateDecision.md) | None</code>) – The outcome selected for an update, or `None` on deletion.
 
 ## `add_result` \{#agrag-ingestion-reports-update_result-UpdateResult-add_result}
 
 ```python
 add_result: AddResult | None = None
+```
+
+## `decision` \{#agrag-ingestion-reports-update_result-UpdateResult-decision}
+
+```python
+decision: UpdateDecision | None = None
 ```
 
 ## `document_key` \{#agrag-ingestion-reports-update_result-UpdateResult-document_key}

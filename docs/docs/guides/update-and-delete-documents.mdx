@@ -102,11 +102,15 @@ result = await graph.update("apollo-notes", text="New text")
 
 Read the result:
 
-- `no_op` is `True` when the document is unchanged. The content, the chunker settings, the schema structure and the extraction settings match the stored version, and the document has an open chunk. Agentic GraphRAG then skips chunking, extraction and every write.
+- `no_op` is `True` when the content, chunker settings, schema structure, extraction settings and dates match the stored version, the document has an open chunk, and `force` is false. Agentic GraphRAG then skips chunking, extraction and writes.
 - `parts_closed` counts the `HAS_PART` links of the old version that Agentic GraphRAG closed. The links go to chunks, sections, tables and figures.
 - `add_result` holds the summary of the new ingestion, as `Graph.add` returns it.
 
 If the key does not exist yet, `Graph.update` adds the content as a new document.
+
+Set `force=True` to extract entities again when the text and schema structure did not change. The update keeps the existing chunks and embeddings. If only `published_at` or `content_date` changed, `Graph.update` writes the dates without extracting again.
+
+To update dates, pass a replacement source with date columns configured in `ReadOptions`, or a loader that returns a dated `Document`. A replacement without dates, including `text=...`, clears stored dates. A date-only update reports `decision="metadata_only"`, `parts_closed=0`, and `add_result=None`.
 
 ## Re-extract after a change of schema or settings
 

@@ -10,13 +10,24 @@ def find_document_query() -> str:
 
     Returns:
         Parameterized Cypher expecting ``$document_key``. Returns the node's
-        ``id`` and ``current_content_hash``. Skips a node an in-flight job
+        ``id``, ``current_content_hash``, ``published_at`` and ``content_date``.
+        Skips a node an in-flight job
         wrote, so an uncommitted hash never counts as the current one.
     """
     return (
         f"MATCH (n:{NODE_IDENTITY_LABEL}:Document {{document_key: $document_key}}) "
         f"WHERE {pending_filter_clause('n')} "
-        "RETURN n.id AS id, n.current_content_hash AS current_content_hash"
+        "RETURN n.id AS id, n.current_content_hash AS current_content_hash, "
+        "n.published_at AS published_at, n.content_date AS content_date"
+    )
+
+
+def update_document_dates_query() -> str:
+    """Build Cypher to replace only the two stored document date properties."""
+    return (
+        f"MATCH (n:{NODE_IDENTITY_LABEL}:Document {{id: $document_node_id}}) "
+        "SET n.published_at = $published_at, n.content_date = $content_date "
+        "RETURN n.id AS id"
     )
 
 

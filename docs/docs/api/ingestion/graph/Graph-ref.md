@@ -418,7 +418,7 @@ highest-similarity pairs are verified first.
 ## `update` \{#agrag-ingestion-graph-Graph-update}
 
 ```python
-update(document_key:str, *, text:str | None = None, source:SourcesType | None = None, loader:Loader | None = None, error_policy:ErrorPolicy = ErrorPolicy.RAISE, read_options:ReadOptions | None = None) -> UpdateResult
+update(document_key:str, *, text:str | None = None, source:SourcesType | None = None, loader:Loader | None = None, error_policy:ErrorPolicy = ErrorPolicy.RAISE, read_options:ReadOptions | None = None, force:bool = False) -> UpdateResult
 ```
 
 Replace one document version, or re-extract it in place.
@@ -426,8 +426,9 @@ Replace one document version, or re-extract it in place.
 Looks up the persisted `Document` node by `document_key`. The update
 is a no-op, returning before any chunking, extraction, or writes, only
 when the document has an open chunk and the content hash, the chunker
-fingerprint, the schema fingerprint, and the extraction fingerprint all
-equal the stored ones. If only the extraction fingerprint differs (a
+fingerprint, the schema fingerprint, the extraction fingerprint and dates
+all equal the stored ones, and `force` is false.
+If only the extraction fingerprint differs (a
 description, a threshold, or the model name), the document is extracted
 again in place. Its chunks stay and are not embedded again. The old
 evidence of the document is removed at the commit, and entities that
@@ -440,6 +441,8 @@ update keeps the previous evidence of the failed chunk. Chunks written
 before the fingerprints were recorded are extracted in place when their
 content, chunker, and schema match. A document closed by
 `delete_document` has no open chunk, so the same text is added again.
+If only `published_at` or `content_date` differs, the two dates are
+written and nothing is extracted.
 
 The new version ingests under a Cutover Job holding this document's
 lease. The commit flips the job, closes the document's open
@@ -460,11 +463,16 @@ A source must resolve to exactly one document.
   policy records it and continues.
 - **read_options** (<code>[ReadOptions](../../loaders/types/ReadOptions.md) | None</code>) – How loaders read the replacement, including the
   normalization of its text. None uses `ReadOptions()` defaults.
+- **force** (<code>bool</code>) – Extract the entities again on the same chunks, even when the
+  stored values match. Has no effect when the text, the chunker or
+  the schema changed, because those already write a new version.
 
 **Returns:**
 
 - <code>[UpdateResult](../reports/update_result/UpdateResult.md)</code> – The update summary. A no-op reports `no_op=True` with no
-  `add_result`. A change reports `parts_closed` plus the
+  `add_result`. A metadata-only update also has no `add_result`
+  and reports `parts_closed=0`. The `decision` identifies the
+  selected update path. An extraction reports `parts_closed` plus the
   fresh ingestion's `add_result`. An unknown `document_key`
   ingests fresh with `previous_content_hash=None` and
   `parts_closed=0`.

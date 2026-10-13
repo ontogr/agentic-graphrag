@@ -6,10 +6,10 @@ from uuid import uuid4
 
 import pytest
 
+from agrag.common.data_models.update_decision import UpdateDecision
 from agrag.common.schema_fingerprint import RunRecord
 from agrag.ingestion._document_lifecycle import (
     DocumentLookup,
-    UpdateDecision,
     find_document,
 )
 
