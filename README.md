@@ -137,11 +137,11 @@ Set `EXTRACTION_MODE` to choose how the graph reads text. The default is `hybrid
 |---|---|---|
 | `gliner` | The local GLiNER model. No extraction LLM runs. | You want no extraction LLM cost. |
 | `hybrid` | GLiNER on every chunk, then an LLM on the weakest eligible chunks within the budget. | You have an LLM and want it to review GLiNER's result. |
-| `llm` | An LLM on every chunk that meets `min_escalation_words` (8 by default). GLiNER does not run. | You use a hosted model. |
+| `llm` | An LLM on every chunk that meets `min_escalation_words` (8 by default). GLiNER does not run. | You want LLM extraction without GLiNER. The LLM may use a hosted or local endpoint. |
 
 For the default extractors, install `extract` for `gliner`, both `extract` and `llm` for `hybrid`, or `llm` for `llm` mode. Custom extractors use their own dependencies.
 
-When `hybrid` has no extraction LLM available, `Graph` selects GLiNER mode and logs a warning. Check `graph.effective_mode` to see the selected mode. See [Choose an extraction mode](https://ontogr.github.io/agentic-graphrag/latest/guides/choose-an-extraction-mode) for the tradeoffs.
+When `hybrid` has no extraction LLM available, `Graph` selects GLiNER mode and logs a warning. `Graph` can build a BAML extractor from environment settings in either `hybrid` or `llm` mode, so a configured LLM may be used even when you do not pass `llm_extractor`. Set `EXTRACTION_MODE=gliner` to disable LLM extraction explicitly. Check `graph.effective_mode` to see the selected mode. See [Choose an extraction mode](https://ontogr.github.io/agentic-graphrag/latest/guides/choose-an-extraction-mode) for the tradeoffs.
 
 ## Architecture
 
@@ -155,7 +155,7 @@ Ingestion turns a source into a document, then into chunks, mentions, a matched 
 
 1. Load: Select a loader by format. Decode or parse the source. Preserve source metadata. Apply `RAISE`, `SKIP`, or `QUARANTINE` as the error policy for each source.
 2. Chunk: Pack the sections of every document into chunks with one section-aware chunker, using 600 tokens as the packing budget. Tokenizer context around the joined units can add a few tokens past it. A table becomes its own chunks, and a small chunk carries on into the next section.
-3. Extract: Run GLiNER locally against the active schema on every chunk. When you pass an LLM extractor, the weakest chunks go to a typed BAML extraction function, up to a budget. Validation drops entities and triples that do not conform to the schema.
+3. Extract: Use the selected extraction mode. `gliner` runs GLiNER locally on every chunk; `hybrid` also sends the weakest eligible chunks to an LLM within the budget; `llm` sends eligible chunks to an LLM without running GLiNER. Validation drops entities and triples that do not conform to the schema.
 4. Resolve: Apply exact, fuzzy, embedding, and LLM-verified comparison tiers. Ambiguous or failed comparisons do not match.
 5. Merge: Combine the mentions of exact matches into one entity. Decide each property value and join the chunk ids that mention it. Fuzzy, embedding, and LLM matches are stored as `MATCHES` edges, not merged.
 6. Store: Upsert nodes and relations, then populate graph-native or dedicated vector indexes.
@@ -166,7 +166,7 @@ Ingestion turns a source into a document, then into chunks, mentions, a matched 
   <img src="https://raw.githubusercontent.com/ontogr/agentic-graphrag/main/docs/static/img/readme/resolution.png" alt="Entity resolution tiers. A pair of mentions with the same label passes an exact tier, a fuzzy tier, an embedding tier, and an LLM tier. An unsure pair is never matched. A match writes MATCHES edges and a derived ResolvedEntity, and the original entities stay." width="900">
 </p>
 
-The pipeline compares only mentions with the same label, so a city and a company with the same name stay apart. A wrong match mixes the facts of two things, and a missed match can be fixed later. For that reason every tier prefers "no match" when it is not sure.
+The pipeline compares only mentions with the same label, so a city and a company with the same name stay apart. A wrong match mixes the facts of two things, and a missed match can be fixed later. Uncertain comparisons stay undecided rather than becoming matches or rejections.
 
 `Graph.consolidate()` provides a separate whole-graph reconciliation pass for duplicates found across ingestion runs. It runs as a dry run by default, so applications can inspect proposed matches before they apply them.
 
@@ -303,15 +303,19 @@ uv pip install "agentic-graphrag[community]"
 
 ## Quickstart
 
-You need a Neo4j database, version 5.23 or newer. The free [Neo4j Aura](https://ontogr.github.io/agentic-graphrag/stable/get-started/quickstart) tier works, and the full [Quickstart](https://ontogr.github.io/agentic-graphrag/stable/get-started/quickstart) shows the setup. Install the extras for this page with uv 0.6.9 or newer. Save your credentials as `.env` in the working directory. The file sets `NEO4J_URI`, `NEO4J_USERNAME`, and `NEO4J_PASSWORD`.
+You need a Neo4j database, version 5.23 or newer. The free [Neo4j Aura](https://ontogr.github.io/agentic-graphrag/stable/get-started/quickstart) tier works, and the full [Quickstart](https://ontogr.github.io/agentic-graphrag/stable/get-started/quickstart) shows the setup. Install the extras for this page with uv 0.6.9 or newer. Create and activate a virtual environment, then install the package. Save your credentials as `.env` in the working directory. The file sets `NEO4J_URI`, `NEO4J_USERNAME`, and `NEO4J_PASSWORD`.
 
 ```bash
+uv venv
+source .venv/bin/activate
 uv pip install "agentic-graphrag[neo4j,extract,agents]" --torch-backend=auto
 ```
 
 ### Build a graph
 
 Save this script as `build_graph.py`. It needs no LLM key.
+
+The example passes `GlinerExtractor` directly, so GLiNER always runs. If an extraction LLM is configured in the environment, the default `hybrid` mode can also use it to review selected chunks. To make the mode explicit and prevent extraction LLM use, set `EXTRACTION_MODE=gliner` in `.env` or the shell.
 
 ```python
 import asyncio
@@ -381,6 +385,12 @@ documents: 1
 chunks: 1
 entities extracted: 6
 relations extracted: 3
+```
+
+Run the script from the directory that contains `build_graph.py` and `.env`:
+
+```bash
+python build_graph.py
 ```
 
 ### Ask a question
