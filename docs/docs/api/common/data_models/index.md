@@ -32,7 +32,7 @@ Shared data models used by agrag components.
 - [**stage_failure**](stage_failure/index.md) – Per-stage failure record and its per-call cap.
 - [**structure**](structure/index.md) – Stable keys, node ids, reading order and ancestry for the sections of a Document.
 - [**update_decision**](update_decision/index.md) – Outcomes for updating a stored document.
-- [**vector_record**](vector_record/index.md) – Vector storage record shapes shared by VectorStore and GraphStore.
+- [**vector_record**](vector_record/index.md) – Vector index types shared by the graph store and retrieval.
 
 **Classes:**
 
@@ -60,7 +60,6 @@ Shared data models used by agrag components.
 - [**TextProvenance**](provenance/TextProvenance.md) – The location of a chunk inside flattened document text.
 - [**Unit**](document/Unit.md) – One piece of content in a section, such as a paragraph or a table.
 - [**UnitKind**](document/UnitKind.md) – The kind of content in a unit.
-- [**VectorRecord**](vector_record/VectorRecord.md) – One vector and its payload, ready to write to a collection or index.
 
 **Attributes:**
 

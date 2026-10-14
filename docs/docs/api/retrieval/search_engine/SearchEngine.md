@@ -6,7 +6,7 @@ sidebar_label: SearchEngine
 # `agrag.retrieval.search_engine.SearchEngine` \{#agrag-retrieval-search_engine-SearchEngine}
 
 ```python
-SearchEngine(*, graph_store:GraphStore, embedder:Embedder, vector_store:VectorStore | None = None, settings:RetrievalSettings | None = None, entity_labels:Sequence[str] | None = None, graph_schema:GraphSchema | None = None, tracer:Tracer | None = None) -> None
+SearchEngine(*, graph_store:GraphStore, embedder:Embedder, settings:RetrievalSettings | None = None, entity_labels:Sequence[str] | None = None, graph_schema:GraphSchema | None = None, tracer:Tracer | None = None) -> None
 ```
 
 Retrieval's public entry point, independent of Graph.
@@ -17,9 +17,9 @@ stores. It does not depend on a Graph instance existing.
 
 A `tracer` opens the retrieval spans and flows to every
 retriever and free function the engine calls. It is not pushed
-into `graph_store`, `embedder` or `vector_store`. Pass the
-same tracer to those when you build them, so their adapter spans
-nest under these retrieval spans.
+into `graph_store` or `embedder`. Pass the same tracer to those
+when you build them, so their adapter spans nest under these
+retrieval spans.
 
 **Functions:**
 
@@ -35,20 +35,9 @@ nest under these retrieval spans.
 
 **Parameters:**
 
-- **graph_store** (<code>[GraphStore](../../graphdb/base/GraphStore.md)</code>) – Always required. It backs entity and chunk search
-  when vector_store is absent, and it always backs BFS.
-- **embedder** (<code>[Embedder](../../embedding/base/Embedder.md)</code>) – Produces query vectors for dense and hybrid
-  search.
-- **vector_store** (<code>[VectorStore](../../vectordb/base/VectorStore.md) | None</code>) – Optional. When set, entity, chunk, and
-  community search run hybrid_search there instead of
-  GraphStore's native search. `Graph.open(vector_store=...)`
-  provisions the collections and dual-writes every embedding
-  this package ingests, so the two paths see the same data.
-  Point it at a store that `Graph.open` provisioned: a
-  missing collection makes each method that reads it fail, and
-  `search` raises `AllRetrievalMethodsFailedError` when
-  every method fails. Collections that exist but hold no
-  records return no hits.
+- **graph_store** (<code>[GraphStore](../../graphdb/base/GraphStore.md)</code>) – Always required. It backs entity and chunk search,
+  community search and BFS.
+- **embedder** (<code>[Embedder](../../embedding/base/Embedder.md)</code>) – Produces query vectors for dense search.
 - **settings** (<code>[RetrievalSettings](../settings/RetrievalSettings.md) | None</code>) – Retrieval configuration; defaults from
   environment.
 - **entity_labels** (<code>Sequence\[str\] | None</code>) – The entity labels native entity search runs
@@ -56,8 +45,7 @@ nest under these retrieval spans.
   `Graph.open`. Retained as a checked input only: it must
   name exactly the labels graph_schema declares, since the
   schema is what native search and generated Cypher both
-  read. Omit it and let the schema drive both. Ignored when
-  a vector_store is configured.
+  read. Omit it and let the schema drive both.
 - **graph_schema** (<code>[GraphSchema](../../common/data_models/graph_schema/GraphSchema.md) | None</code>) – The graph's declared schema, ground truth for
   native entity labels and for generated Cypher. None uses
   `DEFAULT_SCHEMA`.
