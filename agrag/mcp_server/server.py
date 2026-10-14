@@ -192,6 +192,8 @@ def build_server(
         except Exception:
             _LOGGER.exception("Evidence search failed")
             raise ToolError(_STORE_UNAVAILABLE) from None
+        if result.status is DiscoveryStatus.FAILED:
+            raise ToolError(_STORE_UNAVAILABLE)
         if not semantic_ready:
             result = _with_semantic_failure(result)
 
@@ -261,6 +263,8 @@ def build_server(
             max_chars=cap,
             timeout=deadline,
         )
+        if outcomes and all(o.status is FetchStatus.FAILED for o in outcomes):
+            raise ToolError(_STORE_UNAVAILABLE)
         kept, dropped = _drop_to_budget(
             outcomes,
             lambda items: FetchResult(outcomes=items, truncated=True),
