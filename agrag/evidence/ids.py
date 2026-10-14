@@ -17,7 +17,7 @@ from agrag.common.data_models.evidence import EvidenceKind, EvidenceReference
 
 _UUID = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
 _HASH_PREFIX = r"[0-9a-f]{16}"
-_OFFSET = r"0|[1-9][0-9]*"
+_OFFSET = r"0|[1-9][0-9]{0,11}"
 _SPAN_PATTERN = re.compile(rf"ev1:s:({_UUID}):({_HASH_PREFIX}):({_OFFSET})-({_OFFSET})")
 _CHUNK_PATTERN = re.compile(rf"ev1:c:({_UUID}):({_HASH_PREFIX}):({_UUID})")
 

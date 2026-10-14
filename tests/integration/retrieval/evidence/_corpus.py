@@ -15,7 +15,14 @@ import re
 from collections.abc import Sequence
 
 from agrag.common.data_models.chunk import Chunk
-from agrag.common.data_models.document import Document, DocumentFamily, SourceFormat
+from agrag.common.data_models.document import (
+    Document,
+    DocumentFamily,
+    DocumentSection,
+    SourceFormat,
+    Unit,
+    UnitKind,
+)
 from agrag.common.data_models.evidence import EvidenceKind, EvidenceReference
 from agrag.common.data_models.extraction import ExtractionResult
 from agrag.common.data_models.graph_schema import GraphSchema
@@ -199,4 +206,49 @@ def span_evidence_id(document_key: str, text: str, start: int, end: int) -> str:
             char_start=start,
             char_end=end,
         )
+    )
+
+
+HEADED_HEADING = "Harbor Notes"
+HEADED_BODY = [
+    "The lighthouse keeper logged a fog warning at dusk.",
+    "The supply boat brought spare lens bulbs for the lantern.",
+]
+HEADED_TEXT = f"{HEADED_HEADING}\n\n" + "\n\n".join(HEADED_BODY)
+
+
+def make_headed_document(key: str) -> Document:
+    """Build a document whose one section has a heading and two body paragraphs.
+
+    The heading line is part of the document text but no unit covers it, so a
+    chunk that holds the heading has text longer than its text offsets.
+    """
+    units: list[Unit] = []
+    cursor = 0
+    for paragraph in HEADED_BODY:
+        start = HEADED_TEXT.index(paragraph, cursor)
+        end = start + len(paragraph)
+        units.append(
+            Unit(
+                kind=UnitKind.PARAGRAPH,
+                text=paragraph,
+                char_start=start,
+                char_end=end,
+            )
+        )
+        cursor = end
+    section = DocumentSection(heading=HEADED_HEADING, depth=1, units=units)
+    return Document(
+        text=HEADED_TEXT,
+        title=key.rsplit("/", 1)[-1],
+        uri=key,
+        document_key=key,
+        source_format=SourceFormat.MARKDOWN,
+        family=DocumentFamily.PROSE,
+        content_hash=sha256_of(HEADED_TEXT),
+        loader_name="inline",
+        encoding="utf-8",
+        char_count=len(HEADED_TEXT),
+        line_count=HEADED_TEXT.count("\n") + 1,
+        sections=[section],
     )

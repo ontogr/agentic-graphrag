@@ -173,20 +173,24 @@ def _serialize_param_value(value: Any) -> str:
     return str(value)
 
 
+# Parameters that carry user search text. They never become span attributes.
+_UNTRACED_PARAMETERS = frozenset({"fulltext_terms"})
+
+
 def _query_parameter_attributes(
     parameters: Mapping[str, Any] | None,
 ) -> dict[str, str]:
     """Build ``db.query.parameter.<key>`` span attributes.
 
-    Skips vector-valued parameters and strips vector-valued fields
-    from nested dictionaries (including nested record dicts) before
-    serializing each value to a string.
+    Skips vector-valued parameters, skips the untraced user-text parameters, and
+    strips vector-valued fields from nested dictionaries (including nested record
+    dicts) before serializing each value to a string.
     """
     if not parameters:
         return {}
     attributes: dict[str, str] = {}
     for key, value in parameters.items():
-        if _is_vector_value(value):
+        if _is_vector_value(value) or key in _UNTRACED_PARAMETERS:
             continue
         attributes[f"{DB_QUERY_PARAMETER_PREFIX}{key}"] = _serialize_param_value(
             _strip_vector_fields(value)

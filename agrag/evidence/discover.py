@@ -36,7 +36,7 @@ from agrag.evidence._shared import (
     chunk_from_row,
     chunk_reference,
     scope_node_ids,
-    text_range,
+    text_offsets,
 )
 from agrag.evidence.ids import encode_evidence_id
 from agrag.graphdb.base import GraphStore
@@ -51,6 +51,8 @@ _SNIPPET_CHARS = 240
 _CANDIDATE_MULTIPLIER = 4
 _MAX_CANDIDATES = 1000
 _ONLINE = "ONLINE"
+_FULLTEXT_TYPE = "FULLTEXT"
+_VECTOR_TYPE = "VECTOR"
 _FULLTEXT_PROPERTIES = ["text"]
 _EMBEDDING_PROPERTY = "embedding"
 
@@ -135,8 +137,11 @@ async def discover(
         if mode is DiscoveryMode.HYBRID
         else [DiscoveryLeg(mode.value)]
     )
-    index_names = _index_names(legs)
-    index_state = await _index_state(store, list(index_names.values()), timeout=timeout)
+    try:
+        index_state = await _index_state(store, _index_specs(legs), timeout=timeout)
+    except Exception:
+        _LOGGER.exception("Evidence index state read failed")
+        return DiscoveryResult(status=DiscoveryStatus.FAILED)
     if index_state is IndexState.NOT_READY:
         return DiscoveryResult(
             status=DiscoveryStatus.INDEX_NOT_READY, index_state=index_state
@@ -176,37 +181,72 @@ async def discover(
     return DiscoveryResult(
         status=status,
         hits=hits,
-        truncated=truncated and len(hits) < limit,
+        truncated=truncated,
         index_state=index_state,
         failures=failures,
     )
 
 
-def _index_names(legs: Sequence[DiscoveryLeg]) -> dict[DiscoveryLeg, str]:
-    """Return the index name each leg searches."""
-    names: dict[DiscoveryLeg, str] = {}
+@dataclass(frozen=True)
+class _IndexSpec:
+    """The name, type, label and property a leg's index must have."""
+
+    name: str
+    index_type: str
+    label: str
+    prop: str
+
+
+def _index_specs(legs: Sequence[DiscoveryLeg]) -> list[_IndexSpec]:
+    """Return the index each leg searches."""
+    specs: list[_IndexSpec] = []
     if DiscoveryLeg.LEXICAL in legs:
-        names[DiscoveryLeg.LEXICAL] = fulltext_index_name(
-            CHUNK_LABEL, _FULLTEXT_PROPERTIES
+        specs.append(
+            _IndexSpec(
+                name=fulltext_index_name(CHUNK_LABEL, _FULLTEXT_PROPERTIES),
+                index_type=_FULLTEXT_TYPE,
+                label=CHUNK_LABEL,
+                prop=_FULLTEXT_PROPERTIES[0],
+            )
         )
     if DiscoveryLeg.SEMANTIC in legs:
-        names[DiscoveryLeg.SEMANTIC] = vector_index_name(
-            CHUNK_LABEL, _EMBEDDING_PROPERTY
+        specs.append(
+            _IndexSpec(
+                name=vector_index_name(CHUNK_LABEL, _EMBEDDING_PROPERTY),
+                index_type=_VECTOR_TYPE,
+                label=CHUNK_LABEL,
+                prop=_EMBEDDING_PROPERTY,
+            )
         )
-    return names
+    return specs
 
 
 async def _index_state(
-    store: GraphStore, names: Sequence[str], *, timeout: float | None
+    store: GraphStore, specs: Sequence[_IndexSpec], *, timeout: float | None = None
 ) -> IndexState:
-    """Return READY when every named index exists and is ONLINE."""
+    """Return READY when every spec names an ONLINE index of the right shape.
+
+    The name alone is not enough: an index under the same name but built for another
+    label or property would return wrong passages, so type, label and property are
+    checked too.
+    """
     rows = await store.execute_read(
-        index_states_query(), {"names": list(names)}, timeout=timeout
+        index_states_query(),
+        {"names": [spec.name for spec in specs]},
+        timeout=timeout,
     )
-    states = {row["name"]: row["state"] for row in rows}
-    if all(states.get(name) == _ONLINE for name in names):
-        return IndexState.READY
-    return IndexState.NOT_READY
+    found = {row["name"]: row for row in rows}
+    for spec in specs:
+        row = found.get(spec.name)
+        if row is None or row["state"] != _ONLINE:
+            return IndexState.NOT_READY
+        if row["type"] != spec.index_type:
+            return IndexState.NOT_READY
+        if list(row["labelsOrTypes"] or []) != [spec.label]:
+            return IndexState.NOT_READY
+        if list(row["properties"] or []) != [spec.prop]:
+            return IndexState.NOT_READY
+    return IndexState.READY
 
 
 def _lucene_terms(query: str) -> str:
@@ -241,7 +281,7 @@ async def _run_leg(
         statement = lexical_candidates_query()
         parameters: dict[str, Any] = {
             "index": fulltext_index_name(CHUNK_LABEL, _FULLTEXT_PROPERTIES),
-            "query": terms,
+            "fulltext_terms": terms,
         }
     else:
         [vector] = await embedder.embed([query])
@@ -251,7 +291,7 @@ async def _run_leg(
             "vector": list(vector),
         }
 
-    candidates = limit
+    candidates = min(limit, _MAX_CANDIDATES)
     while True:
         rows = await store.execute_read(
             statement,
@@ -333,7 +373,7 @@ def _combine(
 def _hit(item: _Visible, score: float, legs: list[DiscoveryLeg]) -> DiscoveryHit:
     """Build the public hit for one visible chunk."""
     chunk = item.chunk
-    bounds = text_range(chunk)
+    bounds = text_offsets(chunk)
     if bounds is not None:
         location = EvidenceLocation(char_start=bounds[0], char_end=bounds[1])
     elif isinstance(chunk.provenance, PageProvenance):

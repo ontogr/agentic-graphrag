@@ -10,6 +10,11 @@ from collections.abc import Iterator, Mapping, Sequence
 from typing import Any
 
 import pytest
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
+    InMemorySpanExporter,
+)
 
 from agrag.common.data_models.evidence import (
     DiscoveryHit,
@@ -17,18 +22,22 @@ from agrag.common.data_models.evidence import (
     DiscoveryMode,
     DiscoveryResult,
     DiscoveryStatus,
+    FetchStatus,
     IndexState,
     LegFailure,
 )
 from agrag.cypher.schema import fulltext_index_name, vector_index_name
-from agrag.evidence import discover
+from agrag.evidence import discover, fetch
 from agrag.graphdb.neo4j import Neo4jGraphStore
 from tests.integration.retrieval.evidence._corpus import (
     GOLD_SENTENCE,
     HARBOR_TEXT_V2,
+    HEADED_HEADING,
     KEEP_TEXT,
     BagOfWordsEmbedder,
     locate,
+    make_document,
+    make_headed_document,
     sha256_of,
 )
 from tests.integration.retrieval.evidence.conftest import EvidenceEnv
@@ -184,6 +193,40 @@ class TestSemanticDiscovery:
         positions = _gold_positions(result.hits)
         assert positions and positions[0] < 5
         assert result.hits[positions[0]].legs == [DiscoveryLeg.SEMANTIC]
+
+
+class TestHeadedChunks:
+    """A chunk whose text starts with a heading is addressed by a chunk id."""
+
+    async def test_headed_chunk_hit_fetches_the_chunk_text(
+        self, evidence_env: EvidenceEnv, embedder: BagOfWordsEmbedder
+    ) -> None:
+        """A hit on a headed chunk has a chunk id, and fetch returns its full text."""
+        key = evidence_env.key("headed")
+        await evidence_env.graph.add(documents=[make_headed_document(key)])
+
+        result = await discover(
+            evidence_env.store,
+            embedder,
+            "lighthouse keeper fog",
+            mode=DiscoveryMode.LEXICAL,
+            limit=5,
+            scope=frozenset({key}),
+        )
+
+        assert result.status is DiscoveryStatus.OK
+        hit = result.hits[0]
+        assert hit.evidence_id.startswith("ev1:c:")
+        outcomes = await fetch(
+            evidence_env.store,
+            [hit.evidence_id],
+            scope=frozenset({key}),
+            max_chars=8000,
+        )
+        assert outcomes[0].status is FetchStatus.OK
+        assert outcomes[0].text is not None
+        assert outcomes[0].text.startswith(HEADED_HEADING)
+        assert hit.snippet == outcomes[0].text[: len(hit.snippet)]
 
 
 class _FailingEmbedder(BagOfWordsEmbedder):
@@ -392,3 +435,188 @@ class TestHistory:
         assert len(result.hits) == 3
         current_hash = sha256_of(HARBOR_TEXT_V2)
         assert {hit.content_hash for hit in result.hits} == {current_hash}
+
+
+class TestDiscoveryFailures:
+    """Read errors and oversized requests stay inside discovery's contract."""
+
+    async def test_index_state_read_error_returns_a_failed_result(
+        self,
+        evidence_env: EvidenceEnv,
+        embedder: BagOfWordsEmbedder,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A failed index read gives the failed status and no error text."""
+        store = evidence_env.store
+        original = store.execute_read
+
+        async def execute_read(
+            query: str,
+            parameters: Mapping[str, Any] | None = None,
+            *,
+            timeout: float | None = None,
+        ) -> list[dict[str, Any]]:
+            if "SHOW INDEXES" in query:
+                raise RuntimeError("connection reset by peer at 10.0.0.9")
+            return await original(query, parameters, timeout=timeout)
+
+        monkeypatch.setattr(store, "execute_read", execute_read)
+
+        result = await discover(
+            store,
+            embedder,
+            _QUERY,
+            mode=DiscoveryMode.LEXICAL,
+            limit=5,
+            scope=frozenset({evidence_env.keep}),
+        )
+
+        assert result.status is DiscoveryStatus.FAILED
+        assert result.hits == []
+        assert "10.0.0.9" not in result.model_dump_json()
+
+    async def test_limit_above_the_candidate_ceiling_never_sends_a_larger_k(
+        self,
+        evidence_env: EvidenceEnv,
+        embedder: BagOfWordsEmbedder,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A limit of 1500 is served with candidate counts of at most 1000."""
+        store = evidence_env.store
+        original = store.execute_read
+        requested: list[int] = []
+
+        async def execute_read(
+            query: str,
+            parameters: Mapping[str, Any] | None = None,
+            *,
+            timeout: float | None = None,
+        ) -> list[dict[str, Any]]:
+            if parameters and "k" in parameters:
+                requested.append(int(parameters["k"]))
+            return await original(query, parameters, timeout=timeout)
+
+        monkeypatch.setattr(store, "execute_read", execute_read)
+
+        result = await discover(
+            store,
+            embedder,
+            "lighthouse",
+            mode=DiscoveryMode.LEXICAL,
+            limit=1500,
+            scope=frozenset({evidence_env.harbor}),
+        )
+
+        assert requested
+        assert max(requested) <= 1000
+        assert result.status is DiscoveryStatus.OK
+        assert len(result.hits) == 4
+
+    async def test_index_with_the_right_name_but_another_label_is_not_ready(
+        self,
+        evidence_env: EvidenceEnv,
+        embedder: BagOfWordsEmbedder,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A same-named index on another label is not used for discovery."""
+        store = evidence_env.store
+        assert isinstance(store, Neo4jGraphStore)
+        original = store.execute_read
+        name = fulltext_index_name("Chunk", ["text"])
+
+        async def execute_read(
+            query: str,
+            parameters: Mapping[str, Any] | None = None,
+            *,
+            timeout: float | None = None,
+        ) -> list[dict[str, Any]]:
+            rows = await original(query, parameters, timeout=timeout)
+            if "SHOW INDEXES" not in query:
+                return rows
+            return [
+                {**row, "labelsOrTypes": ["Document"]} if row["name"] == name else row
+                for row in rows
+            ]
+
+        monkeypatch.setattr(store, "execute_read", execute_read)
+
+        result = await discover(
+            store,
+            embedder,
+            _QUERY,
+            mode=DiscoveryMode.LEXICAL,
+            limit=5,
+            scope=frozenset({evidence_env.keep}),
+        )
+
+        assert result.status is DiscoveryStatus.INDEX_NOT_READY
+        assert result.index_state is IndexState.NOT_READY
+
+
+class TestReAddedDocument:
+    """Adding a key again with new text hides the earlier text from discovery."""
+
+    async def test_earlier_text_is_not_discoverable_after_a_second_add(
+        self, evidence_env: EvidenceEnv, embedder: BagOfWordsEmbedder
+    ) -> None:
+        """Only the text of the latest add is discoverable."""
+        replacement = (
+            "The orchard ledger lists apples, pears and plums for the autumn fair."
+        )
+        await evidence_env.graph.add(
+            documents=[make_document(evidence_env.keep, replacement)]
+        )
+
+        old = await discover(
+            evidence_env.store,
+            embedder,
+            _QUERY,
+            mode=DiscoveryMode.LEXICAL,
+            limit=5,
+            scope=frozenset({evidence_env.keep}),
+        )
+        new = await discover(
+            evidence_env.store,
+            embedder,
+            "orchard ledger apples",
+            mode=DiscoveryMode.LEXICAL,
+            limit=5,
+            scope=frozenset({evidence_env.keep}),
+        )
+
+        assert _gold_positions(old.hits) == []
+        assert new.hits
+        assert {hit.content_hash for hit in new.hits} == {sha256_of(replacement)}
+
+
+class TestTelemetry:
+    """Full-text search terms do not reach exported span attributes."""
+
+    async def test_search_terms_are_not_exported_as_span_attributes(
+        self, evidence_env: EvidenceEnv, embedder: BagOfWordsEmbedder
+    ) -> None:
+        """No span attribute carries the words the user searched for."""
+        exporter = InMemorySpanExporter()
+        provider = TracerProvider()
+        provider.add_span_processor(SimpleSpanProcessor(exporter))
+        store = Neo4jGraphStore(tracer=provider.get_tracer("agrag-test"))
+        await store.connect()
+        try:
+            await discover(
+                store,
+                embedder,
+                "lighthouse",
+                mode=DiscoveryMode.LEXICAL,
+                limit=4,
+                scope=frozenset({evidence_env.harbor}),
+            )
+        finally:
+            await store.close()
+
+        values = [
+            str(value)
+            for span in exporter.get_finished_spans()
+            for value in (span.attributes or {}).values()
+        ]
+        assert values
+        assert not any("lighthouse" in value for value in values)

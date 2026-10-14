@@ -8,7 +8,6 @@ from typing import Any
 
 from agrag.common.data_models.chunk import Chunk
 from agrag.common.data_models.evidence import (
-    CONTENT_HASH_PREFIX_LENGTH,
     EvidenceKind,
     EvidenceReference,
     FetchOutcome,
@@ -143,11 +142,9 @@ def _unavailable(evidence_id: str) -> FetchOutcome:
     return FetchOutcome(evidence_id=evidence_id, status=FetchStatus.UNAVAILABLE)
 
 
-def _version_status(stored: _Stored, reference: EvidenceReference) -> VersionStatus:
-    """Return whether the reference names the current version of its document."""
-    if stored.current_content_hash[:CONTENT_HASH_PREFIX_LENGTH] == (
-        reference.content_hash_prefix
-    ):
+def _version_status(stored: _Stored, content_hash: str) -> VersionStatus:
+    """Return whether a version's full content hash is the document's current one."""
+    if stored.current_content_hash == content_hash:
         return VersionStatus.CURRENT
     return VersionStatus.SUPERSEDED
 
@@ -176,7 +173,7 @@ def _chunk_outcome(
         reference=reference,
         document_key=stored.document_key,
         content_hash=stored.chunk.content_hash,
-        status_of_version=_version_status(stored, reference),
+        status_of_version=_version_status(stored, stored.chunk.content_hash),
         covered_range=covered,
     )
 
@@ -188,6 +185,10 @@ def _span_outcome(
     max_chars: int,
 ) -> FetchOutcome:
     """Return the outcome of a span reference, joined from one chunk set."""
+    # A 16-character prefix can match two versions. Their chunks cannot be joined
+    # safely, so the id is treated as naming nothing readable.
+    if len({row.chunk.content_hash for row in stored}) > 1:
+        return _unavailable(evidence_id)
     chunk_set = _choose_chunk_set(stored)
     if chunk_set is None:
         return _unavailable(evidence_id)
@@ -212,12 +213,6 @@ def _span_outcome(
         elif chunk_start > cursor:
             # A gap ends the covered part.
             break
-        if len(row.chunk.text) != chunk_end - chunk_start:
-            return FetchOutcome(
-                evidence_id=evidence_id,
-                status=FetchStatus.FAILED,
-                detail="chunk text does not match its offsets",
-            )
         stop = min(end, chunk_end)
         parts.append(row.chunk.text[cursor - chunk_start : stop - chunk_start])
         cursor = stop
@@ -225,34 +220,42 @@ def _span_outcome(
     if covered_start is None:
         return _unavailable(evidence_id)
     text, cut = _limited("".join(parts), max_chars)
+    partial = (covered_start, cursor) != (start, end)
     first = chunk_set[0]
+    if cut:
+        status = FetchStatus.TRUNCATED
+    elif partial:
+        status = FetchStatus.PARTIAL
+    else:
+        status = FetchStatus.OK
     return FetchOutcome(
         evidence_id=evidence_id,
-        status=FetchStatus.TRUNCATED if cut else FetchStatus.OK,
+        status=status,
         text=text,
         reference=reference,
         document_key=first.document_key,
         content_hash=first.chunk.content_hash,
-        status_of_version=_version_status(first, reference),
+        status_of_version=_version_status(first, first.chunk.content_hash),
         covered_range=(covered_start, covered_start + len(text)),
-        partial=(covered_start, cursor) != (start, end),
+        partial=partial,
     )
 
 
 def _bounds(chunk: Chunk) -> tuple[int, int]:
-    """Return the text offsets of a chunk that has text provenance."""
+    """Return the offsets of a chunk whose text is exactly its text range."""
     bounds = text_range(chunk)
     if bounds is None:
-        raise ValueError("only text chunks have offsets")
+        raise ValueError("only chunks with an exact text range have offsets")
     return bounds
 
 
 def _choose_chunk_set(stored: list[_Stored]) -> list[_Stored] | None:
-    """Return the text chunks of one chunk set, preferring open edges.
+    """Return the span-joinable chunks of one chunk set, preferring open edges.
 
     A chunk set is the chunks written by one ``(version_id, chunker_hash)`` pair.
-    A set with an open edge wins. Otherwise the set closed most recently wins.
-    Returns None when no chunk has text offsets.
+    Only chunks with an exact text range take part. A set with an open edge wins.
+    Otherwise the set closed most recently wins. Returns None when no chunk takes
+    part.
     """
     sets: dict[tuple[str | None, str | None], list[_Stored]] = defaultdict(list)
     for row in stored:
