@@ -220,12 +220,17 @@ async def _active_matches(w: _World, label: str) -> dict[frozenset[str], str | N
 
 
 async def _resolved_vectors(w: _World) -> dict[str, dict[str, Any]]:
-    """Return every resolved-entity node that holds an embedding, by id."""
+    """Return this run's resolved-entity nodes that hold an embedding, by id.
+
+    The database is shared with other runs, so only this run's labels count.
+    """
     rows = await _rows(
         w.store,
         "MATCH (r:ResolvedEntity) WHERE r.embedding IS NOT NULL "
+        "AND r.label IN $labels "
         "RETURN r.id AS id, r.name AS name, r.member_ids AS member_ids, "
         "properties(r) AS props",
+        labels=[w.org_label, w.person_label],
     )
     return {
         str(row["id"]): {
@@ -253,7 +258,11 @@ async def _snapshot(w: _World) -> dict[str, Any]:
 
 
 async def _search_names(w: _World, query: str) -> list[dict[str, Any]]:
-    """Search entities and describe each result by kind and name."""
+    """Search this run's entities and describe each result by kind and name.
+
+    Results of other labels come from other runs sharing the database and are
+    left out.
+    """
     results = await w.engine.search(query, ENTITY)
     return [
         {
@@ -264,6 +273,7 @@ async def _search_names(w: _World, query: str) -> list[dict[str, Any]]:
         }
         for result in results
         if isinstance(result.item, (Entity, ResolvedEntity))
+        and result.item.label in (w.org_label, w.person_label)
     ]
 
 
@@ -834,6 +844,45 @@ class TestResolutionMerge:
         )
         assert artifact["status_after_failure"] == "failed"
         assert artifact["status_after_retry"] == "synced"
+
+
+    async def test_leftover_resolved_entities_stay_out_of_this_run(
+        self, resolved_world: _World
+    ) -> None:
+        """A resolved entity another run left in the database is not reported.
+
+        The e2e database is shared by every suite, and a run removes only its
+        own nodes. A resolved entity left under another label, with this run's
+        embedding, must not change the resolved entities this run reports or
+        the ones a search returns.
+        """
+        w = resolved_world
+        expected = {
+            row["id"]
+            for label in (w.org_label, w.person_label)
+            for row in (await _clusters(w, label)).values()
+        }
+        leftover_id = str(uuid4())
+        await w.store.execute_write(
+            "CREATE (r:ResolvedEntity {id: $id, label: $label, name: 'NWT Holdings', "
+            "member_ids: [], vector_sync_status: 'synced', embedding: $vector})",
+            {
+                "id": leftover_id,
+                "label": f"Leftover_{uuid4().hex[:8]}",
+                "vector": list(_ORG_VECTOR),
+            },
+        )
+        try:
+            vectors = await _resolved_vectors(w)
+            hits = await _search_names(w, "NWT Holdings")
+        finally:
+            await w.store.execute_write(
+                "MATCH (r:ResolvedEntity {id: $id}) DETACH DELETE r",
+                {"id": leftover_id},
+            )
+
+        assert set(vectors) == expected
+        assert leftover_id not in {hit["id"] for hit in hits}
 
 
 class TestKnownDefects:
