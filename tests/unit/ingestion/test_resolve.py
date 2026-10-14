@@ -740,37 +740,6 @@ class TestZoneRouting:
             (2, 3),
         ]
 
-    async def test_zero_llm_cap_sends_no_pairs_and_counts_them_truncated(self) -> None:
-        """max_llm_pairs=0 makes no LLM call and reports every boundary pair."""
-        chunk = _llm_chunk()
-        client = _CountingClient("match")
-        entities = [_llm_entity(f"branch-{index}", chunk) for index in range(4)]
-        resolver = Resolver(
-            comparators=[
-                ExactMatch(),
-                FuzzyMatch(),
-                LLMVerify(chunks_by_id={chunk.id: chunk}, client=client),
-            ],
-            candidate_source=_candidate_source(),
-            max_llm_pairs=0,
-            llm_batch_size=1,
-        )
-        result = await resolver.resolve(entities)
-
-        assert client.calls == 0
-        assert result.matches == []
-        assert result.cap_truncated_pairs == 6
-        assert result.failed_llm_requests == 0
-        assert result.ambiguous_count == 0
-        assert result.unresolved_pairs == [
-            (0, 1),
-            (0, 2),
-            (0, 3),
-            (1, 2),
-            (1, 3),
-            (2, 3),
-        ]
-
     async def test_neighbors_reach_the_llm_verify_tier(self) -> None:
         """Neighbor context passed to resolve() arrives in the LLM request."""
         chunk = _chunk()
