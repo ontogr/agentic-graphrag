@@ -12,37 +12,38 @@ One unit of source text, before chunking.
 A prose source, such as a Markdown file, makes one Document. A record source,
 such as a CSV file, makes one Document per row.
 
-The way the system computes `content_hash` depends on the loader. A text
-loader hashes the decoded text. A docling loader hashes the raw source bytes
-instead of the parsed output, because docling's parsed output can change
-between docling versions and between runs on different hardware.
+`content_hash` is always the sha256 of `text`, whatever the loader. The
+chunk offsets index `text`, so the hash names the text they point into.
+`source_hash` is the sha256 of the raw source bytes, and it is kept apart so
+that a change of converter output is still visible as a content change.
 
-The system computes `id` from `content_hash` and `record_id` unless the caller
-passes `id` directly. A record-family document without `record_id` also mixes
-in `record_index` plus `source_hash`, or `uri` when `source_hash` is not
-set. Pass `id` only when rebuilding a document from stored data.
+`id` is always the persisted Document node id for `document_key`. The
+system computes it, and an explicit `id` must equal that value.
 
 **Attributes:**
 
 - [**text**](#agrag-common-data_models-document-Document-text) (<code>str</code>) – The document text. For a docling source, this holds the docling
   Markdown export. The chunker does not read it for a docling source: the
-  chunks come from `sections`.
+  chunks come from `sections`. The loaders leave it empty when
+  `store_text` is off.
 - [**title**](#agrag-common-data_models-document-Document-title) (<code>str</code>) – The document title.
 - [**published_at**](#agrag-common-data_models-document-Document-published_at) (<code>date | None</code>) – The date the source says it was published, or `None`.
 - [**content_date**](#agrag-common-data_models-document-Document-content_date) (<code>date | None</code>) – The date the content describes, or `None`.
-- [**uri**](#agrag-common-data_models-document-Document-uri) (<code>str</code>) – The location of the source. This value is not part of the document id.
+- [**uri**](#agrag-common-data_models-document-Document-uri) (<code>str</code>) – The location of the source. It is not part of the node id, which
+  follows `document_key`.
 - [**source_format**](#agrag-common-data_models-document-Document-source_format) (<code>[SourceFormat](SourceFormat.md)</code>) – The format the loader used to read this document.
 - [**family**](#agrag-common-data_models-document-Document-family) (<code>[DocumentFamily](DocumentFamily.md)</code>) – The shape of the source: one document per file, or one document per
   record.
-- [**content_hash**](#agrag-common-data_models-document-Document-content_hash) (<code>str</code>) – The hash that forms the document id.
+- [**content_hash**](#agrag-common-data_models-document-Document-content_hash) (<code>str</code>) – The sha256 hex digest of `text` as UTF-8 bytes.
 - [**loader_name**](#agrag-common-data_models-document-Document-loader_name) (<code>str</code>) – The name of the loader that produced this document, for example
   `"text"` or `"docling"`.
 - [**loader_version**](#agrag-common-data_models-document-Document-loader_version) (<code>str | None</code>) – The version of the loader package. Does not affect the
   document id.
 - [**encoding**](#agrag-common-data_models-document-Document-encoding) (<code>str | None</code>) – The text encoding. Text loaders set this field. Other loaders
   leave it empty.
-- [**source_hash**](#agrag-common-data_models-document-Document-source_hash) (<code>str | None</code>) – The hash of the whole source file. Record-family documents set
-  this field.
+- [**source_hash**](#agrag-common-data_models-document-Document-source_hash) (<code>str | None</code>) – The sha256 hex digest of the raw bytes of the source file.
+  Every document read from a file sets this field. Inline text leaves it
+  `None`.
 - [**char_count**](#agrag-common-data_models-document-Document-char_count) (<code>int</code>) – The number of characters in `text`.
 - [**line_count**](#agrag-common-data_models-document-Document-line_count) (<code>int | None</code>) – The number of lines in `text`. Some loaders do not set this field.
 - [**record_index**](#agrag-common-data_models-document-Document-record_index) (<code>int | None</code>) – The 0-based row number in the source. Record-family documents
@@ -70,7 +71,6 @@ set. Pass `id` only when rebuilding a document from stored data.
 
 **Functions:**
 
-- [**id_for**](#agrag-common-data_models-document-Document-id_for) – Compute the document id.
 - [**node_id_for**](#agrag-common-data_models-document-Document-node_id_for) – Compute the persisted Document graph node id.
 - [**to_node_record**](#agrag-common-data_models-document-Document-to_node_record) – Return this document as a GraphStore write record for its graph node.
 
@@ -128,35 +128,6 @@ family: DocumentFamily
 id: UUID | None = None
 ```
 
-## `id_for` \{#agrag-common-data_models-document-Document-id_for}
-
-```python
-id_for(*, content_hash:str, record_id:str | None = None, record_index:int | None = None, source_hash:str | None = None, uri:str | None = None) -> UUID
-```
-
-Compute the document id.
-
-A record id, when given, wins over the content hash. Without a record id,
-a record-family document (`record_index` is not `None`) mixes in its
-source hash and row index, so two rows with identical text but no
-configured id column still get distinct ids. When the source hash is not
-available, this falls back to `uri` so that two different sources still
-do not collide.
-
-**Parameters:**
-
-- **content_hash** (<code>str</code>) – The document's content hash.
-- **record_id** (<code>str | None</code>) – The value from the configured id column, when the source has one.
-- **record_index** (<code>int | None</code>) – The 0-based row number, for a record-family document.
-- **source_hash** (<code>str | None</code>) – The hash of the whole source file, for a record-family
-  document.
-- **uri** (<code>str | None</code>) – The document's source location, used in place of `source_hash`
-  when the caller does not supply one.
-
-**Returns:**
-
-- <code>UUID</code> – The document id.
-
 ## `line_count` \{#agrag-common-data_models-document-Document-line_count}
 
 ```python
@@ -189,11 +160,10 @@ node_id_for(*, document_key:str) -> UUID
 
 Compute the persisted Document graph node id.
 
-Distinct from `id_for()`. This id is keyed on `document_key`, not
-the content hash, so it stays the same across content changes to the
-same logical document. Conflating the two ids gives every content
-version of a document its own graph node instead of one node with a
-changing content hash.
+The id is keyed on `document_key`, not the content hash, so it stays
+the same across content changes to the same logical document. Every
+content version of a document shares one graph node with a changing
+content hash.
 
 **Parameters:**
 
@@ -251,25 +221,6 @@ value is required, such as computing the persisted Document node id.
 
 - <code>RuntimeError</code> – `document_key` is still `None`, which means a validator
   was bypassed, for example via `model_construct`.
-
-## `resolved_id` \{#agrag-common-data_models-document-Document-resolved_id}
-
-```python
-resolved_id: UUID
-```
-
-Return the document id. It is never `None` after construction succeeds.
-
-`id` is typed as optional because callers can omit it and let
-`_resolve_id` derive it. Every constructed `Document` has a
-non-`None` id by the time callers see it. Use this property instead
-of `id` where a non-optional value is required, such as building a
-`Chunk`.
-
-**Raises:**
-
-- <code>RuntimeError</code> – `id` is still `None`, which means a validator was
-  bypassed, for example via `model_construct`.
 
 ## `schema_fingerprint` \{#agrag-common-data_models-document-Document-schema_fingerprint}
 

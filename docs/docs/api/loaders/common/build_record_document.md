@@ -20,7 +20,7 @@ Build a record-family Document from one row.
 - **opts** (<code>[ReadOptions](../types/ReadOptions.md)</code>) – The read options, used for the id, title, date, and text columns.
 - **record_index** (<code>int</code>) – The 0-based row number.
 - **record** (<code>dict</code>) – The parsed record data.
-- **source_hash** (<code>str</code>) – The hash of the whole source file.
+- **source_hash** (<code>str</code>) – The sha256 of the whole source file.
 - **title** (<code>str</code>) – The fallback document title, used when `opts.title_column` is unset
   or absent from this record.
 

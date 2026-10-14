@@ -11,9 +11,10 @@ version_id(document:Document) -> str
 
 Return the id of one version of a document, as `HAS_PART` edges use it.
 
-A version is one content together with the schema structure that ran
-against it. A new structure makes new sections and chunks. A change of
-descriptions or extraction settings keeps the version, so its chunks stay.
+A version is one content, the section structure it was cut with, and the
+schema structure that ran against it. A new section structure makes new
+sections and chunks. A change of descriptions or extraction settings keeps
+the version, so its chunks stay.
 
 **Parameters:**
 
@@ -21,5 +22,5 @@ descriptions or extraction settings keeps the version, so its chunks stay.
 
 **Returns:**
 
-- <code>str</code> – The id, which changes when the content hash or the schema fingerprint
-- <code>str</code> – changes.
+- <code>str</code> – The id, which changes when the content hash, the section structure or
+- <code>str</code> – the schema fingerprint changes.
