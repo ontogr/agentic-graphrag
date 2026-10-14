@@ -75,8 +75,9 @@ def _after_spans(manifest: dict) -> list[tuple[dict, dict]]:
 class TestManifestShape:
     """The committed manifest holds consistent spans, edits and hashes."""
 
+    @staticmethod
     def test_documents_are_the_three_legal_files_and_two_memory_sessions(
-        self, manifest
+        manifest,
     ):
         """The corpus has three legal documents and two BEAM sessions."""
         corpora = [d["corpus"] for d in manifest["documents"]]
@@ -86,7 +87,8 @@ class TestManifestShape:
         )
         assert corpora.count("memory") == 2
 
-    def test_every_span_stays_inside_its_document(self, manifest):
+    @staticmethod
+    def test_every_span_stays_inside_its_document(manifest):
         """A span is non-empty and ends within the text it indexes."""
         lengths = {d["uri"]: d["char_count"] for d in manifest["documents"]}
         for span in _v1_spans(manifest):
@@ -96,7 +98,8 @@ class TestManifestShape:
             assert 0 <= span["char_start"] < span["char_end"]
             assert span["char_end"] <= mutation["char_count"]
 
-    def test_legal_answers_have_the_length_of_their_span(self, manifest):
+    @staticmethod
+    def test_legal_answers_have_the_length_of_their_span(manifest):
         """Each legal answer is as long as the span that names it."""
         for span in _v1_spans(manifest):
             if span["document"] in LEGAL_URIS and span.get("answer") is not None:
@@ -107,7 +110,8 @@ class TestManifestShape:
                     span["char_end"] - span["char_start"]
                 )
 
-    def test_every_mutation_names_an_unmodified_base_version(self, manifest):
+    @staticmethod
+    def test_every_mutation_names_an_unmodified_base_version(manifest):
         """Each edit starts from a document version the manifest records."""
         base_hashes = {d["uri"]: d["content_sha256"] for d in manifest["documents"]}
         for mutation in manifest["mutations"]:
@@ -115,9 +119,13 @@ class TestManifestShape:
             assert len(mutation["content_sha256"]) == 64
 
     @pytest.mark.parametrize("mutation_id", ["M1", "M2", "M3"])
-    def test_edits_move_only_spans_at_or_after_the_edit(self, manifest, mutation_id):
+    @staticmethod
+    def test_edits_move_only_spans_at_or_after_the_edit(manifest, mutation_id):
         """Spans before an edit stay put, spans after it shift by its length change."""
-        mutation = next(m for m in manifest["mutations"] if m["id"] == mutation_id)
+        mutation = next(
+            (m for m in manifest["mutations"] if m["id"] == mutation_id), None
+        )
+        assert mutation is not None, mutation_id
         edit = mutation["edit"]
         edit_end = edit["char_start"] + len(edit["old"])
         delta = len(edit["new"]) - len(edit["old"])
@@ -131,16 +139,24 @@ class TestManifestShape:
                 expected = (before[0], before[1] + delta)
             assert (span["char_start"], span["char_end"]) == expected
 
-    def test_case_three_cites_no_span(self, manifest):
+    @staticmethod
+    def test_case_three_cites_no_span(manifest):
         """The no-support case has no span to cite, in either variant."""
-        case = next(c for c in manifest["cases"] if c["id"] == "insufficient_evidence")
+        case = next(
+            (c for c in manifest["cases"] if c["id"] == "insufficient_evidence"), None
+        )
+        assert case is not None
 
         assert case["support"] == []
         assert case["holdout"]["support"] == []
 
-    def test_each_cross_session_question_cites_only_its_own_session(self, manifest):
+    @staticmethod
+    def test_each_cross_session_question_cites_only_its_own_session(manifest):
         """A question is supported by its own excerpt and not by the other one."""
-        case = next(c for c in manifest["cases"] if c["id"] == "cross_session_recall")
+        case = next(
+            (c for c in manifest["cases"] if c["id"] == "cross_session_recall"), None
+        )
+        assert case is not None
 
         for question in case["questions"]:
             cited = {
@@ -157,17 +173,20 @@ class TestCorpusText:
     """Text-level checks against the pinned files, when they are cached locally."""
 
     @pytest.mark.parametrize("uri", sorted(LEGAL_URIS))
-    def test_legal_file_matches_its_content_hash(self, manifest, uri):
+    @staticmethod
+    def test_legal_file_matches_its_content_hash(manifest, uri):
         """The pinned file reads back to the stored hash, unchanged by normalization."""
         path = _cached(LEGAL_REPO, f"corpus/{uri}", LEGAL_REVISION)
         if path is None:
             pytest.skip("pinned legal file is not in the local cache")
         text = path.read_text(encoding="utf-8")
-        document = next(d for d in manifest["documents"] if d["uri"] == uri)
+        document = next((d for d in manifest["documents"] if d["uri"] == uri), None)
+        assert document is not None
 
         assert _sha(text) == document["content_sha256"]
 
-    def test_stored_span_text_hashes_match(self, manifest):
+    @staticmethod
+    def test_stored_span_text_hashes_match(manifest):
         """Each span's stored hash and its legal answer match the cached file."""
         texts = {}
         for uri in LEGAL_URIS:
@@ -184,7 +203,8 @@ class TestCorpusText:
             if span.get("answer") is not None:
                 assert found == span["answer"]
 
-    def test_mutated_text_is_the_plain_replacement(self, manifest):
+    @staticmethod
+    def test_mutated_text_is_the_plain_replacement(manifest):
         """Each edited document equals the replacement applied to the cached text."""
         texts = {}
         for uri in LEGAL_URIS:
@@ -211,7 +231,8 @@ class TestCorpusText:
                 found = edited[span["char_start"] : span["char_end"]]
                 assert found == span["answer_after"]
 
-    def test_memory_sessions_match_their_stored_hashes(self, manifest):
+    @staticmethod
+    def test_memory_sessions_match_their_stored_hashes(manifest):
         """Each BEAM session rebuilt from the cached chat file matches its hash."""
         path = _cached(BEAM_REPO, PARQUET_FILE, BEAM_REVISION)
         if path is None:
@@ -237,11 +258,13 @@ class TestCorpusText:
 class TestLocateAnswer:
     """The span self-check keeps a stored span or relocates its one exact match."""
 
-    def test_keeps_a_span_that_reads_back(self):
+    @staticmethod
+    def test_keeps_a_span_that_reads_back():
         """A span whose text equals its answer is returned unchanged."""
         assert locate_answer("abc def", 4, 7, "def") == (4, 7)
 
-    def test_relocates_an_answer_that_occurs_once(self):
+    @staticmethod
+    def test_relocates_an_answer_that_occurs_once():
         """A stale span moves to the single occurrence of its answer."""
         assert locate_answer("xx abc def", 0, 3, "abc def") == (3, 10)
 
@@ -250,7 +273,8 @@ class TestLocateAnswer:
         [("xabc abc", "abc"), ("abc def", "xyz")],
         ids=["ambiguous", "absent"],
     )
-    def test_refuses_an_answer_without_exactly_one_match(self, text, answer):
+    @staticmethod
+    def test_refuses_an_answer_without_exactly_one_match(text, answer):
         """An answer that is absent or repeated has no single place to cite."""
         with pytest.raises(ValueError):
             locate_answer(text, 0, len(answer), answer)
