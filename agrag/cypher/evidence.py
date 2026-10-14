@@ -7,9 +7,15 @@ query, so the escalation loop in discovery counts only visible rows.
 
 from agrag.common.data_models.chunk import CHUNK_LABEL
 from agrag.common.data_models.document import DOCUMENT_LABEL
-from agrag.common.data_models.structure import HAS_PART
+from agrag.common.data_models.navigation import NavigationRelation
+from agrag.common.data_models.structure import (
+    HAS_CHILD,
+    HAS_PART,
+    SECTION_LABEL,
+    TABLE_LABEL,
+)
 from agrag.cypher._pending_filter import pending_filter_clause
-from agrag.cypher.entities import NODE_IDENTITY_LABEL
+from agrag.cypher.entities import NODE_IDENTITY_LABEL, validate_identifier
 
 
 # Chunk fields that evidence reads. The embedding is left out, and the text of a
@@ -121,4 +127,289 @@ def evidence_chunks_query(*, by_chunk_id: bool) -> str:
         "toString(part.invalid_at) AS closed_at, "
         "document.document_key AS document_key, document.title AS title, "
         "document.current_content_hash AS current_content_hash"
+    )
+
+
+def _neighbor_chunks_head(relation: NavigationRelation) -> str:
+    """Return the match clause that binds the chunks next to an anchor chunk."""
+    anchor = f"(anchor:{NODE_IDENTITY_LABEL}:{CHUNK_LABEL} {{id: $chunk_id}})"
+    neighbor = f"(neighbor:{NODE_IDENTITY_LABEL}:{CHUNK_LABEL})"
+    if relation is NavigationRelation.PREVIOUS:
+        return f"MATCH {neighbor}-[:NEXT_CHUNK]->{anchor} "
+    if relation is NavigationRelation.NEXT:
+        return f"MATCH {anchor}-[:NEXT_CHUNK]->{neighbor} "
+    if relation is NavigationRelation.CHILDREN:
+        return (
+            f"MATCH (parent:{NODE_IDENTITY_LABEL})-[:{HAS_CHILD}]->{anchor} "
+            f"MATCH (parent)-[:{HAS_CHILD}]->{neighbor} "
+            "WHERE neighbor.id <> $chunk_id "
+        )
+    if relation is NavigationRelation.TABLE_CONTEXT:
+        return (
+            f"MATCH (parent:{NODE_IDENTITY_LABEL}:{TABLE_LABEL})"
+            f"-[:{HAS_CHILD}]->{anchor} "
+            f"MATCH (parent)-[:{HAS_CHILD}]->{neighbor} "
+        )
+    raise ValueError(f"{relation.value!r} does not select chunks")
+
+
+def navigation_chunks_query(relation: NavigationRelation) -> str:
+    """Build the query that returns the chunks related to one anchor chunk.
+
+    Only chunks of the same document version as the anchor are returned. A
+    neighbor must have a ``HAS_PART`` edge from the document with the version id
+    of the anchor, and it must not be written by an in-flight job. The table
+    context query is not bounded in Cypher, because the caller windows the rows
+    around the anchor. Every other query returns at most ``$fetch`` rows.
+
+    Args:
+        relation: One of previous, next, children or table_context.
+
+    Returns:
+        Parameterized Cypher expecting $chunk_id, $document_id, $version_id and
+        $fetch. Each row holds the chunk properties, the version id, the close
+        time of the edge, the document key, the current content hash and the
+        reading position of the neighbor.
+
+    Raises:
+        ValueError: ``relation`` does not select chunks.
+    """
+    tail = (
+        f"MATCH (document:{NODE_IDENTITY_LABEL}:{DOCUMENT_LABEL} {{id: $document_id}})"
+        f"-[part:{HAS_PART}]->(neighbor) "
+        "WHERE part.version_id = $version_id "
+        f"AND {pending_filter_clause('neighbor')} "
+        f"AND {pending_filter_clause('part')} "
+        f"AND {pending_filter_clause('document')} "
+        f"RETURN neighbor {_CHUNK_FIELDS} AS chunk, part.version_id AS version_id, "
+        "toString(part.invalid_at) AS closed_at, "
+        "document.document_key AS document_key, "
+        "document.current_content_hash AS current_content_hash, "
+        "neighbor.index AS position ORDER BY position"
+    )
+    if relation is NavigationRelation.TABLE_CONTEXT:
+        return _neighbor_chunks_head(relation) + tail
+    return _neighbor_chunks_head(relation) + tail + " LIMIT $fetch"
+
+
+def navigation_sections_query(relation: NavigationRelation) -> str:
+    """Build the query that returns sections next to a chunk's own sections.
+
+    ``parent`` returns the sections that hold the chunk. ``siblings`` returns the
+    other sections under the same parent as those sections. Each row carries the
+    heading of the section, the headings above it, and the first visible chunk of
+    the section in the anchor's version. A section with no visible chunk is left
+    out, because it has no passage to cite.
+
+    Args:
+        relation: Either parent or siblings.
+
+    Returns:
+        Parameterized Cypher expecting $section_ids (the section node ids of the
+        anchor), $document_id, $version_id and $fetch. Each row holds the section
+        position, its heading, the ancestor headings from the outermost down, and
+        the first chunk row, with the same columns as ``navigation_chunks_query``.
+
+    Raises:
+        ValueError: ``relation`` is neither parent nor siblings.
+    """
+    if relation is NavigationRelation.PARENT:
+        head = f"MATCH (section:{NODE_IDENTITY_LABEL}:{SECTION_LABEL}) "
+        head += "WHERE section.id IN $section_ids "
+    elif relation is NavigationRelation.SIBLINGS:
+        head = (
+            f"MATCH (owner:{NODE_IDENTITY_LABEL})"
+            f"-[:{HAS_CHILD}]->(covering:{NODE_IDENTITY_LABEL}:{SECTION_LABEL}) "
+            "WHERE covering.id IN $section_ids "
+            f"MATCH (owner)-[:{HAS_CHILD}]->"
+            f"(section:{NODE_IDENTITY_LABEL}:{SECTION_LABEL}) "
+            "WHERE NOT section.id IN $section_ids "
+        )
+    else:
+        raise ValueError(f"{relation.value!r} does not select sections")
+    return (
+        head + "WITH DISTINCT section "
+        f"OPTIONAL MATCH (ancestor:{NODE_IDENTITY_LABEL}:{SECTION_LABEL})"
+        f"-[:{HAS_CHILD}*]->(section) "
+        "WITH section, ancestor ORDER BY ancestor.depth "
+        "WITH section, collect(ancestor.heading) AS ancestors "
+        "CALL { "
+        "WITH section "
+        f"MATCH (document:{NODE_IDENTITY_LABEL}:{DOCUMENT_LABEL} {{id: $document_id}})"
+        f"-[part:{HAS_PART}]->(chunk:{NODE_IDENTITY_LABEL}:{CHUNK_LABEL}) "
+        "WHERE part.version_id = $version_id AND section.id IN chunk.section_ids "
+        f"AND {pending_filter_clause('chunk')} "
+        f"AND {pending_filter_clause('part')} "
+        f"AND {pending_filter_clause('document')} "
+        f"RETURN chunk {_CHUNK_FIELDS} AS chunk, part.version_id AS version_id, "
+        "toString(part.invalid_at) AS closed_at, "
+        "document.document_key AS document_key, "
+        "document.current_content_hash AS current_content_hash, "
+        "chunk.index AS chunk_position ORDER BY chunk_position LIMIT 1 "
+        "} "
+        "RETURN section.index AS position, section.heading AS heading, "
+        "ancestors, chunk, version_id, closed_at, document_key, "
+        "current_content_hash ORDER BY position LIMIT $fetch"
+    )
+
+
+def entity_labels_query() -> str:
+    """Build the query that lists the entity labels with a vector index.
+
+    Every entity label has a vector index on ``embedding``, and no other label
+    needs one of that name, so the labels of those indexes are the entity labels.
+
+    Returns:
+        Cypher returning one ``label`` row per distinct label. It takes no
+        parameters.
+    """
+    return (
+        "SHOW INDEXES YIELD labelsOrTypes, properties, type "
+        "WHERE type = 'VECTOR' AND properties = ['embedding'] "
+        "UNWIND labelsOrTypes AS label RETURN DISTINCT label"
+    )
+
+
+def entity_candidates_query(label: str, *, lexical: bool) -> str:
+    """Build the query that finds entity candidates of one label.
+
+    Args:
+        label: The entity label whose index is searched. It is validated here.
+        lexical: True to search the full-text index of ``name``, or False to search
+            the vector index of ``embedding``.
+
+    Returns:
+        Parameterized Cypher. The lexical form expects $index, $fulltext_terms and
+        $k. The vector form expects $index, $vector and $k. Each row holds the
+        ``entity_id`` and the search ``score``, best first. Pending entities are
+        left out.
+
+    Raises:
+        ValueError: ``label`` is not a safe identifier.
+    """
+    safe_label = validate_identifier(label)
+    if lexical:
+        call = (
+            "CALL db.index.fulltext.queryNodes($index, $fulltext_terms, {limit: $k}) "
+        )
+    else:
+        call = "CALL db.index.vector.queryNodes($index, $k, $vector) "
+    return (
+        f"{call}YIELD node, score "
+        f"WHERE node:{safe_label} AND {pending_filter_clause('node')} "
+        "RETURN node.id AS entity_id, score ORDER BY score DESC, entity_id"
+    )
+
+
+def entity_mentions_query() -> str:
+    """Build the query that returns the mention passages of entities in scope.
+
+    For each entity, the query returns up to ``$support_limit`` passages of
+    documents in ``$scope_ids``. Visible passages (open ``HAS_PART`` edge) come
+    first. An entity with no passage in scope gives no row, so the caller drops
+    it. An entity with only hidden passages gives rows with ``visible`` false.
+
+    Returns:
+        Parameterized Cypher expecting $entity_ids, $scope_ids and
+        $support_limit. Each row holds ``entity_id``, the entity map with the
+        embedding removed, the chunk map, the version id, the close time of the
+        edge, the document key, the current content hash and ``visible``.
+    """
+    return (
+        "UNWIND $entity_ids AS entity_id "
+        f"MATCH (entity:{NODE_IDENTITY_LABEL} {{id: entity_id}}) "
+        f"WHERE {pending_filter_clause('entity')} "
+        "CALL { "
+        "WITH entity "
+        f"MATCH (document:{NODE_IDENTITY_LABEL}:{DOCUMENT_LABEL})"
+        f"-[part:{HAS_PART}]->(chunk:{NODE_IDENTITY_LABEL}:{CHUNK_LABEL})"
+        f"-[mention:MENTIONED_IN]->(entity) "
+        "WHERE document.id IN $scope_ids "
+        f"AND {pending_filter_clause('document')} "
+        f"AND {pending_filter_clause('part')} "
+        f"AND {pending_filter_clause('chunk')} "
+        f"AND {pending_filter_clause('mention')} "
+        f"RETURN DISTINCT chunk {_CHUNK_FIELDS} AS chunk, "
+        "part.version_id AS version_id, toString(part.invalid_at) AS closed_at, "
+        "document.document_key AS document_key, "
+        "document.current_content_hash AS current_content_hash, "
+        "part.invalid_at IS NULL AS visible, chunk.index AS position "
+        "ORDER BY visible DESC, position LIMIT $support_limit "
+        "} "
+        "RETURN entity.id AS entity_id, entity {.*, embedding: null} AS entity, "
+        "chunk, version_id, closed_at, document_key, current_content_hash, visible "
+        "ORDER BY entity_id, visible DESC, position"
+    )
+
+
+def explore_edges_query() -> str:
+    """Build the query that returns the entity relations of a frontier.
+
+    A relation counts when it joins two entities, and its type is either one of
+    the given types or, when none is given, any schema type. Graph-owned types
+    are never returned. The other entity must have a passage in scope. For each
+    relation, the query returns up to ``$support_limit`` visible passages in scope
+    from its ``source_chunk_ids``. A relation with no visible passage in scope has
+    an empty ``supports`` list, and the caller decides what that means.
+
+    Returns:
+        Parameterized Cypher expecting $node_ids, $relation_types (empty for any
+        schema type), $system_types, $scope_ids and $support_limit. Each row holds
+        ``relation_id``, ``relation_type``, ``source_id``, ``target_id``,
+        ``entity_id`` and ``name`` of the other entity, its ``label``, the count
+        of ``source_chunk_ids`` and ``supports``, a list of maps with ``chunk``,
+        ``version_id``, ``closed_at``, ``document_key`` and
+        ``current_content_hash``.
+    """
+    return (
+        "UNWIND $node_ids AS node_id "
+        f"MATCH (node:{NODE_IDENTITY_LABEL} {{id: node_id}}) "
+        f"WHERE {pending_filter_clause('node')} "
+        f"MATCH (node)-[relation]-(other:{NODE_IDENTITY_LABEL}) "
+        f"WHERE {pending_filter_clause('relation')} "
+        f"AND {pending_filter_clause('other')} "
+        "AND other.merge_key IS NOT NULL "
+        "AND CASE WHEN size($relation_types) > 0 "
+        "THEN type(relation) IN $relation_types "
+        "ELSE NOT type(relation) IN $system_types END "
+        "AND EXISTS { "
+        f"MATCH (scope_document:{NODE_IDENTITY_LABEL}:{DOCUMENT_LABEL})"
+        f"-[scope_part:{HAS_PART}]->"
+        f"(scope_chunk:{NODE_IDENTITY_LABEL}:{CHUNK_LABEL})"
+        "-[:MENTIONED_IN]->(other) "
+        "WHERE scope_document.id IN $scope_ids "
+        f"AND {pending_filter_clause('scope_document')} "
+        f"AND {pending_filter_clause('scope_part')} "
+        f"AND {pending_filter_clause('scope_chunk')} "
+        "} "
+        "WITH DISTINCT relation, other, startNode(relation) AS source, "
+        "endNode(relation) AS target "
+        "CALL { "
+        "WITH relation "
+        "OPTIONAL MATCH (support_document:"
+        f"{NODE_IDENTITY_LABEL}:{DOCUMENT_LABEL})"
+        f"-[support_part:{HAS_PART}]->"
+        f"(support_chunk:{NODE_IDENTITY_LABEL}:{CHUNK_LABEL}) "
+        "WHERE support_chunk.id IN coalesce(relation.source_chunk_ids, []) "
+        "AND support_part.invalid_at IS NULL "
+        "AND support_document.id IN $scope_ids "
+        f"AND {pending_filter_clause('support_document')} "
+        f"AND {pending_filter_clause('support_part')} "
+        f"AND {pending_filter_clause('support_chunk')} "
+        "WITH support_chunk, support_document, support_part "
+        "ORDER BY support_chunk.index LIMIT $support_limit "
+        "RETURN collect(CASE WHEN support_chunk IS NULL THEN NULL ELSE {"
+        f"chunk: support_chunk {_CHUNK_FIELDS}, "
+        "version_id: support_part.version_id, "
+        "closed_at: toString(support_part.invalid_at), "
+        "document_key: support_document.document_key, "
+        "current_content_hash: support_document.current_content_hash} END) "
+        "AS supports "
+        "} "
+        "RETURN relation.id AS relation_id, type(relation) AS relation_type, "
+        "source.id AS source_id, target.id AS target_id, "
+        "other.id AS entity_id, other.name AS name, "
+        f"[label IN labels(other) WHERE label <> '{NODE_IDENTITY_LABEL}'][0] AS label, "
+        "size(coalesce(relation.source_chunk_ids, [])) AS source_count, supports "
+        "ORDER BY relation_id"
     )

@@ -1,9 +1,7 @@
 """Fetch the exact text behind evidence ids, limited to the caller's scope."""
 
 import logging
-from collections import defaultdict
 from collections.abc import Sequence
-from dataclasses import dataclass
 from typing import Any
 
 from agrag.common.data_models.chunk import Chunk
@@ -15,24 +13,19 @@ from agrag.common.data_models.evidence import (
     VersionStatus,
 )
 from agrag.cypher.evidence import evidence_chunks_query
-from agrag.evidence._shared import chunk_from_row, scope_node_ids, text_range
+from agrag.evidence._shared import (
+    StoredChunk,
+    choose_chunk_set,
+    scope_node_ids,
+    stored_chunk,
+    text_range,
+)
 from agrag.evidence.ids import MalformedEvidenceIdError, decode_evidence_id
 from agrag.graphdb.base import GraphStore
 
 
 _LOGGER = logging.getLogger(__name__)
 _STORE_ERROR_MESSAGE = "evidence store error"
-
-
-@dataclass(frozen=True)
-class _Stored:
-    """One chunk row of a document version, as the fetch query returns it."""
-
-    chunk: Chunk
-    version_id: str | None
-    closed_at: str | None
-    document_key: str
-    current_content_hash: str
 
 
 async def fetch(
@@ -114,7 +107,7 @@ async def _fetch_one(
             status=FetchStatus.FAILED,
             detail=_STORE_ERROR_MESSAGE,
         )
-    stored = [_stored(row) for row in rows]
+    stored = [stored_chunk(row) for row in rows]
     if not stored:
         return _unavailable(evidence_id)
     if by_chunk:
@@ -122,23 +115,12 @@ async def _fetch_one(
     return _span_outcome(evidence_id, reference, stored, max_chars)
 
 
-def _stored(row: dict[str, Any]) -> _Stored:
-    """Build one stored row from a query result."""
-    return _Stored(
-        chunk=chunk_from_row(row["chunk"]),
-        version_id=row["version_id"],
-        closed_at=row["closed_at"],
-        document_key=row["document_key"],
-        current_content_hash=row["current_content_hash"],
-    )
-
-
 def _unavailable(evidence_id: str) -> FetchOutcome:
     """Return the outcome shared by missing ids and ids outside the scope."""
     return FetchOutcome(evidence_id=evidence_id, status=FetchStatus.UNAVAILABLE)
 
 
-def _version_status(stored: _Stored, content_hash: str) -> VersionStatus:
+def _version_status(stored: StoredChunk, content_hash: str) -> VersionStatus:
     """Return whether a version's full content hash is the document's current one."""
     if stored.current_content_hash == content_hash:
         return VersionStatus.CURRENT
@@ -155,7 +137,7 @@ def _limited(text: str, max_chars: int) -> tuple[str, bool]:
 def _chunk_outcome(
     evidence_id: str,
     reference: EvidenceReference,
-    stored: _Stored,
+    stored: StoredChunk,
     max_chars: int,
 ) -> FetchOutcome:
     """Return the outcome of a chunk reference."""
@@ -177,7 +159,7 @@ def _chunk_outcome(
 def _span_outcome(
     evidence_id: str,
     reference: EvidenceReference,
-    stored: list[_Stored],
+    stored: list[StoredChunk],
     max_chars: int,
 ) -> FetchOutcome:
     """Return the outcome of a span reference, joined from one chunk set."""
@@ -185,7 +167,9 @@ def _span_outcome(
     # safely, so the id is treated as naming nothing readable.
     if len({row.chunk.content_hash for row in stored}) > 1:
         return _unavailable(evidence_id)
-    chunk_set = _choose_chunk_set(stored)
+    chunk_set = choose_chunk_set(
+        [row for row in stored if text_range(row.chunk) is not None]
+    )
     if chunk_set is None:
         return _unavailable(evidence_id)
     start = reference.char_start
@@ -243,26 +227,3 @@ def _bounds(chunk: Chunk) -> tuple[int, int]:
     if bounds is None:
         raise ValueError("only chunks with an exact text range have offsets")
     return bounds
-
-
-def _choose_chunk_set(stored: list[_Stored]) -> list[_Stored] | None:
-    """Return the span-joinable chunks of one chunk set, preferring open edges.
-
-    A chunk set is the chunks written by one ``(version_id, chunker_hash)`` pair.
-    Only chunks with an exact text range take part. A set with an open edge wins.
-    Otherwise the set closed most recently wins. Returns None when no chunk takes
-    part.
-    """
-    sets: dict[tuple[str | None, str | None], list[_Stored]] = defaultdict(list)
-    for row in stored:
-        if text_range(row.chunk) is not None:
-            sets[(row.version_id, row.chunk.chunker_hash)].append(row)
-    if not sets:
-        return None
-
-    def recency(rows: list[_Stored]) -> tuple[bool, str]:
-        is_open = any(row.closed_at is None for row in rows)
-        latest_close = max((row.closed_at or "" for row in rows), default="")
-        return is_open, latest_close
-
-    return max(sets.values(), key=recency)

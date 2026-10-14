@@ -24,7 +24,9 @@ Shared data models used by agrag components.
 - [**extraction**](extraction/index.md) – Pre-resolution entity and relation mentions produced by an Extractor.
 - [**graph_record**](graph_record/index.md) – Graph storage record shapes for GraphStore.
 - [**graph_schema**](graph_schema/index.md) – The GraphSchema contract: entity and relation types extraction validates against.
+- [**entity_search**](entity_search/index.md) – Entity search and bounded graph exploration results.
 - [**memory_result**](memory_result/index.md) – Error codes and the base result of every project memory write.
+- [**navigation**](navigation/index.md) – Models for bounded navigation around one evidence passage.
 - [**normalization**](normalization/index.md) – The Normalization model: how a loader turned source bytes into text.
 - [**presets**](presets/index.md) – Preset schema fragments that add entity types to a base schema.
 - [**provenance**](provenance/index.md) – Provenance types for a chunk.
