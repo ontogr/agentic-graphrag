@@ -845,7 +845,6 @@ class TestResolutionMerge:
         assert artifact["status_after_failure"] == "failed"
         assert artifact["status_after_retry"] == "synced"
 
-
     async def test_leftover_resolved_entities_stay_out_of_this_run(
         self, resolved_world: _World
     ) -> None:
