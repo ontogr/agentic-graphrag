@@ -9,6 +9,7 @@ boundary is mocked, so a span that lost its parent fails here.
 
 import asyncio
 import contextvars
+import hashlib
 from typing import Any
 from uuid import uuid4
 
@@ -64,6 +65,7 @@ def _chunk(text: str) -> Chunk:
         id=uuid4(),
         document_id=_DOC_ID,  # type: ignore[arg-type]
         text=text,
+        content_hash=hashlib.sha256(text.encode("utf-8")).hexdigest(),
         provenance=TextProvenance(char_start=0, char_end=len(text)),
     )
 

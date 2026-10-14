@@ -5,6 +5,7 @@ tests download and run a real GLiNER2.5 model. Both skip gracefully when
 their prerequisites are not available.
 """
 
+import hashlib
 import os
 from pathlib import Path
 from uuid import uuid4
@@ -38,6 +39,7 @@ def _chunk(text: str = _PARAGRAPH) -> Chunk:
         id=uuid4(),
         document_id=_DOC_ID,
         text=text,
+        content_hash=hashlib.sha256(text.encode("utf-8")).hexdigest(),
         provenance=TextProvenance(char_start=0, char_end=len(text)),
     )
 

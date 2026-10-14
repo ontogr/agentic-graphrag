@@ -4,6 +4,7 @@ Chunks and results are built by hand. No extractor runs. The tests pin the
 eligibility rules, the ranking, the budget ceiling, and the report lines.
 """
 
+import hashlib
 from typing import Literal
 from uuid import uuid4
 
@@ -46,6 +47,7 @@ def _chunk(text: str = _LONG) -> Chunk:
         id=uuid4(),
         document_id=uuid4(),
         text=text,
+        content_hash=hashlib.sha256(text.encode("utf-8")).hexdigest(),
         provenance=TextProvenance(char_start=0, char_end=len(text)),
     )
 

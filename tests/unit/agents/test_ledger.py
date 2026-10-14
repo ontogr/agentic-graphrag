@@ -5,6 +5,7 @@ Key assignment and resolve() are covered by the integration
 tests in tests/integration/agents.
 """
 
+import hashlib
 from uuid import uuid4
 
 from agrag.agents.ledger import Ledger
@@ -39,6 +40,7 @@ def _chunk_result(text: str) -> SearchResult:
         id=uuid4(),
         document_id=uuid4(),
         text=text,
+        content_hash=hashlib.sha256(text.encode("utf-8")).hexdigest(),
         provenance=TextProvenance(char_start=0, char_end=len(text)),
     )
     return SearchResult(item=chunk, score=1.0, method="chunk")

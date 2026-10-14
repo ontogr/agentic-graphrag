@@ -7,6 +7,7 @@ cross-batch index threading.
 """
 
 import asyncio
+import hashlib
 from collections.abc import Mapping, Sequence
 from typing import Any
 from unittest import mock
@@ -80,6 +81,7 @@ def _chunk(document: Document, *, index: int = 0, text: str = "hello world") -> 
     return Chunk(
         id=uuid4(),
         document_id=Document.node_id_for(document_key=document.resolved_document_key),
+        content_hash=document.content_hash,
         index=index,
         text=text,
         provenance=TextProvenance(char_start=0, char_end=len(text)),
@@ -558,6 +560,7 @@ class TestHeadingContextEmbedding:
         return Chunk(
             id=uuid4(),
             document_id=Document.node_id_for(document_key="h"),
+            content_hash=hashlib.sha256(b"body text").hexdigest(),
             text="body text",
             provenance=TextProvenance(char_start=0, char_end=9),
             heading_path=path,

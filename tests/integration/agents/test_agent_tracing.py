@@ -9,6 +9,7 @@ the other agent integration tests, so it shares the database-wide ``Chunk``
 vector index with them. It skips when no agent LLM endpoint is configured.
 """
 
+import hashlib
 import json
 import os
 from collections.abc import AsyncGenerator, Sequence
@@ -208,6 +209,7 @@ class TestAgentTracing:
             document_id=UUID(self.document_id),
             index=index,
             text=text,
+            content_hash=hashlib.sha256(text.encode("utf-8")).hexdigest(),
             provenance=TextProvenance(char_start=0, char_end=len(text)),
         )
         chunk.embedding = await self.embedder.embed_one(text)
@@ -222,6 +224,9 @@ class TestAgentTracing:
                         "document_id": self.document_id,
                         "index": index,
                         "text": text,
+                        "content_hash": hashlib.sha256(
+                            text.encode("utf-8")
+                        ).hexdigest(),
                         "provenance": '{"kind":"text","char_start":0,'
                         f'"char_end":{len(text)}}}',
                         "heading_path": [],

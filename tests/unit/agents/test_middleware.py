@@ -10,6 +10,7 @@ RequireVerdictMiddleware's reminders when a model answers without the verdict to
 Uses minimal request builders rather than a real LangChain agent run.
 """
 
+import hashlib
 from typing import Any
 from unittest.mock import AsyncMock
 from uuid import uuid4
@@ -236,6 +237,7 @@ def _cited_chunk(ledger: Ledger, text: str) -> str:
         id=uuid4(),
         document_id=uuid4(),
         text=text,
+        content_hash=hashlib.sha256(text.encode("utf-8")).hexdigest(),
         provenance=TextProvenance(char_start=0, char_end=len(text)),
     )
     return ledger.cite(SearchResult(item=chunk, score=1.0, method="chunk"))

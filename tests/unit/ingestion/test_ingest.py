@@ -1,5 +1,6 @@
 """Tests for splitting one add() call's work into per-document slices."""
 
+import hashlib
 import logging
 from uuid import uuid4
 
@@ -39,6 +40,7 @@ def _chunk(document: Document, *, index: int = 0, text: str = "hello world") -> 
         document_id=Document.node_id_for(document_key=document.resolved_document_key),
         index=index,
         text=text,
+        content_hash=hashlib.sha256(text.encode("utf-8")).hexdigest(),
         provenance=TextProvenance(char_start=0, char_end=len(text)),
     )
 
