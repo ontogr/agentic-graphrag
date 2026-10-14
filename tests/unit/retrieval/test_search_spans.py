@@ -6,6 +6,7 @@ points. The engine's stores are mocks; the retrievers and helpers are the real
 ones.
 """
 
+import hashlib
 import json
 from unittest.mock import AsyncMock
 from uuid import UUID, uuid4
@@ -69,6 +70,9 @@ def _chunk_rows(chunk_id) -> list[dict]:
                     "document_id": str(uuid4()),
                     "index": 0,
                     "text": "a passage",
+                    "content_hash": hashlib.sha256(
+                        "a passage".encode("utf-8")
+                    ).hexdigest(),
                     "provenance": json.dumps(
                         {"kind": "text", "char_start": 0, "char_end": 9}
                     ),

@@ -15,6 +15,7 @@ overlapping or cancelled concurrent extract() calls.
 """
 
 import asyncio
+import hashlib
 import json
 import logging
 import sys
@@ -166,6 +167,7 @@ def _chunk(
         id=uuid4(),
         document_id=_DOC_ID,
         text=text,
+        content_hash=hashlib.sha256(text.encode("utf-8")).hexdigest(),
         provenance=TextProvenance(char_start=0, char_end=len(text)),
     )
 
@@ -984,6 +986,9 @@ class TestBAMLExtractor:
             id=uuid4(),
             document_id=_DOC_ID,
             text="Ada knows Charles.",
+            content_hash=hashlib.sha256(
+                "Ada knows Charles.".encode("utf-8")
+            ).hexdigest(),
             provenance=TextProvenance(char_start=0, char_end=18),
             heading_path=["Ada Lovelace"],
         )
@@ -1138,6 +1143,7 @@ class TestBAMLExtractor:
             id=uuid4(),
             document_id=_DOC_ID,
             text="She left early.",
+            content_hash=hashlib.sha256("She left early.".encode("utf-8")).hexdigest(),
             provenance=TextProvenance(char_start=0, char_end=15),
             heading_path=["Ada Lovelace"],
         )
@@ -1725,6 +1731,7 @@ class TestHeadingContext:
             id=uuid4(),
             document_id=_DOC_ID,
             text=text,
+            content_hash=hashlib.sha256(text.encode("utf-8")).hexdigest(),
             provenance=TextProvenance(char_start=0, char_end=len(text)),
             heading_path=path,
         )

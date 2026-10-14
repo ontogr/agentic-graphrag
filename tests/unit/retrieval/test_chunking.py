@@ -5,6 +5,7 @@ property dict holds the fields only a Chunk node stores. A malformed Chunk
 node is skipped with a warning that names its id, and never raises.
 """
 
+import hashlib
 import json
 import logging
 from dataclasses import dataclass
@@ -34,6 +35,7 @@ def _chunk_properties(**overrides: object) -> dict[str, object]:
         "document_id": DOCUMENT_ID,
         "index": 0,
         "text": "hello",
+        "content_hash": hashlib.sha256("hello".encode("utf-8")).hexdigest(),
         "provenance": TEXT_PROVENANCE,
         "heading_path": [],
         "content_kind": "text",

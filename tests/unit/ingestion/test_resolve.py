@@ -19,6 +19,7 @@ failed without merging, and boundary pairs past the per-label cap count as
 truncated without reaching the LLM.
 """
 
+import hashlib
 from unittest.mock import AsyncMock, MagicMock
 from uuid import UUID, uuid4
 
@@ -84,6 +85,7 @@ def _chunk(text: str = "context") -> Chunk:
         id=uuid4(),
         document_id=_DOC_ID,
         text=text,
+        content_hash=hashlib.sha256(text.encode("utf-8")).hexdigest(),
         provenance=TextProvenance(char_start=0, char_end=len(text)),
     )
 

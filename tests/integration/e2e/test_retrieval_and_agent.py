@@ -5,6 +5,7 @@ correct results, citation keys resolve to live entities,
 and the agent build/invoke path works.
 """
 
+import hashlib
 import importlib.util
 import os
 from collections.abc import AsyncGenerator, Sequence
@@ -289,6 +290,9 @@ class TestRetrievalE2E:
             document_id=uuid4(),
             index=0,
             text="Aspirin is effective for treating headaches.",
+            content_hash=hashlib.sha256(
+                "Aspirin is effective for treating headaches.".encode("utf-8")
+            ).hexdigest(),
             provenance=TextProvenance(char_start=0, char_end=44),
         )
         chunk.embedding = await self.embedder.embed_one(chunk.text)
@@ -303,6 +307,9 @@ class TestRetrievalE2E:
                         "document_id": str(chunk.document_id),
                         "index": chunk.index,
                         "text": chunk.text,
+                        "content_hash": hashlib.sha256(
+                            chunk.text.encode("utf-8")
+                        ).hexdigest(),
                         "provenance": ('{"kind":"text","char_start":0,"char_end":44}'),
                         "heading_path": [],
                         "content_kind": "text",

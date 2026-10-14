@@ -22,6 +22,7 @@ uv pip install "agentic-graphrag[llm]"
 
 ```python
 import asyncio
+import hashlib
 
 from uuid import uuid4
 
@@ -36,6 +37,7 @@ async def main() -> None:
     chunk = Chunk(
         id=uuid4(),
         document_id=uuid4(),
+        content_hash=hashlib.sha256(text.encode("utf-8")).hexdigest(),
         text=text,
         provenance=TextProvenance(char_start=0, char_end=len(text)),
     )
@@ -128,6 +130,7 @@ uv pip install "agentic-graphrag[extract]"
 
 ```python
 import asyncio
+import hashlib
 
 from uuid import uuid4
 
@@ -142,6 +145,7 @@ async def main() -> None:
     chunk = Chunk(
         id=uuid4(),
         document_id=uuid4(),
+        content_hash=hashlib.sha256(text.encode("utf-8")).hexdigest(),
         text=text,
         provenance=TextProvenance(char_start=0, char_end=len(text)),
     )

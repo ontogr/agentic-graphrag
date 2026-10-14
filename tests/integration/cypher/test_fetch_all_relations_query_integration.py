@@ -9,6 +9,7 @@ Covers the real Cypher builder's filtering: system edges (MENTIONED_IN),
 and Chunk endpoints are excluded.
 """
 
+import hashlib
 import importlib.util
 from collections.abc import AsyncGenerator
 from uuid import uuid4
@@ -109,6 +110,9 @@ class TestFetchAllRelationsQueryIntegration:
                             "document_id": str(uuid4()),
                             "index": 0,
                             "text": "chunk text",
+                            "content_hash": hashlib.sha256(
+                                "chunk text".encode("utf-8")
+                            ).hexdigest(),
                             "provenance": '{"kind":"text","char_start":0,"char_end":10}',  # noqa: E501
                             "heading_path": [],
                             "content_kind": "text",
