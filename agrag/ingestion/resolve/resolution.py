@@ -5,6 +5,7 @@ builds its candidates and neighbor context, runs one ``Resolver`` pass, and
 returns the result.
 """
 
+import hashlib
 from collections import defaultdict
 from collections.abc import Sequence
 from dataclasses import dataclass, field
@@ -99,6 +100,7 @@ def _synthetic_entity_mention(entity: Entity) -> tuple[ExtractedEntity, Chunk]:
     chunk = Chunk(
         id=chunk_id,
         document_id=chunk_id,
+        content_hash=hashlib.sha256(entity.name.encode("utf-8")).hexdigest(),
         index=0,
         text=entity.name,
         provenance=TextProvenance(char_start=0, char_end=len(entity.name)),

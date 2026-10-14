@@ -3,15 +3,18 @@
 Covers the chunker and section fields, which reach the record only when set.
 """
 
+import hashlib
 from uuid import uuid4
 
 import pytest
+from pydantic import ValidationError
 
 from agrag.common.data_models.chunk import Chunk
 from agrag.common.data_models.provenance import TextProvenance
 
 
 def _chunk(**fields: object) -> Chunk:
+    fields.setdefault("content_hash", hashlib.sha256(b"hello").hexdigest())
     return Chunk(
         id=uuid4(),
         document_id=uuid4(),
@@ -19,6 +22,22 @@ def _chunk(**fields: object) -> Chunk:
         provenance=TextProvenance(char_start=0, char_end=5),
         **fields,  # type: ignore[arg-type]
     )
+
+
+class TestChunkContentHash:
+    """A chunk must name the content version it was cut from."""
+
+    def test_construction_requires_content_hash(self) -> None:
+        """A chunk built without a content hash fails validation."""
+        with pytest.raises(ValidationError, match="content_hash"):
+            Chunk.model_validate(
+                {
+                    "id": uuid4(),
+                    "document_id": uuid4(),
+                    "text": "hello",
+                    "provenance": TextProvenance(char_start=0, char_end=5),
+                }
+            )
 
 
 class TestChunkNodeRecord:
@@ -62,6 +81,7 @@ class TestContextualText:
             id=uuid4(),
             document_id=uuid4(),
             text=text,
+            content_hash=hashlib.sha256(text.encode("utf-8")).hexdigest(),
             provenance=TextProvenance(char_start=0, char_end=len(text)),
             heading_path=path,
         )

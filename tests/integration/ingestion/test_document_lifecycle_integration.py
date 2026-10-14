@@ -241,6 +241,90 @@ class TestDocumentLifecycle:
             )
             await store.close()
 
+    async def test_update_with_prebuilt_document_supersedes_chunks(self) -> None:
+        """A pre-built Document replaces the open version the same way text does."""
+        store = build_graph_store("neo4j")
+        await store.connect()
+        graph = await _open_graph(store)
+        key = f"lifecycle://{uuid4().hex}"
+        first_text = "prebuilt lifecycle version one. " * 60
+        second_text = "prebuilt lifecycle version two, materially different. " * 60
+        try:
+            first = await graph.add(
+                documents=[_document(key, first_text)], return_chunks=True
+            )
+            old_ids = [str(chunk.id) for chunk in first.chunks]
+            assert len(old_ids) >= 1
+
+            updated = await graph.update(key, document=_document(key, second_text))
+
+            assert updated.no_op is False
+            assert updated.previous_content_hash == _content_hash(first_text)
+            assert updated.new_content_hash == _content_hash(second_text)
+            assert updated.parts_closed == len(old_ids)
+            assert updated.add_result is not None
+
+            rows = await store.execute_read(
+                "MATCH (:Document {document_key: $key})-[r:HAS_PART]->(c:Chunk) "
+                "WHERE r.invalid_at IS NULL "
+                "RETURN collect(c.id) AS open_ids",
+                {"key": key},
+            )
+            new_ids = list(rows[0]["open_ids"])
+            assert len(new_ids) >= 1
+            assert set(new_ids).isdisjoint(set(old_ids))
+
+            rows = await store.execute_read(
+                "MATCH (:Document {document_key: $key})-[r:HAS_PART]->(c:Chunk) "
+                "WHERE c.id IN $old_ids "
+                "RETURN count(r) AS total, "
+                "count(CASE WHEN r.invalid_at IS NOT NULL THEN 1 END) AS closed",
+                {"key": key, "old_ids": old_ids},
+            )
+            assert rows[0]["total"] == len(old_ids)
+            assert rows[0]["closed"] == len(old_ids)
+        finally:
+            await store.execute_write(
+                "MATCH (d:Document {document_key: $key}) "
+                "OPTIONAL MATCH (d)-[:HAS_PART]->(c:Chunk) "
+                "DETACH DELETE d, c",
+                {"key": key},
+            )
+            await store.close()
+
+    async def test_update_with_document_for_another_key_raises(self) -> None:
+        """A pre-built Document whose key differs from the update key is rejected."""
+        store = build_graph_store("neo4j")
+        await store.connect()
+        graph = await _open_graph(store)
+        key = f"lifecycle://{uuid4().hex}"
+        other_key = f"lifecycle://{uuid4().hex}"
+        text = "prebuilt key mismatch check. " * 60
+        try:
+            first = await graph.add(
+                documents=[_document(key, text)], return_chunks=True
+            )
+
+            with pytest.raises(ValueError, match="does not match"):
+                await graph.update(key, document=_document(other_key, text))
+
+            rows = await store.execute_read(
+                "MATCH (d:Document {document_key: $key})-[r:HAS_PART]->(c:Chunk) "
+                "RETURN count(r) AS total, "
+                "count(CASE WHEN r.invalid_at IS NULL THEN 1 END) AS open_edges",
+                {"key": key},
+            )
+            assert rows[0]["total"] == len(first.chunks)
+            assert rows[0]["open_edges"] == len(first.chunks)
+        finally:
+            await store.execute_write(
+                "MATCH (d:Document {document_key: $key}) "
+                "OPTIONAL MATCH (d)-[:HAS_PART]->(c:Chunk) "
+                "DETACH DELETE d, c",
+                {"key": key},
+            )
+            await store.close()
+
     async def test_delete_document_prunes_entities_without_surviving_evidence(
         self,
     ) -> None:

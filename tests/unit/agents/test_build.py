@@ -12,6 +12,7 @@ and that every run returns its own ``Ledger`` so a citation key resolves to
 the evidence behind it.
 """
 
+import hashlib
 import importlib.util
 import subprocess
 import sys
@@ -70,6 +71,7 @@ def _chunk(text: str) -> Chunk:
         id=uuid4(),
         document_id=uuid4(),
         text=text,
+        content_hash=hashlib.sha256(text.encode("utf-8")).hexdigest(),
         provenance=TextProvenance(char_start=0, char_end=len(text)),
     )
 

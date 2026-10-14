@@ -4,6 +4,7 @@ Run against the Docker Compose Neo4j instance from
 ``docker/docker-compose.ci.yml`` (``make dev-services-up``).
 """
 
+import hashlib
 import importlib.util
 import os
 from collections.abc import AsyncGenerator, Sequence
@@ -195,6 +196,7 @@ class TestSearchEngineIntegration:
                 document_id=uuid4(),
                 index=0,
                 text=text,
+                content_hash=hashlib.sha256(text.encode("utf-8")).hexdigest(),
                 provenance=TextProvenance(char_start=0, char_end=len(text)),
             )
             ch.embedding = await self.embedder.embed_one(text)
@@ -209,6 +211,7 @@ class TestSearchEngineIntegration:
                     "document_id": str(ch.document_id),
                     "index": ch.index,
                     "text": ch.text,
+                    "content_hash": hashlib.sha256(ch.text.encode("utf-8")).hexdigest(),
                     "provenance": '{"kind":"text",'
                     '"char_start":0,'
                     f'"char_end":{len(ch.text)}}}',
@@ -300,6 +303,9 @@ class TestSearchEngineIntegration:
                         "document_id": str(uuid4()),
                         "index": 0,
                         "text": "Alice works with Bob",
+                        "content_hash": hashlib.sha256(
+                            "Alice works with Bob".encode("utf-8")
+                        ).hexdigest(),
                         "provenance": "{}",
                         "heading_path": [],
                         "content_kind": "text",
