@@ -1,0 +1,856 @@
+{
+ "name": "connected-memory-evidence",
+ "upstream": {
+  "legal": {
+   "repo": "awinml/legalbench-rag",
+   "revision": "0263f7b2a9fb811f984ead05a0aa0d796a456124"
+  },
+  "memory": {
+   "repo": "Mohammadta/BEAM",
+   "revision": "3205395e897e7318c7b094ef4e6047b9b82dbb03",
+   "file": "data/100K-00000-of-00001.parquet",
+   "file_sha256": "c0519be25907005ba873c927c50877471d550873039d96c041554d0075a78ace"
+  }
+ },
+ "documents": [
+  {
+   "uri": "privacy_qa/Keep.txt",
+   "corpus": "legal",
+   "source": "hf://datasets/awinml/legalbench-rag@0263f7b2a9fb811f984ead05a0aa0d796a456124/corpus/privacy_qa/Keep.txt",
+   "sha256": "e2b4782b7611593798332c228b084ee72ed2fa81c5170818116b9092dfa7d8d2",
+   "content_sha256": "e2b4782b7611593798332c228b084ee72ed2fa81c5170818116b9092dfa7d8d2",
+   "char_count": 10904
+  },
+  {
+   "uri": "privacy_qa/Viber Messenger.txt",
+   "corpus": "legal",
+   "source": "hf://datasets/awinml/legalbench-rag@0263f7b2a9fb811f984ead05a0aa0d796a456124/corpus/privacy_qa/Viber Messenger.txt",
+   "sha256": "6c92fa4cadaef3b1f37d0d34ea81cbccfcf3576d321e63fb916c24e64e100767",
+   "content_sha256": "6c92fa4cadaef3b1f37d0d34ea81cbccfcf3576d321e63fb916c24e64e100767",
+   "char_count": 27664
+  },
+  {
+   "uri": "contractnli/Kenway-NDA-Form-Blank.txt",
+   "corpus": "legal",
+   "source": "hf://datasets/awinml/legalbench-rag@0263f7b2a9fb811f984ead05a0aa0d796a456124/corpus/contractnli/Kenway-NDA-Form-Blank.txt",
+   "sha256": "3dff6905cdc6ba5263a025b509f5c989ad4a3108a3ca726c753f1f9bf8072fb6",
+   "content_sha256": "3dff6905cdc6ba5263a025b509f5c989ad4a3108a3ca726c753f1f9bf8072fb6",
+   "char_count": 19025
+  },
+  {
+   "uri": "beam/17/session-1",
+   "corpus": "memory",
+   "source": "hf://datasets/Mohammadta/BEAM@3205395e897e7318c7b094ef4e6047b9b82dbb03/data/100K-00000-of-00001.parquet#conversation=17;session=1;messages=18",
+   "sha256": "10c625cd72dbeac395549e322586f484171893cb8fb0c9230d5059f8b8ce862d",
+   "content_sha256": "10c625cd72dbeac395549e322586f484171893cb8fb0c9230d5059f8b8ce862d",
+   "char_count": 316,
+   "messages": [
+    18
+   ]
+  },
+  {
+   "uri": "beam/17/session-3",
+   "corpus": "memory",
+   "source": "hf://datasets/Mohammadta/BEAM@3205395e897e7318c7b094ef4e6047b9b82dbb03/data/100K-00000-of-00001.parquet#conversation=17;session=3;messages=156,157",
+   "sha256": "b8cbec74f15ed3c257798e759e467831e02c96111254a60cd1bf9caeb33a897f",
+   "content_sha256": "b8cbec74f15ed3c257798e759e467831e02c96111254a60cd1bf9caeb33a897f",
+   "char_count": 4149,
+   "messages": [
+    156,
+    157
+   ]
+  }
+ ],
+ "cases": [
+  {
+   "id": "source_span_retrieval",
+   "question": "Consider \"Keep\"'s privacy policy; do you keep and upload my activity to your database",
+   "original_question_ids": [
+    "privacy_qa:fdf155d3",
+    "privacy_qa:c96be584"
+   ],
+   "support": [
+    {
+     "role": "primary",
+     "question_id": "privacy_qa:fdf155d3",
+     "document": "privacy_qa/Keep.txt",
+     "char_start": 1221,
+     "char_end": 1361,
+     "label_char_start": 1221,
+     "label_char_end": 1361,
+     "shift": 0,
+     "text_sha256": "86d48d15f607a7fcb74ef5f19deb44a469d47b733b973ac85d2cb37fcf44ac50",
+     "answer": "We value your every uploaded training information as it is crucial for us to better understand which training class is more helpful to you.\n",
+     "snippet_start": "We value your every uploaded training in"
+    },
+    {
+     "role": "second",
+     "question_id": "privacy_qa:c96be584",
+     "document": "privacy_qa/Keep.txt",
+     "char_start": 4004,
+     "char_end": 4911,
+     "label_char_start": 4004,
+     "label_char_end": 4911,
+     "shift": 0,
+     "text_sha256": "282f190f9f24b60838b390f9afc16c40eb01a603012c43f496108cd37501b6bf",
+     "answer": "Where we or our affiliate companies process your payments as a payment service provider, or where we fulfill any purchases you have made on Keep, we may collect, use and store your Personal Information in order to fulfill such purchases.\nLocation Data, Log Data and your device.Keep automatically collects Log Data from your device to enable and assist Keeps functionalities.\nIn addition, you may also permit Keep to access other content and data on your device  for example, your contact list and photo storage.\nOther than consented by you, we commit that we will not sell your personal information to any other third parties for their processing for any purposes.\nWe will ask for your explicit consent to share any sensitive personal information such as race, religion, sexual orientation, or health.\nWe will not disclose or transfer your personal information to any non-affiliated third parties, unless:\n",
+     "snippet_start": "Where we or our affiliate companies proc"
+    },
+    {
+     "role": "second",
+     "question_id": "privacy_qa:c96be584",
+     "document": "privacy_qa/Keep.txt",
+     "char_start": 4956,
+     "char_end": 5177,
+     "label_char_start": 4956,
+     "label_char_end": 5177,
+     "shift": 0,
+     "text_sha256": "924f94886ad156b9e8ed3574550d8ede7218a13f2b6d3f47dbd3e3f2e2715d23",
+     "answer": "In order to participate in certain features, you may have to adjust your Privacy settings and share more information.\nYou may also choose to share your activity on other platforms, such as Facebook, Twitter or Instagram.\n",
+     "snippet_start": "In order to participate in certain featu"
+    }
+   ],
+   "holdout": {
+    "question_id": "privacy_qa:57d091ce",
+    "question": "Consider \"Keep\"'s privacy policy; will the personal info i share with this app to sign up be shared with other companies, etc?",
+    "support": [
+     {
+      "role": "primary",
+      "question_id": "privacy_qa:57d091ce",
+      "document": "privacy_qa/Keep.txt",
+      "char_start": 4004,
+      "char_end": 4517,
+      "label_char_start": 4004,
+      "label_char_end": 4517,
+      "shift": 0,
+      "text_sha256": "26b9b3993bcfe45e5bbd03362b2546eaf06e2785d52cc8802b6b814be09b23ff",
+      "answer": "Where we or our affiliate companies process your payments as a payment service provider, or where we fulfill any purchases you have made on Keep, we may collect, use and store your Personal Information in order to fulfill such purchases.\nLocation Data, Log Data and your device.Keep automatically collects Log Data from your device to enable and assist Keeps functionalities.\nIn addition, you may also permit Keep to access other content and data on your device  for example, your contact list and photo storage.\n",
+      "snippet_start": "Where we or our affiliate companies proc"
+     },
+     {
+      "role": "primary",
+      "question_id": "privacy_qa:57d091ce",
+      "document": "privacy_qa/Keep.txt",
+      "char_start": 4807,
+      "char_end": 5177,
+      "label_char_start": 4807,
+      "label_char_end": 5177,
+      "shift": 0,
+      "text_sha256": "ad7d58e7e0d2260c56735fabc204ef2e3063683944d8bc2190d21577e47b2319",
+      "answer": "We will not disclose or transfer your personal information to any non-affiliated third parties, unless:\nYou may choose to share certain information.\nIn order to participate in certain features, you may have to adjust your Privacy settings and share more information.\nYou may also choose to share your activity on other platforms, such as Facebook, Twitter or Instagram.\n",
+      "snippet_start": "We will not disclose or transfer your pe"
+     }
+    ]
+   }
+  },
+  {
+   "id": "multi_source_evidence",
+   "question": "Do the Keep and Viber Messenger privacy policies say whether personal information is sold or shared with third parties?",
+   "original_question_ids": [
+    "privacy_qa:c96be584",
+    "privacy_qa:58624fcb"
+   ],
+   "support": [
+    {
+     "role": "keep",
+     "question_id": "privacy_qa:c96be584",
+     "document": "privacy_qa/Keep.txt",
+     "char_start": 4004,
+     "char_end": 4911,
+     "label_char_start": 4004,
+     "label_char_end": 4911,
+     "shift": 0,
+     "text_sha256": "282f190f9f24b60838b390f9afc16c40eb01a603012c43f496108cd37501b6bf",
+     "answer": "Where we or our affiliate companies process your payments as a payment service provider, or where we fulfill any purchases you have made on Keep, we may collect, use and store your Personal Information in order to fulfill such purchases.\nLocation Data, Log Data and your device.Keep automatically collects Log Data from your device to enable and assist Keeps functionalities.\nIn addition, you may also permit Keep to access other content and data on your device  for example, your contact list and photo storage.\nOther than consented by you, we commit that we will not sell your personal information to any other third parties for their processing for any purposes.\nWe will ask for your explicit consent to share any sensitive personal information such as race, religion, sexual orientation, or health.\nWe will not disclose or transfer your personal information to any non-affiliated third parties, unless:\n",
+     "snippet_start": "Where we or our affiliate companies proc"
+    },
+    {
+     "role": "viber",
+     "question_id": "privacy_qa:58624fcb",
+     "document": "privacy_qa/Viber Messenger.txt",
+     "char_start": 11655,
+     "char_end": 15357,
+     "label_char_start": 11655,
+     "label_char_end": 15357,
+     "shift": 0,
+     "text_sha256": "808273a530df7e70cffb586137adda8cbd0d4dfaf973eeec7af43c1c9045f1fd",
+     "answer": "We may keep activity data on a non-identifiable basis to improve our services.\nYour posts on public accounts and communities may remain available if you do not delete them.\nYour data is kept safe with us, but we do share your personal information with third parties we trust in order to provide you with our services, as follows:\n(a)The Viber Corporate Family:We may share the information we collect about you with the Viber corporate family, including our parent company, Rakuten Inc., and its and our affiliates and subsidiaries (To learn more about Rakuten Inc., which is a publicly traded company in Japan, please follow this link:http://global.rakuten.com/corp/about/).\nThe information may be disclosed to: (i) provide joint content and our services (eg, registration, coordination of membership accounts between the Viber corporate family, transactions, analytics and customer support); (ii) help detect and prevent potentially illegal acts, violations of our policies, fraud and/or data security breaches.\nThe information provided in your registration, if you link your email to the Viber account, will be shared with Rakuten group to create the Rakuten account and/or to link your Rakuten account with your Viber account.\nData about your use of the Viber Service and Rakuten group services will also be shared to the joint account.\nThe purpose of this practice is to provide joint content and a better service from us and the group, and allow you to enjoy from the Rakuten ecosystem benefits, as well as for fraud prevention and personalization of the services,and any other purpose described in the privacy policy of the other Rakuten group company providing the service.\nYou can choose to delink your Viber account from the Rakuten account at any time by editing your profile on the app.\n(b) App Providers and Other Third-Parties:We may disclose your information to service providers and other third-parties under contract who help with providing you and others our Services on our behalf or other services provided by third-parties via our Services (such as, but not limited to, fraud and spam investigations, payment processing, site analytics and operations, providing special partnership features in our service either on an aggregate non identifiable basis, or using a unique identifier which is not attributable to you).\nThey are required to secure the data they receive.\n(c) Advertising partners: to enable the limited advertisements on our service, we may share a unique advertising identifier that is not attributable to you, with our third party advertising partners, and advertising service providers, along with certain technical data about you (your language preference, country, city, and device data), based on our legitimate interest.\nThis includes partners managing our advertising placements and also advertisers themselves and their agencies or third parties managing their advertising demands.\nYour unique advertising identifier is created by your mobile devices operating system and you can change it or choose not to share it at any time.\nIf you want to know more, read our Cookies and Tracking Technologies Policy.\n(d) Legal and Law Enforcement: We may disclose your information to law enforcement, governmental agencies, or authorized third-parties, in response to a verified request relating to terror acts, criminal investigations or alleged illegal activity or any other activity that may expose us, you, or any other Viber user to legal liability.\n(e)Change of Control  New Owners: We may share your information with another business entity, if we plan to merge with or be acquired by that business, or are involved in a transaction with similar financial effect.\n",
+     "snippet_start": "We may keep activity data on a non-ident"
+    }
+   ],
+   "holdout": {
+    "question": "Do the Keep and Viber Messenger privacy policies say users' personal information may be shared with other parties?",
+    "original_question_ids": [
+     "privacy_qa:57d091ce",
+     "privacy_qa:440fda49"
+    ],
+    "support": [
+     {
+      "role": "keep",
+      "question_id": "privacy_qa:57d091ce",
+      "document": "privacy_qa/Keep.txt",
+      "char_start": 4004,
+      "char_end": 4517,
+      "label_char_start": 4004,
+      "label_char_end": 4517,
+      "shift": 0,
+      "text_sha256": "26b9b3993bcfe45e5bbd03362b2546eaf06e2785d52cc8802b6b814be09b23ff",
+      "answer": "Where we or our affiliate companies process your payments as a payment service provider, or where we fulfill any purchases you have made on Keep, we may collect, use and store your Personal Information in order to fulfill such purchases.\nLocation Data, Log Data and your device.Keep automatically collects Log Data from your device to enable and assist Keeps functionalities.\nIn addition, you may also permit Keep to access other content and data on your device  for example, your contact list and photo storage.\n",
+      "snippet_start": "Where we or our affiliate companies proc"
+     },
+     {
+      "role": "keep",
+      "question_id": "privacy_qa:57d091ce",
+      "document": "privacy_qa/Keep.txt",
+      "char_start": 4807,
+      "char_end": 5177,
+      "label_char_start": 4807,
+      "label_char_end": 5177,
+      "shift": 0,
+      "text_sha256": "ad7d58e7e0d2260c56735fabc204ef2e3063683944d8bc2190d21577e47b2319",
+      "answer": "We will not disclose or transfer your personal information to any non-affiliated third parties, unless:\nYou may choose to share certain information.\nIn order to participate in certain features, you may have to adjust your Privacy settings and share more information.\nYou may also choose to share your activity on other platforms, such as Facebook, Twitter or Instagram.\n",
+      "snippet_start": "We will not disclose or transfer your pe"
+     },
+     {
+      "role": "viber",
+      "question_id": "privacy_qa:440fda49",
+      "document": "privacy_qa/Viber Messenger.txt",
+      "char_start": 11655,
+      "char_end": 14803,
+      "label_char_start": 11655,
+      "label_char_end": 14803,
+      "shift": 0,
+      "text_sha256": "da1dcd69c2a6fb8417218e0c4d7e2e5a82b826e94f911ae24cc8c1f28491aca1",
+      "answer": "We may keep activity data on a non-identifiable basis to improve our services.\nYour posts on public accounts and communities may remain available if you do not delete them.\nYour data is kept safe with us, but we do share your personal information with third parties we trust in order to provide you with our services, as follows:\n(a)The Viber Corporate Family:We may share the information we collect about you with the Viber corporate family, including our parent company, Rakuten Inc., and its and our affiliates and subsidiaries (To learn more about Rakuten Inc., which is a publicly traded company in Japan, please follow this link:http://global.rakuten.com/corp/about/).\nThe information may be disclosed to: (i) provide joint content and our services (eg, registration, coordination of membership accounts between the Viber corporate family, transactions, analytics and customer support); (ii) help detect and prevent potentially illegal acts, violations of our policies, fraud and/or data security breaches.\nThe information provided in your registration, if you link your email to the Viber account, will be shared with Rakuten group to create the Rakuten account and/or to link your Rakuten account with your Viber account.\nData about your use of the Viber Service and Rakuten group services will also be shared to the joint account.\nThe purpose of this practice is to provide joint content and a better service from us and the group, and allow you to enjoy from the Rakuten ecosystem benefits, as well as for fraud prevention and personalization of the services,and any other purpose described in the privacy policy of the other Rakuten group company providing the service.\nYou can choose to delink your Viber account from the Rakuten account at any time by editing your profile on the app.\n(b) App Providers and Other Third-Parties:We may disclose your information to service providers and other third-parties under contract who help with providing you and others our Services on our behalf or other services provided by third-parties via our Services (such as, but not limited to, fraud and spam investigations, payment processing, site analytics and operations, providing special partnership features in our service either on an aggregate non identifiable basis, or using a unique identifier which is not attributable to you).\nThey are required to secure the data they receive.\n(c) Advertising partners: to enable the limited advertisements on our service, we may share a unique advertising identifier that is not attributable to you, with our third party advertising partners, and advertising service providers, along with certain technical data about you (your language preference, country, city, and device data), based on our legitimate interest.\nThis includes partners managing our advertising placements and also advertisers themselves and their agencies or third parties managing their advertising demands.\nYour unique advertising identifier is created by your mobile devices operating system and you can change it or choose not to share it at any time.\nIf you want to know more, read our Cookies and Tracking Technologies Policy.\n",
+      "snippet_start": "We may keep activity data on a non-ident"
+     }
+    ]
+   }
+  },
+  {
+   "id": "insufficient_evidence",
+   "question": "Consider Keep's privacy policy: within how many hours must Keep tell me about a data breach?",
+   "original_question_ids": [],
+   "support": [],
+   "holdout": {
+    "question": "Does Keep's privacy policy give a deadline for notifying me after a data breach?",
+    "support": []
+   }
+  },
+  {
+   "id": "cross_session_recall",
+   "questions": [
+    {
+     "question_id": "conv17:information_extraction:0",
+     "question": "Which days did I say my kids have their afterschool activities at their school?",
+     "rubric": [
+      "LLM response should state: on Tuesdays and Thursdays"
+     ],
+     "support_document": "beam/17/session-1",
+     "must_not_cite": [
+      "beam/17/session-3"
+     ]
+    },
+    {
+     "question_id": "conv17:multi_session_reasoning:0",
+     "question": "How many scenes had I filmed in total by July 5 and how many were left to film after that?",
+     "rubric": [
+      "LLM response should state: had filmed 12 scenes",
+      "LLM response should state: had 4 scenes left to film"
+     ],
+     "support_document": "beam/17/session-3",
+     "must_not_cite": [
+      "beam/17/session-1"
+     ]
+    }
+   ],
+   "original_question_ids": [
+    "conv17:information_extraction:0",
+    "conv17:multi_session_reasoning:0"
+   ],
+   "support": [
+    {
+     "role": "on Tuesdays and Thursdays",
+     "question_id": "conv17:information_extraction:0",
+     "document": "beam/17/session-1",
+     "distractor_matches_in_other_excerpt": 0,
+     "message_id": 18,
+     "speaker": "user",
+     "char_start": 178,
+     "char_end": 200,
+     "text_sha256": "f67b1f3f7ed9f2e894be138854a748074e57a0fe591d019d71734f577bd3db4a"
+    },
+    {
+     "role": "had filmed 12 scenes",
+     "question_id": "conv17:multi_session_reasoning:0",
+     "document": "beam/17/session-3",
+     "distractor_matches_in_other_excerpt": 0,
+     "message_id": 156,
+     "speaker": "user",
+     "char_start": 125,
+     "char_end": 147,
+     "text_sha256": "d166f25b8581d5e3fb51da52a920af8b6e2196247481ce62de7d64e60edbedba"
+    },
+    {
+     "role": "had filmed 12 scenes",
+     "question_id": "conv17:multi_session_reasoning:0",
+     "document": "beam/17/session-3",
+     "distractor_matches_in_other_excerpt": 0,
+     "message_id": 157,
+     "speaker": "assistant",
+     "char_start": 352,
+     "char_end": 374,
+     "text_sha256": "d166f25b8581d5e3fb51da52a920af8b6e2196247481ce62de7d64e60edbedba"
+    },
+    {
+     "role": "had 4 scenes left to film",
+     "question_id": "conv17:multi_session_reasoning:0",
+     "document": "beam/17/session-3",
+     "distractor_matches_in_other_excerpt": 0,
+     "message_id": 157,
+     "speaker": "assistant",
+     "char_start": 665,
+     "char_end": 693,
+     "text_sha256": "9645b624b6488f8489091a753432d9f3cbb3f966341c438d5f21e16d19bfc165"
+    }
+   ],
+   "holdout": {
+    "question": "By July 5, how many scenes had I already filmed, and how many remained?"
+   }
+  },
+  {
+   "id": "interruption_and_resume",
+   "question": "Assess what Keep shares.",
+   "original_question_ids": [],
+   "steps": {
+    "A": "reads the first Keep span of the first question",
+    "B": "reads the second Keep span of the second question"
+   },
+   "support": [
+    {
+     "role": "A",
+     "question_id": "privacy_qa:fdf155d3",
+     "document": "privacy_qa/Keep.txt",
+     "char_start": 1221,
+     "char_end": 1361,
+     "label_char_start": 1221,
+     "label_char_end": 1361,
+     "shift": 0,
+     "text_sha256": "86d48d15f607a7fcb74ef5f19deb44a469d47b733b973ac85d2cb37fcf44ac50",
+     "answer": "We value your every uploaded training information as it is crucial for us to better understand which training class is more helpful to you.\n",
+     "snippet_start": "We value your every uploaded training in"
+    },
+    {
+     "role": "B",
+     "question_id": "privacy_qa:c96be584",
+     "document": "privacy_qa/Keep.txt",
+     "char_start": 4004,
+     "char_end": 4911,
+     "label_char_start": 4004,
+     "label_char_end": 4911,
+     "shift": 0,
+     "text_sha256": "282f190f9f24b60838b390f9afc16c40eb01a603012c43f496108cd37501b6bf",
+     "answer": "Where we or our affiliate companies process your payments as a payment service provider, or where we fulfill any purchases you have made on Keep, we may collect, use and store your Personal Information in order to fulfill such purchases.\nLocation Data, Log Data and your device.Keep automatically collects Log Data from your device to enable and assist Keeps functionalities.\nIn addition, you may also permit Keep to access other content and data on your device  for example, your contact list and photo storage.\nOther than consented by you, we commit that we will not sell your personal information to any other third parties for their processing for any purposes.\nWe will ask for your explicit consent to share any sensitive personal information such as race, religion, sexual orientation, or health.\nWe will not disclose or transfer your personal information to any non-affiliated third parties, unless:\n",
+     "snippet_start": "Where we or our affiliate companies proc"
+    }
+   ],
+   "holdout": {
+    "question": "Assess what Keep shares with third parties, one step at a time."
+   }
+  },
+  {
+   "id": "source_change_review",
+   "decisions": {
+    "D1": "Keep does not sell personal information.",
+    "D2": "Kenway's confidentiality obligations survive termination."
+   },
+   "original_question_ids": [
+    "privacy_qa:c96be584",
+    "contractnli:15378f01"
+   ],
+   "support": [
+    {
+     "role": "D1",
+     "question_id": "privacy_qa:c96be584",
+     "document": "privacy_qa/Keep.txt",
+     "char_start": 4004,
+     "char_end": 4911,
+     "label_char_start": 4004,
+     "label_char_end": 4911,
+     "shift": 0,
+     "text_sha256": "282f190f9f24b60838b390f9afc16c40eb01a603012c43f496108cd37501b6bf",
+     "answer": "Where we or our affiliate companies process your payments as a payment service provider, or where we fulfill any purchases you have made on Keep, we may collect, use and store your Personal Information in order to fulfill such purchases.\nLocation Data, Log Data and your device.Keep automatically collects Log Data from your device to enable and assist Keeps functionalities.\nIn addition, you may also permit Keep to access other content and data on your device  for example, your contact list and photo storage.\nOther than consented by you, we commit that we will not sell your personal information to any other third parties for their processing for any purposes.\nWe will ask for your explicit consent to share any sensitive personal information such as race, religion, sexual orientation, or health.\nWe will not disclose or transfer your personal information to any non-affiliated third parties, unless:\n",
+     "snippet_start": "Where we or our affiliate companies proc"
+    },
+    {
+     "role": "D2",
+     "question_id": "contractnli:15378f01",
+     "document": "contractnli/Kenway-NDA-Form-Blank.txt",
+     "char_start": 10289,
+     "char_end": 10403,
+     "label_char_start": 10289,
+     "label_char_end": 10403,
+     "shift": 0,
+     "text_sha256": "c6de7e28da257af5bd008ffe238d83ea06e2de3f025e55b24d7fbdabc542e162",
+     "answer": "The provisions of this Agreement shall continue to apply to any documents and materials retained by the Recipient.",
+     "snippet_start": "The provisions of this Agreement shall c"
+    },
+    {
+     "role": "D2",
+     "question_id": "contractnli:15378f01",
+     "document": "contractnli/Kenway-NDA-Form-Blank.txt",
+     "char_start": 13679,
+     "char_end": 13900,
+     "label_char_start": 13679,
+     "label_char_end": 13900,
+     "shift": 0,
+     "text_sha256": "541b667cdd534cad1852b74b308d258b3f914e5f8be7364d199eac3350f17587",
+     "answer": "The obligations of each Party shall, notwithstanding any earlier termination of negotiations or discussions between the Parties in relation to the Purpose, continue for a period of 2 years from the date of this Agreement.",
+     "snippet_start": "The obligations of each Party shall, not"
+    },
+    {
+     "role": "D2",
+     "question_id": "contractnli:15378f01",
+     "document": "contractnli/Kenway-NDA-Form-Blank.txt",
+     "char_start": 14063,
+     "char_end": 14179,
+     "label_char_start": 14063,
+     "label_char_end": 14179,
+     "shift": 0,
+     "text_sha256": "6b4a1f6fed9e672acebb5a568082145212c7aaafd98b60974d3c01a40845f444",
+     "answer": "6.3 Termination of this Agreement shall not affect any accrued rights or remedies to which either Party is entitled.",
+     "snippet_start": "6.3 Termination of this Agreement shall "
+    }
+   ],
+   "mutations": [
+    "M1",
+    "M2",
+    "M3"
+   ],
+   "holdout": {
+    "mutation": "M2"
+   }
+  }
+ ],
+ "mutations": [
+  {
+   "id": "M1",
+   "base": "privacy_qa/Keep.txt",
+   "base_content_sha256": "e2b4782b7611593798332c228b084ee72ed2fa81c5170818116b9092dfa7d8d2",
+   "description": "Replaces the sentence on not selling personal information inside the cited span of the first privacy-sharing answer, with a different length.",
+   "edit": {
+    "char_start": 4561,
+    "old": "we will not sell your personal information",
+    "new": "we may share your personal information with advertising partners",
+    "delta": 22
+   },
+   "content_sha256": "66bebd06c2de33332c6ae3e63d6b9e94f6a7d91d599aa47e03a838480017bfc9",
+   "char_count": 10926,
+   "spans_after": [
+    {
+     "case": "source_span_retrieval",
+     "role": "primary",
+     "document": "privacy_qa/Keep.txt",
+     "v1_char_start": 1221,
+     "v1_char_end": 1361,
+     "char_start": 1221,
+     "char_end": 1361,
+     "moved": false,
+     "answer_after": "We value your every uploaded training information as it is crucial for us to better understand which training class is more helpful to you.\n",
+     "text_sha256_after": "86d48d15f607a7fcb74ef5f19deb44a469d47b733b973ac85d2cb37fcf44ac50"
+    },
+    {
+     "case": "source_span_retrieval",
+     "role": "second",
+     "document": "privacy_qa/Keep.txt",
+     "v1_char_start": 4004,
+     "v1_char_end": 4911,
+     "char_start": 4004,
+     "char_end": 4933,
+     "moved": true,
+     "answer_after": "Where we or our affiliate companies process your payments as a payment service provider, or where we fulfill any purchases you have made on Keep, we may collect, use and store your Personal Information in order to fulfill such purchases.\nLocation Data, Log Data and your device.Keep automatically collects Log Data from your device to enable and assist Keeps functionalities.\nIn addition, you may also permit Keep to access other content and data on your device  for example, your contact list and photo storage.\nOther than consented by you, we commit that we may share your personal information with advertising partners to any other third parties for their processing for any purposes.\nWe will ask for your explicit consent to share any sensitive personal information such as race, religion, sexual orientation, or health.\nWe will not disclose or transfer your personal information to any non-affiliated third parties, unless:\n",
+     "text_sha256_after": "6e354a7e1752cb7451c175907afc07e0343b57c388c4ace6e47c732353ae0b3a"
+    },
+    {
+     "case": "source_span_retrieval",
+     "role": "second",
+     "document": "privacy_qa/Keep.txt",
+     "v1_char_start": 4956,
+     "v1_char_end": 5177,
+     "char_start": 4978,
+     "char_end": 5199,
+     "moved": true,
+     "answer_after": "In order to participate in certain features, you may have to adjust your Privacy settings and share more information.\nYou may also choose to share your activity on other platforms, such as Facebook, Twitter or Instagram.\n",
+     "text_sha256_after": "924f94886ad156b9e8ed3574550d8ede7218a13f2b6d3f47dbd3e3f2e2715d23"
+    },
+    {
+     "case": "source_span_retrieval",
+     "role": "primary",
+     "document": "privacy_qa/Keep.txt",
+     "v1_char_start": 4004,
+     "v1_char_end": 4517,
+     "char_start": 4004,
+     "char_end": 4517,
+     "moved": false,
+     "answer_after": "Where we or our affiliate companies process your payments as a payment service provider, or where we fulfill any purchases you have made on Keep, we may collect, use and store your Personal Information in order to fulfill such purchases.\nLocation Data, Log Data and your device.Keep automatically collects Log Data from your device to enable and assist Keeps functionalities.\nIn addition, you may also permit Keep to access other content and data on your device  for example, your contact list and photo storage.\n",
+     "text_sha256_after": "26b9b3993bcfe45e5bbd03362b2546eaf06e2785d52cc8802b6b814be09b23ff"
+    },
+    {
+     "case": "source_span_retrieval",
+     "role": "primary",
+     "document": "privacy_qa/Keep.txt",
+     "v1_char_start": 4807,
+     "v1_char_end": 5177,
+     "char_start": 4829,
+     "char_end": 5199,
+     "moved": true,
+     "answer_after": "We will not disclose or transfer your personal information to any non-affiliated third parties, unless:\nYou may choose to share certain information.\nIn order to participate in certain features, you may have to adjust your Privacy settings and share more information.\nYou may also choose to share your activity on other platforms, such as Facebook, Twitter or Instagram.\n",
+     "text_sha256_after": "ad7d58e7e0d2260c56735fabc204ef2e3063683944d8bc2190d21577e47b2319"
+    },
+    {
+     "case": "multi_source_evidence",
+     "role": "keep",
+     "document": "privacy_qa/Keep.txt",
+     "v1_char_start": 4004,
+     "v1_char_end": 4911,
+     "char_start": 4004,
+     "char_end": 4933,
+     "moved": true,
+     "answer_after": "Where we or our affiliate companies process your payments as a payment service provider, or where we fulfill any purchases you have made on Keep, we may collect, use and store your Personal Information in order to fulfill such purchases.\nLocation Data, Log Data and your device.Keep automatically collects Log Data from your device to enable and assist Keeps functionalities.\nIn addition, you may also permit Keep to access other content and data on your device  for example, your contact list and photo storage.\nOther than consented by you, we commit that we may share your personal information with advertising partners to any other third parties for their processing for any purposes.\nWe will ask for your explicit consent to share any sensitive personal information such as race, religion, sexual orientation, or health.\nWe will not disclose or transfer your personal information to any non-affiliated third parties, unless:\n",
+     "text_sha256_after": "6e354a7e1752cb7451c175907afc07e0343b57c388c4ace6e47c732353ae0b3a"
+    },
+    {
+     "case": "multi_source_evidence",
+     "role": "keep",
+     "document": "privacy_qa/Keep.txt",
+     "v1_char_start": 4004,
+     "v1_char_end": 4517,
+     "char_start": 4004,
+     "char_end": 4517,
+     "moved": false,
+     "answer_after": "Where we or our affiliate companies process your payments as a payment service provider, or where we fulfill any purchases you have made on Keep, we may collect, use and store your Personal Information in order to fulfill such purchases.\nLocation Data, Log Data and your device.Keep automatically collects Log Data from your device to enable and assist Keeps functionalities.\nIn addition, you may also permit Keep to access other content and data on your device  for example, your contact list and photo storage.\n",
+     "text_sha256_after": "26b9b3993bcfe45e5bbd03362b2546eaf06e2785d52cc8802b6b814be09b23ff"
+    },
+    {
+     "case": "multi_source_evidence",
+     "role": "keep",
+     "document": "privacy_qa/Keep.txt",
+     "v1_char_start": 4807,
+     "v1_char_end": 5177,
+     "char_start": 4829,
+     "char_end": 5199,
+     "moved": true,
+     "answer_after": "We will not disclose or transfer your personal information to any non-affiliated third parties, unless:\nYou may choose to share certain information.\nIn order to participate in certain features, you may have to adjust your Privacy settings and share more information.\nYou may also choose to share your activity on other platforms, such as Facebook, Twitter or Instagram.\n",
+     "text_sha256_after": "ad7d58e7e0d2260c56735fabc204ef2e3063683944d8bc2190d21577e47b2319"
+    },
+    {
+     "case": "interruption_and_resume",
+     "role": "A",
+     "document": "privacy_qa/Keep.txt",
+     "v1_char_start": 1221,
+     "v1_char_end": 1361,
+     "char_start": 1221,
+     "char_end": 1361,
+     "moved": false,
+     "answer_after": "We value your every uploaded training information as it is crucial for us to better understand which training class is more helpful to you.\n",
+     "text_sha256_after": "86d48d15f607a7fcb74ef5f19deb44a469d47b733b973ac85d2cb37fcf44ac50"
+    },
+    {
+     "case": "interruption_and_resume",
+     "role": "B",
+     "document": "privacy_qa/Keep.txt",
+     "v1_char_start": 4004,
+     "v1_char_end": 4911,
+     "char_start": 4004,
+     "char_end": 4933,
+     "moved": true,
+     "answer_after": "Where we or our affiliate companies process your payments as a payment service provider, or where we fulfill any purchases you have made on Keep, we may collect, use and store your Personal Information in order to fulfill such purchases.\nLocation Data, Log Data and your device.Keep automatically collects Log Data from your device to enable and assist Keeps functionalities.\nIn addition, you may also permit Keep to access other content and data on your device  for example, your contact list and photo storage.\nOther than consented by you, we commit that we may share your personal information with advertising partners to any other third parties for their processing for any purposes.\nWe will ask for your explicit consent to share any sensitive personal information such as race, religion, sexual orientation, or health.\nWe will not disclose or transfer your personal information to any non-affiliated third parties, unless:\n",
+     "text_sha256_after": "6e354a7e1752cb7451c175907afc07e0343b57c388c4ace6e47c732353ae0b3a"
+    },
+    {
+     "case": "source_change_review",
+     "role": "D1",
+     "document": "privacy_qa/Keep.txt",
+     "v1_char_start": 4004,
+     "v1_char_end": 4911,
+     "char_start": 4004,
+     "char_end": 4933,
+     "moved": true,
+     "answer_after": "Where we or our affiliate companies process your payments as a payment service provider, or where we fulfill any purchases you have made on Keep, we may collect, use and store your Personal Information in order to fulfill such purchases.\nLocation Data, Log Data and your device.Keep automatically collects Log Data from your device to enable and assist Keeps functionalities.\nIn addition, you may also permit Keep to access other content and data on your device  for example, your contact list and photo storage.\nOther than consented by you, we commit that we may share your personal information with advertising partners to any other third parties for their processing for any purposes.\nWe will ask for your explicit consent to share any sensitive personal information such as race, religion, sexual orientation, or health.\nWe will not disclose or transfer your personal information to any non-affiliated third parties, unless:\n",
+     "text_sha256_after": "6e354a7e1752cb7451c175907afc07e0343b57c388c4ace6e47c732353ae0b3a"
+    }
+   ]
+  },
+  {
+   "id": "M2",
+   "base": "privacy_qa/Keep.txt",
+   "base_content_sha256": "e2b4782b7611593798332c228b084ee72ed2fa81c5170818116b9092dfa7d8d2",
+   "description": "Appends one line after the last line of the policy.",
+   "edit": {
+    "char_start": 10904,
+    "old": "",
+    "new": "This line was appended to the policy text for the change check.\n",
+    "delta": 64
+   },
+   "content_sha256": "efcd3380fa8fe773cb0d542b52640a11a3918306244ed8cccacd3a28e6b40806",
+   "char_count": 10968,
+   "spans_after": [
+    {
+     "case": "source_span_retrieval",
+     "role": "primary",
+     "document": "privacy_qa/Keep.txt",
+     "v1_char_start": 1221,
+     "v1_char_end": 1361,
+     "char_start": 1221,
+     "char_end": 1361,
+     "moved": false,
+     "answer_after": "We value your every uploaded training information as it is crucial for us to better understand which training class is more helpful to you.\n",
+     "text_sha256_after": "86d48d15f607a7fcb74ef5f19deb44a469d47b733b973ac85d2cb37fcf44ac50"
+    },
+    {
+     "case": "source_span_retrieval",
+     "role": "second",
+     "document": "privacy_qa/Keep.txt",
+     "v1_char_start": 4004,
+     "v1_char_end": 4911,
+     "char_start": 4004,
+     "char_end": 4911,
+     "moved": false,
+     "answer_after": "Where we or our affiliate companies process your payments as a payment service provider, or where we fulfill any purchases you have made on Keep, we may collect, use and store your Personal Information in order to fulfill such purchases.\nLocation Data, Log Data and your device.Keep automatically collects Log Data from your device to enable and assist Keeps functionalities.\nIn addition, you may also permit Keep to access other content and data on your device  for example, your contact list and photo storage.\nOther than consented by you, we commit that we will not sell your personal information to any other third parties for their processing for any purposes.\nWe will ask for your explicit consent to share any sensitive personal information such as race, religion, sexual orientation, or health.\nWe will not disclose or transfer your personal information to any non-affiliated third parties, unless:\n",
+     "text_sha256_after": "282f190f9f24b60838b390f9afc16c40eb01a603012c43f496108cd37501b6bf"
+    },
+    {
+     "case": "source_span_retrieval",
+     "role": "second",
+     "document": "privacy_qa/Keep.txt",
+     "v1_char_start": 4956,
+     "v1_char_end": 5177,
+     "char_start": 4956,
+     "char_end": 5177,
+     "moved": false,
+     "answer_after": "In order to participate in certain features, you may have to adjust your Privacy settings and share more information.\nYou may also choose to share your activity on other platforms, such as Facebook, Twitter or Instagram.\n",
+     "text_sha256_after": "924f94886ad156b9e8ed3574550d8ede7218a13f2b6d3f47dbd3e3f2e2715d23"
+    },
+    {
+     "case": "source_span_retrieval",
+     "role": "primary",
+     "document": "privacy_qa/Keep.txt",
+     "v1_char_start": 4004,
+     "v1_char_end": 4517,
+     "char_start": 4004,
+     "char_end": 4517,
+     "moved": false,
+     "answer_after": "Where we or our affiliate companies process your payments as a payment service provider, or where we fulfill any purchases you have made on Keep, we may collect, use and store your Personal Information in order to fulfill such purchases.\nLocation Data, Log Data and your device.Keep automatically collects Log Data from your device to enable and assist Keeps functionalities.\nIn addition, you may also permit Keep to access other content and data on your device  for example, your contact list and photo storage.\n",
+     "text_sha256_after": "26b9b3993bcfe45e5bbd03362b2546eaf06e2785d52cc8802b6b814be09b23ff"
+    },
+    {
+     "case": "source_span_retrieval",
+     "role": "primary",
+     "document": "privacy_qa/Keep.txt",
+     "v1_char_start": 4807,
+     "v1_char_end": 5177,
+     "char_start": 4807,
+     "char_end": 5177,
+     "moved": false,
+     "answer_after": "We will not disclose or transfer your personal information to any non-affiliated third parties, unless:\nYou may choose to share certain information.\nIn order to participate in certain features, you may have to adjust your Privacy settings and share more information.\nYou may also choose to share your activity on other platforms, such as Facebook, Twitter or Instagram.\n",
+     "text_sha256_after": "ad7d58e7e0d2260c56735fabc204ef2e3063683944d8bc2190d21577e47b2319"
+    },
+    {
+     "case": "multi_source_evidence",
+     "role": "keep",
+     "document": "privacy_qa/Keep.txt",
+     "v1_char_start": 4004,
+     "v1_char_end": 4911,
+     "char_start": 4004,
+     "char_end": 4911,
+     "moved": false,
+     "answer_after": "Where we or our affiliate companies process your payments as a payment service provider, or where we fulfill any purchases you have made on Keep, we may collect, use and store your Personal Information in order to fulfill such purchases.\nLocation Data, Log Data and your device.Keep automatically collects Log Data from your device to enable and assist Keeps functionalities.\nIn addition, you may also permit Keep to access other content and data on your device  for example, your contact list and photo storage.\nOther than consented by you, we commit that we will not sell your personal information to any other third parties for their processing for any purposes.\nWe will ask for your explicit consent to share any sensitive personal information such as race, religion, sexual orientation, or health.\nWe will not disclose or transfer your personal information to any non-affiliated third parties, unless:\n",
+     "text_sha256_after": "282f190f9f24b60838b390f9afc16c40eb01a603012c43f496108cd37501b6bf"
+    },
+    {
+     "case": "multi_source_evidence",
+     "role": "keep",
+     "document": "privacy_qa/Keep.txt",
+     "v1_char_start": 4004,
+     "v1_char_end": 4517,
+     "char_start": 4004,
+     "char_end": 4517,
+     "moved": false,
+     "answer_after": "Where we or our affiliate companies process your payments as a payment service provider, or where we fulfill any purchases you have made on Keep, we may collect, use and store your Personal Information in order to fulfill such purchases.\nLocation Data, Log Data and your device.Keep automatically collects Log Data from your device to enable and assist Keeps functionalities.\nIn addition, you may also permit Keep to access other content and data on your device  for example, your contact list and photo storage.\n",
+     "text_sha256_after": "26b9b3993bcfe45e5bbd03362b2546eaf06e2785d52cc8802b6b814be09b23ff"
+    },
+    {
+     "case": "multi_source_evidence",
+     "role": "keep",
+     "document": "privacy_qa/Keep.txt",
+     "v1_char_start": 4807,
+     "v1_char_end": 5177,
+     "char_start": 4807,
+     "char_end": 5177,
+     "moved": false,
+     "answer_after": "We will not disclose or transfer your personal information to any non-affiliated third parties, unless:\nYou may choose to share certain information.\nIn order to participate in certain features, you may have to adjust your Privacy settings and share more information.\nYou may also choose to share your activity on other platforms, such as Facebook, Twitter or Instagram.\n",
+     "text_sha256_after": "ad7d58e7e0d2260c56735fabc204ef2e3063683944d8bc2190d21577e47b2319"
+    },
+    {
+     "case": "interruption_and_resume",
+     "role": "A",
+     "document": "privacy_qa/Keep.txt",
+     "v1_char_start": 1221,
+     "v1_char_end": 1361,
+     "char_start": 1221,
+     "char_end": 1361,
+     "moved": false,
+     "answer_after": "We value your every uploaded training information as it is crucial for us to better understand which training class is more helpful to you.\n",
+     "text_sha256_after": "86d48d15f607a7fcb74ef5f19deb44a469d47b733b973ac85d2cb37fcf44ac50"
+    },
+    {
+     "case": "interruption_and_resume",
+     "role": "B",
+     "document": "privacy_qa/Keep.txt",
+     "v1_char_start": 4004,
+     "v1_char_end": 4911,
+     "char_start": 4004,
+     "char_end": 4911,
+     "moved": false,
+     "answer_after": "Where we or our affiliate companies process your payments as a payment service provider, or where we fulfill any purchases you have made on Keep, we may collect, use and store your Personal Information in order to fulfill such purchases.\nLocation Data, Log Data and your device.Keep automatically collects Log Data from your device to enable and assist Keeps functionalities.\nIn addition, you may also permit Keep to access other content and data on your device  for example, your contact list and photo storage.\nOther than consented by you, we commit that we will not sell your personal information to any other third parties for their processing for any purposes.\nWe will ask for your explicit consent to share any sensitive personal information such as race, religion, sexual orientation, or health.\nWe will not disclose or transfer your personal information to any non-affiliated third parties, unless:\n",
+     "text_sha256_after": "282f190f9f24b60838b390f9afc16c40eb01a603012c43f496108cd37501b6bf"
+    },
+    {
+     "case": "source_change_review",
+     "role": "D1",
+     "document": "privacy_qa/Keep.txt",
+     "v1_char_start": 4004,
+     "v1_char_end": 4911,
+     "char_start": 4004,
+     "char_end": 4911,
+     "moved": false,
+     "answer_after": "Where we or our affiliate companies process your payments as a payment service provider, or where we fulfill any purchases you have made on Keep, we may collect, use and store your Personal Information in order to fulfill such purchases.\nLocation Data, Log Data and your device.Keep automatically collects Log Data from your device to enable and assist Keeps functionalities.\nIn addition, you may also permit Keep to access other content and data on your device  for example, your contact list and photo storage.\nOther than consented by you, we commit that we will not sell your personal information to any other third parties for their processing for any purposes.\nWe will ask for your explicit consent to share any sensitive personal information such as race, religion, sexual orientation, or health.\nWe will not disclose or transfer your personal information to any non-affiliated third parties, unless:\n",
+     "text_sha256_after": "282f190f9f24b60838b390f9afc16c40eb01a603012c43f496108cd37501b6bf"
+    }
+   ]
+  },
+  {
+   "id": "M3",
+   "base": "contractnli/Kenway-NDA-Form-Blank.txt",
+   "base_content_sha256": "3dff6905cdc6ba5263a025b509f5c989ad4a3108a3ca726c753f1f9bf8072fb6",
+   "description": "Changes the signing rule of the variation clause, which sits after every labelled Kenway span.",
+   "edit": {
+    "char_start": 18144,
+    "old": "signed by both Parties",
+    "new": "signed by each Party",
+    "delta": -2
+   },
+   "content_sha256": "608896b3f2e1340312906e77de17efdc305c1d83af34e35001677bf007663067",
+   "char_count": 19023,
+   "spans_after": [
+    {
+     "case": "source_change_review",
+     "role": "D2",
+     "document": "contractnli/Kenway-NDA-Form-Blank.txt",
+     "v1_char_start": 10289,
+     "v1_char_end": 10403,
+     "char_start": 10289,
+     "char_end": 10403,
+     "moved": false,
+     "answer_after": "The provisions of this Agreement shall continue to apply to any documents and materials retained by the Recipient.",
+     "text_sha256_after": "c6de7e28da257af5bd008ffe238d83ea06e2de3f025e55b24d7fbdabc542e162"
+    },
+    {
+     "case": "source_change_review",
+     "role": "D2",
+     "document": "contractnli/Kenway-NDA-Form-Blank.txt",
+     "v1_char_start": 13679,
+     "v1_char_end": 13900,
+     "char_start": 13679,
+     "char_end": 13900,
+     "moved": false,
+     "answer_after": "The obligations of each Party shall, notwithstanding any earlier termination of negotiations or discussions between the Parties in relation to the Purpose, continue for a period of 2 years from the date of this Agreement.",
+     "text_sha256_after": "541b667cdd534cad1852b74b308d258b3f914e5f8be7364d199eac3350f17587"
+    },
+    {
+     "case": "source_change_review",
+     "role": "D2",
+     "document": "contractnli/Kenway-NDA-Form-Blank.txt",
+     "v1_char_start": 14063,
+     "v1_char_end": 14179,
+     "char_start": 14063,
+     "char_end": 14179,
+     "moved": false,
+     "answer_after": "6.3 Termination of this Agreement shall not affect any accrued rights or remedies to which either Party is entitled.",
+     "text_sha256_after": "6b4a1f6fed9e672acebb5a568082145212c7aaafd98b60974d3c01a40845f444"
+    }
+   ]
+  }
+ ],
+ "self_checks": {
+  "word_counts": {
+   "privacy_qa/Keep.txt": {
+    "hours": 0,
+    "days": 0,
+    "breach": 0
+   },
+   "privacy_qa/Viber Messenger.txt": {
+    "hours": 0,
+    "days": 0,
+    "breach": 3
+   },
+   "contractnli/Kenway-NDA-Form-Blank.txt": {
+    "hours": 0,
+    "days": 0,
+    "breach": 5
+   }
+  },
+  "breach_lines": [
+   {
+    "document": "privacy_qa/Viber Messenger.txt",
+    "char_start": 10216,
+    "char_end": 10403,
+    "text_sha256": "cb852d8b5e98ebea3a0896574b925484af10b32a0ea3999712ef9902109e6004",
+    "time_limit_terms": []
+   },
+   {
+    "document": "privacy_qa/Viber Messenger.txt",
+    "char_start": 10595,
+    "char_end": 10770,
+    "text_sha256": "b6cb1b33327fd331295515fbb5c135ea9d251c0472dfffce64f80c3ef8c855d0",
+    "time_limit_terms": []
+   },
+   {
+    "document": "privacy_qa/Viber Messenger.txt",
+    "char_start": 12330,
+    "char_end": 12667,
+    "text_sha256": "20fe30cd59142cb559a56ef007ed70853e41ecd1e75d7793e09042097cde04ae",
+    "time_limit_terms": []
+   },
+   {
+    "document": "contractnli/Kenway-NDA-Form-Blank.txt",
+    "char_start": 2226,
+    "char_end": 2643,
+    "text_sha256": "e8a6e6904595f6e5b68a24c65405e451b67bf4b6161c1e06dece7e18286d9b4e",
+    "time_limit_terms": []
+   },
+   {
+    "document": "contractnli/Kenway-NDA-Form-Blank.txt",
+    "char_start": 12423,
+    "char_end": 12851,
+    "text_sha256": "11154d038424b3fcc60d99739dfad3d645149c60bf4b1d49ff81160e8bd60b71",
+    "time_limit_terms": []
+   },
+   {
+    "document": "contractnli/Kenway-NDA-Form-Blank.txt",
+    "char_start": 13078,
+    "char_end": 13650,
+    "text_sha256": "15a8db94a006c240a061c9f87b78053898e555a51f2ae7d97ba28e7522e99e8c",
+    "time_limit_terms": []
+   },
+   {
+    "document": "contractnli/Kenway-NDA-Form-Blank.txt",
+    "char_start": 14439,
+    "char_end": 14818,
+    "text_sha256": "32bcc912e0bd379cebba63a0658a5ce33827158b7d0807e33cfb2cca252f988d",
+    "time_limit_terms": []
+   }
+  ],
+  "relocated_spans": []
+ }
+}
