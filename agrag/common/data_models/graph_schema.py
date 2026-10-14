@@ -26,9 +26,11 @@ from agrag.common.data_models.structure import (
 # Property names an entity type may not declare. These are keys that
 # Entity.to_node_record and the merge write set themselves, so a schema
 # property with the same name would be replaced or dropped when the node is
-# stored.
+# stored. "label" is the graph label that candidate search matches on, so a
+# property with that name would be mistaken for the entity type.
 _RESERVED_ENTITY_PROPERTY_NAMES = frozenset(
     {
+        "label",
         "id",
         "name",
         "merge_key",
