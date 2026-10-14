@@ -8,6 +8,7 @@ instance, since its per-entity bounded ``CALL { ... }`` subquery is the only
 one of its kind in this codebase's Cypher.
 """
 
+import hashlib
 import importlib.util
 import os
 from collections.abc import AsyncGenerator
@@ -57,6 +58,7 @@ def _chunk(text: str = "context") -> Chunk:
         id=uuid4(),
         document_id=_DOC_ID,
         text=text,
+        content_hash=hashlib.sha256(text.encode("utf-8")).hexdigest(),
         provenance=TextProvenance(char_start=0, char_end=len(text)),
     )
 

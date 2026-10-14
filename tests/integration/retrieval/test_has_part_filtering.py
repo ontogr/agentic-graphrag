@@ -93,6 +93,9 @@ def _legacy_chunk() -> Chunk:
         document_id=uuid4(),
         index=0,
         text="legacy chunk without a document backbone",
+        content_hash=hashlib.sha256(
+            "legacy chunk without a document backbone".encode("utf-8")
+        ).hexdigest(),
         provenance=TextProvenance(char_start=0, char_end=39),
     )
 

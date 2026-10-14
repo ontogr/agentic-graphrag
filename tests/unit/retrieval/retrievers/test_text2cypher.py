@@ -17,6 +17,7 @@ without reaching a real model. Retry tests drive failures through the
 AsyncMock store's ``execute_read`` side effects.
 """
 
+import hashlib
 import json
 import logging
 import sys
@@ -366,6 +367,7 @@ class TestText2CypherRowShapes:
             "document_id": str(doc_id),
             "index": 0,
             "text": "Hello world",
+            "content_hash": hashlib.sha256("Hello world".encode("utf-8")).hexdigest(),
             "provenance": json.dumps(provenance),
             "heading_path": [],
             "content_kind": "text",
@@ -474,6 +476,7 @@ class TestText2CypherRowAliases:
                     "document_id": str(doc_id),
                     "index": 0,
                     "text": "Hello",
+                    "content_hash": hashlib.sha256("Hello".encode("utf-8")).hexdigest(),
                     "provenance": json.dumps(provenance),
                     "heading_path": [],
                     "content_kind": "text",
@@ -568,6 +571,7 @@ class TestText2CypherChunkDetection:
                 "document_id": str(doc_id),
                 "index": 0,
                 "text": "Hello",
+                "content_hash": hashlib.sha256("Hello".encode("utf-8")).hexdigest(),
                 "provenance": json.dumps(
                     {"kind": "text", "char_start": 0, "char_end": 5}
                 ),

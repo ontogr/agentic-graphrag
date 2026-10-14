@@ -7,6 +7,7 @@ position, failing safe to UNCERTAIN with no partial results when the batch
 call raises.
 """
 
+import hashlib
 from uuid import UUID, uuid4
 
 import pytest
@@ -26,6 +27,7 @@ def _chunk(text: str = "context") -> Chunk:
         id=uuid4(),
         document_id=_DOC_ID,
         text=text,
+        content_hash=hashlib.sha256(text.encode("utf-8")).hexdigest(),
         provenance=TextProvenance(char_start=0, char_end=len(text)),
     )
 
