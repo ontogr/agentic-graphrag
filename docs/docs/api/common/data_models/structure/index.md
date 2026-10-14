@@ -17,6 +17,7 @@ Stable keys, node ids, reading order and ancestry for the sections of a Document
 - [**reading_positions**](reading_positions.md) – Number every heading and unit of a document in reading order.
 - [**section_keys**](section_keys.md) – Return one stable key for each section.
 - [**source_node_id**](source_node_id.md) – Return the id of the Source node for a file.
+- [**structure_fingerprint**](structure_fingerprint.md) – Return a sha256 hex digest of the section tree of a document.
 - [**unit_keys**](unit_keys.md) – Return a stable key for each table and figure.
 - [**version_id**](version_id.md) – Return the id of one version of a document, as `HAS_PART` edges use it.
 
