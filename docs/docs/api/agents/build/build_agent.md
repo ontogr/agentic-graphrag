@@ -37,11 +37,8 @@ so one question's retry budget does not spend another's.
   unreviewed-candidate search.
 - **filters** (<code>[SearchFilters](../../retrieval/filters/SearchFilters.md) | None</code>) – Retrieval scope applied to every tool search,
   e.g. document or tenant constraints. None searches
-  unfiltered. A non-empty scope also removes the
-  `query_graph_directly` tool, since a generated query
-  cannot be confined to a scope.
-- **graph_schema** (<code>[GraphSchema](../../common/data_models/graph_schema/GraphSchema.md) | None</code>) – The schema the researcher prompt and the
-  `query_graph_directly` tool describe. None uses the
+  unfiltered.
+- **graph_schema** (<code>[GraphSchema](../../common/data_models/graph_schema/GraphSchema.md) | None</code>) – The schema the researcher prompt describes. None uses the
   engine's own resolved schema; a value that differs from
   the engine's raises, so the prompt cannot describe a
   graph the engine does not search.

@@ -18,7 +18,6 @@ tool finds and what each argument narrows.
 - [**make_answer_thematic_question_tool**](make_answer_thematic_question_tool.md) – Build the answer_thematic_question tool.
 - [**make_explore_related_tool**](make_explore_related_tool.md) – Build the explore_related tool.
 - [**make_look_up_entity_tool**](make_look_up_entity_tool.md) – Build the look_up_entity tool.
-- [**make_query_graph_directly_tool**](make_query_graph_directly_tool.md) – Build the query_graph_directly tool.
 - [**make_search_source_text_tool**](make_search_source_text_tool.md) – Build the search_source_text tool.
 - [**render_results**](render_results.md) – Render results as cited evidence, or a no-results message.
 - [**scoped_filters**](scoped_filters.md) – Narrow the caller's base scope by a tool call's own filter arguments.
@@ -26,5 +25,4 @@ tool finds and what each argument narrows.
 **Attributes:**
 
 - [**MAX_TOOL_LIMIT**](MAX_TOOL_LIMIT.md) –
-- [**QUERY_FAILED**](QUERY_FAILED.md) –
 - [**SCOPE_DENIED**](SCOPE_DENIED.md) –
