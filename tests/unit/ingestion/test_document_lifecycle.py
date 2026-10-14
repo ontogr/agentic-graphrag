@@ -24,6 +24,7 @@ _RUN = RunRecord(
 _STORED: dict[str, Any] = {
     "current_content_hash": "h",
     "has_open_chunks": True,
+    "current_version_id": "v",
     "current_chunker_hash": "c",
     "current_schema_fingerprint": "s" * 16,
     "current_extraction_fingerprint": "e" * 16,
@@ -47,7 +48,9 @@ class TestDocumentLookupDecide:
 
     def test_no_op_when_the_stored_version_matches_every_stamp(self) -> None:
         """Identical content, chunker, schema and extraction setup change nothing."""
-        decision = _lookup().decide(content_hash="h", chunker_hash="c", run=_RUN)
+        decision = _lookup().decide(
+            content_hash="h", version_id="v", chunker_hash="c", run=_RUN
+        )
 
         assert decision is UpdateDecision.NO_OP
 
@@ -64,7 +67,9 @@ class TestDocumentLookupDecide:
         """An extraction stamp that is not current re-extracts the same chunks."""
         lookup = _lookup(current_extraction_fingerprint=stored_extraction_fingerprint)
 
-        decision = lookup.decide(content_hash="h", chunker_hash="c", run=_RUN)
+        decision = lookup.decide(
+            content_hash="h", version_id="v", chunker_hash="c", run=_RUN
+        )
 
         assert decision is UpdateDecision.IN_PLACE
 
@@ -72,6 +77,8 @@ class TestDocumentLookupDecide:
         "overrides",
         [
             pytest.param({"current_content_hash": "other"}, id="content-changed"),
+            pytest.param({"current_version_id": "other"}, id="structure-changed"),
+            pytest.param({"current_version_id": None}, id="version-unrecorded"),
             pytest.param({"current_chunker_hash": "other"}, id="chunker-changed"),
             pytest.param({"current_chunker_hash": None}, id="chunker-unrecorded"),
             pytest.param({"current_schema_fingerprint": "x" * 16}, id="schema-changed"),
@@ -85,6 +92,8 @@ class TestDocumentLookupDecide:
         """A changed or unrecorded input rewrites the document as a new version."""
         lookup = _lookup(**overrides)
 
-        decision = lookup.decide(content_hash="h", chunker_hash="c", run=_RUN)
+        decision = lookup.decide(
+            content_hash="h", version_id="v", chunker_hash="c", run=_RUN
+        )
 
         assert decision is UpdateDecision.NEW_VERSION

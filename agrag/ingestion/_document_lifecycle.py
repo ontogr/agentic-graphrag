@@ -33,6 +33,8 @@ class DocumentLookup(BaseModel):
         current_content_hash: The content hash of the current version.
         has_open_chunks: Whether the current version has a committed chunk
             behind an open ``HAS_PART`` edge.
+        current_version_id: The version id on that edge, or ``None`` when the
+            document has no open chunk.
         current_chunker_hash: The chunker fingerprint recorded on that chunk,
             or ``None`` when it records none.
         current_schema_fingerprint: The schema fingerprint recorded on that
@@ -46,6 +48,7 @@ class DocumentLookup(BaseModel):
     document_node_id: UUID
     current_content_hash: str
     has_open_chunks: bool = False
+    current_version_id: str | None = None
     current_chunker_hash: str | None = None
     current_schema_fingerprint: str | None = None
     current_extraction_fingerprint: str | None = None
@@ -56,6 +59,7 @@ class DocumentLookup(BaseModel):
         self,
         *,
         content_hash: str,
+        version_id: str,
         chunker_hash: str,
         run: RunRecord,
         force: bool = False,
@@ -65,13 +69,14 @@ class DocumentLookup(BaseModel):
         """Pick the update outcome for a new input against the stored version.
 
         A document without an open chunk is always written as a new version.
-        So is any change to the content, the chunking or the schema. When those
-        match, the chunks are kept and re-extracted if forced or if the
-        extraction stamp differs or is missing. Date-only changes are written
-        without extraction.
+        So is any change to the content, the section structure, the chunking or
+        the schema. When those match, the chunks are kept and re-extracted if
+        forced or if the extraction stamp differs or is missing. Date-only
+        changes are written without extraction.
 
         Args:
             content_hash: The content hash of the new input.
+            version_id: The version id of the new input, from ``version_id``.
             chunker_hash: The chunker fingerprint of the new input.
             run: The run record of the new run.
             force: Whether to re-extract matching chunks.
@@ -84,6 +89,7 @@ class DocumentLookup(BaseModel):
         if (
             not self.has_open_chunks
             or self.current_content_hash != content_hash
+            or self.current_version_id != version_id
             or self.current_chunker_hash != chunker_hash
             or self.current_schema_fingerprint != run.schema_fingerprint
         ):
@@ -143,6 +149,7 @@ async def find_document(
         current_published_at=current_published_at,
         current_content_date=current_content_date,
         has_open_chunks=True,
+        current_version_id=_optional_str(run_row.get("version_id")),
         current_chunker_hash=_optional_str(run_row.get("chunker_hash")),
         current_schema_fingerprint=_optional_str(run_row.get("schema_fingerprint")),
         current_extraction_fingerprint=_optional_str(

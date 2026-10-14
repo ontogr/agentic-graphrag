@@ -7,7 +7,6 @@ definition.
 
 import asyncio
 import contextlib
-import hashlib
 import logging
 from collections.abc import Awaitable, Callable, Iterable, Sequence
 from functools import partial as bind
@@ -28,6 +27,7 @@ from agrag.common.data_models.extraction import ExtractedEntity, ExtractedRelati
 from agrag.common.data_models.graph_record import DeferredWrites
 from agrag.common.data_models.graph_schema import GraphSchema
 from agrag.common.data_models.stage_failure import StageFailure, cap_failures
+from agrag.common.data_models.structure import version_id
 from agrag.common.data_models.update_decision import UpdateDecision
 from agrag.common.schema_fingerprint import RunRecord
 from agrag.cypher.documents import update_document_dates_query
@@ -802,7 +802,6 @@ async def update_document(  # noqa: PLR0913
         opts = read_options or ReadOptions()
         if text is not None:
             normalized, normalization = normalize_inline_text(text, opts)
-            content_hash = hashlib.sha256(normalized.encode("utf-8")).hexdigest()
             document = build_prose_document(
                 source=SourceRef(uri=document_key, extension=".txt"),
                 text=normalized,
@@ -812,7 +811,6 @@ async def update_document(  # noqa: PLR0913
                 opts=opts,
                 title="inline",
                 sections=text_sections(normalized),
-                content_hash=content_hash,
             ).model_copy(
                 update={"normalization": normalization, "document_key": document_key}
             )
@@ -840,6 +838,7 @@ async def update_document(  # noqa: PLR0913
             if found is None
             else found.decide(
                 content_hash=document.content_hash,
+                version_id=version_id(document),
                 chunker_hash=chunker.fingerprint,
                 run=run,
                 force=force,

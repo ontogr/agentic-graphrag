@@ -117,13 +117,13 @@ def build_prose_document(
     opts: ReadOptions,
     title: str,
     sections: list[DocumentSection] | None = None,
-    content_hash: str | None = None,
+    source_hash: str | None = None,
     loader_version: str | None = None,
 ) -> Document:
     """Build a prose-family Document from final text.
 
-    This function hashes ``text`` to form the content hash, so callers must pass the
-    final text (the extracted main content for HTML, the raw decoded text otherwise).
+    The content hash is the sha256 of ``text``, so callers must pass the final
+    text (the extracted main content for HTML, the raw decoded text otherwise).
 
     Args:
         source: The source the text came from.
@@ -135,26 +135,21 @@ def build_prose_document(
         title: The document title.
         sections: The sections of the document. Dropped when the read options do
             not store text, because their units point into the text.
-        content_hash: The content hash to record. Defaults to the hash of
-            ``text``. A loader whose parsed output is unstable across versions
-            passes the hash of its raw source bytes instead.
+        source_hash: The sha256 of the raw source bytes. File loaders pass it;
+            inline text has no source file and leaves it ``None``.
         loader_version: The version of the loader package, when known.
 
     Returns:
         The built Document.
     """
-    resolved_hash = (
-        content_hash
-        if content_hash is not None
-        else hashlib.sha256(text.encode("utf-8")).hexdigest()
-    )
     return Document(
         text=text if opts.store_text else "",
         title=title,
         uri=source.uri,
         source_format=source_format,
         family=DocumentFamily.PROSE,
-        content_hash=resolved_hash,
+        content_hash=hashlib.sha256(text.encode("utf-8")).hexdigest(),
+        source_hash=source_hash,
         loader_name=loader_name,
         loader_version=loader_version,
         encoding=encoding,
@@ -213,8 +208,8 @@ def source_title(source: SourceRef) -> str:
     return PurePosixPath(source.uri).name
 
 
-def record_source_hash(raw: bytes) -> str:
-    """Hash the whole raw source bytes for a record-family document.
+def raw_source_hash(raw: bytes) -> str:
+    """Hash the whole raw bytes of a source file.
 
     Args:
         raw: The raw source bytes.
@@ -325,7 +320,7 @@ def build_record_document(
         opts: The read options, used for the id, title, date, and text columns.
         record_index: The 0-based row number.
         record: The parsed record data.
-        source_hash: The hash of the whole source file.
+        source_hash: The sha256 of the whole source file.
         title: The fallback document title, used when ``opts.title_column`` is unset
             or absent from this record.
 
@@ -343,14 +338,13 @@ def build_record_document(
     record_id = _resolve_record_id(record, opts.id_column, source)
     resolved_title = _resolve_title(record, opts.title_column, title)
     raw_record = record if opts.store_raw_record else None
-    content_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()
     return Document(
         text=text if opts.store_text else "",
         title=resolved_title,
         uri=source.uri,
         source_format=source_format,
         family=DocumentFamily.RECORD,
-        content_hash=content_hash,
+        content_hash=hashlib.sha256(text.encode("utf-8")).hexdigest(),
         loader_name=loader_name,
         encoding=decoded.encoding,
         source_hash=source_hash,

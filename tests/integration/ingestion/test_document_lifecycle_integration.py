@@ -109,6 +109,16 @@ async def _open_graph(store: GraphStore) -> Graph:
     )
 
 
+async def _chunk_properties(store: GraphStore, chunk_ids: list[str]) -> dict:
+    """Return every stored property of the chunks, keyed by chunk id."""
+    rows = await store.execute_read(
+        "MATCH (c:Chunk) WHERE c.id IN $chunk_ids "
+        "RETURN c.id AS id, properties(c) AS properties",
+        {"chunk_ids": chunk_ids},
+    )
+    return {str(row["id"]): dict(row["properties"]) for row in rows}
+
+
 @pytest.mark.skipif(neo4j_missing, reason="neo4j extra not installed")
 class TestDocumentLifecycle:
     """add() -> update() closes old HAS_PART edges and opens new ones."""
@@ -213,10 +223,11 @@ class TestDocumentLifecycle:
         key = f"lifecycle://{uuid4().hex}"
         text = "lifecycle repeated no-op check. " * 60
         try:
-            first = await graph.add(
-                documents=[_document(key, text)], return_chunks=True
-            )
-            assert len(first.chunks) >= 1
+            await graph.add(documents=[_document(key, text)])
+            # The first update builds the sections of the text, so it writes a
+            # version with a structure the add() call did not have.
+            first = await graph.update(key, text=text)
+            assert first.no_op is False
 
             updated = await graph.update(key, text=text)
 
@@ -230,8 +241,48 @@ class TestDocumentLifecycle:
                 "count(CASE WHEN r.invalid_at IS NULL THEN 1 END) AS open_edges",
                 {"key": key},
             )
-            assert rows[0]["total"] == len(first.chunks)
-            assert rows[0]["open_edges"] == len(first.chunks)
+            assert rows[0]["open_edges"] * 2 == rows[0]["total"]
+        finally:
+            await store.execute_write(
+                "MATCH (d:Document {document_key: $key}) "
+                "OPTIONAL MATCH (d)-[:HAS_PART]->(c:Chunk) "
+                "DETACH DELETE d, c",
+                {"key": key},
+            )
+            await store.close()
+
+    async def test_structure_only_change_writes_a_new_version(self) -> None:
+        """Same text with sections added is a new version, not a rewrite in place."""
+        store = build_graph_store("neo4j")
+        await store.connect()
+        graph = await _open_graph(store)
+        key = f"lifecycle://{uuid4().hex}"
+        text = (
+            "Structure check sentence one. The second sentence follows it. "
+            "A third sentence ends the passage. "
+        ) * 12
+        try:
+            first = await graph.add(
+                documents=[_document(key, text)], return_chunks=True
+            )
+            old_ids = [str(chunk.id) for chunk in first.chunks]
+            before = await _chunk_properties(store, old_ids)
+            assert len(before) == len(old_ids) >= 1
+
+            updated = await graph.update(key, text=text)
+
+            assert updated.no_op is False
+            assert updated.parts_closed == len(old_ids)
+            rows = await store.execute_read(
+                "MATCH (:Document {document_key: $key})-[r:HAS_PART]->(c:Chunk) "
+                "WHERE r.invalid_at IS NULL "
+                "RETURN collect(c.id) AS open_ids",
+                {"key": key},
+            )
+            new_ids = list(rows[0]["open_ids"])
+            assert len(new_ids) >= 1
+            assert set(new_ids).isdisjoint(set(old_ids))
+            assert await _chunk_properties(store, old_ids) == before
         finally:
             await store.execute_write(
                 "MATCH (d:Document {document_key: $key}) "
