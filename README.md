@@ -19,12 +19,12 @@
 
 </div>
 
-Agentic GraphRAG builds schema-defined knowledge graphs from documents and structured data. It stores source text alongside entities and relations, retrieves evidence from the graph and vector indexes, and can answer questions with citations to that evidence.
+Agentic GraphRAG builds schema-defined knowledge graphs from documents and structured data. It stores source text alongside entities and relations, retrieves evidence from the graph's native vector indexes, and can answer questions with citations to that evidence.
 
 A plain vector search finds passages that look like your question. It cannot join a fact in one document to a fact in another. "Who founded the company that Satya Nadella works at?" needs two facts from two places. A graph joins them.
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/ontogr/agentic-graphrag/main/docs/static/img/readme/pipeline.png" alt="Agentic GraphRAG pipeline. Sources are loaded, chunked, extracted, and resolved into a Neo4j graph and optional vector stores. Retrieval feeds a planner, researcher, and verifier agent that returns a cited answer. OpenTelemetry traces every layer." width="900">
+  <img src="https://raw.githubusercontent.com/ontogr/agentic-graphrag/main/docs/static/img/readme/pipeline.png" alt="Agentic GraphRAG pipeline. Sources are loaded, chunked, extracted, and resolved into a Neo4j graph and vector indexes. Retrieval feeds a planner, researcher, and verifier agent that returns a cited answer. OpenTelemetry traces every layer." width="900">
 </p>
 
 - One ingestion API for raw text, files, directories, globs, and prebuilt documents.
@@ -33,8 +33,8 @@ A plain vector search finds passages that look like your question. It cannot joi
 - Local extraction with GLiNER 2.5. In `hybrid` mode, pass an LLM extractor to `Graph` to review selected chunks up to a budget. The local model still runs on every chunk. A graph can be built without an extraction LLM, but GLiNER runs locally and needs its model dependencies.
 - Tiered entity resolution combining exact, fuzzy, embedding, and LLM-verified matching. An unsure comparison never matches.
 - Non-destructive matching. Fuzzy, embedding, and LLM matches write `MATCHES` edges and a derived `ResolvedEntity`. The original entities and their provenance stay in the graph.
-- Pluggable storage with Neo4j for graph data and native vectors, plus Qdrant, Weaviate, and Milvus/Zilliz for dedicated vector search.
-- Layered retrieval across entities, chunks, community reports, graph neighborhoods, and generated Cypher, with hybrid fusion and reranking.
+- Neo4j as the single store for graph data and native vector search.
+- Layered retrieval across entities, chunks, community reports, graph neighborhoods, and generated Cypher, with rank fusion and reranking.
 - Agentic plan-research-verify loop that decomposes questions, gathers evidence, checks it, and produces cited answers.
 - OpenTelemetry-native observability across loading, chunking, extraction, resolution, storage, retrieval, and agent turns.
 
@@ -43,9 +43,8 @@ The system uses:
 - [Docling](https://github.com/docling-project/docling) for document parsing and [Chonkie](https://github.com/chonkie-inc/chonkie) to split long paragraphs.
 - [GLiNER 2.5](https://github.com/urchade/GLiNER) for local schema-guided entity and relation extraction.
 - [BAML](https://boundaryml.com/) for typed LLM functions and provider-independent client routing.
-- [Neo4j](https://neo4j.com/) for the property graph and optional native vector search.
-- [Qdrant](https://qdrant.tech/), [Weaviate](https://weaviate.io/), and [Milvus](https://milvus.io/) for dense and hybrid retrieval.
-- [FastEmbed](https://github.com/qdrant/fastembed) for dense and sparse embeddings, and [Sentence Transformers](https://www.sbert.net/) as an optional dense embedder.
+- [Neo4j](https://neo4j.com/) for the property graph and native vector search.
+- [FastEmbed](https://github.com/qdrant/fastembed) for dense embeddings, and [Sentence Transformers](https://www.sbert.net/) as an optional dense embedder.
 - [OpenTelemetry](https://opentelemetry.io/) for vendor-neutral traces and metrics.
 
 ## Knowledge Graph
@@ -158,7 +157,7 @@ Ingestion turns a source into a document, then into chunks, mentions, a matched 
 3. Extract: Use the selected extraction mode. `gliner` runs GLiNER locally on every chunk; `hybrid` also sends the weakest eligible chunks to an LLM within the budget; `llm` sends eligible chunks to an LLM without running GLiNER. Validation drops entities and triples that do not conform to the schema.
 4. Resolve: Apply exact, fuzzy, embedding, and LLM-verified comparison tiers. Ambiguous or failed comparisons do not match.
 5. Merge: Combine the mentions of exact matches into one entity. Decide each property value and join the chunk ids that mention it. Fuzzy, embedding, and LLM matches are stored as `MATCHES` edges, not merged.
-6. Store: Upsert nodes and relations, then populate graph-native or dedicated vector indexes.
+6. Store: Upsert nodes and relations, then populate the Neo4j vector indexes.
 
 `Graph` combines the LLM result with the local result as a union. An LLM entity with the name of a local entity keeps the local span and score. A chunk is eligible when one entity scores below 0.75, when the local model finds no entities in a chunk of at least eight words, or when an entity has a type with properties. The LLM reads the weakest eligible chunks first, up to 20% of the chunks in a batch by default, and each run reports what it left to the local model. Exact matches use global store-backed lookup. More expensive fuzzy and LLM comparisons run on a smaller candidate set.
 
@@ -174,12 +173,11 @@ The pipeline compares only mentions with the same label, so a city and a company
 
 ## Embeddings and Storage
 
-The async `Embedder`, `GraphStore`, and `VectorStore` interfaces keep model and database choices outside graph-construction logic.
+The async `Embedder` and `GraphStore` interfaces keep model and database choices outside graph-construction logic.
 
 ### Embeddings
 
 - Dense embeddings through FastEmbed, with Sentence Transformers as an option.
-- Sparse BM25 embeddings through FastEmbed.
 - Batch-first async APIs with optional content-addressed caching by text and model.
 - Dimension checks before collections or indexes accept vectors. `Graph.open` raises an error when the embedder does not match the stored vector dimensions.
 
@@ -187,22 +185,15 @@ The async `Embedder`, `GraphStore`, and `VectorStore` interfaces keep model and 
 
 The Neo4j backend supports local Neo4j and Aura over Bolt, managed read/write transactions, node and relation upserts, constraints, indexes, and native dense vector search. The query builders validate dynamic labels and relation types before they interpolate them into Cypher.
 
-### Vector storage
+### Vector search
 
-| Backend | Dense search | Hybrid search | Deployment |
-| --- | --- | --- | --- |
-| Neo4j | Native vector index | No | Local or Aura |
-| Qdrant | Yes | Dense + sparse fusion | Local or Cloud |
-| Weaviate | Yes | Native BM25/vector weighting | Custom or Cloud |
-| Milvus / Zilliz | Yes | Dense + BM25 fusion | Local or Cloud |
-
-All dedicated vector stores share collection lifecycle, batch upsert, retrieval, scrolling, counting, deletion, filtering, dense search, and hybrid search. Filters use exact scalar matches, OR within a list value, and AND across keys.
+Every entity label, resolved entity, community, and chunk has a Neo4j native vector index. Filters use exact scalar matches, OR within a list value, and AND across keys.
 
 ## Retrieval Pipeline
 
 Retrieval composes small search methods into retrievers, runs them concurrently, and fuses their results through data-only recipes.
 
-- Entity retrieval finds entities and resolved entities by dense or hybrid search and can expand matched seeds with bounded graph traversal.
+- Entity retrieval finds entities and resolved entities by dense search and can expand matched seeds with bounded graph traversal.
 - Chunk retrieval returns source passages with document and span provenance.
 - Community retrieval searches community reports for thematic and corpus-wide questions.
 - Text-to-Cypher retrieval generates a schema-aware, read-only query with bounded retries.
@@ -276,8 +267,8 @@ uv pip install "agentic-graphrag[docling,extract]"
 # LLM extraction
 uv pip install "agentic-graphrag[llm]"
 
-# Neo4j with a dedicated Qdrant vector store and OTLP tracing
-uv pip install "agentic-graphrag[neo4j,qdrant,observability]"
+# Neo4j with OTLP tracing
+uv pip install "agentic-graphrag[neo4j,observability]"
 
 # The question-answering agent
 uv pip install "agentic-graphrag[agents]"
@@ -294,9 +285,6 @@ uv pip install "agentic-graphrag[community]"
 | `agents` | The LangGraph runtime for the question-answering agent |
 | `embed-local` | Sentence Transformers, to embed with models that the default embedder does not support |
 | `neo4j` | Neo4j graph storage and native vector search |
-| `qdrant` | Qdrant dense and hybrid search |
-| `weaviate` | Weaviate dense and hybrid search |
-| `milvus` | Milvus/Zilliz dense and hybrid search |
 | `observability` | OpenTelemetry SDK and OTLP export |
 | `community` | Leiden community detection |
 | `eval` | The DeepEval and AgentEvals metrics in `agrag.eval` |
@@ -515,9 +503,8 @@ agrag/
 ├── chunking/             # the section chunker
 ├── loaders/              # core corpus readers and the Docling loaders
 ├── ingestion/            # Graph API, extraction, resolution, community detection and pipeline stages
-├── embedding/            # dense and sparse embedding interfaces
+├── embedding/            # dense embedding interfaces
 ├── graphdb/              # graph-store interface and Neo4j backend
-├── vectordb/             # vector-store interface and Qdrant/Weaviate/Milvus backends
 ├── cypher/               # validated Cypher builders
 ├── retrieval/            # search methods, retrievers, recipes and rerankers
 ├── agents/               # planner, researcher, verifier and citation ledger
@@ -541,7 +528,7 @@ make lint-typing
 make test
 ```
 
-Integration tests run against local Neo4j, Qdrant, Weaviate, and Milvus services:
+Integration tests run against a local Neo4j service:
 
 ```bash
 make dev-services-up

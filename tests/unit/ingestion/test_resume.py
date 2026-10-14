@@ -112,7 +112,7 @@ class _FakeResumeStore:
     def _claim_pending(
         self, job_id: str, params: dict[str, Any]
     ) -> list[dict[str, Any]]:
-        """Claim one lapsed pending job before deleting its staged writes."""
+        """Claim one lapsed pending job before deleting its tagged writes."""
         job = self.jobs.get(job_id)
         if job is None:
             return []

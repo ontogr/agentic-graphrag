@@ -1,6 +1,5 @@
 """The public Graph API for ingestion."""
 
-import asyncio
 import contextlib
 import functools
 import logging
@@ -83,10 +82,8 @@ from agrag.loaders import registry as _corpus_registry
 from agrag.loaders.base import Loader
 from agrag.loaders.types import ErrorPolicy, ReadOptions
 from agrag.observability import get_tracer
-from agrag.retrieval.settings import RetrievalSettings
 from agrag.schema import load_schema
 from agrag.schema.loader import SchemaSource
-from agrag.vectordb.base import VectorStore
 
 
 logger = logging.getLogger(__name__)
@@ -196,14 +193,7 @@ def _default_llm_extractor(tracer: Tracer | None) -> BAMLExtractor | None:
 
 
 class Graph:
-    """A knowledge graph that a caller can open and add content to.
-
-    When an optional VectorStore is configured, every embedding this
-    graph writes to graph_store is also upserted there, so SearchEngine's
-    VectorStore path finds the same vectors the GraphStore-native path
-    does. Collections follow RetrievalSettings' names and are provisioned
-    by ``open()`` when missing.
-    """
+    """A knowledge graph that a caller can open and add content to."""
 
     def __init__(
         self,
@@ -213,8 +203,6 @@ class Graph:
         embedder: Embedder,
         extractor: Extractor | None = None,
         tracer: Tracer | None = None,
-        vector_store: VectorStore | None = None,
-        retrieval_settings: RetrievalSettings | None = None,
         cutover_settings: CutoverJobSettings | None = None,
         extraction_settings: ExtractionSettings | None = None,
         llm_extractor: LLMExtractor | None = None,
@@ -237,15 +225,6 @@ class Graph:
             extractor: The local extraction slot, used in ``gliner`` and
                 ``hybrid`` modes.
             tracer: A tracer to record spans for every step. Pass None for none.
-            vector_store: Optional second write target for embeddings. When
-                set, every embedding the pipeline writes to graph_store is
-                also upserted here, so SearchEngine's VectorStore path finds
-                the same vectors the GraphStore-native path does. Also gets
-                old community vectors removed on each
-                detect_communities(apply=True) cycle.
-            retrieval_settings: Collection names for the VectorStore writes.
-                None uses RetrievalSettings defaults. Ignored when
-                vector_store is None.
             cutover_settings: Lease configuration for the Cutover Jobs
                 add/update/delete_document run through. None uses
                 CutoverJobSettings defaults.
@@ -297,8 +276,6 @@ class Graph:
         self._chunker = chunker or Chunker()
         self._embed_heading_path = embed_heading_path
         self._max_llm_pairs = max_llm_pairs
-        self._vector_store = vector_store
-        self._retrieval_settings = retrieval_settings or RetrievalSettings()
         self._cutover_settings = cutover_settings or CutoverJobSettings()
 
     @classmethod
@@ -310,8 +287,6 @@ class Graph:
         embedder: Embedder,
         extractor: Extractor | None = None,
         tracer: Tracer | None = None,
-        vector_store: VectorStore | None = None,
-        retrieval_settings: RetrievalSettings | None = None,
         cutover_settings: CutoverJobSettings | None = None,
         extraction_settings: ExtractionSettings | None = None,
         llm_extractor: LLMExtractor | None = None,
@@ -328,9 +303,7 @@ class Graph:
         every schema entity label — so a brand-new database is fully ready,
         including the merge_key uniqueness constraints the global exact-match
         tier relies on and the embedding vector indexes native search needs,
-        before this call returns. When vector_store is set, the entity, chunk,
-        and community collections are provisioned there too (created when
-        missing) so the dual writes never hit an absent collection.
+        before this call returns.
 
         Args:
             schema: The schema the extractor receives. A ``GraphSchema`` is
@@ -345,10 +318,6 @@ class Graph:
             extractor: The local extraction slot, used in ``gliner`` and
                 ``hybrid`` modes.
             tracer: A tracer to record spans for every step. Pass None for none.
-            vector_store: Optional second write target for embeddings. See
-                __init__.
-            retrieval_settings: Collection names for the VectorStore writes.
-                None uses RetrievalSettings defaults.
             cutover_settings: Lease configuration for the Cutover Jobs
                 add/update/delete_document run through. None uses
                 CutoverJobSettings defaults.
@@ -366,9 +335,6 @@ class Graph:
 
         Raises:
             EmbeddingDimensionMismatchError: A vector index in graph_store
-                already exists with a different dimension than the embedder
-                produces.
-            CollectionDimensionMismatchError: A vector_store collection
                 already exists with a different dimension than the embedder
                 produces.
             Exception: Whatever connect(), registration, constraint/index
@@ -429,45 +395,12 @@ class Graph:
                     dimensions=dimensions,
                     distance=distance,
                 )
-                recovery_collections: tuple[str, ...] = ()
-                if vector_store is not None:
-                    settings = retrieval_settings or RetrievalSettings()
-                    recovery_collections = (
-                        settings.entity_collection,
-                        settings.chunk_collection,
-                        settings.resolved_entity_collection,
-                    )
-                    await vector_store.initialize()
-                    # Wait for every task even after a failure so none still uses
-                    # the store when the except block below closes it.
-                    outcomes = await asyncio.gather(
-                        *(
-                            vector_store.ensure_collection(
-                                collection,
-                                dimensions=dimensions,
-                                distance=distance,
-                                hybrid=True,
-                            )
-                            for collection in (
-                                settings.entity_collection,
-                                settings.resolved_entity_collection,
-                                settings.chunk_collection,
-                                settings.community_collection,
-                            )
-                        ),
-                        return_exceptions=True,
-                    )
-                    for outcome in outcomes:
-                        if isinstance(outcome, BaseException):
-                            raise outcome
                 graph = cls(
                     schema=schema,
                     graph_store=graph_store,
                     embedder=embedder,
                     extractor=extractor,
                     tracer=tracer,
-                    vector_store=vector_store,
-                    retrieval_settings=retrieval_settings,
                     cutover_settings=cutover_settings,
                     extraction_settings=extraction_settings,
                     llm_extractor=llm_extractor,
@@ -487,17 +420,12 @@ class Graph:
                 with contextlib.suppress(Exception):
                     await resume_incomplete_jobs(
                         graph_store,
-                        vector_store=vector_store,
-                        vector_collections=recovery_collections,
                         roll_forward=graph._cleanup(),
                         lease_ttl_seconds=graph._cutover_settings.lease_ttl_seconds,
                         tracer=resolved_tracer,
                     )
             except Exception:
                 await graph_store.close()
-                if vector_store is not None:
-                    with contextlib.suppress(Exception):
-                        await vector_store.close()
                 raise
         return graph
 
@@ -613,8 +541,6 @@ class Graph:
             extractor=self._extractor,
             llm_extractor=self._llm_extractor,
             extraction_settings=self.extraction_settings,
-            vector_store=self._vector_store,
-            retrieval_settings=self._retrieval_settings,
             cutover_settings=self._cutover_settings,
             chunker=self._chunker,
             registry=self._registry,
@@ -718,8 +644,6 @@ class Graph:
             extractor=self._extractor,
             llm_extractor=self._llm_extractor,
             extraction_settings=self.extraction_settings,
-            vector_store=self._vector_store,
-            retrieval_settings=self._retrieval_settings,
             cutover_settings=self._cutover_settings,
             chunker=self._chunker,
             registry=self._registry,
@@ -761,8 +685,6 @@ class Graph:
         return await delete_document(
             document_key,
             graph_store=self._graph_store,
-            vector_store=self._vector_store,
-            retrieval_settings=self._retrieval_settings,
             cutover_settings=self._cutover_settings,
             cleanup=self._cleanup(),
             tracer=self._tracer,
@@ -799,8 +721,6 @@ class Graph:
             graph_store=self._graph_store,
             schema=self._schema,
             embedder=self._embedder,
-            vector_store=self._vector_store,
-            retrieval_settings=self._retrieval_settings,
             tracer=self._tracer,
             max_llm_pairs=self._max_llm_pairs,
             error_policy=error_policy,
@@ -818,7 +738,7 @@ class Graph:
             logger.info("%s", line)
 
     async def deactivate_match(self, match_id: UUID) -> list[ResolvedEntity]:
-        """Deactivate a semantic match and synchronize replacement retrieval vectors.
+        """Deactivate a semantic match and embed the replacement resolved entities.
 
         Raises:
             ValueError: The match does not exist or an in-flight job has not
@@ -829,8 +749,6 @@ class Graph:
             schema=self._schema,
             graph_store=self._graph_store,
             embedder=self._embedder,
-            vector_store=self._vector_store,
-            retrieval_settings=self._retrieval_settings,
             tracer=self._tracer,
         )
 
@@ -870,8 +788,6 @@ class Graph:
             schema=self._schema,
             graph_store=self._graph_store,
             embedder=self._embedder,
-            vector_store=self._vector_store,
-            retrieval_settings=self._retrieval_settings,
             tracer=self._tracer,
             max_llm_pairs=self._max_llm_pairs,
         )
@@ -891,8 +807,8 @@ class Graph:
 
         Args:
             patch: The schema patch, or its JSON file path.
-            error_policy: How to report vector mirror and description embedding
-                failures that occur after the graph transaction commits.
+            error_policy: How to report description embedding failures that
+                occur after the graph transaction commits.
 
         Returns:
             Counts of converted data and reasons for skipped candidates.
@@ -906,8 +822,6 @@ class Graph:
             graph_store=self._graph_store,
             schema=self._schema,
             embedder=self._embedder,
-            vector_store=self._vector_store,
-            retrieval_settings=self._retrieval_settings,
             error_policy=error_policy,
             tracer=self._tracer,
         )
@@ -952,8 +866,6 @@ class Graph:
             schema=self._schema,
             graph_store=self._graph_store,
             embedder=self._embedder,
-            vector_store=self._vector_store,
-            retrieval_settings=self._retrieval_settings,
             tracer=self._tracer,
             max_llm_pairs=self._max_llm_pairs,
         )
@@ -996,9 +908,7 @@ class Graph:
         """
         return await detect_communities(
             self._graph_store,
-            vector_store=self._vector_store,
             embedder=self._embedder,
-            settings=self._retrieval_settings,
             tracer=self._tracer,
             apply=apply,
             max_cluster_size=max_cluster_size,

@@ -3,11 +3,9 @@
 from opentelemetry.trace import Tracer
 
 from agrag.embedding.base import Embedder
-from agrag.embedding.fastembed_bm25 import FastEmbedBM25Embedder
 from agrag.embedding.fastembed_dense import FastEmbedEmbedder
 from agrag.embedding.sentence_transformers import SentenceTransformerEmbedder
 from agrag.embedding.settings import EmbeddingSettings
-from agrag.embedding.sparse_base import SparseEmbedder, SparseVector
 
 
 def build_embedder(value: str | Embedder, *, tracer: Tracer | None = None) -> Embedder:
@@ -44,10 +42,7 @@ def build_embedder(value: str | Embedder, *, tracer: Tracer | None = None) -> Em
 __all__ = [
     "Embedder",
     "EmbeddingSettings",
-    "FastEmbedBM25Embedder",
     "FastEmbedEmbedder",
     "SentenceTransformerEmbedder",
-    "SparseEmbedder",
-    "SparseVector",
     "build_embedder",
 ]

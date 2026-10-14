@@ -167,8 +167,7 @@ class TestNeo4jGraphStoreIntegration:
         store = build_graph_store("neo4j")
         await store.connect()
         # A unique label per run keeps this test isolated from other runs
-        # sharing the same long-lived local Neo4j instance, matching the
-        # unique-collection-name pattern tests/integration/vectordb/ uses.
+        # sharing the same long-lived local Neo4j instance.
         label = validate_identifier(f"Chunk_{uuid4().hex[:8]}")
         try:
             first_id = uuid4()

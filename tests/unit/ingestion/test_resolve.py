@@ -55,9 +55,7 @@ def _candidate_source() -> GraphCandidateSource:
 
     candidates_for never touches a store, so both dependencies are mocks.
     """
-    return GraphCandidateSource(
-        graph_store=AsyncMock(), embedder=MagicMock(), vector_store=None
-    )
+    return GraphCandidateSource(graph_store=AsyncMock(), embedder=MagicMock())
 
 
 _DOC_ID = uuid4()

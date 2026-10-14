@@ -47,7 +47,6 @@ from agrag.retrieval.retrievers.entity import EntityRetriever
 from agrag.retrieval.retrievers.text2cypher import Text2CypherRetriever
 from agrag.retrieval.settings import RetrievalSettings
 from agrag.retrieval.tracing import record_results, retrieval_span
-from agrag.vectordb.base import VectorStore
 
 
 logger = logging.getLogger(__name__)
@@ -62,9 +61,9 @@ class SearchEngine:
 
     A ``tracer`` opens the retrieval spans and flows to every
     retriever and free function the engine calls. It is not pushed
-    into ``graph_store``, ``embedder`` or ``vector_store``. Pass the
-    same tracer to those when you build them, so their adapter spans
-    nest under these retrieval spans.
+    into ``graph_store`` or ``embedder``. Pass the same tracer to those
+    when you build them, so their adapter spans nest under these
+    retrieval spans.
     """
 
     def __init__(
@@ -72,7 +71,6 @@ class SearchEngine:
         *,
         graph_store: GraphStore,
         embedder: Embedder,
-        vector_store: VectorStore | None = None,
         settings: RetrievalSettings | None = None,
         entity_labels: Sequence[str] | None = None,
         graph_schema: GraphSchema | None = None,
@@ -81,20 +79,9 @@ class SearchEngine:
         """Construct a SearchEngine.
 
         Args:
-            graph_store: Always required. It backs entity and chunk search
-                when vector_store is absent, and it always backs BFS.
-            embedder: Produces query vectors for dense and hybrid
-                search.
-            vector_store: Optional. When set, entity, chunk, and
-                community search run hybrid_search there instead of
-                GraphStore's native search. ``Graph.open(vector_store=...)``
-                provisions the collections and dual-writes every embedding
-                this package ingests, so the two paths see the same data.
-                Point it at a store that ``Graph.open`` provisioned: a
-                missing collection makes each method that reads it fail, and
-                ``search`` raises ``AllRetrievalMethodsFailedError`` when
-                every method fails. Collections that exist but hold no
-                records return no hits.
+            graph_store: Always required. It backs entity and chunk search,
+                community search and BFS.
+            embedder: Produces query vectors for dense search.
             settings: Retrieval configuration; defaults from
                 environment.
             entity_labels: The entity labels native entity search runs
@@ -102,8 +89,7 @@ class SearchEngine:
                 ``Graph.open``. Retained as a checked input only: it must
                 name exactly the labels graph_schema declares, since the
                 schema is what native search and generated Cypher both
-                read. Omit it and let the schema drive both. Ignored when
-                a vector_store is configured.
+                read. Omit it and let the schema drive both.
             graph_schema: The graph's declared schema, ground truth for
                 native entity labels and for generated Cypher. None uses
                 ``DEFAULT_SCHEMA``.
@@ -117,7 +103,6 @@ class SearchEngine:
         """
         self._graph_store = graph_store
         self._embedder = embedder
-        self._vector_store = vector_store
         self._settings = settings or RetrievalSettings()
         self._tracer = tracer
         self._graph_schema = (
@@ -173,7 +158,6 @@ class SearchEngine:
             name,
             graph_store=self._graph_store,
             embedder=self._embedder,
-            vector_store=self._vector_store,
             settings=self._settings,
             entity_labels=self._entity_labels,
             filters=filters,
@@ -560,7 +544,6 @@ class SearchEngine:
             "entity": EntityRetriever(
                 graph_store=self._graph_store,
                 embedder=self._embedder,
-                vector_store=self._vector_store,
                 settings=self._settings,
                 entity_labels=self._entity_labels,
                 tracer=self._tracer,
@@ -568,14 +551,12 @@ class SearchEngine:
             "chunk": ChunkRetriever(
                 graph_store=self._graph_store,
                 embedder=self._embedder,
-                vector_store=self._vector_store,
                 settings=self._settings,
                 tracer=self._tracer,
             ),
             "community": CommunityRetriever(
                 graph_store=self._graph_store,
                 embedder=self._embedder,
-                vector_store=self._vector_store,
                 settings=self._settings,
                 tracer=self._tracer,
             ),

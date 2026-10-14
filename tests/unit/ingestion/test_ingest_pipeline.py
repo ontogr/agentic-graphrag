@@ -55,7 +55,6 @@ from agrag.ingestion.settings import ExtractionSettings
 from agrag.ingestion.stats import IngestStats, MergeStats
 from agrag.loaders.types import ErrorPolicy
 from agrag.observability import get_tracer
-from agrag.retrieval.settings import RetrievalSettings
 from tests.unit.ingestion._lease_fake import CutoverJobLeaseFake
 
 
@@ -217,9 +216,7 @@ async def _ingest(
         placements=_placements(chunks),
         graph_store=store,
         embedder=_ZeroEmbedder(),
-        vector_store=None,
         graph_schema=DEFAULT_SCHEMA,
-        retrieval_settings=RetrievalSettings(),
         error_policy=ErrorPolicy.RAISE,
         ingestion=ingestion or IngestStats(documents=len(documents)),
     )
@@ -409,9 +406,7 @@ class TestIngestChunks:
                 placements=_placements([chunk]),
                 graph_store=store,
                 embedder=_ZeroEmbedder(),
-                vector_store=None,
                 graph_schema=DEFAULT_SCHEMA,
-                retrieval_settings=RetrievalSettings(),
                 error_policy=ErrorPolicy.RAISE,
                 ingestion=IngestStats(documents=1),
                 return_chunks=False,
@@ -464,9 +459,7 @@ class TestIngestChunks:
             placements=_placements([chunk]),
             graph_store=store,
             embedder=_ZeroEmbedder(),
-            vector_store=None,
             graph_schema=DEFAULT_SCHEMA,
-            retrieval_settings=RetrievalSettings(),
             error_policy=error_policy,
             ingestion=IngestStats(documents=1),
         )
@@ -554,9 +547,7 @@ class TestHeadingContextEmbedding:
             placements=_placements([chunk]),
             graph_store=store,
             embedder=_Recorder(),
-            vector_store=None,
             graph_schema=DEFAULT_SCHEMA,
-            retrieval_settings=RetrievalSettings(),
             error_policy=ErrorPolicy.RAISE,
             ingestion=IngestStats(documents=1),
             embed_heading_path=embed_heading_path,
@@ -592,46 +583,6 @@ class TestHeadingContextEmbedding:
         embedded, _ = await self._run(self._chunk([]), embed_heading_path=True)
 
         assert embedded == ["body text"]
-
-    async def test_vector_store_payload_text_stays_raw(self) -> None:
-        """The stored payload text is the chunk text, not the contextual text."""
-        store, _ = _store()
-        original = store.execute_write.side_effect
-
-        async def match_embeddings(query: str, parameters: Any = None) -> Any:
-            records = (parameters or {}).get("records") or []
-            if records and "vector" in records[0]:
-                return [{"id": record["id"]} for record in records]
-            return await original(query, parameters)
-
-        store.execute_write.side_effect = match_embeddings
-        vector_store = AsyncMock()
-        chunk = self._chunk(["A"])
-
-        await ingest_chunks(
-            [chunk],
-            [_doc(key="h")],
-            [],
-            [],
-            [],
-            placements=_placements([chunk]),
-            graph_store=store,
-            embedder=_ZeroEmbedder(),
-            vector_store=vector_store,
-            graph_schema=DEFAULT_SCHEMA,
-            retrieval_settings=RetrievalSettings(),
-            error_policy=ErrorPolicy.RAISE,
-            ingestion=IngestStats(documents=1),
-            embed_heading_path=True,
-        )
-
-        payloads = [
-            record.payload["text"]
-            for call in vector_store.upsert.await_args_list
-            for record in call.args[1]
-            if record.payload.get("label") == "Chunk"
-        ]
-        assert payloads == ["body text"]
 
 
 class TestExtractChunks:
@@ -1320,13 +1271,11 @@ class TestEmbedChunksStage:
             StageContext(
                 graph_store=store,
                 embedder=embedder,
-                vector_store=None,
                 error_policy=ErrorPolicy.SKIP,
                 tracer=get_tracer(None),
                 job_id=None,
                 deferred=None,
             ),
-            vector_collection="chunks",
             embed_heading_path=False,
         )
         return embedder.texts, result.failures
@@ -1366,7 +1315,6 @@ class TestEmbedChunksStage:
         return StageContext(
             graph_store=store,
             embedder=_RecordingEmbedder(),
-            vector_store=None,
             error_policy=error_policy,
             tracer=get_tracer(None),
             job_id=None,
@@ -1384,7 +1332,6 @@ class TestEmbedChunksStage:
             {chunk.id},
             WriteOutcome(wrote_any=False),
             self._context(store, ErrorPolicy.SKIP),
-            vector_collection="chunks",
             embed_heading_path=False,
         )
 
@@ -1403,6 +1350,5 @@ class TestEmbedChunksStage:
                 {chunk.id},
                 WriteOutcome(wrote_any=False),
                 self._context(store, ErrorPolicy.RAISE),
-                vector_collection="chunks",
                 embed_heading_path=False,
             )

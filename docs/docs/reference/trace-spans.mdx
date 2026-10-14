@@ -44,7 +44,7 @@ flowchart TD
 | LLM spans | `agrag.llm.call`, `agrag.llm.attempt`, `agrag.llm.request` |
 | Agent tool call | The OpenInference `TOOL` span of an agent run |
 | Search root and retriever spans | `agrag.retrieval.search` and the spans in "The retrieval span tree" |
-| Store and embedding spans | `agrag.graphdb.*`, `agrag.vectordb.*`, `agrag.embedding.*`, only when you pass the same tracer to the stores and the embedder |
+| Store and embedding spans | `agrag.graphdb.*`, `agrag.embedding.*`, only when you pass the same tracer to the stores and the embedder |
 
 ## The LLM span tree
 
@@ -98,7 +98,7 @@ Every public `Graph` call opens one root span. The spans in the sections below n
 
 ## The ingestion span tree
 
-One `add` call with one chunk and the local extractor produces this tree. `load_document` appears only for `source=` input. Store and embedding spans (`agrag.graphdb.*`, `agrag.embedding.*`, and `agrag.vectordb.*` when a vector store is set) nest below the step that calls them.
+One `add` call with one chunk and the local extractor produces this tree. `load_document` appears only for `source=` input. Store and embedding spans (`agrag.graphdb.*` and `agrag.embedding.*`) nest below the step that calls them.
 
 ```text
 agrag.ingestion.add
@@ -175,25 +175,6 @@ The Neo4j store opens these spans. Reads and writes carry the query text and the
 | `agrag.graphdb.load_entities` | `agrag.requested_count`, `agrag.loaded_count` |
 | `agrag.graphdb.vector_search` | `db.collection.name` (the label), `agrag.limit`, `agrag.k_final`, `agrag.index_missing` (when the index does not exist. The search then returns no hits) |
 
-## Vector store spans
-
-Qdrant, Weaviate, and Milvus open the same names. `db.system.name` is `qdrant`, `weaviate`, or `milvus`. Only Qdrant opens `query_points`, one for each arm of its two-search hybrid query.
-
-| Span | Attributes |
-|---|---|
-| `agrag.vectordb.build_client` | none |
-| `agrag.vectordb.upsert` | `db.collection.name`, `agrag.record_count` |
-| `agrag.vectordb.upsert_batch` | `db.system.name`, `db.collection.name`, `agrag.batch_size` |
-| `agrag.vectordb.search` | `db.system.name`, `db.collection.name`, `agrag.limit` |
-| `agrag.vectordb.hybrid_search` | `db.collection.name`, `agrag.limit`, `agrag.alpha` |
-| `agrag.vectordb.query_points` | `db.system.name`, `db.collection.name`, `agrag.query_arm` (`dense` or `sparse`) |
-| `agrag.vectordb.scroll` | `db.system.name`, `db.collection.name`, `agrag.limit` |
-| `agrag.vectordb.retrieve` | `db.system.name`, `db.collection.name` |
-| `agrag.vectordb.count` | `db.system.name`, `db.collection.name` |
-| `agrag.vectordb.delete` | `db.system.name`, `db.collection.name` |
-| `agrag.vectordb.commit_pending` | `db.collection.name`, `agrag.job_id` |
-| `agrag.vectordb.delete_pending` | `db.collection.name`, `agrag.job_id` |
-
 ## Embedding spans
 
 | Span | Attributes |
@@ -201,7 +182,6 @@ Qdrant, Weaviate, and Milvus open the same names. `db.system.name` is `qdrant`, 
 | `agrag.embedding.model_load` | `agrag.model` |
 | `agrag.embedding.embed` | `agrag.text_count`, `agrag.cache_hit_count`, `agrag.model` (dense embedder, every call) |
 | `agrag.embedding.encode` | `agrag.text_count`, `agrag.cache_hit_count` (dense embedder, cache misses only) |
-| `agrag.embedding.query_embed` | `agrag.text_count` (keyword embedder for Qdrant hybrid search) |
 
 ## Retrieval loading spans and the agent span
 
@@ -243,7 +223,7 @@ available, it sets `agrag.llm_unavailable` instead.
 ## The retrieval span tree
 
 One `search` call fans out to the recipe's retrievers concurrently. Their
-spans are siblings under the root. The `agrag.graphdb.*`, `agrag.vectordb.*`
+spans are siblings under the root. The `agrag.graphdb.*`
 and `agrag.embedding.*` spans nest below these whenever the caller passed the
 same tracer to the stores and the embedder.
 
@@ -285,7 +265,7 @@ of the tool call that made it.
 | retrievers (`entity`, `chunk`, `community`, `text2cypher`, `bfs`) | `agrag.limit`. `bfs` also `agrag.seed_count`, `agrag.depth`, `agrag.direction`. `text2cypher` also `agrag.cypher` |
 | `agrag.retrieval.find_entity` / `traverse` | `agrag.seed_ids`, `agrag.relation_type`, `agrag.direction`, `agrag.depth`, `agrag.limit`, `agrag.community_expand` on `traverse` |
 | `agrag.retrieval.list_relationship_types` | `agrag.seed_ids`, `agrag.relation_type_filter`, `agrag.direction`, `agrag.result_count`, `agrag.result_types` |
-| `agrag.retrieval.vector_search` | `agrag.collection`, `agrag.store` (`vector_store` or `graph_native`), `agrag.labels`, `agrag.limit`, `agrag.hit_count`, `agrag.hit_ids`, `agrag.hit_scores` |
+| `agrag.retrieval.vector_search` | `agrag.labels`, `agrag.limit`, `agrag.hit_count`, `agrag.hit_ids`, `agrag.hit_scores` |
 | `agrag.retrieval.entity_search` / `resolved_entity_search` | `agrag.limit`, `agrag.passes`, `agrag.hit_count` |
 | `agrag.retrieval.load_*` | `agrag.requested_count`, `agrag.loaded_count` |
 | `agrag.retrieval.allowed_entity_ids` | `agrag.document_count`, `agrag.entity_count` |

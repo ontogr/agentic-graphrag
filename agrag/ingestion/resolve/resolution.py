@@ -44,7 +44,6 @@ from agrag.ingestion.resolve.resolver import (
 )
 from agrag.loaders.types import ErrorPolicy
 from agrag.observability import get_tracer
-from agrag.vectordb.base import VectorStore
 
 
 # Relationship types Graph.open() always registers. Resolution leaves them out
@@ -212,8 +211,6 @@ async def resolve_batch(  # noqa: PLR0915
     *,
     graph_store: GraphStore,
     embedder: Embedder,
-    vector_store: VectorStore | None,
-    vector_collection: str,
     entity_labels: Sequence[str],
     tracer: Tracer | None,
     max_llm_pairs: int,
@@ -233,8 +230,6 @@ async def resolve_batch(  # noqa: PLR0915
         chunks_by_id: The batch's chunks, for LLM verification context.
         graph_store: Where exact-match, candidate, and neighbor reads run.
         embedder: Embeds mention text for candidate search and fuzzy review.
-        vector_store: Optional vector store the candidate search reads.
-        vector_collection: Collection name for the candidate search.
         entity_labels: The labels the schema defines.
         tracer: Opens the phase spans and traces the resolver.
         max_llm_pairs: The most ambiguous pairs per label sent to the LLM.
@@ -265,8 +260,6 @@ async def resolve_batch(  # noqa: PLR0915
     candidate_source = GraphCandidateSource(
         graph_store=graph_store,
         embedder=embedder,
-        vector_store=vector_store,
-        vector_collection=vector_collection,
         entity_labels=entity_labels,
     )
     combined_mentions: list[ExtractedEntity] = list(mentions)
@@ -378,8 +371,6 @@ async def resolve_persisted(
     *,
     graph_store: GraphStore,
     embedder: Embedder,
-    vector_store: VectorStore | None,
-    vector_collection: str,
     entity_labels: Sequence[str],
     tracer: Tracer | None,
     max_llm_pairs: int,
@@ -393,8 +384,6 @@ async def resolve_persisted(
         entities: The persisted entities to compare, all of one label.
         graph_store: Where the candidate and neighbor reads run.
         embedder: Embeds entity names for candidate search and fuzzy review.
-        vector_store: Optional vector store the candidate search reads.
-        vector_collection: Collection name for the candidate search.
         entity_labels: The labels the schema defines.
         tracer: Traces the resolver.
         max_llm_pairs: The most ambiguous pairs per label sent to the LLM.
@@ -412,8 +401,6 @@ async def resolve_persisted(
     candidate_source = GraphCandidateSource(
         graph_store=graph_store,
         embedder=embedder,
-        vector_store=vector_store,
-        vector_collection=vector_collection,
         entity_labels=entity_labels,
     )
     persisted_neighbors = await fetch_persisted_neighbors(
@@ -452,8 +439,6 @@ async def resolve_created(
     *,
     graph_store: GraphStore,
     embedder: Embedder,
-    vector_store: VectorStore | None,
-    vector_collection: str,
     entity_labels: Sequence[str],
     tracer: Tracer | None,
     max_llm_pairs: int,
@@ -471,8 +456,6 @@ async def resolve_created(
         created: The committed entities to resolve.
         graph_store: Where the candidate and neighbor reads run.
         embedder: Embeds entity names for candidate search and fuzzy review.
-        vector_store: Optional vector store the candidate search reads.
-        vector_collection: Collection name for the candidate search.
         entity_labels: The labels the schema defines.
         tracer: Traces the resolver.
         max_llm_pairs: The most ambiguous pairs per label sent to the LLM.
@@ -493,8 +476,6 @@ async def resolve_created(
     candidate_source = GraphCandidateSource(
         graph_store=graph_store,
         embedder=embedder,
-        vector_store=vector_store,
-        vector_collection=vector_collection,
         entity_labels=entity_labels,
     )
     candidates_by_index: dict[int, set[int]] = {}

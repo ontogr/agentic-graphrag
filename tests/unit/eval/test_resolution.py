@@ -114,7 +114,7 @@ class TestRunResolver:
         resolver = Resolver(
             comparators=[ExactMatch(), FuzzyMatch()],
             candidate_source=GraphCandidateSource(
-                graph_store=graph_store, embedder=None, vector_store=None
+                graph_store=graph_store, embedder=None
             ),
             embedder=None,
         )

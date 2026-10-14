@@ -257,7 +257,6 @@ class TestTraversalRootSpans:
             "alice",
             graph_store=store,
             embedder=_MockEmbedder(),
-            vector_store=None,
             settings=RetrievalSettings(),
             entity_labels=["Person"],
             tracer=tracer,

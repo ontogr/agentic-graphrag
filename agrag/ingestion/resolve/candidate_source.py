@@ -7,17 +7,13 @@ from uuid import UUID
 from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.extraction import ExtractedEntity, ExtractedRelation
 from agrag.common.data_models.stage_failure import StageFailure
-from agrag.common.data_models.vector_record import VectorHit
 from agrag.cypher.entities import fetch_entity_neighbors_query
 from agrag.embedding.base import Embedder
 from agrag.graphdb.base import GraphStore
-from agrag.graphdb.entities import load_entities
 from agrag.loaders.types import ErrorPolicy
 from agrag.observability import record_stage_failure
 from agrag.retrieval.filters import SearchFilters
 from agrag.retrieval.methods.vector import vector_search
-from agrag.retrieval.settings import RetrievalSettings
-from agrag.vectordb.base import VectorStore
 
 
 MAX_NEIGHBORS_PER_ENTITY = 5
@@ -141,16 +137,12 @@ class GraphCandidateSource(CandidateSource):
         *,
         graph_store: GraphStore,
         embedder: Embedder,
-        vector_store: VectorStore | None = None,
-        vector_collection: str = "",
         entity_labels: Sequence[str] = (),
         top_k: int = 50,
     ) -> None:
         """Create a candidate source backed by the configured graph indexes."""
         self.graph_store = graph_store
         self.embedder = embedder
-        self.vector_store = vector_store
-        self.vector_collection = vector_collection
         self.entity_labels = tuple(entity_labels)
         self.top_k = top_k
 
@@ -168,14 +160,7 @@ class GraphCandidateSource(CandidateSource):
     async def global_candidates_for(
         self, mention: ExtractedEntity
     ) -> list[tuple[Entity, float]]:
-        """Return persisted entities found by the shared vector-search route.
-
-        The GraphStore-native path's payload already carries the real node
-        properties and is validated directly. The VectorStore path's payload
-        only carries ``label`` and ``text`` (the embedding source text), so
-        candidates are loaded from the graph by hit id instead; a hit that
-        fails to load, for example a deleted node, is
-        skipped rather than reconstructed from ``text``.
+        """Return persisted entities found by the native vector search.
 
         Each candidate is paired with the cosine similarity of the
         ``VectorHit`` it came from. The association is keyed by hit id, never
@@ -198,45 +183,25 @@ class GraphCandidateSource(CandidateSource):
             mention.text,
             embedder=self.embedder,
             graph_store=self.graph_store,
-            vector_store=self.vector_store,
-            collection=self.vector_collection,
             labels=(mention.label,),
             limit=self.top_k,
             filters=SearchFilters(labels=[mention.label]),
-            settings=RetrievalSettings(),
         )
         if not hits:
             return []
         hit_scores = {hit.id: hit.score for hit in hits}
-        if self.vector_store is None:
-            entities: list[Entity] = []
-            for hit in hits:
-                payload = dict(hit.payload)
-                payload.setdefault("id", hit.id)
-                payload.setdefault("label", mention.label)
-                if payload.get("label") != mention.label:
-                    continue
-                try:
-                    entities.append(Entity.model_validate(payload))
-                except Exception:  # malformed payloads are not candidates
-                    continue
-            return [(entity, hit_scores.get(entity.id, 0.0)) for entity in entities]
-        loaded = await self._load_hits(hits, mention.label)
-        return [(entity, hit_scores.get(entity.id, 0.0)) for entity in loaded]
-
-    async def _load_hits(self, hits: Sequence[VectorHit], label: str) -> list[Entity]:
-        """Load VectorStore hits into real entities by graph id.
-
-        Reconstructing the name from the payload's display text corrupts
-        any name containing ":" (e.g. "Star Trek: Voyager"), so this fetches
-        the actual nodes instead.
-
-        Raises:
-            Exception: The graph read failed. An empty list means no hit
-                matched the label, never a failed read.
-        """
-        entities_by_id = await load_entities(self.graph_store, [hit.id for hit in hits])
-        return [entity for entity in entities_by_id.values() if entity.label == label]
+        entities: list[Entity] = []
+        for hit in hits:
+            payload = dict(hit.payload)
+            payload.setdefault("id", hit.id)
+            payload.setdefault("label", mention.label)
+            if payload.get("label") != mention.label:
+                continue
+            try:
+                entities.append(Entity.model_validate(payload))
+            except Exception:  # malformed payloads are not candidates
+                continue
+        return [(entity, hit_scores.get(entity.id, 0.0)) for entity in entities]
 
 
 async def read_candidates(

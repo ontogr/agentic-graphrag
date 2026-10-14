@@ -61,8 +61,6 @@ from agrag.loaders.common import build_prose_document, text_sections
 from agrag.loaders.loader_registry import LoaderRegistry
 from agrag.loaders.types import ErrorPolicy, LoadStats, ReadOptions, SourceRef
 from agrag.loaders.walk import normalize_inline_text
-from agrag.retrieval.settings import RetrievalSettings
-from agrag.vectordb.base import VectorStore
 
 
 logger = logging.getLogger(__name__)
@@ -70,15 +68,6 @@ logger = logging.getLogger(__name__)
 CleanupStep = Callable[
     [list[UUID], list[UUID], list[UUID]], Awaitable[list[StageFailure]]
 ]
-
-
-def _vector_collections(retrieval_settings: RetrievalSettings) -> tuple[str, str, str]:
-    """Name the collections a job's pending writes can reach."""
-    return (
-        retrieval_settings.entity_collection,
-        retrieval_settings.chunk_collection,
-        retrieval_settings.resolved_entity_collection,
-    )
 
 
 def _placements_of(
@@ -452,9 +441,7 @@ async def _commit_batch(  # noqa: PLR0913
     *,
     graph_store: GraphStore,
     embedder: Embedder,
-    vector_store: VectorStore | None,
     schema: GraphSchema,
-    retrieval_settings: RetrievalSettings,
     cutover_settings: CutoverJobSettings,
     error_policy: ErrorPolicy,
     return_chunks: bool,
@@ -474,9 +461,7 @@ async def _commit_batch(  # noqa: PLR0913
             indices are positions within its own entity list.
         graph_store: The store that receives the graph writes.
         embedder: The embedder for chunk and entity vectors.
-        vector_store: The vector store, or ``None`` when vectors are off.
         schema: The graph schema the entities are written against.
-        retrieval_settings: The collection names and retrieval settings.
         cutover_settings: The settings for each Cutover Job.
         error_policy: How a failed write or embedding is treated.
         return_chunks: Whether each result carries its chunks.
@@ -490,7 +475,6 @@ async def _commit_batch(  # noqa: PLR0913
     Returns:
         One AddResult per document, in document order.
     """
-    vector_collections = _vector_collections(retrieval_settings)
     partials: list[AddResult] = []
     for (
         document_key,
@@ -560,9 +544,7 @@ async def _commit_batch(  # noqa: PLR0913
                 slice_failures,
                 graph_store=graph_store,
                 embedder=embedder,
-                vector_store=vector_store,
                 graph_schema=schema,
-                retrieval_settings=retrieval_settings,
                 error_policy=error_policy,
                 ingestion=IngestStats(documents=1),
                 return_chunks=return_chunks,
@@ -586,8 +568,6 @@ async def _commit_batch(  # noqa: PLR0913
             document_key=document_key,
             affected_entity_ids=[],
             graph_store=graph_store,
-            vector_store=vector_store,
-            vector_collections=vector_collections,
             settings=cutover_settings,
             pending_write=pending_write,
             cleanup=cleanup,
@@ -618,8 +598,6 @@ async def add_documents(  # noqa: PLR0912,PLR0915,PLR0913
     extractor: Extractor | LLMExtractor,
     llm_extractor: LLMExtractor | None,
     extraction_settings: ExtractionSettings,
-    vector_store: VectorStore | None,
-    retrieval_settings: RetrievalSettings,
     cutover_settings: CutoverJobSettings,
     chunker: Chunker,
     registry: LoaderRegistry,
@@ -727,9 +705,7 @@ async def add_documents(  # noqa: PLR0912,PLR0915,PLR0913
                     extracted,
                     graph_store=graph_store,
                     embedder=embedder,
-                    vector_store=vector_store,
                     schema=schema,
-                    retrieval_settings=retrieval_settings,
                     cutover_settings=cutover_settings,
                     error_policy=error_policy,
                     return_chunks=return_chunks,
@@ -783,8 +759,6 @@ async def update_document(  # noqa: PLR0913
     extractor: Extractor | LLMExtractor,
     llm_extractor: LLMExtractor | None,
     extraction_settings: ExtractionSettings,
-    vector_store: VectorStore | None,
-    retrieval_settings: RetrievalSettings,
     cutover_settings: CutoverJobSettings,
     chunker: Chunker,
     registry: LoaderRegistry,
@@ -932,9 +906,7 @@ async def update_document(  # noqa: PLR0913
                 extraction_failures,
                 graph_store=graph_store,
                 embedder=embedder,
-                vector_store=vector_store,
                 graph_schema=schema,
-                retrieval_settings=retrieval_settings,
                 error_policy=error_policy,
                 ingestion=IngestStats(documents=1),
                 return_chunks=False,
@@ -958,8 +930,6 @@ async def update_document(  # noqa: PLR0913
             document_key=document_key,
             affected_entity_ids=candidates,
             graph_store=graph_store,
-            vector_store=vector_store,
-            vector_collections=_vector_collections(retrieval_settings),
             settings=cutover_settings,
             pending_write=_pending,
             cleanup=cleanup,
@@ -1014,8 +984,6 @@ async def delete_document(  # noqa: PLR0913
     document_key: str,
     *,
     graph_store: GraphStore,
-    vector_store: VectorStore | None,
-    retrieval_settings: RetrievalSettings,
     cutover_settings: CutoverJobSettings,
     cleanup: CleanupStep,
     tracer: Tracer,
@@ -1034,8 +1002,6 @@ async def delete_document(  # noqa: PLR0913
             document_key=document_key,
             affected_entity_ids=candidates,
             graph_store=graph_store,
-            vector_store=vector_store,
-            vector_collections=_vector_collections(retrieval_settings),
             settings=cutover_settings,
             pending_write=_no_pending_write,
             cleanup=cleanup,
