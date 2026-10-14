@@ -88,9 +88,13 @@ Add content to the graph.
 
 Give exactly one of `source`, `text`, and `documents`.
 
-`add` does not compare hashes. Adding a key that already exists
-writes a second open version of the document; use `update` to
-replace a document.
+A key that already has a current version is handled as `update`
+handles it. Content that matches the stored version is skipped and
+counted in `ingestion.unchanged`, and changed content replaces the
+current version. A key without a current
+version, such as a new key or a deleted document, is added as a new
+document. Calling `add` again with the same documents therefore writes
+only what changed.
 
 If an extraction fails for a chunk, the document and its chunks are
 written without the extraction stamp, so the next `update` extracts
@@ -109,7 +113,8 @@ them again instead of returning a no-op.
   at the end with the fully-populated result.
 - **return_chunks** (<code>bool</code>) – Whether to include the produced chunks in the
   returned AddResult. False by default to avoid holding full text
-  for a large corpus when not needed.
+  for a large corpus when not needed. Chunks of a document that
+  is updated instead of added are not included.
 - **read_options** (<code>[ReadOptions](../../loaders/types/ReadOptions.md) | None</code>) – How loaders read sources, including the normalization of
   decoded text. None uses `ReadOptions()` defaults.
 
