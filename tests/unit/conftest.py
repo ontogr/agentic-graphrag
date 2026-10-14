@@ -2,11 +2,10 @@
 
 The settings classes read ``.env`` relative to the working directory, so a
 ``.env`` in the directory a test runs from can point the test at a configured
-LLM endpoint. When a ``.env`` is visible from the working directory, each unit
-test runs from an empty temporary directory instead. The BAML default client
-reads ``OPENAI_API_KEY`` from the environment, so that variable is removed for
-each test. Other environment variables are left alone. With no ``.env`` present
-(as in CI) only the environment variable is removed.
+LLM endpoint. Each unit test therefore runs from an empty temporary directory,
+so behaviour is the same on a developer machine and in CI. The BAML default
+client reads ``OPENAI_API_KEY`` from the environment, so that variable is
+removed for each test. Other environment variables are left alone.
 """
 
 from pathlib import Path
@@ -26,5 +25,4 @@ def _run_without_llm_configuration(
         tmp_path: An empty directory unique to this test.
     """
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-    if Path(".env").exists():
-        monkeypatch.chdir(tmp_path)
+    monkeypatch.chdir(tmp_path)
