@@ -188,6 +188,11 @@ class _MockGraphStore(CutoverJobLeaseFake, GraphStore):
     ) -> None:
         return None
 
+    async def ensure_fulltext_index(
+        self, *, label: str, properties: Sequence[str]
+    ) -> None:
+        return None
+
     async def vector_search(
         self,
         *,
