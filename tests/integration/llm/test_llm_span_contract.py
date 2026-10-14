@@ -8,6 +8,7 @@ written to a JSON artifact under ``reports/llm/`` for hand inspection.
 """
 
 import contextlib
+import hashlib
 import importlib.util
 from typing import Any
 from uuid import UUID, uuid4
@@ -74,6 +75,7 @@ def _chunk(text: str) -> Chunk:
         id=uuid4(),
         document_id=_DOC_ID,
         text=text,
+        content_hash=hashlib.sha256(text.encode("utf-8")).hexdigest(),
         provenance=TextProvenance(char_start=0, char_end=len(text)),
     )
 

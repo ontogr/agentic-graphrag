@@ -6,6 +6,7 @@ and the relation-type allowlist. Direction, relation-type narrowing, and scope
 enforcement against a real graph run in the integration suite.
 """
 
+import hashlib
 from typing import Any
 from uuid import uuid4
 
@@ -58,6 +59,7 @@ class TestTraversal:
             id=uuid4(),
             document_id=uuid4(),
             text="text",
+            content_hash=hashlib.sha256("text".encode("utf-8")).hexdigest(),
             provenance=TextProvenance(char_start=0, char_end=4),
         )
         ids = extract_entity_ids([_result(entity), _result(resolved), _result(chunk)])
