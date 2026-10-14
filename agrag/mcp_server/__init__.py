@@ -28,4 +28,9 @@ A client starts the server with a configuration entry such as this one:
 ``AGRAG_MCP_SCOPE_DOCUMENT_KEYS`` takes a comma-separated list of document
 keys. The server refuses to start when the list is empty. Logs go to stderr,
 and stdout carries only protocol messages.
+
+Semantic and hybrid search need the same ``EMBEDDING_*`` settings that ingestion
+used. On the first such call the server compares the query embedder's dimension
+with the stored vectors. When they differ, semantic search fails and hybrid
+search returns lexical hits only.
 """

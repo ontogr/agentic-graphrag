@@ -7,7 +7,7 @@ functions and from the authored text, never from the server code.
 """
 
 import asyncio
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from contextlib import suppress
 from typing import Any
 
@@ -19,14 +19,17 @@ from agrag.common.data_models.evidence import (
     CitationResult,
     CitationVerdict,
     DiscoveryHit,
+    DiscoveryLeg,
     DiscoveryMode,
     DiscoveryResult,
     DiscoveryStatus,
     FetchOutcome,
     FetchResult,
     FetchStatus,
+    LegFailure,
 )
 from agrag.cypher.schema import fulltext_index_name
+from agrag.embedding.base import Embedder
 from agrag.evidence import check_citations, discover, fetch
 from agrag.graphdb.neo4j import Neo4jGraphStore
 from agrag.graphdb.settings import Neo4jSettings
@@ -36,6 +39,7 @@ from tests.integration.retrieval.evidence._corpus import (
     GOLD_SENTENCE,
     HARBOR_TEXT,
     KEEP_TEXT,
+    VECTOR_DIMENSIONS,
     VIBER_TEXT,
     BagOfWordsEmbedder,
     locate,
@@ -132,9 +136,43 @@ def _settings(env: EvidenceEnv, **overrides: int | float) -> McpServerSettings:
     )
 
 
-def _server(store: Neo4jGraphStore, env: EvidenceEnv, **overrides: int | float) -> Any:
-    """Build the server over a store, with the test scope and the fake embedder."""
-    return build_server(store, BagOfWordsEmbedder(), _settings(env, **overrides))
+def _server(
+    store: Neo4jGraphStore,
+    env: EvidenceEnv,
+    *,
+    embedder: Embedder | None = None,
+    **overrides: int | float,
+) -> Any:
+    """Build the server over a store, with the test scope and an embedder.
+
+    The embedder defaults to the bag-of-words fake, which matches the index.
+    """
+    return build_server(
+        store, embedder or BagOfWordsEmbedder(), _settings(env, **overrides)
+    )
+
+
+class _FiveDimensionEmbedder(BagOfWordsEmbedder):
+    """The bag-of-words fake with one extra dimension than the Chunk index.
+
+    Vectors of this embedder cannot match the stored vectors, so a server that
+    checks the dimension must refuse the semantic leg before any search runs.
+    """
+
+    async def dimensions(self) -> int:
+        """Return five, one more than the index."""
+        return VECTOR_DIMENSIONS + 1
+
+    async def embed(self, texts: Sequence[str]) -> list[list[float]]:
+        """Return the bag-of-words vectors with one zero padded dimension."""
+        vectors = await super().embed(texts)
+        return [[*vector, 0.0] for vector in vectors]
+
+
+_EMBEDDING_MISMATCH = (
+    "the query embedding model does not match the stored vectors; set the same "
+    "EMBEDDING_* settings that ingestion used or use lexical mode"
+)
 
 
 async def _structured(client: Client, name: str, arguments: dict[str, Any]) -> Any:
@@ -395,6 +433,97 @@ class TestStoreFailures:
 
         result = DiscoveryResult.model_validate(structured)
         assert result.status is DiscoveryStatus.INDEX_NOT_READY
+
+
+class TestEmbeddingModelMismatch:
+    """A query embedder that differs from the stored vectors never searches them."""
+
+    async def test_semantic_search_refuses_the_mismatched_embedder(
+        self, evidence_env: EvidenceEnv
+    ) -> None:
+        """Refuse a semantic search with a fixed tool error."""
+        env = evidence_env
+        server = _server(env.store, env, embedder=_FiveDimensionEmbedder())
+        async with Client(server) as client:
+            result = await client.call_tool(
+                "search_evidence", {"query": _HYBRID_QUERY, "mode": "semantic"}
+            )
+
+        assert result.is_error is True
+        assert _text(result) == (
+            f"Error executing tool search_evidence: {_EMBEDDING_MISMATCH}"
+        )
+
+    async def test_hybrid_search_returns_lexical_hits_and_reports_the_leg(
+        self, evidence_env: EvidenceEnv
+    ) -> None:
+        """Return the lexical hits with the semantic leg reported as a failure."""
+        env = evidence_env
+        server = _server(env.store, env, embedder=_FiveDimensionEmbedder())
+        async with Client(server) as client:
+            structured = await _structured(
+                client,
+                "search_evidence",
+                {"query": _LEXICAL_QUERY, "mode": "hybrid", "limit": 5},
+            )
+        lexical = await discover(
+            env.store,
+            _FiveDimensionEmbedder(),
+            _LEXICAL_QUERY,
+            mode=DiscoveryMode.LEXICAL,
+            limit=5,
+            scope=_settings(env).scope,
+        )
+
+        result = DiscoveryResult.model_validate(structured)
+        assert result.status is DiscoveryStatus.PARTIAL
+        assert result.failures == [
+            LegFailure(leg=DiscoveryLeg.SEMANTIC, message=_EMBEDDING_MISMATCH)
+        ]
+        assert result.hits
+        assert [hit.evidence_id for hit in result.hits] == [
+            hit.evidence_id for hit in lexical.hits
+        ]
+        assert all(hit.legs == [DiscoveryLeg.LEXICAL] for hit in result.hits)
+
+    async def test_lexical_search_is_unaffected_by_the_mismatched_embedder(
+        self, evidence_env: EvidenceEnv
+    ) -> None:
+        """Answer a lexical search the same as a direct lexical discovery."""
+        env = evidence_env
+        server = _server(env.store, env, embedder=_FiveDimensionEmbedder())
+        async with Client(server) as client:
+            structured = await _structured(
+                client,
+                "search_evidence",
+                {"query": _LEXICAL_QUERY, "mode": "lexical", "limit": 5},
+            )
+        direct = await discover(
+            env.store,
+            _FiveDimensionEmbedder(),
+            _LEXICAL_QUERY,
+            mode=DiscoveryMode.LEXICAL,
+            limit=5,
+            scope=_settings(env).scope,
+        )
+
+        assert DiscoveryResult.model_validate(structured) == direct
+
+    async def test_semantic_search_works_with_the_matching_embedder(
+        self, evidence_env: EvidenceEnv
+    ) -> None:
+        """Run a semantic search with an embedder that matches the index."""
+        env = evidence_env
+        async with Client(_server(env.store, env)) as client:
+            structured = await _structured(
+                client,
+                "search_evidence",
+                {"query": _HYBRID_QUERY, "mode": "semantic", "limit": 5},
+            )
+
+        result = DiscoveryResult.model_validate(structured)
+        assert result.status is DiscoveryStatus.OK
+        assert result.failures == []
 
 
 class TestCancellation:

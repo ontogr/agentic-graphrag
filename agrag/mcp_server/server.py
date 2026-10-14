@@ -3,11 +3,16 @@
 Each tool is a thin layer over the functions in ``agrag.evidence``. The layer
 adds the trusted scope from settings, output limits, and the error mapping. It
 has no write path.
+
+Semantic and hybrid search need the same ``EMBEDDING_*`` settings that ingestion
+used. The first semantic or hybrid call in a server process compares the query
+embedder's dimension with the Chunk vector index. On a mismatch the semantic leg
+does not run.
 """
 
 import logging
 from collections.abc import AsyncIterator, Callable, Sequence
-from contextlib import asynccontextmanager
+from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from dataclasses import dataclass, field
 from typing import Annotated, Any, TypeVar
 
@@ -17,14 +22,19 @@ from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
 from pydantic import BaseModel, Field
 
+from agrag.common.data_models.chunk import CHUNK_LABEL
 from agrag.common.data_models.evidence import (
     CitationResult,
     DiscoveryHit,
+    DiscoveryLeg,
     DiscoveryMode,
     DiscoveryResult,
+    DiscoveryStatus,
     FetchResult,
     FetchStatus,
+    LegFailure,
 )
+from agrag.cypher.schema import vector_index_dimensions_query
 from agrag.embedding.base import Embedder
 from agrag.evidence import check_citations as verify_citations
 from agrag.evidence import discover, fetch
@@ -35,6 +45,12 @@ from agrag.mcp_server.settings import McpServerSettings
 _LOGGER = logging.getLogger(__name__)
 _SERVER_NAME = "agrag-evidence"
 _STORE_UNAVAILABLE = "evidence store unavailable"
+_EMBEDDER_UNAVAILABLE = "the query embedding model could not be loaded"
+_EMBEDDING_MISMATCH = (
+    "the query embedding model does not match the stored vectors; set the same "
+    "EMBEDDING_* settings that ingestion used or use lexical mode"
+)
+_EMBEDDING_PROPERTY = "embedding"
 _READ_ONLY = ToolAnnotations(
     read_only_hint=True,
     destructive_hint=False,
@@ -52,9 +68,37 @@ class _Session:
         fetched_ids: Evidence ids that fetch returned in full. Citation checks
             trace against this record. It is not persisted, so a restart clears
             it.
+        semantic_ready: Whether the query embedder matches the Chunk vector
+            index. None until the first semantic or hybrid search checks it.
     """
 
     fetched_ids: set[str] = field(default_factory=set)
+    semantic_ready: bool | None = None
+
+
+def _store_lifespan(
+    store: GraphStore,
+) -> Callable[[MCPServer], AbstractAsyncContextManager[_Session]]:
+    """Return a lifespan that connects the store once per server process.
+
+    Args:
+        store: The graph store the server reads. The lifespan connects it but
+            does not close it.
+
+    Returns:
+        A lifespan factory for ``MCPServer``.
+    """
+
+    @asynccontextmanager
+    async def lifespan(_server: MCPServer) -> AsyncIterator[_Session]:
+        try:
+            await store.connect()
+        except Exception:
+            _LOGGER.exception("Could not connect to the evidence store")
+            raise
+        yield _Session()
+
+    return lifespan
 
 
 def build_server(
@@ -78,15 +122,6 @@ def build_server(
     scope = settings.scope
     deadline = settings.request_deadline_seconds
 
-    @asynccontextmanager
-    async def lifespan(_server: MCPServer) -> AsyncIterator[_Session]:
-        try:
-            await store.connect()
-        except Exception:
-            _LOGGER.exception("Could not connect to the evidence store")
-            raise
-        yield _Session()
-
     server = MCPServer(
         name=_SERVER_NAME,
         instructions=(
@@ -95,7 +130,7 @@ def build_server(
             "the text was fetched, not that it supports a claim. No match is not "
             "proof that the passage does not exist."
         ),
-        lifespan=lifespan,
+        lifespan=_store_lifespan(store),
     )
 
     @server.tool(
@@ -104,10 +139,13 @@ def build_server(
             "Find passages in the configured documents by keyword, meaning or "
             "both. Each hit has an evidence id for fetch_evidence. A score orders "
             "hits and is not a confidence. No hits does not prove that the "
-            "documents lack the information."
+            "documents lack the information. Semantic and hybrid modes need the "
+            "same EMBEDDING_* settings that ingestion used. When they differ, "
+            "semantic mode fails and hybrid mode returns lexical hits only."
         ),
     )
     async def search_evidence(
+        ctx: Context[_Session, Any],
         query: str,
         mode: DiscoveryMode = DiscoveryMode.HYBRID,
         limit: Annotated[int, Field(ge=1)] | None = None,
@@ -115,25 +153,38 @@ def build_server(
         """Find passages that match a query, best first.
 
         Args:
+            ctx: The request context. Its lifespan state caches the embedding
+                check.
             query: The words to search for.
             mode: Which search legs run. The default runs both.
             limit: The most hits to return. Values above the configured maximum
                 are capped, and the result is marked truncated.
 
         Returns:
-            The hits and the status of the search.
+            The hits and the status of the search. In hybrid mode, a query
+            embedder that differs from the stored vectors gives lexical hits and
+            a failed semantic leg.
 
         Raises:
-            ToolError: The evidence store could not run the search.
+            ToolError: The evidence store could not run the search, or the query
+                embedder does not match the stored vectors in semantic mode.
         """
         requested = settings.max_hits if limit is None else limit
         effective = min(requested, settings.max_hits)
+        semantic_ready = True
+        if mode is not DiscoveryMode.LEXICAL:
+            semantic_ready = await _semantic_ready(
+                _session(ctx), store, embedder, deadline=deadline
+            )
+            if not semantic_ready and mode is DiscoveryMode.SEMANTIC:
+                raise ToolError(_EMBEDDING_MISMATCH)
+        search_mode = mode if semantic_ready else DiscoveryMode.LEXICAL
         try:
             result = await discover(
                 store,
                 embedder,
                 query,
-                mode=mode,
+                mode=search_mode,
                 limit=effective,
                 scope=scope,
                 timeout=deadline,
@@ -141,6 +192,8 @@ def build_server(
         except Exception:
             _LOGGER.exception("Evidence search failed")
             raise ToolError(_STORE_UNAVAILABLE) from None
+        if not semantic_ready:
+            result = _with_semantic_failure(result)
 
         snippets_cut = False
         hits: list[DiscoveryHit] = []
@@ -255,6 +308,75 @@ def build_server(
         return CitationResult(checks=checks)
 
     return server
+
+
+async def _semantic_ready(
+    session: _Session,
+    store: GraphStore,
+    embedder: Embedder,
+    *,
+    deadline: float,
+) -> bool:
+    """Return whether the query embedder matches the Chunk vector index.
+
+    The verdict is computed once per server process and then cached in the
+    session. A failed check is not cached, so the next call tries again.
+
+    Args:
+        session: The state of the server process.
+        store: The graph store that holds the vector index.
+        embedder: The query embedder.
+        deadline: The timeout of the index read, in seconds.
+
+    Returns:
+        False when the index dimension differs from the embedder dimension.
+        True otherwise, including when the index does not exist yet. A missing
+        index is reported as index_not_ready by the search.
+
+    Raises:
+        ToolError: The embedder or the store could not answer the check.
+    """
+    if session.semantic_ready is None:
+        session.semantic_ready = await _dimensions_agree(
+            store, embedder, deadline=deadline
+        )
+    return session.semantic_ready
+
+
+async def _dimensions_agree(
+    store: GraphStore, embedder: Embedder, *, deadline: float
+) -> bool:
+    """Compare the embedder dimension with the dimension of the Chunk index."""
+    try:
+        embedder_dimensions = await embedder.dimensions()
+    except Exception:
+        _LOGGER.exception("The query embedder could not report its dimensions")
+        raise ToolError(_EMBEDDER_UNAVAILABLE) from None
+    try:
+        rows = await store.execute_read(
+            *vector_index_dimensions_query(CHUNK_LABEL, _EMBEDDING_PROPERTY),
+            timeout=deadline,
+        )
+    except Exception:
+        _LOGGER.exception("Could not read the vector index dimension")
+        raise ToolError(_STORE_UNAVAILABLE) from None
+    return not rows or rows[0]["dimensions"] == embedder_dimensions
+
+
+def _with_semantic_failure(lexical: DiscoveryResult) -> DiscoveryResult:
+    """Report a hybrid search that ran lexical only because of a mismatch.
+
+    An ok or no-match lexical result becomes partial. Any other status keeps its
+    meaning, and the failed semantic leg is added to the failures.
+    """
+    failure = LegFailure(leg=DiscoveryLeg.SEMANTIC, message=_EMBEDDING_MISMATCH)
+    if lexical.status in (DiscoveryStatus.OK, DiscoveryStatus.NO_MATCH):
+        status = DiscoveryStatus.PARTIAL
+    else:
+        status = lexical.status
+    return lexical.model_copy(
+        update={"status": status, "failures": [*lexical.failures, failure]}
+    )
 
 
 def _session(ctx: Context[_Session, Any]) -> _Session:
