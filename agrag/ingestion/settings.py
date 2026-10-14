@@ -45,6 +45,9 @@ class ExtractionSettings(BaseSettings):
         mode: Extractor mode. ``gliner`` runs GLiNER only; ``hybrid`` runs
             GLiNER and may escalate weak chunks to the LLM; ``llm`` runs the
             LLM on every chunk. Escalation settings apply only to ``hybrid``.
+            This mode does not control entity resolution. Resolution has its
+            own optional LLM tier, which runs whenever LLM settings exist, even
+            in ``gliner`` mode.
         model_name: GLiNER checkpoint.
         dtype: Model precision: ``fp32``, ``fp16`` or ``bf16``.
         entity_threshold: Minimum score for a kept entity span.

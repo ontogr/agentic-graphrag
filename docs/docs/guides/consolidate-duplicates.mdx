@@ -23,6 +23,8 @@ uv pip install "agentic-graphrag[neo4j,extract]"
 
 - Optional: an LLM for the last tier. Install the `llm` extra, and set `LLM_BASE_URL`, `LLM_API_KEY`, and `LLM_MODEL_ID`. Without an LLM, that tier cannot decide any pair. Those pairs stay separate, the log shows one warning, and a later call can review them after you configure an LLM.
 
+The resolution LLM tier runs whenever LLM settings exist. It does not depend on `EXTRACTION_MODE`. The mode only controls extraction, so `EXTRACTION_MODE=gliner` still sends ambiguous pairs to the LLM during resolution. Pass `max_llm_pairs=0` to `Graph(...)` to send no pairs to the LLM. Every ambiguous pair then stays undecided and counts as `cap_truncated_pairs`.
+
 ## 1. Add documents that name one person in three ways
 
 ```python fixture:clean_neo4j
