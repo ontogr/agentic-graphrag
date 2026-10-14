@@ -1081,6 +1081,27 @@ class TestGraphUpdate:
         with pytest.raises(ValueError, match="exactly one"):
             await graph.update("memory://doc", text="new", source="other.txt")
 
+    async def test_update_rejects_a_prebuilt_document_with_another_key(self) -> None:
+        """A prebuilt document must carry the key that the update names."""
+        graph = await _open_graph()
+        other = "memory://other"
+        note = "A short note."
+        document = Document(
+            text=note,
+            title="note",
+            uri=other,
+            document_key=other,
+            source_format=SourceFormat.TXT,
+            family=DocumentFamily.PROSE,
+            content_hash=hashlib.sha256(note.encode("utf-8")).hexdigest(),
+            loader_name="inline",
+            char_count=len(note),
+            line_count=1,
+        )
+
+        with pytest.raises(ValueError, match="does not match the update key"):
+            await graph.update("memory://doc", document=document)
+
     async def test_update_reads_a_single_file_source(self) -> None:
         """Update accepts a loader-backed single-file source."""
         graph = await _open_graph()
