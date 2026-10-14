@@ -23,8 +23,11 @@ from tests.integration.retrieval.evidence._corpus import (
     HARBOR_SENTENCE,
     HARBOR_TEXT,
     HARBOR_TEXT_V2,
+    HEADED_BODY,
+    HEADED_TEXT,
     KEEP_TEXT,
     locate,
+    make_headed_document,
     sha256_of,
     span_evidence_id,
 )
@@ -131,7 +134,7 @@ class TestExactFetch:
             ),
         )
 
-        assert outcome.status is FetchStatus.OK
+        assert outcome.status is FetchStatus.PARTIAL
         assert outcome.text == HARBOR_TEXT_V2[start:content_end]
         assert outcome.covered_range == (start, content_end)
         assert outcome.partial is True
@@ -150,7 +153,7 @@ class TestExactFetch:
             span_evidence_id(evidence_env.harbor, text, 0, end),
         )
 
-        assert outcome.status is FetchStatus.OK
+        assert outcome.status is FetchStatus.PARTIAL
         assert outcome.text == text[lead:end]
         assert outcome.covered_range == (lead, end)
         assert outcome.partial is True
@@ -225,6 +228,53 @@ class TestExactFetch:
         )
 
         outcome = await _fetch_one(evidence_env, encode_evidence_id(reference))
+
+        assert outcome.status is FetchStatus.UNAVAILABLE
+        assert outcome.text is None
+
+
+class TestCollidingPrefixes:
+    """Two stored versions that share a 16-character hash prefix are not joined."""
+
+    async def test_span_is_unavailable_when_two_hashes_share_the_prefix(
+        self, evidence_env: EvidenceEnv
+    ) -> None:
+        """A second full hash under the same prefix makes the id unreadable."""
+        await evidence_env.store.execute_write(
+            "MATCH (:Document {document_key: $key})-[:HAS_PART]->(c:Chunk) "
+            "WITH c ORDER BY c.index LIMIT 1 SET c.content_hash = $tampered",
+            {
+                "key": evidence_env.keep,
+                "tampered": sha256_of(KEEP_TEXT)[:16] + "0" * 48,
+            },
+        )
+
+        outcome = await _fetch_one(
+            evidence_env,
+            span_evidence_id(evidence_env.keep, KEEP_TEXT, _GOLD_START, _GOLD_END),
+        )
+
+        assert outcome.status is FetchStatus.UNAVAILABLE
+        assert outcome.text is None
+
+
+class TestHeadedChunkSpans:
+    """A span never joins a chunk whose text is longer than its offsets."""
+
+    async def test_span_over_headed_body_is_unavailable(
+        self, evidence_env: EvidenceEnv
+    ) -> None:
+        """Body text under a heading is reached through the chunk id, not a span."""
+        key = evidence_env.key("headed")
+        await evidence_env.graph.add(documents=[make_headed_document(key)])
+        start = HEADED_TEXT.index(HEADED_BODY[0])
+        end = start + len(HEADED_BODY[0])
+
+        outcome = await _fetch_one(
+            evidence_env,
+            span_evidence_id(key, HEADED_TEXT, start, end),
+            scope_keys=frozenset({key}),
+        )
 
         assert outcome.status is FetchStatus.UNAVAILABLE
         assert outcome.text is None

@@ -36,6 +36,7 @@ def _candidate_tail() -> str:
         "WHERE document.id = node.document_id AND part.invalid_at IS NULL "
         "AND node.document_id IN $scope_ids "
         f"AND {pending_filter_clause('node')} "
+        "AND node.content_hash = document.current_content_hash "
         f"AND {pending_filter_clause('document')} "
         f"AND {pending_filter_clause('part')} "
         "RETURN node.id AS chunk_id, "
@@ -51,12 +52,12 @@ def lexical_candidates_query() -> str:
     """Build the full-text discovery query over the Chunk text index.
 
     Returns:
-        Parameterized Cypher expecting $index (the index name), $query (Lucene
-        terms built from plain words), $k (candidates to read), and $scope_ids.
+        Parameterized Cypher expecting $index (the index name), $fulltext_terms
+        (Lucene terms built from plain words), $k (candidates to read), and $scope_ids.
         It returns every candidate, best score first. See ``_candidate_tail``.
     """
     return (
-        "CALL db.index.fulltext.queryNodes($index, $query, {limit: $k}) "
+        "CALL db.index.fulltext.queryNodes($index, $fulltext_terms, {limit: $k}) "
         "YIELD node, score " + _candidate_tail()
     )
 
@@ -79,10 +80,15 @@ def index_states_query() -> str:
     """Build the query that reads the state of named indexes.
 
     Returns:
-        Parameterized Cypher expecting $names and returning one ``name`` and
-        ``state`` row per index that exists. A missing index has no row.
+        Parameterized Cypher expecting $names and returning one row per index that
+        exists, with its ``state``, ``type``, ``labelsOrTypes`` and ``properties``.
+        A missing index has no row.
     """
-    return "SHOW INDEXES YIELD name, state WHERE name IN $names RETURN name, state"
+    return (
+        "SHOW INDEXES YIELD name, state, type, labelsOrTypes, properties "
+        "WHERE name IN $names "
+        "RETURN name, state, type, labelsOrTypes, properties"
+    )
 
 
 def evidence_chunks_query(*, by_chunk_id: bool) -> str:

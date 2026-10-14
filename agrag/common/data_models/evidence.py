@@ -205,6 +205,9 @@ class FetchStatus(StrEnum):
 
     Attributes:
         OK: The text is returned in full.
+        PARTIAL: Part of the requested range is covered by no chunk. Only the covered
+            part is returned. An id from this outcome names more text than the
+            caller received, so it must not be cited as fetched.
         TRUNCATED: The text was cut at ``max_chars``.
         UNAVAILABLE: The id names no evidence this caller may read. Missing ids
             and ids outside the scope give this same outcome.
@@ -215,6 +218,7 @@ class FetchStatus(StrEnum):
     """
 
     OK = "ok"
+    PARTIAL = "partial"
     TRUNCATED = "truncated"
     UNAVAILABLE = "unavailable"
     MALFORMED = "malformed"

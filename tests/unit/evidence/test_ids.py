@@ -71,6 +71,8 @@ class TestEvidenceIdCodec:
             "ev1:c:{doc}:{hash}:not-a-uuid",
             "ev1:c:{doc}:{hash}:{chunk_upper}",
             "ev1:c:{doc}:{hash}:{chunk}:extra",
+            "ev1:s:{doc}:{hash}:" + "9" * 5000 + "-" + "9" * 5000,
+            "ev1:s:{doc}:{hash}:1234567890123-1234567890124",
         ],
     )
     def test_rejects_malformed_ids(self, evidence_id: str) -> None:
