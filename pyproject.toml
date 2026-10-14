@@ -47,6 +47,7 @@ qdrant = ["qdrant-client>=1.12"]
 weaviate = ["weaviate-client>=4.9"]
 milvus = ["pymilvus>=3.0.0,<4"]
 neo4j = ["neo4j>=5.22"]
+mcp = ["mcp>=2.3,<3"]
 observability = [
   "opentelemetry-sdk>=1.20",
   "opentelemetry-exporter-otlp>=1.20",
@@ -81,6 +82,9 @@ eval = [
 ]
 community = ["graspologic-native>=1.2.5"]
 schema-formats = ["rdflib>=7.1"]
+
+[project.scripts]
+agrag-mcp = "agrag.mcp_server.__main__:main"
 
 [project.urls]
 Documentation = "https://ontogr.github.io/agentic-graphrag/"

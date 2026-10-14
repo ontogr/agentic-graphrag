@@ -96,6 +96,7 @@ async def discover(
     mode: DiscoveryMode,
     limit: int,
     scope: frozenset[str],
+    timeout: float | None = None,
 ) -> DiscoveryResult:
     """Find up to ``limit`` visible passages that match a query.
 
@@ -114,6 +115,8 @@ async def discover(
         mode: Which legs to run.
         limit: The most hits to return. Must be positive.
         scope: Keys of the documents that may be searched.
+        timeout: Server-side transaction timeout in seconds for each store read.
+            None uses the server's default.
 
     Returns:
         The hits, best first, with the status, truncation flag, index state and
@@ -133,7 +136,7 @@ async def discover(
         else [DiscoveryLeg(mode.value)]
     )
     index_names = _index_names(legs)
-    index_state = await _index_state(store, list(index_names.values()))
+    index_state = await _index_state(store, list(index_names.values()), timeout=timeout)
     if index_state is IndexState.NOT_READY:
         return DiscoveryResult(
             status=DiscoveryStatus.INDEX_NOT_READY, index_state=index_state
@@ -146,7 +149,13 @@ async def discover(
     for leg in legs:
         try:
             visible, leg_truncated = await _run_leg(
-                store, embedder, leg, query, scope_ids=scope_ids, limit=limit
+                store,
+                embedder,
+                leg,
+                query,
+                scope_ids=scope_ids,
+                limit=limit,
+                timeout=timeout,
             )
         except Exception:
             _LOGGER.exception("Evidence search leg %s failed", leg.value)
@@ -187,9 +196,13 @@ def _index_names(legs: Sequence[DiscoveryLeg]) -> dict[DiscoveryLeg, str]:
     return names
 
 
-async def _index_state(store: GraphStore, names: Sequence[str]) -> IndexState:
+async def _index_state(
+    store: GraphStore, names: Sequence[str], *, timeout: float | None
+) -> IndexState:
     """Return READY when every named index exists and is ONLINE."""
-    rows = await store.execute_read(index_states_query(), {"names": list(names)})
+    rows = await store.execute_read(
+        index_states_query(), {"names": list(names)}, timeout=timeout
+    )
     states = {row["name"]: row["state"] for row in rows}
     if all(states.get(name) == _ONLINE for name in names):
         return IndexState.READY
@@ -214,6 +227,7 @@ async def _run_leg(
     *,
     scope_ids: list[str],
     limit: int,
+    timeout: float | None,
 ) -> tuple[list[_Visible], bool]:
     """Return the visible hits of one leg and whether the search hit its ceiling.
 
@@ -242,6 +256,7 @@ async def _run_leg(
         rows = await store.execute_read(
             statement,
             {**parameters, "k": candidates, "scope_ids": scope_ids},
+            timeout=timeout,
         )
         visible = _visible_rows(rows)
         if len(visible) >= limit:
