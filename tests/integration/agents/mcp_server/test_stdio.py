@@ -22,11 +22,11 @@ from agrag.common.data_models.evidence import (
     FetchResult,
     FetchStatus,
 )
-from tests.integration.evidence._corpus import KEEP_TEXT
-from tests.integration.evidence.conftest import EvidenceEnv
+from tests.integration.retrieval.evidence._corpus import KEEP_TEXT
+from tests.integration.retrieval.evidence.conftest import EvidenceEnv
 
 
-_REPO_ROOT = Path(__file__).resolve().parents[3]
+_REPO_ROOT = Path(__file__).resolve().parents[4]
 _TEE = Path(__file__).with_name("_stdio_tee.py")
 _QUERY = "keep upload activity database"
 

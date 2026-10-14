@@ -32,7 +32,7 @@ from agrag.graphdb.neo4j import Neo4jGraphStore
 from agrag.graphdb.settings import Neo4jSettings
 from agrag.mcp_server.server import build_server
 from agrag.mcp_server.settings import McpServerSettings
-from tests.integration.evidence._corpus import (
+from tests.integration.retrieval.evidence._corpus import (
     GOLD_SENTENCE,
     HARBOR_TEXT,
     KEEP_TEXT,
@@ -41,7 +41,7 @@ from tests.integration.evidence._corpus import (
     locate,
     span_evidence_id,
 )
-from tests.integration.evidence.conftest import EvidenceEnv
+from tests.integration.retrieval.evidence.conftest import EvidenceEnv
 
 
 _LEXICAL_QUERY = "keep upload activity database"
