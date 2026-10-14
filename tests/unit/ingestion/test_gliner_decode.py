@@ -7,6 +7,7 @@ whitespace trim, the relation cut and the pattern check, endpoints that match
 no kept span, the entity band, and the candidate switch.
 """
 
+import hashlib
 from typing import Any
 from uuid import uuid4
 
@@ -91,6 +92,7 @@ def _decode(
         id=uuid4(),
         document_id=uuid4(),
         text=_TEXT,
+        content_hash=hashlib.sha256(_TEXT.encode("utf-8")).hexdigest(),
         provenance=TextProvenance(char_start=0, char_end=len(_TEXT)),
     )
     return decode_gliner(raw, band, chunk, _SCHEMA, settings or ExtractionSettings())

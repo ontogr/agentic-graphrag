@@ -10,6 +10,7 @@ keeps surviving results and logs a warning, and an unknown recipe method name
 raises UnknownRecipeMethodError instead of silently returning no hits.
 """
 
+import hashlib
 import logging
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
@@ -248,6 +249,7 @@ class TestSearchEngine:
             document_id=uuid4(),
             index=0,
             text="Some text",
+            content_hash=hashlib.sha256("Some text".encode("utf-8")).hexdigest(),
             provenance=TextProvenance(char_start=0, char_end=9),
         )
         gs = AsyncMock()

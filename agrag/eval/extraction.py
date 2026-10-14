@@ -17,6 +17,7 @@ weights a short chunk the same as a long one.
 """
 
 import asyncio
+import hashlib
 from collections.abc import Iterable, Sequence
 from typing import Literal, TypedDict, cast
 from uuid import NAMESPACE_URL, uuid5
@@ -164,6 +165,7 @@ async def run_extractor(
         chunk = Chunk(
             id=uuid5(NAMESPACE_URL, item.id),
             document_id=uuid5(NAMESPACE_URL, f"{item.id}#document"),
+            content_hash=hashlib.sha256(item.text.encode("utf-8")).hexdigest(),
             text=item.text,
             provenance=TextProvenance(char_start=0, char_end=len(item.text)),
         )

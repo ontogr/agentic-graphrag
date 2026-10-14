@@ -30,6 +30,9 @@ class Chunk(DataPoint):
             belongs to (see ``Document.node_id_for``). It stays stable across
             content versions of the same logical document. Per-version
             identity lives in ``Chunk.id`` instead.
+        content_hash: The content hash of the document version this chunk was
+            cut from. It stays on the chunk after the document changes, so a
+            superseded chunk still names the text it came from.
         index: The position of the chunk within its document, from 0.
         text: The chunk text.
         provenance: The location of this chunk in its source. A text source gives
@@ -53,6 +56,7 @@ class Chunk(DataPoint):
 
     id: UUID | None = None
     document_id: UUID
+    content_hash: str
     index: int = 0
     text: str
     provenance: TextProvenance | PageProvenance = Field(discriminator="kind")
@@ -149,6 +153,7 @@ class Chunk(DataPoint):
             raise ValueError("Chunk.id must be set before writing to GraphStore.")
         properties: dict[str, object] = {
             "document_id": str(self.document_id),
+            "content_hash": self.content_hash,
             "index": self.index,
             "text": self.text,
             "provenance": json.dumps(self.provenance.model_dump(mode="json")),

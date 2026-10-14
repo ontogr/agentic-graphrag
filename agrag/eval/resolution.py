@@ -10,6 +10,7 @@ Both sides list mentions by index. A mention that is in no cluster is a cluster
 of one, so a gold set can list only its multi-mention clusters.
 """
 
+import hashlib
 from collections.abc import Sequence
 from uuid import NAMESPACE_URL, uuid5
 
@@ -83,6 +84,7 @@ async def run_resolver_detailed(
         Chunk(
             id=chunk_id,
             document_id=uuid5(NAMESPACE_URL, "mentions"),
+            content_hash=hashlib.sha256(text.encode("utf-8")).hexdigest(),
             text=text,
             provenance=TextProvenance(char_start=0, char_end=max(len(text), 1)),
         )

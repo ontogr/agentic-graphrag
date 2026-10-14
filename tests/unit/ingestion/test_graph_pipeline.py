@@ -1,5 +1,6 @@
 """Exercise Graph ingestion helpers and pipeline wiring through the public Graph API."""
 
+import hashlib
 from collections.abc import Mapping, Sequence
 from contextlib import AbstractAsyncContextManager
 from datetime import UTC, datetime
@@ -608,6 +609,7 @@ class TestEmbedChunksDualWrite:
             document_id=document_id,
             index=0,
             text="Hello world",
+            content_hash=hashlib.sha256("Hello world".encode("utf-8")).hexdigest(),
             provenance=TextProvenance(char_start=0, char_end=11),
         )
         store = _GuardedNodeStore({str(ch.id): {"text": ch.text}})
@@ -633,6 +635,7 @@ class TestEmbedChunksDualWrite:
             document_id=uuid4(),
             index=0,
             text="Hello world",
+            content_hash=hashlib.sha256("Hello world".encode("utf-8")).hexdigest(),
             provenance=TextProvenance(char_start=0, char_end=11),
         )
         store = _GuardedNodeStore({str(ch.id): {"text": ch.text}})
@@ -665,6 +668,7 @@ class TestEmbedChunksDualWrite:
             document_id=uuid4(),
             index=0,
             text="Hello world",
+            content_hash=hashlib.sha256("Hello world".encode("utf-8")).hexdigest(),
             provenance=TextProvenance(char_start=0, char_end=11),
         )
         store = _GuardedNodeStore({str(ch.id): {"text": ch.text}})
