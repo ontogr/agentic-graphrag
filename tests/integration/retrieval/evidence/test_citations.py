@@ -16,13 +16,13 @@ from agrag.common.data_models.evidence import (
 )
 from agrag.evidence import check_citations, fetch
 from agrag.evidence.ids import encode_evidence_id
-from tests.integration.evidence._corpus import (
+from tests.integration.retrieval.evidence._corpus import (
     GOLD_SENTENCE,
     KEEP_TEXT,
     locate,
     span_evidence_id,
 )
-from tests.integration.evidence.conftest import EvidenceEnv
+from tests.integration.retrieval.evidence.conftest import EvidenceEnv
 
 
 _GOLD_START, _GOLD_END = locate(KEEP_TEXT, GOLD_SENTENCE)

@@ -16,7 +16,7 @@ from agrag.common.data_models.graph_schema import GraphSchema
 from agrag.graphdb import build_graph_store
 from agrag.graphdb.base import GraphStore
 from agrag.ingestion.graph import Graph
-from tests.integration.evidence._corpus import (
+from tests.integration.retrieval.evidence._corpus import (
     HARBOR_TEXT,
     KEEP_TEXT,
     VIBER_TEXT,

@@ -23,7 +23,7 @@ from agrag.common.data_models.evidence import (
 from agrag.cypher.schema import fulltext_index_name, vector_index_name
 from agrag.evidence import discover
 from agrag.graphdb.neo4j import Neo4jGraphStore
-from tests.integration.evidence._corpus import (
+from tests.integration.retrieval.evidence._corpus import (
     GOLD_SENTENCE,
     HARBOR_TEXT_V2,
     KEEP_TEXT,
@@ -31,7 +31,7 @@ from tests.integration.evidence._corpus import (
     locate,
     sha256_of,
 )
-from tests.integration.evidence.conftest import EvidenceEnv
+from tests.integration.retrieval.evidence.conftest import EvidenceEnv
 
 
 _QUERY = "do you keep and upload my activity to your database"
