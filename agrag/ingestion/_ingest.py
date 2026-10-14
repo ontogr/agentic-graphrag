@@ -922,7 +922,10 @@ async def update_document(  # noqa: PLR0913
             if len(documents_from_source) != 1:
                 raise ValueError("The source must produce exactly one document.")
             document = documents_from_source[0].model_copy(
-                update={"document_key": document_key}
+                update={
+                    "document_key": document_key,
+                    "id": Document.node_id_for(document_key=document_key),
+                }
             )
         document = run.stamp(document)
 
