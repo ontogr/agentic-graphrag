@@ -95,15 +95,6 @@ class _Env:
         """Tag a body with the run id so its chunks are recognizable."""
         return f"{body} Reference {self.run}."
 
-    async def run_chunk_hashes(self) -> list[Any]:
-        """Return the content hash of every Chunk node written by this run."""
-        rows = await self.store.execute_read(
-            "MATCH (c:Chunk) WHERE c.text CONTAINS $run "
-            "RETURN c.content_hash AS content_hash",
-            {"run": self.run},
-        )
-        return [row["content_hash"] for row in rows]
-
     async def document_chunks(self, name: str) -> set[tuple[bool, Any]]:
         """Return (open, content hash) for each chunk linked to one document."""
         rows = await self.store.execute_read(
@@ -169,10 +160,8 @@ class TestChunkContentHash:
             documents=[_document(env.key("a"), first), _document(env.key("b"), second)]
         )
 
-        hashes = await env.run_chunk_hashes()
-        assert hashes
-        assert set(hashes) == {_sha256(first), _sha256(second)}
-        assert None not in hashes
+        assert await env.document_chunks("a") == {(True, _sha256(first))}
+        assert await env.document_chunks("b") == {(True, _sha256(second))}
 
     async def test_superseded_chunks_keep_the_old_hash_after_an_update(
         self, env: _Env
