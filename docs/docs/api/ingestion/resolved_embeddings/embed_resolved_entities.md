@@ -20,7 +20,7 @@ concurrent rebuild can replace or delete a ResolvedEntity between
 this call reading it and writing its embedding; skipping the unmatched
 ones keeps this call from resurrecting a vector, or overwriting a status,
 that the concurrent call already owns. Under a job, an embedding over a
-committed node is deferred to the commit and is not mirrored yet.
+committed node is deferred to the commit and is not written yet.
 
 **Raises:**
 
