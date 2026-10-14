@@ -6,6 +6,7 @@ Skips when those variables are not set, so a default ``make test-integration``
 run needs no endpoint. No model name is hardcoded anywhere in this file.
 """
 
+import hashlib
 import os
 from uuid import uuid4
 
@@ -30,6 +31,7 @@ async def test_extraction_reaches_openai_compatible_endpoint() -> None:
         id=uuid4(),
         document_id=uuid4(),
         text=text,
+        content_hash=hashlib.sha256(text.encode("utf-8")).hexdigest(),
         provenance=TextProvenance(char_start=0, char_end=len(text)),
     )
     schema = GraphSchema(

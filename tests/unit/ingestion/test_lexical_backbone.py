@@ -4,6 +4,7 @@ Every function here is pure: no GraphStore mocking, plain data in and
 RelationRecord/NodeRecord out.
 """
 
+import hashlib
 from uuid import UUID, uuid4
 
 import pytest
@@ -52,6 +53,7 @@ def _chunk(
         document_id=document_id,
         index=index,
         text=text,
+        content_hash=hashlib.sha256(text.encode("utf-8")).hexdigest(),
         provenance=TextProvenance(char_start=start, char_end=start + len(text)),
     )
 

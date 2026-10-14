@@ -10,6 +10,7 @@ from ``docker/docker-compose.ci.yml`` (``make dev-services-up``).
 """
 
 import asyncio
+import hashlib
 import importlib.util
 import json
 import os
@@ -192,6 +193,7 @@ class TestSearchTracingEndToEnd:
                 document_id=self.document_id,
                 index=0,
                 text=text,
+                content_hash=hashlib.sha256(text.encode("utf-8")).hexdigest(),
                 provenance=TextProvenance(char_start=0, char_end=len(text)),
             )
             chunk.embedding = await self.embedder.embed_one(text)
@@ -207,6 +209,9 @@ class TestSearchTracingEndToEnd:
                         "document_id": str(chunk.document_id),
                         "index": chunk.index,
                         "text": chunk.text,
+                        "content_hash": hashlib.sha256(
+                            chunk.text.encode("utf-8")
+                        ).hexdigest(),
                         "provenance": json.dumps(
                             {
                                 "kind": "text",

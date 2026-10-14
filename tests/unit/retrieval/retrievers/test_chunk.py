@@ -7,6 +7,7 @@ Chunk objects. Covers skipping hits that are not chunks or are missing from
 the store, skipping unparsable rows, and a failing loading query raising.
 """
 
+import hashlib
 import json
 from unittest.mock import AsyncMock, patch
 from uuid import uuid4
@@ -43,6 +44,7 @@ class TestChunkRetriever:
             "id": str(uuid4()),
             "document_id": str(uuid4()),
             "text": "x",
+            "content_hash": hashlib.sha256("x".encode("utf-8")).hexdigest(),
             "provenance": json.dumps({"kind": "page", "page_spans": []}),
             **extra,
         }
@@ -97,6 +99,9 @@ class TestChunkRetriever:
                         "document_id": str(doc_id),
                         "index": 0,
                         "text": "Hello world",
+                        "content_hash": hashlib.sha256(
+                            "Hello world".encode("utf-8")
+                        ).hexdigest(),
                         "provenance": json.dumps(
                             {"kind": "text", "char_start": 0, "char_end": 11}
                         ),

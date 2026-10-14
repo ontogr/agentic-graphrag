@@ -4,6 +4,7 @@ The agent is replaced at the ``build_agent`` boundary with one that returns a
 canned run and a real ledger. Nothing calls a model or a database.
 """
 
+import hashlib
 import json
 from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
@@ -95,6 +96,7 @@ class TestAgragSystem:
                     id=uuid4(),
                     document_id=document_id,
                     text="hello",
+                    content_hash=hashlib.sha256("hello".encode("utf-8")).hexdigest(),
                     provenance=TextProvenance(char_start=6, char_end=11),
                 ),
                 score=1.0,

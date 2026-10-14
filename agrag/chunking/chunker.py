@@ -284,6 +284,7 @@ class _Run:
         self._is_text = bool(units) and all(offsets)
         self._sections = document.sections
         self._version = version_id(document)
+        self._content_hash = document.content_hash
         self._schema_fingerprint = document.schema_fingerprint
         self._extraction_fingerprint = document.extraction_fingerprint
         keys = section_keys(document)
@@ -450,6 +451,7 @@ class _Run:
             Chunk(
                 id=chunk_id(self._document_id, self._version, fingerprint, index),
                 document_id=self._document_id,
+                content_hash=self._content_hash,
                 index=index,
                 text=text,
                 provenance=provenance,

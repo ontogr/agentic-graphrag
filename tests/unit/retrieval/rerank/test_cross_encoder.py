@@ -9,6 +9,7 @@ present.
 """
 
 import asyncio
+import hashlib
 import sys
 import threading
 import time
@@ -85,6 +86,7 @@ class TestCrossEncoderRerank:
                 document_id=uuid4(),
                 index=0,
                 text="chunk body",
+                content_hash=hashlib.sha256("chunk body".encode("utf-8")).hexdigest(),
                 provenance=TextProvenance(char_start=0, char_end=10),
             ),
             score=0.1,

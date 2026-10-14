@@ -5,6 +5,7 @@ names, array lengths and the OpenInference flattened document names are the
 ones the SDK records. No store or network is involved.
 """
 
+import hashlib
 import json
 from uuid import uuid4
 
@@ -60,6 +61,9 @@ def _chunk_result(score: float = 0.5) -> SearchResult:
             document_id=uuid4(),
             index=0,
             text="a passage of source text",
+            content_hash=hashlib.sha256(
+                "a passage of source text".encode("utf-8")
+            ).hexdigest(),
             provenance=TextProvenance(kind="text", char_start=0, char_end=0),
         ),
         score=score,

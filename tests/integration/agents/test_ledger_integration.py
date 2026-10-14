@@ -4,6 +4,7 @@ Tests the full citation lifecycle: cite, render, resolve, keys,
 and cross-type deduplication.
 """
 
+import hashlib
 from uuid import uuid4
 
 import pytest
@@ -38,6 +39,7 @@ class TestLedgerCitationLifecycle:
             document_id=uuid4(),
             index=0,
             text="Some text",
+            content_hash=hashlib.sha256("Some text".encode("utf-8")).hexdigest(),
             provenance=TextProvenance(char_start=0, char_end=9),
         )
         r = SearchResult(item=ch, score=0.8, method="chunk")
@@ -90,6 +92,7 @@ class TestLedgerCitationLifecycle:
             document_id=uuid4(),
             index=0,
             text="Some text",
+            content_hash=hashlib.sha256("Some text".encode("utf-8")).hexdigest(),
             provenance=TextProvenance(char_start=0, char_end=9),
         )
         k1 = ledger.cite(SearchResult(item=ent, score=0.9, method="test"))
@@ -139,6 +142,9 @@ class TestLedgerCitationLifecycle:
             document_id=uuid4(),
             index=0,
             text="Aspirin treats headaches effectively",
+            content_hash=hashlib.sha256(
+                "Aspirin treats headaches effectively".encode("utf-8")
+            ).hexdigest(),
             provenance=TextProvenance(char_start=0, char_end=36),
         )
         r = SearchResult(item=ch, score=0.8, method="test")
@@ -197,6 +203,7 @@ class TestLedgerCitationLifecycle:
             document_id=uuid4(),
             index=0,
             text="Some text",
+            content_hash=hashlib.sha256("Some text".encode("utf-8")).hexdigest(),
             provenance=TextProvenance(char_start=0, char_end=9),
         )
         k1 = ledger.cite(SearchResult(item=ent, score=0.9, method="test"))
