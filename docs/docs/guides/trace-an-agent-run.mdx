@@ -136,7 +136,6 @@ from agrag.ingestion.extract import (
     ExtractionLLMSettings,
     GlinerExtractor,
 )
-from agrag.retrieval.retrievers.text2cypher import Text2CypherRetriever
 
 # LLM extractor. Pass it to Graph as llm_extractor to escalate weak chunks.
 extractor = BAMLExtractor(
@@ -150,11 +149,6 @@ primary = GlinerExtractor(tracer=tracer)
 from agrag.ingestion.resolve.resolver import LLMVerify
 
 verifier = LLMVerify(chunks_by_id=chunks_by_id, tracer=tracer)
-
-# Text2cypher
-retriever = Text2CypherRetriever(
-    graph_store=graph_store, schema=schema, tracer=tracer
-)
 
 # The eval judge
 judge = ChatModelJudge(chat_model, "gpt-4o-mini", tracer=tracer)

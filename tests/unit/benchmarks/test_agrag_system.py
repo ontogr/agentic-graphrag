@@ -18,7 +18,6 @@ from agrag.common.data_models.chunk import Chunk
 from agrag.common.data_models.document import Document
 from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.provenance import TextProvenance
-from agrag.common.data_models.query_value import QueryValue
 from agrag.common.data_models.search_result import SearchResult
 from benchmarks.datasets.base import text_document
 from benchmarks.models import BenchmarkQuestion
@@ -111,7 +110,15 @@ class TestAgragSystem:
                 method="entity",
             )
         )
-        ledger.cite(SearchResult(item=QueryValue(value=1), score=1.0, method="q"))
+        ledger.cite(
+            SearchResult(
+                item=Entity(
+                    id=uuid4(), label="Thing", name="b", source_chunk_ids=[source]
+                ),
+                score=1.0,
+                method="entity",
+            )
+        )
         uncited = ledger.keys[-1]
         run = {
             "messages": [AIMessage(content=f"It says hello [{cited}] and [{entity}].")],
