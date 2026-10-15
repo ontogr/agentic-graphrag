@@ -5,8 +5,9 @@ sidebar_label: result
 
 # `agrag.agents.result` \{#agrag-agents-result}
 
-Result type returned by an agent run.
+Typed result returned after a task-scoped agent run.
 
 **Classes:**
 
-- [**AgentRunResult**](AgentRunResult.md) – Result of one agent run.
+- [**AgentRunResult**](AgentRunResult.md) – Outcome, answer, evidence references and conversation for one run.
+- [**AgentTaskRef**](AgentTaskRef.md) – The task identity and latest persisted event sequence.

@@ -53,6 +53,7 @@ from agrag.cypher.memory import (
     set_event_id_query,
     step_page_query,
     step_state_counts_query,
+    steps_in_state_page_query,
     store_request_result_query,
     task_conflict_decisions_query,
     task_conflict_keys_query,
@@ -67,6 +68,7 @@ from agrag.memory.decisions import _decision_from_row
 MAX_PAYLOAD_CHARACTERS = 32_000
 MAX_REQUEST_ID_LENGTH = 64
 STEP_VIEW_LIMIT = 50
+STEP_PAGE_LIMIT = 200
 EVENT_PAGE_LIMIT = 200
 _WRITE_ATTEMPTS = 3
 
@@ -379,10 +381,12 @@ class TaskMemory:
         decision_rows = await self._store.execute_read(
             "MATCH (t:MemoryTask {project_id: $project_id, id: $task_id})"
             "-[:MADE]->(d:MemoryDecision {status: 'active'}) "
+            "MATCH (p:MemoryProject {project_id: $project_id}) "
             "OPTIONAL MATCH (d)-[:HAS_SUPPORT]->(s:MemorySupport) "
-            "WITH t, d, s ORDER BY s.ordinal "
-            "WITH t, d, collect(s) AS supports "
-            "RETURN d AS decision, supports, t.name AS task_name "
+            "WITH t, d, p, s ORDER BY s.ordinal "
+            "WITH t, d, p, collect(s) AS supports "
+            "RETURN d AS decision, supports, t.name AS task_name, "
+            "p.review_incomplete AS review_incomplete "
             "ORDER BY d.created_at DESC LIMIT 21",
             params,
         )
@@ -435,6 +439,39 @@ class TaskMemory:
             conflicts_truncated=len(conflict_keys) > 10,
         )
         return TaskLookup(found=True, view=view)
+
+    async def list_steps(self, task_name: str, state: StepState) -> list[StepSummary]:
+        """Read every step of a task in one state, in name order.
+
+        Args:
+            task_name: Task whose steps to read.
+            state: State to select.
+
+        Returns:
+            All matching steps, or an empty list if the task does not exist.
+            Unlike the task view, this list is not capped at 50 steps.
+        """
+        task = await _find_task(self._store, self._project_id, task_name)
+        if task is None:
+            return []
+        steps: list[StepSummary] = []
+        after_name: str | None = None
+        while True:
+            rows = await self._store.execute_read(
+                steps_in_state_page_query(),
+                {
+                    "project_id": self._project_id,
+                    "task_id": str(task.id),
+                    "state": state.value,
+                    "after_name": after_name,
+                    "limit": STEP_PAGE_LIMIT,
+                },
+            )
+            page = [StepSummary.model_validate(row) for row in rows]
+            steps.extend(page)
+            if len(page) < STEP_PAGE_LIMIT:
+                return steps
+            after_name = page[-1].name
 
     async def list_events(
         self, task_name: str, *, after_seq: int = 0, limit: int = 50

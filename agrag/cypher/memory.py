@@ -97,10 +97,12 @@ def decision_by_id_query() -> str:
     return (
         f"MATCH (t:{_TASK} {{project_id: $project_id}})-[:{_MADE}]->"
         f"(d:{_DECISION} {{id: $id}}) "
+        f"OPTIONAL MATCH (p:{_PROJECT} {{project_id: $project_id}}) "
         f"OPTIONAL MATCH (d)-[:{_HAS_SUPPORT}]->(s:{_SUPPORT}) "
-        "WITH d, t, s ORDER BY s.ordinal "
-        "WITH d, t, collect(s) AS supports "
-        "RETURN d AS decision, supports, t.name AS task_name "
+        "WITH d, t, p, s ORDER BY s.ordinal "
+        "WITH d, t, p, collect(s) AS supports "
+        "RETURN d AS decision, supports, t.name AS task_name, "
+        "coalesce(p.review_incomplete, false) AS review_incomplete "
         "LIMIT 1"
     )
 
@@ -111,7 +113,8 @@ def decision_status_query() -> str:
         f"MATCH (:{_TASK} {{project_id: $project_id}})-[:{_MADE}]->"
         f"(d:{_DECISION} {{id: $id}}) "
         "SET d.status = $status, d.rejection_reason = $reason, "
-        "d.rejected_by = $by RETURN d.id AS id"
+        "d.rejected_by = $by, d.review_state = 'clear', d.review_reason = null "
+        "RETURN d.id AS id"
     )
 
 
@@ -121,10 +124,13 @@ def decision_page_query() -> str:
         f"MATCH (t:{_TASK} {{project_id: $project_id, name: $task_name}})"
         f"-[:{_MADE}]->(d:{_DECISION}) "
         "WHERE $include_history OR d.status = 'active' "
+        f"WITH t, d, $project_id AS project_id "
+        f"OPTIONAL MATCH (p:{_PROJECT} {{project_id: project_id}}) "
         f"OPTIONAL MATCH (d)-[:{_HAS_SUPPORT}]->(s:{_SUPPORT}) "
-        "WITH t, d, s ORDER BY s.ordinal "
-        "WITH t, d, collect(s) AS supports "
-        "RETURN d AS decision, supports, t.name AS task_name "
+        "WITH t, d, p, s ORDER BY s.ordinal "
+        "WITH t, d, p, collect(s) AS supports "
+        "RETURN d AS decision, supports, t.name AS task_name, "
+        "coalesce(p.review_incomplete, false) AS review_incomplete "
         "ORDER BY d.created_at DESC LIMIT $limit"
     )
 
@@ -134,11 +140,14 @@ def task_review_decisions_query() -> str:
     return (
         f"MATCH (t:{_TASK} {{project_id: $project_id, id: $task_id}})"
         f"-[:{_MADE}]->(d:{_DECISION} {{status: 'active'}}) "
-        "WHERE d.review_state = 'needs_review' "
+        f"MATCH (p:{_PROJECT} {{project_id: $project_id}}) "
+        "WHERE (d.review_state = 'needs_review' OR "
+        "(p.review_incomplete AND NOT coalesce(d.review_reaffirmed, false))) "
         f"OPTIONAL MATCH (d)-[:{_HAS_SUPPORT}]->(s:{_SUPPORT}) "
-        "WITH t, d, s ORDER BY s.ordinal "
-        "WITH t, d, collect(s) AS supports "
-        "RETURN d AS decision, supports, t.name AS task_name "
+        "WITH t, d, p, s ORDER BY s.ordinal "
+        "WITH t, d, p, collect(s) AS supports "
+        "RETURN d AS decision, supports, t.name AS task_name, "
+        "p.review_incomplete AS review_incomplete "
         "ORDER BY d.created_at DESC LIMIT $limit"
     )
 
@@ -162,10 +171,13 @@ def task_conflict_decisions_query() -> str:
         f"MATCH (t:{_TASK} {{project_id: $project_id}})-[:{_MADE}]->"
         f"(d:{_DECISION} {{status: 'active'}}) "
         "WHERE d.choice_key IN $choice_keys "
+        f"WITH t, d, $project_id AS project_id "
+        f"OPTIONAL MATCH (p:{_PROJECT} {{project_id: project_id}}) "
         f"OPTIONAL MATCH (d)-[:{_HAS_SUPPORT}]->(s:{_SUPPORT}) "
-        "WITH t, d, s ORDER BY s.ordinal "
-        "WITH t, d, collect(s) AS supports "
-        "RETURN d AS decision, supports, t.name AS task_name "
+        "WITH t, d, p, s ORDER BY s.ordinal "
+        "WITH t, d, p, collect(s) AS supports "
+        "RETURN d AS decision, supports, t.name AS task_name, "
+        "coalesce(p.review_incomplete, false) AS review_incomplete "
         "ORDER BY d.choice_key, t.name, d.created_at DESC LIMIT $limit"
     )
 
@@ -194,7 +206,8 @@ def create_task_query() -> str:
         ``(project_id, name)`` fails the uniqueness constraint.
     """
     return (
-        f"MERGE (:{_PROJECT} {{project_id: $project_id}}) "
+        f"MERGE (p:{_PROJECT} {{project_id: $project_id}}) "
+        "ON CREATE SET p.review_incomplete = false, p.review_epoch = 0 "
         f"CREATE (t:{_TASK} {{id: $id, project_id: $project_id, name: $name, "
         "goal: $goal, status: $status, event_seq: 0, author: $author, "
         "created_at: $created_at}) "
@@ -332,6 +345,18 @@ def step_page_query() -> str:
         "s.result_event_seq AS result_event_seq "
         f"ORDER BY CASE s.state {ranks} ELSE {len(STEP_STATE_ORDER)} END, s.name "
         "LIMIT $limit"
+    )
+
+
+def steps_in_state_page_query() -> str:
+    """Build Cypher reading one page of a task's steps in one state, by name."""
+    return (
+        f"MATCH (t:{_TASK} {{id: $task_id, project_id: $project_id}})"
+        f"-[:{_HAS_STEP}]->(s:{_STEP}) "
+        "WHERE s.state = $state AND ($after_name IS NULL OR s.name > $after_name) "
+        "RETURN s.name AS name, s.kind AS kind, s.state AS state, "
+        "s.result_event_seq AS result_event_seq "
+        "ORDER BY s.name LIMIT $limit"
     )
 
 

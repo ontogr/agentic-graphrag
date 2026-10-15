@@ -11,6 +11,7 @@ Fixed error codes returned by project memory operations.
 
 **Attributes:**
 
+- [**CANNOT_REVALIDATE**](#agrag-common-data_models-memory_result-MemoryErrorCode-CANNOT_REVALIDATE) –
 - [**CHOICE_EXISTS**](#agrag-common-data_models-memory_result-MemoryErrorCode-CHOICE_EXISTS) –
 - [**DECISION_NOT_ACTIVE**](#agrag-common-data_models-memory_result-MemoryErrorCode-DECISION_NOT_ACTIVE) –
 - [**DECISION_NOT_FOUND**](#agrag-common-data_models-memory_result-MemoryErrorCode-DECISION_NOT_FOUND) –
@@ -29,6 +30,12 @@ Fixed error codes returned by project memory operations.
 - [**SUPPORT_REQUIRED**](#agrag-common-data_models-memory_result-MemoryErrorCode-SUPPORT_REQUIRED) –
 - [**TASK_EXISTS**](#agrag-common-data_models-memory_result-MemoryErrorCode-TASK_EXISTS) –
 - [**TASK_NOT_FOUND**](#agrag-common-data_models-memory_result-MemoryErrorCode-TASK_NOT_FOUND) –
+
+## `CANNOT_REVALIDATE` \{#agrag-common-data_models-memory_result-MemoryErrorCode-CANNOT_REVALIDATE}
+
+```python
+CANNOT_REVALIDATE = 'cannot_revalidate'
+```
 
 ## `CHOICE_EXISTS` \{#agrag-common-data_models-memory_result-MemoryErrorCode-CHOICE_EXISTS}
 

@@ -14,24 +14,23 @@ Configuration for the agent loop itself.
 - [**recursion_limit**](#agrag-agents-settings-AgentSettings-recursion_limit) (<code>int</code>) – The maximum LangGraph step count before
   the loop stops and reports incomplete progress.
   Env: `AGENT_RECURSION_LIMIT`.
-- [**max_research_attempts**](#agrag-agents-settings-AgentSettings-max_research_attempts) (<code>int</code>) – The maximum number of times the
-  planner may re-delegate to the researcher after
-  receiving `INSUFFICIENT` from the verifier. The
-  planner's initial decomposition into sub-questions is
-  not bounded by this field; the LangGraph recursion
-  limit remains the backstop for that pass.
-  Env: `AGENT_MAX_RESEARCH_ATTEMPTS`.
-- [**search_candidates**](#agrag-agents-settings-AgentSettings-search_candidates) (<code>bool</code>) – Whether the researcher gets a tool that searches
-  items the extractor kept out of the graph. Its answers are marked
-  unreviewed. A scoped agent never gets it.
-  Env: `AGENT_SEARCH_CANDIDATES`.
+- [**max_tool_calls**](#agrag-agents-settings-AgentSettings-max_tool_calls) (<code>int</code>) – Maximum number of tool calls in one task run.
+  Env: `AGENT_MAX_TOOL_CALLS`.
+- [**max_result_characters**](#agrag-agents-settings-AgentSettings-max_result_characters) (<code>int</code>) – Maximum text returned by one evidence fetch.
+  Env: `AGENT_MAX_RESULT_CHARACTERS`.
 
 Env prefix: `AGENT_`.
 
-## `max_research_attempts` \{#agrag-agents-settings-AgentSettings-max_research_attempts}
+## `max_result_characters` \{#agrag-agents-settings-AgentSettings-max_result_characters}
 
 ```python
-max_research_attempts: int = 3
+max_result_characters: int = Field(default=12000, ge=1)
+```
+
+## `max_tool_calls` \{#agrag-agents-settings-AgentSettings-max_tool_calls}
+
+```python
+max_tool_calls: int = Field(default=20, ge=1)
 ```
 
 ## `model_config` \{#agrag-agents-settings-AgentSettings-model_config}
@@ -43,11 +42,5 @@ model_config = SettingsConfigDict(env_prefix='AGENT_', env_file='.env', extra='i
 ## `recursion_limit` \{#agrag-agents-settings-AgentSettings-recursion_limit}
 
 ```python
-recursion_limit: int = 50
-```
-
-## `search_candidates` \{#agrag-agents-settings-AgentSettings-search_candidates}
-
-```python
-search_candidates: bool = False
+recursion_limit: int = Field(default=50, ge=1)
 ```

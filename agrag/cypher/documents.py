@@ -1,10 +1,16 @@
 """Cypher reads and writes for persisted Document nodes."""
 
+from agrag.common.data_models.candidate import CANDIDATE_LABEL, EVIDENCED_BY
+from agrag.common.data_models.chunk import CHUNK_LABEL
 from agrag.common.data_models.cutover_job import CUTOVER_JOB_LABEL
+from agrag.common.data_models.decision import HAS_SUPPORT
 from agrag.common.data_models.structure import (
     DOCUMENT_ACTIVATION_LABEL,
+    FIGURE_LABEL,
     HAS_ACTIVATION,
     HAS_PART,
+    SECTION_LABEL,
+    TABLE_LABEL,
 )
 from agrag.cypher._pending_filter import pending_filter_clause
 from agrag.cypher.entities import NODE_IDENTITY_LABEL
@@ -119,6 +125,29 @@ def record_activation_query() -> str:
     )
 
 
+def flag_decisions_for_activation_query() -> str:
+    """Build a project-independent direct flag for one committed activation."""
+    return (
+        f"MATCH (doc:Document)-[:{HAS_ACTIVATION}]->"
+        f"(a:{DOCUMENT_ACTIVATION_LABEL} {{id: $activation_id}}) "
+        "MATCH (d:MemoryDecision {status: 'active'}) "
+        f"-[:{HAS_SUPPORT}]->"
+        "(s:MemorySupport {kind: 'document'}) "
+        "WHERE s.document_node_id = doc.id "
+        "AND (a.verb IN ['delete', 'purge'] "
+        "OR s.content_hash <> a.content_hash) "
+        "WITH DISTINCT d, a "
+        "MATCH (t:MemoryTask)-[:MADE]->(d) "
+        "MATCH (p:MemoryProject {project_id: t.project_id}) "
+        "SET p.review_incomplete = true, "
+        "p.review_epoch = coalesce(p.review_epoch, 0) + 1, "
+        "d.review_pending = true, d.review_state = 'needs_review', "
+        "d.review_reason = CASE WHEN a.verb IN ['delete', 'purge'] "
+        "THEN 'source_removed' ELSE 'source_changed' END "
+        "RETURN count(DISTINCT d) AS flagged"
+    )
+
+
 def source_status_query() -> str:
     """Build Cypher reading committed source, activation and job state."""
     return (
@@ -158,15 +187,146 @@ def source_status_query() -> str:
     )
 
 
-def await_indexes_query() -> str:
-    """Build Cypher waiting for index population up to a bounded timeout."""
-    return "CALL db.awaitIndexes($timeout_seconds)"
-
-
 def indexes_not_ready_query() -> str:
     """Build Cypher listing indexes that remain outside ONLINE after waiting."""
     return (
         "SHOW INDEXES YIELD name, state "
         "WHERE state <> 'ONLINE' "
         "RETURN name, state ORDER BY name"
+    )
+
+
+def document_content_ids_query() -> str:
+    """Build Cypher reading a bounded set of all stored content nodes.
+
+    Returns:
+        Parameterized Cypher expecting ``$document_node_id`` and ``$limit``.
+        Returns one row per chunk, section, table or figure, up to ``$limit``.
+    """
+    return (
+        f"MATCH (n:{NODE_IDENTITY_LABEL}) "
+        "WHERE n.document_id = $document_node_id "
+        f"AND (n:{CHUNK_LABEL} OR n:{SECTION_LABEL} OR n:{TABLE_LABEL} "
+        f"OR n:{FIGURE_LABEL}) "
+        "RETURN n.id AS id LIMIT $limit"
+    )
+
+
+def document_mentioned_entities_query() -> str:
+    """Build Cypher listing the entities that any version's chunks mention.
+
+    Returns:
+        Parameterized Cypher expecting ``$document_node_id`` and ``$limit``.
+        Returns up to ``$limit`` distinct entity ids.
+    """
+    return (
+        f"MATCH (c:{NODE_IDENTITY_LABEL}:{CHUNK_LABEL} "
+        "{document_id: $document_node_id})"
+        f"-[:MENTIONED_IN]->(e:{NODE_IDENTITY_LABEL}) "
+        "RETURN DISTINCT e.id AS id LIMIT $limit"
+    )
+
+
+def purge_relation_evidence_query() -> str:
+    """Build Cypher removing every version's chunks from relation evidence.
+
+    Matches relations by their ``source_chunk_ids`` directly, so a relation is
+    found even when no chunk of the document still mentions its endpoints. Strips
+    the document's chunk ids from each matched relation, and deletes a relation
+    left with no evidence. Must run before the chunks are deleted, since it reads
+    their ids.
+
+    Returns:
+        Parameterized Cypher expecting ``$document_node_id``. Returns ``deleted``,
+        the relations removed.
+    """
+    return (
+        "MATCH ()-[r]->() "
+        "WHERE r.source_chunk_ids IS NOT NULL "
+        "AND EXISTS { "
+        f"MATCH (c:{NODE_IDENTITY_LABEL}:{CHUNK_LABEL} "
+        "{document_id: $document_node_id}) "
+        "WHERE c.id IN r.source_chunk_ids } "
+        "SET r.source_chunk_ids = "
+        "[cid IN r.source_chunk_ids WHERE NOT EXISTS { "
+        f"MATCH (c:{NODE_IDENTITY_LABEL}:{CHUNK_LABEL} "
+        "{document_id: $document_node_id, id: cid}) }] "
+        "WITH r WHERE size(r.source_chunk_ids) = 0 "
+        "DELETE r RETURN count(r) AS deleted"
+    )
+
+
+def document_cited_relation_endpoints_query() -> str:
+    """Build Cypher listing the endpoints of relations that cite the document.
+
+    These are the entities a purge may leave without evidence even when no chunk
+    still mentions them, so they are offered to the pruning pass with the mentioned
+    entities.
+
+    Returns:
+        Parameterized Cypher expecting ``$document_node_id`` and ``$limit``.
+        Returns up to ``$limit`` distinct entity ids.
+    """
+    return (
+        f"MATCH (a:{NODE_IDENTITY_LABEL})-[r]->(b:{NODE_IDENTITY_LABEL}) "
+        "WHERE r.source_chunk_ids IS NOT NULL "
+        "AND EXISTS { "
+        f"MATCH (c:{NODE_IDENTITY_LABEL}:{CHUNK_LABEL} "
+        "{document_id: $document_node_id}) "
+        "WHERE c.id IN r.source_chunk_ids } "
+        "UNWIND [a.id, b.id] AS id RETURN DISTINCT id LIMIT $limit"
+    )
+
+
+def document_cited_relation_ids_query() -> str:
+    """Build Cypher reading a bounded set of relations citing document chunks."""
+    return (
+        "MATCH ()-[r]->() WHERE r.source_chunk_ids IS NOT NULL AND EXISTS { "
+        f"MATCH (c:{NODE_IDENTITY_LABEL}:{CHUNK_LABEL} "
+        "{document_id: $document_node_id}) "
+        "WHERE c.id IN r.source_chunk_ids } "
+        "RETURN elementId(r) AS id LIMIT $limit"
+    )
+
+
+def document_pending_candidate_ids_query() -> str:
+    """Build Cypher reading a bounded set of pending candidates on document chunks."""
+    return (
+        f"MATCH (n:{CANDIDATE_LABEL})-[:{EVIDENCED_BY}]->"
+        f"(c:{NODE_IDENTITY_LABEL}:{CHUNK_LABEL} {{document_id: $document_node_id}}) "
+        "WHERE n.state = 'pending' RETURN DISTINCT n.id AS id LIMIT $limit"
+    )
+
+
+def purge_candidate_evidence_query() -> str:
+    """Build Cypher deleting pending candidates evidenced by any version's chunks.
+
+    Returns:
+        Parameterized Cypher expecting ``$document_node_id``. Returns ``deleted``.
+    """
+    return (
+        f"MATCH (n:{CANDIDATE_LABEL})-[:{EVIDENCED_BY}]->"
+        f"(c:{NODE_IDENTITY_LABEL}:{CHUNK_LABEL} {{document_id: $document_node_id}}) "
+        "WHERE n.state = 'pending' "
+        "WITH DISTINCT n "
+        "DETACH DELETE n RETURN count(n) AS deleted"
+    )
+
+
+def purge_document_nodes_query() -> str:
+    """Build Cypher hard-deleting every chunk, section, table and figure of a document.
+
+    Matches on the ``document_id`` property, so every version is removed. Detach
+    deletion also removes the nodes' edges, including ``HAS_PART`` and
+    ``MENTIONED_IN``. The Document node and its activation records stay.
+
+    Returns:
+        Parameterized Cypher expecting ``$document_node_id``. Returns ``deleted``.
+    """
+    return (
+        f"MATCH (n:{NODE_IDENTITY_LABEL}) "
+        "WHERE n.document_id = $document_node_id "
+        f"AND (n:{CHUNK_LABEL} OR n:{SECTION_LABEL} OR n:{TABLE_LABEL} "
+        f"OR n:{FIGURE_LABEL}) "
+        "DETACH DELETE n RETURN count(n) AS deleted"
     )

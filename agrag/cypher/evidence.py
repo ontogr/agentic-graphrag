@@ -116,6 +116,13 @@ def evidence_chunks_query(*, by_chunk_id: bool) -> str:
         hash.
     """
     chunk_filter = "AND chunk.id = $chunk_id " if by_chunk_id else ""
+    # A deleted document has no open edge left, so none of its versions is read.
+    # Superseded versions stay readable while the document has a current version.
+    still_present = (
+        f"EXISTS {{ MATCH (document)-[open:{HAS_PART}]->"
+        f"(:{NODE_IDENTITY_LABEL}:{CHUNK_LABEL}) "
+        f"WHERE open.invalid_at IS NULL AND {pending_filter_clause('open')} }}"
+    )
     return (
         f"MATCH (document:{NODE_IDENTITY_LABEL}:{DOCUMENT_LABEL} {{id: $document_id}})"
         f"-[part:{HAS_PART}]->(chunk:{NODE_IDENTITY_LABEL}:{CHUNK_LABEL}) "
@@ -124,6 +131,7 @@ def evidence_chunks_query(*, by_chunk_id: bool) -> str:
         f"AND {pending_filter_clause('document')} "
         f"AND {pending_filter_clause('part')} "
         f"AND {pending_filter_clause('chunk')} "
+        f"AND {still_present} "
         f"RETURN chunk {_CHUNK_FIELDS} AS chunk, part.version_id AS version_id, "
         "toString(part.invalid_at) AS closed_at, "
         "document.document_key AS document_key, document.title AS title, "
@@ -261,13 +269,14 @@ def entity_labels_query() -> str:
     needs one of that name, so the labels of those indexes are the entity labels.
 
     Returns:
-        Cypher returning one ``label`` row per distinct label. It takes no
-        parameters.
+        Cypher returning one row per such index, with its ``labels`` list. It
+        takes no parameters. ``SHOW INDEXES`` cannot be followed by ``UNWIND``,
+        so the caller flattens the lists.
     """
     return (
         "SHOW INDEXES YIELD labelsOrTypes, properties, type "
         "WHERE type = 'VECTOR' AND properties = ['embedding'] "
-        "UNWIND labelsOrTypes AS label RETURN DISTINCT label"
+        "RETURN labelsOrTypes AS labels"
     )
 
 

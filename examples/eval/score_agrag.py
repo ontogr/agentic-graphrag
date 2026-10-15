@@ -33,7 +33,6 @@ from agrag.ingestion import (
     ExtractionSettings,
     Graph,
 )
-from agrag.retrieval import SearchEngine
 
 
 _NEEDS_EVIDENCE = ("faithfulness", "context_precision", "context_recall")
@@ -79,21 +78,29 @@ async def main(dataset: Path) -> None:
     )
     try:
         await graph.add(source=dataset / "documents")
-        engine = SearchEngine(
-            graph_store=store, embedder=embedder, graph_schema=DEFAULT_SCHEMA
-        )
         llm_settings = AgentLLMSettings.from_openai_compatible_env()
         judge = ChatModelJudge.from_settings(
             EvalJudgeSettings.from_openai_compatible_env()
         )
         rows = []
+        scope = frozenset(
+            str(path) for path in (dataset / "documents").rglob("*") if path.is_file()
+        )
         for item in questions:
             # A new agent for each question keeps the run state apart.
             agent = build_agent(
-                engine=engine, llm_settings=llm_settings, graph_schema=DEFAULT_SCHEMA
+                graph_store=store,
+                embedder=embedder,
+                scope=scope,
+                project_id="answer-eval",
+                agent_id="answer-eval-agent",
+                llm_settings=llm_settings,
             )
             result = await agent.ainvoke(
-                {"messages": [{"role": "user", "content": item["question"]}]}
+                {
+                    "task_name": f"question-{len(rows)}",
+                    "question": item["question"],
+                }
             )
             case = answer_case(item["question"], result, item["answer"])
             rows.append((item["question"], await _score(judge, case)))

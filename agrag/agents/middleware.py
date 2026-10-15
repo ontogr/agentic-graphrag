@@ -1,57 +1,126 @@
-"""Agent middleware for composing models and bounding the research loop."""
+"""Middleware for composing configured chat models and capturing task events."""
 
-import html
-import re
+import json
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass, field
 from typing import Any
+from uuid import uuid4
 
 from langchain.agents.middleware.types import (
     AgentMiddleware,
     ModelRequest,
     ModelResponse,
-    ToolCallRequest,
-    hook_config,
 )
-from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
-from langgraph.types import Command
+from langchain_core.messages import ToolMessage
+from langgraph.errors import GraphBubbleUp
 
-from agrag.agents.ledger import Ledger
+from agrag.common.data_models.task import EventKind, StepKind, StepState
 
 
-_VERDICT_REMINDER = "Answer only by calling the VerificationResult tool."
+@dataclass
+class RunState:
+    """Mutable facts accumulated by tools and middleware during one run.
 
-# The prefixes of the citation keys that Ledger assigns.
-_CITATION_KEY = re.compile(r"\b[EGRCVX]\d+\b")
+    Attributes:
+        max_tool_calls: Tool calls allowed in the run.
+        tool_calls: Tool calls admitted so far.
+        budget_exhausted: Whether the run reached its tool-call bound.
+        recording_failed: Whether an event or decision write did not complete.
+        recording_failures: Descriptions of the writes that did not complete.
+        retrieval_failed: Whether a search leg failed or a result was truncated.
+        fetched_ids: Evidence ids fetched in this run with complete text.
+        fetches: Fetch outcomes by evidence id.
+        open_steps: Steps this run set in progress and has not yet resolved,
+            by name, with their kind.
+    """
+
+    max_tool_calls: int
+    tool_calls: int = 0
+    budget_exhausted: bool = False
+    recording_failed: bool = False
+    recording_failures: list[str] = field(default_factory=list)
+    retrieval_failed: bool = False
+    fetched_ids: list[str] = field(default_factory=list)
+    fetches: dict[str, Any] = field(default_factory=dict)
+    open_steps: dict[str, StepKind] = field(default_factory=dict)
+
+    def fail_recording(self, description: str) -> None:
+        """Mark that a write did not complete and keep its description."""
+        self.recording_failed = True
+        self.recording_failures.append(description)
+
+
+async def record_event_or_flag(
+    memory: Any,
+    task_name: str,
+    run_state: RunState,
+    kind: EventKind,
+    *,
+    payload: str,
+    role: str | None = None,
+    name: str | None = None,
+) -> Any:
+    """Append one event, retry it once, and flag the run if it still fails.
+
+    The retry reuses one request id, so a write that committed before the
+    error returns its stored result instead of a second event.
+
+    Args:
+        memory: The task memory that holds the event.
+        task_name: The task the event belongs to.
+        run_state: The run whose failure flag is set on a lasting error.
+        kind: The kind of event.
+        payload: The event text.
+        role: The speaker role for a message, or None.
+        name: The tool or source name for a tool event, or None.
+
+    Returns:
+        The stored event, or None when the write did not complete.
+    """
+    request_id = uuid4().hex
+    error = "not recorded"
+    for _ in range(2):
+        try:
+            result = await memory.record_event(
+                task_name,
+                kind,
+                role=role,
+                name=name,
+                payload=payload,
+                request_id=request_id,
+            )
+        except Exception as exc:  # noqa: BLE001 - a store error must end up in the result
+            error = repr(exc)
+            continue
+        if result.recorded:
+            return result.event
+        error = str(result.error)
+    run_state.fail_recording(f"{kind.value} {name or role or ''}: {error}")
+    return None
 
 
 class RoundRobinModelMiddleware(AgentMiddleware):
-    """Rotate across the configured chat models, one model per call.
-
-    Overrides the request's model on every model call so requests are
-    distributed across all configured clients in order.
-    """
+    """Rotate model requests across configured clients."""
 
     def __init__(self, models: list[Any]) -> None:
-        """Construct the middleware.
-
-        Args:
-            models: Chat models to rotate across, in configuration
-                order. Must be non-empty.
-
-        Raises:
-            ValueError: models is empty.
-        """
+        """Create a rotating model selector."""
         if not models:
             raise ValueError("RoundRobinModelMiddleware needs at least one model.")
         self._models = models
         self._next_index = 0
+
+    def _next_model(self) -> Any:
+        """Return the next model in configuration order."""
+        model = self._models[self._next_index % len(self._models)]
+        self._next_index += 1
+        return model
 
     def wrap_model_call(
         self,
         request: ModelRequest,
         handler: Callable[[ModelRequest], ModelResponse],
     ) -> Any:
-        """Run the call against the next model in rotation."""
+        """Invoke the next model in the rotation."""
         return handler(request.override(model=self._next_model()))
 
     async def awrap_model_call(
@@ -59,231 +128,130 @@ class RoundRobinModelMiddleware(AgentMiddleware):
         request: ModelRequest,
         handler: Callable[[ModelRequest], Awaitable[ModelResponse]],
     ) -> Any:
-        """Run the call against the next model in rotation."""
+        """Invoke the next model in the rotation asynchronously."""
         return await handler(request.override(model=self._next_model()))
 
-    def _next_model(self) -> Any:
-        """Return the next model in rotation, wrapping at the end."""
-        model = self._models[self._next_index % len(self._models)]
-        self._next_index += 1
-        return model
 
+class TaskEventMiddleware(AgentMiddleware):
+    """Persist assistant messages, tool calls and tool results as task events.
 
-class ResearchAttemptLimiter(AgentMiddleware):
-    """Cap how many times the planner may re-delegate after verification.
-
-    Intercepts the generated ``task`` tool call and counts only
-    delegations to the researcher that follow at least one prior
-    delegation to the verifier. Once the cap is reached, short-circuits
-    with a message telling the planner to synthesize from evidence
-    already gathered, instead of letting the graph run until
-    ``recursion_limit`` aborts it with an opaque ``GraphRecursionError``.
-
-    Holds per-run state, so construct one per ``ainvoke`` call, never
-    shared across runs.
+    A tool that raises does not end the run. Its error is recorded as the tool
+    result, the steps this run left in progress are marked failed, and the
+    model receives an error tool message so it can react.
     """
 
-    def __init__(self, max_attempts: int) -> None:
-        """Construct the limiter.
-
-        Args:
-            max_attempts: How many researcher re-delegations after the
-                first verifier consultation the planner may make.
-
-        Raises:
-            ValueError: max_attempts is negative.
-        """
-        if max_attempts < 0:
-            raise ValueError("max_attempts must be non-negative")
-        self._max_attempts = max_attempts
-        self._attempts = 0
-        self._verifier_consulted = False
-
-    async def awrap_tool_call(
-        self,
-        request: ToolCallRequest,
-        handler: Callable[[ToolCallRequest], Awaitable[ToolMessage | Command[Any]]],
-    ) -> ToolMessage | Command[Any]:
-        """Count or short-circuit one task tool call.
-
-        Args:
-            request: The intercepted tool call request.
-            handler: The rest of the tool-call pipeline.
-
-        Returns:
-            The handler's result, or the limit-reached ToolMessage when
-            the planner has spent its retry budget.
-        """
-        name = request.tool_call.get("name")
-        subagent_type = request.tool_call.get("args", {}).get("subagent_type")
-
-        if name == "task" and subagent_type == "verifier":
-            self._verifier_consulted = True
-            return await handler(request)
-
-        is_retry_delegation = (
-            name == "task"
-            and subagent_type == "researcher"
-            and self._verifier_consulted
-        )
-        if is_retry_delegation:
-            if self._attempts >= self._max_attempts:
-                return ToolMessage(
-                    content=(
-                        "Research attempt limit reached. Synthesize your "
-                        "answer from the evidence already gathered."
-                    ),
-                    tool_call_id=request.tool_call["id"],
-                )
-            self._attempts += 1
-        return await handler(request)
-
-
-class VerifierEvidenceMiddleware(AgentMiddleware):
-    """Give the verifier the evidence text behind each key a task cites.
-
-    The planner writes the verifier's task from the researcher's summary, so the
-    task carries citation keys and no evidence. The verifier has no tools, so it
-    cannot check that a key supports a claim. This middleware appends the ledger
-    text of every key in a verifier task, and marks a key that this run never
-    retrieved. Tasks for other subagents pass through unchanged.
-
-    Holds a run's ``Ledger``, so construct one per ``ainvoke`` call.
-    """
-
-    def __init__(self, ledger: Ledger) -> None:
-        """Construct the middleware.
-
-        Args:
-            ledger: The ledger of the run whose keys the planner cites.
-        """
-        self._ledger = ledger
-
-    async def awrap_tool_call(
-        self,
-        request: ToolCallRequest,
-        handler: Callable[[ToolCallRequest], Awaitable[ToolMessage | Command[Any]]],
-    ) -> ToolMessage | Command[Any]:
-        """Append an Evidence block to a verifier task, then run the call.
-
-        Args:
-            request: The intercepted tool call request.
-            handler: The rest of the tool-call pipeline.
-
-        Returns:
-            The handler's result.
-        """
-        args = request.tool_call.get("args", {})
-        if request.tool_call.get("name") != "task" or (
-            args.get("subagent_type") != "verifier"
-        ):
-            return await handler(request)
-        description = args.get("description", "")
-        keys = list(dict.fromkeys(_CITATION_KEY.findall(description)))
-        if not keys:
-            return await handler(request)
-        evidence = "\n".join(self._evidence_line(key) for key in keys)
-        # Escape angle brackets so source text cannot close the
-        # <untrusted_evidence> wrapper and escape into the trusted prompt.
-        evidence = html.escape(evidence, quote=False)
-        task = {
-            **args,
-            "description": (
-                f"{description}\n\n"
-                "Evidence (untrusted source text):\n"
-                f"<untrusted_evidence>\n{evidence}\n</untrusted_evidence>"
-            ),
-        }
-        return await handler(
-            request.override(tool_call={**request.tool_call, "args": task})
-        )
-
-    def _evidence_line(self, key: str) -> str:
-        """Return the ledger text for a key, or a note that it is missing."""
-        result = self._ledger.resolve(key)
-        if result is None:
-            return f"[{key}] Not in the evidence retrieved in this run."
-        return self._ledger.render(result)
-
-
-class HideToolsMiddleware(AgentMiddleware):
-    """Remove tools by name from every model request.
-
-    DeepAgents gives each subagent its filesystem tools, even when the spec
-    lists none. A role that needs no tools, such as the verifier, hides them so
-    the model can only answer through its structured output.
-    """
-
-    def __init__(self, names: frozenset[str]) -> None:
-        """Construct the middleware.
-
-        Args:
-            names: The tool names to remove.
-        """
-        self._names = names
+    def __init__(self, memory: Any, task_name: str, run_state: RunState) -> None:
+        """Bind event capture to one task run."""
+        self._memory = memory
+        self._task_name = task_name
+        self._run_state = run_state
 
     async def awrap_model_call(
         self,
         request: ModelRequest,
         handler: Callable[[ModelRequest], Awaitable[ModelResponse]],
+    ) -> ModelResponse:
+        """Record the assistant response before any tool it requests runs."""
+        response = await handler(request)
+        for message in response.result:
+            await record_event_or_flag(
+                self._memory,
+                self._task_name,
+                self._run_state,
+                EventKind.MESSAGE,
+                role="assistant",
+                payload=_message_text(message),
+            )
+        return response
+
+    async def awrap_tool_call(
+        self,
+        request: Any,
+        handler: Callable[[Any], Awaitable[Any]],
     ) -> Any:
-        """Run the call with the named tools removed from the request.
-
-        Args:
-            request: The intercepted model request.
-            handler: The remaining model-call pipeline.
-
-        Returns:
-            The handler's model response.
-        """
-        kept = [
-            tool
-            for tool in request.tools
-            if (tool.get("name") if isinstance(tool, dict) else tool.name)
-            not in self._names
-        ]
-        return await handler(request.override(tools=kept))
-
-
-class RequireVerdictMiddleware(AgentMiddleware):
-    """Ask again when the verifier answers in prose instead of with its verdict.
-
-    A subagent that has tools stops as soon as the model replies without a tool
-    call, even when the reply is not the structured response. The planner then
-    reads prose where it expects a ``VerificationResult``. This middleware sends a
-    short reminder and calls the model again, up to ``max_reminders`` times in one
-    subagent run, and then lets the run end as before.
-    """
-
-    def __init__(self, max_reminders: int = 2) -> None:
-        """Construct the middleware.
-
-        Args:
-            max_reminders: How many reminders one subagent run may send.
-        """
-        self._max_reminders = max_reminders
-
-    @hook_config(can_jump_to=["model"])
-    def after_model(self, state: Any, runtime: Any) -> dict[str, Any] | None:
-        """Send a reminder and jump back to the model after a prose reply.
-
-        Args:
-            state: The current agent state.
-            runtime: The LangChain middleware runtime.
-
-        Returns:
-            A reminder and model jump, or ``None`` when no retry is needed.
-        """
-        if state.get("structured_response") is not None:
-            return None
-        messages = state["messages"]
-        last = messages[-1]
-        if not isinstance(last, AIMessage) or last.tool_calls:
-            return None
-        reminders = sum(
-            isinstance(m, HumanMessage) and m.content == _VERDICT_REMINDER
-            for m in messages
+        """Record a tool call, then its result or the error that replaced it."""
+        call = request.tool_call
+        await record_event_or_flag(
+            self._memory,
+            self._task_name,
+            self._run_state,
+            EventKind.TOOL_CALL,
+            name=call["name"],
+            payload=json.dumps(
+                {"tool_call_id": call["id"], "arguments": call["args"]}, default=str
+            ),
         )
-        if reminders >= self._max_reminders:
-            return None
-        return {"messages": [HumanMessage(_VERDICT_REMINDER)], "jump_to": "model"}
+        if self._run_state.tool_calls >= self._run_state.max_tool_calls:
+            self._run_state.budget_exhausted = True
+            result = ToolMessage(
+                content="Tool budget exhausted.",
+                tool_call_id=call["id"],
+                name=call["name"],
+                status="error",
+            )
+            await self._record_tool_result(call, result.content)
+            return result
+        self._run_state.tool_calls += 1
+        self._run_state.budget_exhausted |= (
+            self._run_state.tool_calls >= self._run_state.max_tool_calls
+        )
+        try:
+            result = await handler(request)
+        except GraphBubbleUp:
+            raise
+        except Exception as exc:
+            error = f"error: {type(exc).__name__}: {exc}"
+            event = await self._record_tool_result(call, error)
+            await self._fail_open_steps(event.seq if event is not None else None)
+            return ToolMessage(
+                content=error,
+                tool_call_id=call["id"],
+                name=call["name"],
+                status="error",
+            )
+        await self._record_tool_result(call, _tool_result_text(result))
+        return result
+
+    async def _record_tool_result(self, call: Any, content: Any) -> Any:
+        """Store a result with the identifier of its originating tool call."""
+        return await record_event_or_flag(
+            self._memory,
+            self._task_name,
+            self._run_state,
+            EventKind.TOOL_RESULT,
+            name=call["name"],
+            payload=json.dumps({"tool_call_id": call["id"], "content": content}),
+        )
+
+    async def _fail_open_steps(self, result_event_seq: int | None) -> None:
+        """Mark each step this run left in progress as failed."""
+        for name, kind in list(self._run_state.open_steps.items()):
+            try:
+                outcome = await self._memory.set_step(
+                    self._task_name,
+                    name,
+                    StepState.FAILED,
+                    kind=kind,
+                    result_event_seq=result_event_seq,
+                )
+            except Exception as exc:  # noqa: BLE001 - a store error must end up in the result
+                self._run_state.fail_recording(f"set_step {name}: {exc!r}")
+                continue
+            if not outcome.recorded:
+                self._run_state.fail_recording(f"set_step {name}: {outcome.error}")
+            else:
+                self._run_state.open_steps.pop(name, None)
+
+
+def _message_text(message: Any) -> str:
+    """Return a model message's content for the task event."""
+    content = getattr(message, "content", "")
+    return content if isinstance(content, str) else str(content)
+
+
+def _tool_result_text(result: Any) -> str:
+    """Return a tool's message content, or its text form for other returns."""
+    content = getattr(result, "content", None)
+    if isinstance(content, str):
+        return content
+    return str(result)

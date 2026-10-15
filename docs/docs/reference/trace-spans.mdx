@@ -183,14 +183,13 @@ The Neo4j store opens these spans. Reads and writes carry the query text and the
 | `agrag.embedding.embed` | `agrag.text_count`, `agrag.cache_hit_count`, `agrag.model` (dense embedder, every call) |
 | `agrag.embedding.encode` | `agrag.text_count`, `agrag.cache_hit_count` (dense embedder, cache misses only) |
 
-## Retrieval loading spans and the agent span
+## Retrieval loading spans
 
 | Span | Attributes |
 |---|---|
 | `agrag.retrieval.load_communities` | `agrag.requested_count`, `agrag.loaded_count` |
 | `agrag.retrieval.load_resolved_entities` | `agrag.requested_count`, `agrag.loaded_count` |
 | `agrag.retrieval.community_context` | `agrag.seed_count`, `agrag.top_k` |
-| `agrag.agents.run` | none. Only the simple agent (used when the `agents` extra is not installed) opens it. The full loop opens OpenInference spans instead. |
 
 ## Domain spans by path
 

@@ -31,6 +31,10 @@ from agrag.cypher.cutover_job_write import (
     steal_terminal_job_query,
 )
 from agrag.cypher.documents import (
+    flag_decisions_for_activation_query,
+    purge_candidate_evidence_query,
+    purge_document_nodes_query,
+    purge_relation_evidence_query,
     record_activation_query,
     retire_document_version_query,
     set_chunk_extraction_fingerprint_query,
@@ -90,7 +94,7 @@ _COMMIT_ATTEMPTS = 3
 async def _acquire_lease(
     *,
     document_key: str,
-    verb: Literal["add", "update", "delete_document"],
+    verb: Literal["add", "update", "delete_document", "purge_document"],
     affected_entity_ids: list[UUID],
     graph_store: GraphStore,
     settings: CutoverJobSettings,
@@ -303,6 +307,21 @@ def _component_seed_ids(components: Sequence[MatchComponent]) -> list[UUID]:
     ]
 
 
+async def _purge_document_content(
+    txn: GraphStoreTransaction, *, document_node_id: UUID
+) -> None:
+    """Hard-delete every version's content of one document inside the commit.
+
+    The relation evidence is stripped first, while the chunk ids it cites are
+    still on the chunks. Pending candidates that cite the chunks go next, then
+    the chunk, section, table and figure nodes.
+    """
+    params = {"document_node_id": str(document_node_id)}
+    await txn.execute_write(purge_relation_evidence_query(), params)
+    await txn.execute_write(purge_candidate_evidence_query(), params)
+    await txn.execute_write(purge_document_nodes_query(), params)
+
+
 def _activation_params(job_id: UUID, change: DocumentChange) -> dict[str, object]:
     """Return the parameters of the activation record one job writes.
 
@@ -413,9 +432,14 @@ async def _commit_pending_writes(
                 delete_stale_candidates_query(),
                 {"document_node_id": str(candidate_document_node_id)},
             )
+        if change is not None and change.verb == "purge":
+            await _purge_document_content(txn, document_node_id=change.document_node_id)
         if change is not None:
+            activation_params = _activation_params(job_id, change)
+            await txn.execute_write(record_activation_query(), activation_params)
             await txn.execute_write(
-                record_activation_query(), _activation_params(job_id, change)
+                flag_decisions_for_activation_query(),
+                {"activation_id": activation_params["id"]},
             )
             if change.verb == "delete":
                 await txn.execute_write(
@@ -442,7 +466,7 @@ async def _commit_pending_writes(
 
 async def run_cutover_job(
     *,
-    verb: Literal["add", "update", "delete_document"],
+    verb: Literal["add", "update", "delete_document", "purge_document"],
     document_key: str,
     affected_entity_ids: list[UUID],
     graph_store: GraphStore,

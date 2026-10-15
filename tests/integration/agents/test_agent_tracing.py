@@ -1,15 +1,13 @@
 """End-to-end agent tracing against a real Neo4j and a real LLM.
 
-One tracer is given to the graph store, the engine and ``build_agent``. Two
-independent lookups are delegated to parallel ``task`` calls, and each
-retrieval span must nest under the ``TOOL`` span of the call that made it,
-which in turn sits under a ``task`` span. The span tree is written to the test
-output directory as JSON. The test seeds its own four-dimension corpus, like
-the other agent integration tests, so it shares the database-wide ``Chunk``
-vector index with them. It skips when no agent LLM endpoint is configured.
+One tracer is given to the graph store, the engine and ``build_agent``. The
+agent answers two independent lookups, and each retrieval span must nest under
+the ``TOOL`` span of the evidence call that made it. The span tree is written
+to the test output directory as JSON. The test seeds its own four-dimension
+corpus, like the other agent integration tests, so it shares the database-wide
+``Chunk`` vector index with them. It skips when no agent LLM endpoint is configured.
 """
 
-import hashlib
 import json
 import os
 from collections.abc import AsyncGenerator, Sequence
@@ -25,31 +23,29 @@ from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
 
 from agrag.agents.build import build_agent
 from agrag.agents.settings import AgentLLMSettings
-from agrag.common.data_models.chunk import CHUNK_LABEL, Chunk
+from agrag.chunking import Chunker
+from agrag.common.data_models.document import Document
 from agrag.common.data_models.graph_record import NodeRecord, RelationRecord
-from agrag.common.data_models.graph_schema import (
-    EntityType,
-    GraphSchema,
-    RelationType,
-)
-from agrag.common.data_models.provenance import TextProvenance
+from agrag.common.data_models.graph_schema import GraphSchema
 from agrag.common.data_models.vector_record import Distance
 from agrag.cypher.entities import validate_identifier
 from agrag.embedding.base import Embedder
 from agrag.eval.trajectory import read_trajectory
 from agrag.graphdb import build_graph_store
-from agrag.retrieval.search_engine import SearchEngine
-from agrag.retrieval.settings import RetrievalSettings
+from agrag.ingestion.graph import Graph
 from tests.conftest import FAKE_EMBEDDING_DIMENSIONS
+from tests.integration.retrieval.evidence._corpus import (
+    NoEntityExtractor,
+    make_document,
+)
 
 
 _OUTPUT_DIR = Path(os.environ.get("AGRAG_TRACING_OUTPUT_DIR", "test-output"))
 
 _PROMPT = (
-    "I need two independent facts. Delegate each to its own researcher "
-    "subagent with the task tool, and issue both task calls in the same "
-    "turn so they run in parallel. Fact 1: who founded Zephyra Robotics? "
-    "Fact 2: how much weight can the Lumen-9 robot lift? Then answer both."
+    "I need two independent facts. Fact 1: who founded Zephyra Robotics? "
+    "Fact 2: how much weight can the Lumen-9 robot lift? Find evidence for "
+    "each fact, then answer both."
 )
 
 _FOUNDER_CHUNK = "Zephyra Robotics was founded by Mira Okafor in a garage workshop."
@@ -147,18 +143,20 @@ class TestAgentTracing:
         self.robot_label = validate_identifier(f"Robot_{suffix}")
         self.embedder = _FakeKeywordEmbedder()
         self.chunk_ids: list = []
-        self.document_id = str(uuid4())
+        self.document_key = f"agent-tracing-{suffix}"
+        self.document_id = str(Document.node_id_for(document_key=self.document_key))
         yield
         for label in (self.person_label, self.company_label, self.robot_label):
             await self.store.execute_write(f"MATCH (n:{label}) DETACH DELETE n")
-        if self.chunk_ids:
-            # Chunk nodes are shared by every suite, and the native index
-            # cannot be dropped per test, so teardown deletes only the ids
-            # this test wrote.
-            await self.store.execute_write(
-                f"MATCH (n:{CHUNK_LABEL}) WHERE n.id IN $ids DETACH DELETE n",
-                {"ids": [str(chunk_id) for chunk_id in self.chunk_ids]},
-            )
+        await self.store.execute_write(
+            "MATCH (d:Document {document_key: $key}) "
+            "OPTIONAL MATCH (d)-[:HAS_PART]->(c:Chunk) DETACH DELETE c, d",
+            {"key": self.document_key},
+        )
+        await self.store.execute_write(
+            "MATCH (j:CutoverJob {document_key: $key}) DETACH DELETE j",
+            {"key": self.document_key},
+        )
         await self.store.close()
 
     async def _seed_entity(self, label: str, name: str) -> UUID:
@@ -203,50 +201,22 @@ class TestAgentTracing:
             ]
         )
 
-    async def _seed_chunk(self, index: int, text: str) -> None:
-        """Write one chunk in this test's document partition."""
-        chunk = Chunk(
-            id=uuid4(),
-            document_id=UUID(self.document_id),
-            index=index,
-            text=text,
-            content_hash=hashlib.sha256(text.encode("utf-8")).hexdigest(),
-            provenance=TextProvenance(char_start=0, char_end=len(text)),
+    async def _seed_document(self, text: str) -> None:
+        """Add a document holding the text, as ingestion would write it."""
+        graph = await Graph.open(
+            schema=GraphSchema(
+                name="agent_seed", version="1", entities=[], relations=[]
+            ),
+            graph_store=self.store,
+            embedder=self.embedder,
+            extractor=NoEntityExtractor(),
+            chunker=Chunker(size=2000),
         )
-        chunk.embedding = await self.embedder.embed_one(text)
-        self.chunk_ids.append(chunk.id)
-        await self.store.upsert_nodes(
-            CHUNK_LABEL,
-            [
-                NodeRecord(
-                    id=chunk.id,
-                    labels=[CHUNK_LABEL],
-                    properties={
-                        "document_id": self.document_id,
-                        "index": index,
-                        "text": text,
-                        "content_hash": hashlib.sha256(
-                            text.encode("utf-8")
-                        ).hexdigest(),
-                        "provenance": '{"kind":"text","char_start":0,'
-                        f'"char_end":{len(text)}}}',
-                        "heading_path": [],
-                        "content_kind": "text",
-                        "embedding": chunk.embedding,
-                        "created_at": "2024-01-01T00:00:00",
-                    },
-                )
-            ],
-        )
-        await self.store.ensure_vector_index(
-            label=CHUNK_LABEL,
-            vector_property="embedding",
-            dimensions=4,
-            distance=Distance.COSINE,
-        )
+        await graph.add(documents=[make_document(self.document_key, text)])
+        await self.store.execute_read("CALL db.awaitIndexes(60)")
 
-    async def test_retrieval_spans_nest_under_their_task_tool_span(self) -> None:
-        """Each retrieval span sits under its own TOOL span under a task span."""
+    async def test_retrieval_spans_nest_under_their_tool_span(self) -> None:
+        """Each retrieval span sits under a TOOL span of the agent run."""
         settings = AgentLLMSettings.from_openai_compatible_env()
         if not settings.clients[0].api_key:
             pytest.skip("Agent LLM API key not configured")
@@ -255,33 +225,20 @@ class TestAgentTracing:
         company = await self._seed_entity(self.company_label, "Zephyra Robotics")
         await self._seed_entity(self.robot_label, "Lumen-9")
         await self._seed_relation("FOUNDED", founder, company)
-        await self._seed_chunk(0, _FOUNDER_CHUNK)
-        await self._seed_chunk(1, _LIFT_CHUNK)
+        await self._seed_document(f"{_FOUNDER_CHUNK}\n\n{_LIFT_CHUNK}")
 
-        engine = SearchEngine(
+        agent = build_agent(
             graph_store=self.store,
             embedder=self.embedder,
-            settings=RetrievalSettings(entity_top_k=10, chunk_top_k=10),
-            graph_schema=GraphSchema(
-                name="agent_tracing",
-                version="1",
-                entities=[
-                    EntityType(label=self.person_label, description="A person."),
-                    EntityType(label=self.company_label, description="A company."),
-                    EntityType(label=self.robot_label, description="A robot model."),
-                ],
-                relations=[
-                    RelationType(
-                        label="FOUNDED",
-                        description="A person founded a company.",
-                        patterns=[(self.person_label, self.company_label)],
-                    )
-                ],
-            ),
+            scope=frozenset({self.document_key}),
+            project_id="agent-tracing",
+            agent_id="tracing-agent",
+            llm_settings=settings,
             tracer=self.tracer,
         )
-        agent = build_agent(engine=engine, llm_settings=settings, tracer=self.tracer)
-        await agent.ainvoke({"messages": [{"role": "user", "content": _PROMPT}]})
+        await agent.ainvoke(
+            {"task_name": f"tracing-run-{uuid4().hex[:8]}", "question": _PROMPT}
+        )
         self.provider.force_flush()
 
         spans = self.exporter.get_finished_spans()
@@ -291,37 +248,22 @@ class TestAgentTracing:
         )
         by_id = {span.context.span_id: span for span in spans}
 
-        tasks = [span for span in spans if _tool_name(span) == "task"]
-        assert tasks, "the agent made no task call"
-        task_ids = {task.context.span_id for task in tasks}
-        assert any(span.name == "agrag.retrieval.search" for span in spans)
-
-        # Each retrieval span's nearest TOOL ancestor is the search tool call
-        # that made it, and that call sits under exactly one task span.
-        owners: dict[int, set[int]] = {}
+        tools = [span for span in spans if _is_tool(span)]
+        assert tools, "the agent made no tool calls"
+        # Evidence discovery and fetch read the graph through the store, so
+        # each read sits under the evidence TOOL call that issued it.
+        owners: dict[int, str | None] = {}
         for span in spans:
-            if not span.name.startswith("agrag.retrieval."):
+            if span.name != "agrag.graphdb.execute_read":
                 continue
-            ancestors = _ancestors(span, by_id)
-            tool = next((a for a in ancestors if _is_tool(a)), None)
-            assert tool is not None, f"{span.name} has no TOOL ancestor"
-            assert _tool_name(tool) != "task", f"{span.name} skips its tool call"
-            task = next(
-                a for a in _ancestors(tool, by_id) if a.context.span_id in task_ids
-            )
-            owners.setdefault(task.context.span_id, set()).add(tool.context.span_id)
-        assert len(owners) >= 2, "fewer than two task calls ran retrieval"
-
-        # Tool calls of different tasks are different spans.
-        tool_sets = list(owners.values())
-        for i, first in enumerate(tool_sets):
-            for second in tool_sets[i + 1 :]:
-                assert first.isdisjoint(second)
+            tool = next((a for a in _ancestors(span, by_id) if _is_tool(a)), None)
+            if tool is not None:
+                owners[tool.context.span_id] = _tool_name(tool)
+        assert owners, "no graph read ran under a tool span"
+        assert set(owners.values()) <= {"discover_evidence", "fetch_evidence"}
+        assert len(owners) >= 2, "fewer than two tool calls ran retrieval"
 
         searches = [
-            step
-            for step in read_trajectory(spans).steps
-            if step.kind == "tool" and step.name != "task"
+            step for step in read_trajectory(spans).steps if step.kind == "tool"
         ]
         assert searches
-        assert {step.subagent for step in searches} == {"researcher"}

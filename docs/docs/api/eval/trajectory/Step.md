@@ -20,7 +20,7 @@ One tool or model step of an agent run.
 - [**started**](#agrag-eval-trajectory-Step-started) (<code>int</code>) – Start time in nanoseconds.
 - [**ended**](#agrag-eval-trajectory-Step-ended) (<code>int</code>) – End time in nanoseconds.
 - [**subagent**](#agrag-eval-trajectory-Step-subagent) (<code>str | None</code>) – The `subagent_type` of the nearest ancestor `task`
-  span, or None for a planner step.
+  span, or None when no task span encloses it.
 
 ## `args` \{#agrag-eval-trajectory-Step-args}
 
