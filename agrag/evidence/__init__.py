@@ -9,6 +9,7 @@ from agrag.evidence.discover import discover
 from agrag.evidence.entities import explore, find_entities
 from agrag.evidence.fetch import fetch
 from agrag.evidence.navigate import navigate
+from agrag.evidence.source_status import source_status
 
 
 __all__ = [
@@ -18,4 +19,5 @@ __all__ = [
     "fetch",
     "find_entities",
     "navigate",
+    "source_status",
 ]
