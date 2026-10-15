@@ -10,6 +10,7 @@ store when connecting fails.
 import builtins
 import hashlib
 import logging
+import unicodedata
 from collections.abc import AsyncIterator, Callable, Mapping, Sequence
 from contextlib import AbstractAsyncContextManager
 from math import ceil
@@ -60,6 +61,7 @@ from agrag.common.data_models.presets import OPERATIONS
 from agrag.common.data_models.resolved_entity import (
     RESOLVED_ENTITY_LABEL,
 )
+from agrag.common.data_models.structure import version_id
 from agrag.common.data_models.vector_record import Distance, VectorHit
 from agrag.common.schema_fingerprint import RunRecord, run_record
 from agrag.embedding.base import Embedder
@@ -79,8 +81,9 @@ from agrag.ingestion.settings import (
     effective_mode,
 )
 from agrag.llm.client_config import LLMClientConfig
+from agrag.loaders.common import build_prose_document, text_sections
 from agrag.loaders.prose import TextLoader
-from agrag.loaders.types import ErrorPolicy, LoadStats, ReadOptions
+from agrag.loaders.types import ErrorPolicy, LoadStats, ReadOptions, SourceRef
 from agrag.schema import SchemaLoadError, load_schema
 from agrag.schema.loader import SchemaSource
 from tests.unit.ingestion._lease_fake import CutoverJobLeaseFake
@@ -181,6 +184,11 @@ class _MockGraphStore(CutoverJobLeaseFake, GraphStore):
     ) -> None:
         return None
 
+    async def ensure_fulltext_index(
+        self, *, label: str, properties: Sequence[str]
+    ) -> None:
+        return None
+
     async def vector_search(
         self,
         *,
@@ -274,10 +282,27 @@ def _graph_record(graph: Graph) -> RunRecord:
     )
 
 
-def _matching_chunk_row(graph: Graph) -> dict[str, str | None]:
-    """Return the stamps of an open chunk written by the graph's current run."""
+def _stored_version_id(graph: Graph, text: str) -> str:
+    """Return the version id that an update with ``text`` writes under this graph."""
+    normalized = unicodedata.normalize("NFKC", text)
+    document = build_prose_document(
+        source=SourceRef(uri="memory://doc", extension=".txt"),
+        text=normalized,
+        encoding="utf-8",
+        source_format=SourceFormat.TXT,
+        loader_name="inline",
+        opts=ReadOptions(),
+        title="inline",
+        sections=text_sections(normalized),
+    )
+    return version_id(_graph_record(graph).stamp(document))
+
+
+def _matching_chunk_row(graph: Graph, text: str) -> dict[str, str | None]:
+    """Return the stamps of an open chunk that an update with ``text`` wrote."""
     record = _graph_record(graph)
     return {
+        "version_id": _stored_version_id(graph, text),
         "chunker_hash": graph.chunker.fingerprint,
         "schema_fingerprint": record.schema_fingerprint,
         "extraction_fingerprint": record.extraction_fingerprint,
@@ -1040,7 +1065,7 @@ class TestGraphUpdate:
         monkeypatch.setattr(
             store,
             "execute_read",
-            _stored_version_reader(node_row, [_matching_chunk_row(graph)]),
+            _stored_version_reader(node_row, [_matching_chunk_row(graph, "Ｋ")]),
         )
         writes = AsyncMock(return_value=[])
         monkeypatch.setattr(store, "execute_write", writes)
@@ -1056,6 +1081,27 @@ class TestGraphUpdate:
 
         with pytest.raises(ValueError, match="exactly one"):
             await graph.update("memory://doc", text="new", source="other.txt")
+
+    async def test_update_rejects_a_prebuilt_document_with_another_key(self) -> None:
+        """A prebuilt document must carry the key that the update names."""
+        graph = await _open_graph()
+        other = "memory://other"
+        note = "A short note."
+        document = Document(
+            text=note,
+            title="note",
+            uri=other,
+            document_key=other,
+            source_format=SourceFormat.TXT,
+            family=DocumentFamily.PROSE,
+            content_hash=hashlib.sha256(note.encode("utf-8")).hexdigest(),
+            loader_name="inline",
+            char_count=len(note),
+            line_count=1,
+        )
+
+        with pytest.raises(ValueError, match="does not match the update key"):
+            await graph.update("memory://doc", document=document)
 
     async def test_update_reads_a_single_file_source(self) -> None:
         """Update accepts a loader-backed single-file source."""
@@ -1185,7 +1231,10 @@ class TestGraphFailurePolicies:
             "id": str(uuid4()),
             "current_content_hash": document.content_hash,
         }
-        chunk_row = {**_matching_chunk_row(retry_graph), "extraction_fingerprint": None}
+        chunk_row = {
+            **_matching_chunk_row(retry_graph, note),
+            "extraction_fingerprint": None,
+        }
         monkeypatch.setattr(
             store,
             "execute_read",
@@ -1396,7 +1445,9 @@ class TestGraphChunking:
         graph, store = await self._open()
 
         assert (
-            await self._update(graph, store, chunk_rows=[_matching_chunk_row(graph)])
+            await self._update(
+                graph, store, chunk_rows=[_matching_chunk_row(graph, self._TEXT)]
+            )
             is True
         )
 
@@ -1423,7 +1474,7 @@ class TestGraphChunking:
     ) -> None:
         """A changed or missing stamp on the open chunk means the update runs."""
         graph, store = await self._open()
-        chunk_row = {**_matching_chunk_row(graph), **stamp_overrides}
+        chunk_row = {**_matching_chunk_row(graph, self._TEXT), **stamp_overrides}
 
         assert await self._update(graph, store, chunk_rows=[chunk_row]) is False
 

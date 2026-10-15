@@ -307,6 +307,26 @@ class GraphStore(ABC):
         """
 
     @abstractmethod
+    async def ensure_fulltext_index(
+        self, *, label: str, properties: Sequence[str]
+    ) -> None:
+        """Create a full-text index over node properties if it does not exist.
+
+        The index is built from the node text of the given properties. Its
+        name is derived from the label and the properties, so a repeated call
+        with the same arguments does nothing.
+
+        Args:
+            label: The node label to index.
+            properties: The property names to index. Each must be a safe
+                identifier.
+
+        Raises:
+            ValueError: ``properties`` is empty, or a name is not a safe
+                identifier.
+        """
+
+    @abstractmethod
     async def vector_search(
         self,
         *,

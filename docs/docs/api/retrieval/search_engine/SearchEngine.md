@@ -47,8 +47,7 @@ retrieval spans.
   schema is what native search and generated Cypher both
   read. Omit it and let the schema drive both.
 - **graph_schema** (<code>[GraphSchema](../../common/data_models/graph_schema/GraphSchema.md) | None</code>) – The graph's declared schema, ground truth for
-  native entity labels and for generated Cypher. None uses
-  `DEFAULT_SCHEMA`.
+  native entity labels. None uses `DEFAULT_SCHEMA`.
 - **tracer** (<code>Tracer | None</code>) – Opens the search span and flows to every retriever
   and free function the engine calls. None opens no
   recorded span.

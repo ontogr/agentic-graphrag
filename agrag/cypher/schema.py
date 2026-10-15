@@ -4,6 +4,7 @@ Leaf module: imports nothing from ``agrag.graphdb``. See ``entities.py`` for the
 identifier-validation contract shared by every Cypher builder.
 """
 
+from collections.abc import Sequence
 from typing import Any
 
 from agrag.common.data_models.candidate import CANDIDATE_LABEL
@@ -370,3 +371,51 @@ def vector_search_query(
             query += f"AND {where.removeprefix('WHERE ')} "
     query += "RETURN node, score"
     return query, params
+
+
+def fulltext_index_name(label: str, properties: Sequence[str]) -> str:
+    """Derive the deterministic name a full-text index is created under.
+
+    Like ``vector_index_name``, each component is length-prefixed so that
+    different label and property lists cannot produce the same name.
+    ``ensure_fulltext_index`` and the evidence queries both call this function.
+
+    Args:
+        label: The node label. Must already be validated.
+        properties: The indexed property names. Each must already be validated.
+
+    Returns:
+        The index name.
+
+    Raises:
+        ValueError: ``properties`` is empty.
+    """
+    safe_label = validate_identifier(label)
+    if not properties:
+        raise ValueError("a full-text index needs at least one property")
+    encoded = "_".join(
+        f"{len(name)}_{name}" for name in (validate_identifier(p) for p in properties)
+    )
+    return f"idx_{len(safe_label)}_{safe_label}_{encoded}_fulltext"
+
+
+def fulltext_index_query(label: str, properties: Sequence[str]) -> str:
+    """Build a CREATE FULLTEXT INDEX query over the given node properties.
+
+    Args:
+        label: The node label. Must already be validated.
+        properties: The property names to index. Each must already be validated.
+
+    Returns:
+        A Cypher query creating the full-text index if absent.
+
+    Raises:
+        ValueError: ``properties`` is empty.
+    """
+    safe_label = validate_identifier(label)
+    name = fulltext_index_name(safe_label, properties)
+    fields = ", ".join(f"n.{validate_identifier(p)}" for p in properties)
+    return (
+        f"CREATE FULLTEXT INDEX {name} IF NOT EXISTS "
+        f"FOR (n:{safe_label}) ON EACH [{fields}]"
+    )

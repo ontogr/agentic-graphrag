@@ -13,7 +13,16 @@ from agrag.cypher.relations import (
 )
 
 
-STRUCTURE_TYPES = ("HAS_PART", "HAS_CHILD", "HAS_DOCUMENT", "MENTIONED_IN", "MEMBER_OF")
+STRUCTURE_TYPES = (
+    "HAS_PART",
+    "HAS_CHILD",
+    "HAS_DOCUMENT",
+    "HAS_ACTIVATION",
+    "HAS_EVENT",
+    "HAS_STEP",
+    "MENTIONED_IN",
+    "MEMBER_OF",
+)
 
 
 class TestRelationListings:
@@ -35,7 +44,10 @@ class TestRelationListings:
 class TestBfsExpansion:
     """A traversal never returns a structure node as a neighbor."""
 
-    @pytest.mark.parametrize("label", ["Chunk", "Section", "Table", "Figure", "Source"])
+    @pytest.mark.parametrize(
+        "label",
+        ["Chunk", "Section", "Table", "Figure", "Source", "DocumentActivation"],
+    )
     def test_structure_labels_are_excluded(self, label: str) -> None:
         """A path may pass through a chunk, but the result is never one."""
         query, _ = bfs_expand_query()

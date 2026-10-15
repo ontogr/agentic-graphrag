@@ -1,1 +1,1 @@
-"""Retriever implementations for entity, chunk, BFS, and text2cypher search."""
+"""Retriever implementations for entity, chunk, BFS, and community search."""

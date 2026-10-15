@@ -10,6 +10,7 @@ from agrag.loaders.base import ProseLoader
 from agrag.loaders.common import (
     EXTENSION_FORMAT,
     build_prose_document,
+    raw_source_hash,
     read_within_limit,
     source_title,
     text_sections,
@@ -58,6 +59,7 @@ class TextLoader(ProseLoader):
             opts=opts,
             title=source_title(source),
             sections=text_sections(decoded.text),
+            source_hash=raw_source_hash(raw),
         )
 
 
@@ -105,4 +107,5 @@ class XmlLoader(ProseLoader):
             opts=opts,
             title=source_title(source),
             sections=text_sections(text),
+            source_hash=raw_source_hash(raw),
         )

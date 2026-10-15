@@ -9,7 +9,7 @@ from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Literal, TypeVar
-from uuid import UUID, uuid4
+from uuid import NAMESPACE_OID, UUID, uuid4, uuid5
 
 from opentelemetry.trace import Tracer
 
@@ -30,7 +30,10 @@ from agrag.cypher.cutover_job_write import (
     start_cleaning_query,
     steal_terminal_job_query,
 )
-from agrag.cypher.documents import set_chunk_extraction_fingerprint_query
+from agrag.cypher.documents import (
+    record_activation_query,
+    set_chunk_extraction_fingerprint_query,
+)
 from agrag.cypher.relations import (
     delete_document_mentions_query,
     retract_document_relation_evidence_query,
@@ -38,7 +41,10 @@ from agrag.cypher.relations import (
 from agrag.graphdb.base import GraphStore, GraphStoreTransaction
 from agrag.graphdb.errors import GraphStoreConstraintViolationError
 from agrag.ingestion._deferred import replay_deferred
-from agrag.ingestion._document_lifecycle import close_open_has_part_edges
+from agrag.ingestion._document_lifecycle import (
+    DocumentChange,
+    close_open_has_part_edges,
+)
 from agrag.ingestion._pending_rows import (
     clear_job_tags,
     fold_job_relations,
@@ -296,6 +302,24 @@ def _component_seed_ids(components: Sequence[MatchComponent]) -> list[UUID]:
     ]
 
 
+def _activation_params(job_id: UUID, change: DocumentChange) -> dict[str, object]:
+    """Return the parameters of the activation record one job writes.
+
+    The record id depends only on the job id, so a retried commit names the
+    same record.
+    """
+    return {
+        "document_node_id": str(change.document_node_id),
+        "id": str(uuid5(NAMESPACE_OID, f"DocumentActivation:{job_id}")),
+        "document_key": change.document_key,
+        "verb": change.verb,
+        "content_hash": change.content_hash,
+        "previous_content_hash": change.previous_content_hash,
+        "version_id": change.version_id,
+        "job_id": str(job_id),
+    }
+
+
 async def _commit_pending_writes(
     *,
     job_id: UUID,
@@ -308,6 +332,7 @@ async def _commit_pending_writes(
     created_entity_ids: Sequence[UUID],
     deferred: DeferredWrites,
     in_place: InPlaceRefresh | None,
+    change: DocumentChange | None,
 ) -> int:
     """Expose pending writes, close old edges and replace pending candidates.
 
@@ -320,6 +345,8 @@ async def _commit_pending_writes(
     the new extraction fingerprint, unless it is ``None``. The job's new
     relations are folded into their canonical ids in the same transaction, and
     the commit is retried when two jobs promote one relation at the same moment.
+    When ``change`` is set, its activation record is written in the same
+    transaction, after the old edges are closed.
     """
     job_arg = str(job_id)
     token_arg = str(token)
@@ -385,6 +412,10 @@ async def _commit_pending_writes(
                 delete_stale_candidates_query(),
                 {"document_node_id": str(candidate_document_node_id)},
             )
+        if change is not None:
+            await txn.execute_write(
+                record_activation_query(), _activation_params(job_id, change)
+            )
         await txn.execute_write(
             record_parts_closed_query(),
             {"job_id": job_arg, "parts_closed": parts_closed},
@@ -419,6 +450,7 @@ async def run_cutover_job(
     keep_node_ids: Sequence[UUID] = (),
     candidate_document_node_id: UUID | None = None,
     created_entity_ids: Sequence[UUID] = (),
+    change: DocumentChange | None = None,
     tracer: Tracer | None = None,
 ) -> tuple[T, S, int]:
     """Run one cutover job under a lease, from pending writes to cleanup.
@@ -446,6 +478,9 @@ async def run_cutover_job(
         created_entity_ids: The entities the job created. The pending write
             fills this list, so it is read after that write, like
             ``keep_node_ids``.
+        change: The committed document change the commit records as an
+            activation. None for a job that changes no content, such as an
+            in-place refresh.
         tracer: Opens the job span. None disables it.
 
     Returns:
@@ -495,6 +530,7 @@ async def run_cutover_job(
                 keep_node_ids=keep_node_ids,
                 created_entity_ids=created_entity_ids,
                 deferred=deferred,
+                change=change,
                 stop_renewal=stop_renewal,
                 renewal_stopped=renewal_stopped,
             )
@@ -534,6 +570,7 @@ async def _run_leased(
     keep_node_ids: Sequence[UUID],
     created_entity_ids: Sequence[UUID],
     deferred: DeferredWrites,
+    change: DocumentChange | None,
     stop_renewal: asyncio.Event,
     renewal_stopped: asyncio.Event,
 ) -> tuple[T, S, int]:
@@ -557,6 +594,7 @@ async def _run_leased(
             created_entity_ids=created,
             deferred=deferred,
             in_place=in_place,
+            change=change,
         )
     )
     try:

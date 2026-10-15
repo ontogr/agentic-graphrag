@@ -102,7 +102,7 @@ Class: `ExtractionLLMSettings`. Prefix: `EXTRACTION_LLM_`.
 
 `ExtractionLLMSettings.from_openai_compatible_env()` builds one `openai-generic` client from `LLM_BASE_URL`, `LLM_API_KEY`, and `LLM_MODEL_ID`. It raises `RuntimeError` when `LLM_BASE_URL` or `LLM_MODEL_ID` is missing.
 
-`ExtractionLLMSettings` also configures the LLM calls that summarize merged descriptions, verify entity matches, write community reports, and generate Cypher. All of them read the same clients, strategy and retry values.
+`ExtractionLLMSettings` also configures the LLM calls that summarize merged descriptions, verify entity matches, and write community reports. All of them read the same clients, strategy and retry values.
 
 ### Agent
 
@@ -172,8 +172,6 @@ Class: `RetrievalSettings`. Prefix: `RETRIEVAL_`.
 | `RETRIEVAL_RERANKER_MIN_SCORE` | none | Drop results below this score after reranking. None keeps all. |
 | `RETRIEVAL_NODE_DISTANCE_SEED_TOP_K` | `3` | How many top entity hits seed the node-distance reranker. |
 | `RETRIEVAL_CROSS_ENCODER_MODEL` | `cross-encoder/ms-marco-MiniLM-L-6-v2` | The cross-encoder for reranking. |
-| `RETRIEVAL_TEXT2CYPHER_TIMEOUT_SECONDS` | `10.0` | The server-side timeout for a generated query. None uses the server default. |
-| `RETRIEVAL_TEXT2CYPHER_MAX_ROWS` | `1000` | The maximum rows a generated query returns. |
 
 ## Ingestion
 

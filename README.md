@@ -34,7 +34,8 @@ A plain vector search finds passages that look like your question. It cannot joi
 - Tiered entity resolution combining exact, fuzzy, embedding, and LLM-verified matching. An unsure comparison never matches.
 - Non-destructive matching. Fuzzy, embedding, and LLM matches write `MATCHES` edges and a derived `ResolvedEntity`. The original entities and their provenance stay in the graph.
 - Neo4j as the single store for graph data and native vector search.
-- Layered retrieval across entities, chunks, community reports, graph neighborhoods, and generated Cypher, with rank fusion and reranking.
+- Layered retrieval across entities, chunks, community reports, and graph neighborhoods, with rank fusion and reranking.
+- Evidence discovery and fetch across active document sources, with citation checks.
 - Agentic plan-research-verify loop that decomposes questions, gathers evidence, checks it, and produces cited answers.
 - OpenTelemetry-native observability across loading, chunking, extraction, resolution, storage, retrieval, and agent turns.
 
@@ -98,7 +99,7 @@ Leiden clustering groups related entities into communities. `Graph.detect_commun
 
 Load OWL and RDFS Turtle ontologies with `load_schema("ontology.ttl")` after installing the `schema-formats` extra. See the [OWL and RDFS Turtle import reference](https://ontogr.github.io/agentic-graphrag/stable/reference/owl-import).
 
-Use `DEFAULT_SCHEMA` for general text, or provide a schema for a specific domain. The schema guides extraction and validation, and supplies type information to retrieval and query generation.
+Use `DEFAULT_SCHEMA` for general text, or provide a schema for a specific domain. The schema guides extraction and validation, and supplies type information to retrieval.
 
 Write a schema as a short dict, a list of labels or a YAML file. `extends` builds on the default schema:
 
@@ -196,7 +197,6 @@ Retrieval composes small search methods into retrievers, runs them concurrently,
 - Entity retrieval finds entities and resolved entities by dense search and can expand matched seeds with bounded graph traversal.
 - Chunk retrieval returns source passages with document and span provenance.
 - Community retrieval searches community reports for thematic and corpus-wide questions.
-- Text-to-Cypher retrieval generates a schema-aware, read-only query with bounded retries.
 - Graph traversal uses bounded breadth-first search to collect connected evidence.
 
 | Recipe | Search methods | Extra steps |
@@ -207,7 +207,6 @@ Retrieval composes small search methods into retrievers, runs them concurrently,
 | `HYBRID_RERANKED` | Entity + chunk | Community reports, cross-encoder rerank |
 | `GRAPH_EXPAND` | Entity | Graph walk, community reports |
 | `THEMATIC` | Community | none |
-| `TEXT2CYPHER` | Text-to-Cypher | none |
 
 Reciprocal Rank Fusion merges the ranked lists, so no method's score scale takes over. A cross-encoder or graph-distance reranker can then set a new order. A recipe can ignore a failed or empty search branch and still return evidence from the remaining methods.
 
@@ -227,7 +226,7 @@ results = await engine.search("What treats headaches?", HYBRID)
 The agent coordinates three roles around the retrieval layer:
 
 - Planner: splits a question into two to four focused sub-questions and writes the final answer.
-- Researcher: searches the graph with entity, chunk, community, graph, and Cypher tools. Every evidence item keeps its citation key.
+- Researcher: searches the graph with entity, chunk, community, and graph tools. Every evidence item keeps its citation key.
 - Verifier: has no tools. It checks each sub-question against the cited evidence and returns one verdict.
 
 | Verdict | Meaning | Next step |
@@ -240,7 +239,7 @@ When the retry limit is reached, the planner answers from the evidence it has an
 
 ## Structured LLM Output
 
-BAML defines typed contracts for entity and relation extraction, entity-match verification, community reports, description summaries, and Cypher generation. Runtime client registries support a single provider, fallback chains, or round-robin routing. They route across OpenAI, Anthropic, AWS Bedrock, Google AI, Vertex AI, Azure OpenAI, and OpenAI-compatible endpoints. The agent uses an OpenAI-compatible endpoint that you set with `LLM_BASE_URL`, `LLM_API_KEY`, and `LLM_MODEL_ID`.
+BAML defines typed contracts for entity and relation extraction, entity-match verification, community reports, and description summaries. Runtime client registries support a single provider, fallback chains, or round-robin routing. They route across OpenAI, Anthropic, AWS Bedrock, Google AI, Vertex AI, Azure OpenAI, and OpenAI-compatible endpoints. The agent uses an OpenAI-compatible endpoint that you set with `LLM_BASE_URL`, `LLM_API_KEY`, and `LLM_MODEL_ID`.
 
 ## Observability and Failure Handling
 

@@ -358,7 +358,6 @@ class _InMemoryWalk:
             opts=replace(self._opts, normalization=self._normalization),
             title="inline",
             sections=text_sections(self._text) if self._opts.store_text else [],
-            content_hash=content_hash,
         )
         stats = LoadStats(
             documents=1, sources=1, bytes_read=len(self._text.encode("utf-8"))

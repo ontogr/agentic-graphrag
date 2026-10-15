@@ -29,12 +29,6 @@ class LlmResponseParser:
         __result__ = self.__options.merge_options(baml_options).parse_response(function_name="ExtractEntitiesAndRelations", llm_response=llm_response, mode="request")
         return typing.cast(types.BAMLExtractionResult, __result__)
 
-    def GenerateCypherQuery(
-        self, llm_response: str, baml_options: BamlCallOptions = {},
-    ) -> str:
-        __result__ = self.__options.merge_options(baml_options).parse_response(function_name="GenerateCypherQuery", llm_response=llm_response, mode="request")
-        return typing.cast(str, __result__)
-
     def SummarizeCommunities(
         self, llm_response: str, baml_options: BamlCallOptions = {},
     ) -> typing.List["types.CommunityReport"]:
@@ -66,12 +60,6 @@ class LlmStreamParser:
     ) -> stream_types.BAMLExtractionResult:
         __result__ = self.__options.merge_options(baml_options).parse_response(function_name="ExtractEntitiesAndRelations", llm_response=llm_response, mode="stream")
         return typing.cast(stream_types.BAMLExtractionResult, __result__)
-
-    def GenerateCypherQuery(
-        self, llm_response: str, baml_options: BamlCallOptions = {},
-    ) -> str:
-        __result__ = self.__options.merge_options(baml_options).parse_response(function_name="GenerateCypherQuery", llm_response=llm_response, mode="stream")
-        return typing.cast(str, __result__)
 
     def SummarizeCommunities(
         self, llm_response: str, baml_options: BamlCallOptions = {},

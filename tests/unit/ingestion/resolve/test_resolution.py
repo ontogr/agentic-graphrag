@@ -181,6 +181,10 @@ class TestResolveBatch:
         exact_id, other_id = uuid4(), uuid4()
         store.execute_read.side_effect = [
             [{"n": _node(exact_id, "Ada", "Person:ada")}],
+            [
+                {"n": _node(exact_id, "Ada", "Person:ada")},
+                {"n": _node(other_id, "Ada L.", "Person:ada l.")},
+            ],
             [],
         ]
         hits = [

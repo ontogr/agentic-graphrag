@@ -19,18 +19,19 @@ Shared data models used by agrag components.
 - [**document**](document/index.md) – The Document model: one unit of source text, before chunking.
 - [**dropped**](dropped/index.md) – Counts of items discarded during extraction or merge.
 - [**entity**](entity/index.md) – A permanent mention-level graph node, accumulated by exact-name matching.
+- [**evidence**](evidence/index.md) – Models for evidence references, discovery results, fetch outcomes and citations.
 - [**extraction**](extraction/index.md) – Pre-resolution entity and relation mentions produced by an Extractor.
 - [**graph_record**](graph_record/index.md) – Graph storage record shapes for GraphStore.
 - [**graph_schema**](graph_schema/index.md) – The GraphSchema contract: entity and relation types extraction validates against.
 - [**normalization**](normalization/index.md) – The Normalization model: how a loader turned source bytes into text.
 - [**presets**](presets/index.md) – Preset schema fragments that add entity types to a base schema.
 - [**provenance**](provenance/index.md) – Provenance types for a chunk.
-- [**query_value**](query_value/index.md) – A result row returned by a direct graph query.
 - [**relation**](relation/index.md) – The canonical, deduped graph relationship that merge mechanics produces.
 - [**resolved_entity**](resolved_entity/index.md) – Identity clusters for non-destructive entity resolution.
 - [**search_result**](search_result/index.md) – One retrieved item, tagged with source and relevance score.
 - [**stage_failure**](stage_failure/index.md) – Per-stage failure record and its per-call cap.
 - [**structure**](structure/index.md) – Stable keys, node ids, reading order and ancestry for the sections of a Document.
+- [**task**](task/index.md) – Models for durable task state: tasks, raw events, steps and resume views.
 - [**update_decision**](update_decision/index.md) – Outcomes for updating a stored document.
 - [**vector_record**](vector_record/index.md) – Vector index types shared by the graph store and retrieval.
 

@@ -44,7 +44,6 @@ from agrag.retrieval.retrievers.bfs import BFSRetriever
 from agrag.retrieval.retrievers.chunk import ChunkRetriever
 from agrag.retrieval.retrievers.community import CommunityRetriever
 from agrag.retrieval.retrievers.entity import EntityRetriever
-from agrag.retrieval.retrievers.text2cypher import Text2CypherRetriever
 from agrag.retrieval.settings import RetrievalSettings
 from agrag.retrieval.tracing import record_results, retrieval_span
 
@@ -91,8 +90,7 @@ class SearchEngine:
                 schema is what native search and generated Cypher both
                 read. Omit it and let the schema drive both.
             graph_schema: The graph's declared schema, ground truth for
-                native entity labels and for generated Cypher. None uses
-                ``DEFAULT_SCHEMA``.
+                native entity labels. None uses ``DEFAULT_SCHEMA``.
             tracer: Opens the search span and flows to every retriever
                 and free function the engine calls. None opens no
                 recorded span.
@@ -557,12 +555,6 @@ class SearchEngine:
             "community": CommunityRetriever(
                 graph_store=self._graph_store,
                 embedder=self._embedder,
-                settings=self._settings,
-                tracer=self._tracer,
-            ),
-            "text2cypher": Text2CypherRetriever(
-                graph_store=self._graph_store,
-                schema=self._graph_schema,
                 settings=self._settings,
                 tracer=self._tracer,
             ),

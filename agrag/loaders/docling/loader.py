@@ -128,7 +128,7 @@ class DoclingLoader(ProseLoader):
             opts=opts,
             title=title or source_title(source),
             sections=sections,
-            content_hash=hashlib.sha256(raw).hexdigest(),
+            source_hash=hashlib.sha256(raw).hexdigest(),
             loader_version=loader_version,
         )
 
