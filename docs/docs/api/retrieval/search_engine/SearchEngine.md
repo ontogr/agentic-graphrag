@@ -55,12 +55,11 @@ nest under these retrieval spans.
   against, one vector index each, as provisioned by
   `Graph.open`. Retained as a checked input only: it must
   name exactly the labels graph_schema declares, since the
-  schema is what native search and generated Cypher both
-  read. Omit it and let the schema drive both. Ignored when
-  a vector_store is configured.
+  schema is what native search reads. Omit it and let the
+  schema drive search. Ignored when a vector_store is
+  configured.
 - **graph_schema** (<code>[GraphSchema](../../common/data_models/graph_schema/GraphSchema.md) | None</code>) – The graph's declared schema, ground truth for
-  native entity labels and for generated Cypher. None uses
-  `DEFAULT_SCHEMA`.
+  native entity labels. None uses `DEFAULT_SCHEMA`.
 - **tracer** (<code>Tracer | None</code>) – Opens the search span and flows to every retriever
   and free function the engine calls. None opens no
   recorded span.

@@ -772,6 +772,7 @@ async def update_document(  # noqa: PLR0913
     *,
     text: str | None,
     source: SourcesType | None,
+    document: Document | None,
     loader: Loader | None,
     error_policy: ErrorPolicy,
     read_options: ReadOptions | None,
@@ -796,11 +797,20 @@ async def update_document(  # noqa: PLR0913
 ) -> UpdateResult:
     """Replace one document version. ``Graph.update`` documents the arguments."""
     with tracer.start_as_current_span("agrag.ingestion.update"):
-        if (text is None) == (source is None):
-            raise ValueError("Provide exactly one of 'text' or 'source'.")
+        given = sum(x is not None for x in (text, source, document))
+        if given != 1:
+            raise ValueError(
+                f"Provide exactly one of 'text', 'source', or 'document'; got {given}."
+            )
 
         opts = read_options or ReadOptions()
-        if text is not None:
+        if document is not None:
+            if document.resolved_document_key != document_key:
+                raise ValueError(
+                    f"The document key {document.resolved_document_key!r} does not "
+                    f"match the update key {document_key!r}."
+                )
+        elif text is not None:
             normalized, normalization = normalize_inline_text(text, opts)
             content_hash = hashlib.sha256(normalized.encode("utf-8")).hexdigest()
             document = build_prose_document(

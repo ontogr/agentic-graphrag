@@ -43,7 +43,6 @@ def _reply_for(mode: str) -> str:
         "slow-first": "[]",
         "408-first": "[]",
         "verify": "[]",
-        "cypher": "MATCH (n) RETURN n",
         "flaky": "[]",
     }.get(mode, "merged description")
 

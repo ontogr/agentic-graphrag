@@ -9,23 +9,18 @@ way the agent does (``tool.ainvoke``) and checks what the agent would read:
   out-of-scope data, and a tool argument cannot widen the scope;
 - traversal follows direction and depth and never reaches the disconnected
   component;
-- the node-distance reranker puts closer entities first;
-- the generated-Cypher tool, with a fixed query generator, runs read queries
-  and refuses write queries and CALL procedures with side effects, and the
-  graph is unchanged afterwards.
+- the node-distance reranker puts closer entities first.
 
 The run writes ``reports/e2e/agent_tools.json``. The test reads it back and
 asserts on the content. Labels, document keys and ids carry a random suffix in
 the database, but the artifact holds stable names only.
 """
 
-import ast
 import hashlib
 import importlib.util
 import re
 from collections.abc import AsyncGenerator, Sequence
 from contextlib import asynccontextmanager
-from unittest.mock import AsyncMock, patch
 from uuid import uuid4
 
 import pytest
@@ -46,7 +41,6 @@ from agrag.common.data_models.extraction import (
 )
 from agrag.common.data_models.graph_schema import EntityType, GraphSchema, RelationType
 from agrag.cypher.entities import validate_identifier
-from agrag.cypher.safety import UnsafeCypherError, reject_write_cypher
 from agrag.embedding.base import Embedder
 from agrag.graphdb import build_graph_store
 from agrag.graphdb.base import GraphStore
@@ -266,7 +260,6 @@ async def _seed_graph(*, one_add_call: bool) -> AsyncGenerator[dict, None]:
         "org": validate_identifier(f"Org_{suffix}"),
         "place": validate_identifier(f"Place_{suffix}"),
     }
-    injected_label = validate_identifier(f"Injected_{suffix}")
     schema = GraphSchema(
         name="agent_tools_e2e",
         version="1",
@@ -313,7 +306,7 @@ async def _seed_graph(*, one_add_call: bool) -> AsyncGenerator[dict, None]:
         embedder=embedder,
         extractor=_TripleExtractor(labels),
     )
-    all_labels = [*labels.values(), injected_label]
+    all_labels = list(labels.values())
     try:
         if one_add_call:
             await graph.add(documents=[main, other], error_policy="skip")
@@ -326,7 +319,6 @@ async def _seed_graph(*, one_add_call: bool) -> AsyncGenerator[dict, None]:
             "schema": schema,
             "labels": labels,
             "suffix": suffix,
-            "injected_label": injected_label,
             "all_labels": all_labels,
             "main_id": document_ids[0],
             "other_id": document_ids[1],
@@ -456,7 +448,6 @@ async def test_agent_tools_over_seeded_graph(  # noqa: PLR0915
     person_tools = make_tools(
         engine, Ledger(), filters=SearchFilters(labels=[labels["person"]])
     )
-    assert "query_graph_directly" not in {tool.name for tool in person_tools}
     scoped_lookup = await _tool(person_tools, "look_up_entity").ainvoke(
         {"query": "Acme"}
     )
@@ -582,139 +573,6 @@ async def test_agent_tools_over_seeded_graph(  # noqa: PLR0915
             sorted(order[1:4]),
             sorted(order[4:]),
         ],
-    }
-
-    # Generated Cypher with a fixed generator.
-    org, person = labels["org"], labels["person"]
-    before = await _snapshot(store, env["all_labels"], env["document_ids"])
-
-    async def ask(cypher: str | list[str], tool_engine: SearchEngine = engine) -> str:
-        generator = (
-            AsyncMock(side_effect=cypher)
-            if isinstance(cypher, list)
-            else AsyncMock(return_value=cypher)
-        )
-        cypher_tools = make_tools(tool_engine, Ledger())
-        with patch("agrag.llm.baml_client.b.GenerateCypherQuery", generator):
-            return await _tool(cypher_tools, "query_graph_directly").ainvoke(
-                {"query": "a question"}
-            )
-
-    read_orgs = await ask(f"MATCH (n:{org}) WHERE n._pending_job_id IS NULL RETURN n")
-    assert sorted(names(read_orgs)) == ["Acme", "Globex", "Zeta"]
-    fenced = await ask(
-        f"```cypher\nMATCH (n:{org}) WHERE n._pending_job_id IS NULL RETURN n\n```"
-    )
-    assert sorted(names(fenced)) == ["Acme", "Globex", "Zeta"]
-    recovered = await ask(
-        [
-            f"MATCH (n:{org} WHERE n._pending_job_id IS NULL RETURN n",
-            f"MATCH (n:{org}) WHERE n._pending_job_id IS NULL RETURN n",
-        ]
-    )
-    assert sorted(names(recovered)) == ["Acme", "Globex", "Zeta"]
-    founders = await ask(
-        f"MATCH (a:{person})-[r:FOUNDED]->(b:{org}) "
-        "WHERE a._pending_job_id IS NULL AND r._pending_job_id IS NULL "
-        "AND b._pending_job_id IS NULL "
-        "RETURN a.name AS founder, b.name AS company ORDER BY founder"
-    )
-    founder_rows = [
-        ast.literal_eval(match) for match in re.findall(r"Value: (\{.*\})", founders)
-    ]
-    assert founder_rows == [
-        {"founder": "Alice", "company": "Acme"},
-        {"founder": "Zed", "company": "Zeta"},
-    ]
-    commented = await ask(
-        f"MATCH (n:{org}) /* CREATE */ WHERE n._pending_job_id IS NULL "
-        "AND n.name <> 'it\\'s DELETE' RETURN n // MERGE"
-    )
-    assert sorted(names(commented)) == ["Acme", "Globex", "Zeta"]
-    quoted_keyword = await ask(
-        f"MATCH (n:{org}) WHERE n._pending_job_id IS NULL "
-        "AND n.name = 'CREATE or DELETE' RETURN n"
-    )
-    assert quoted_keyword == "No results found."
-    capped = await ask(
-        f"MATCH (n:{org}) WHERE n._pending_job_id IS NULL RETURN n.name AS name",
-        _engine(env, text2cypher_max_rows=2),
-    )
-    assert len(re.findall(r"Value: ", capped)) == 2
-    uncapped = await ask(
-        f"MATCH (n:{org}) WHERE n._pending_job_id IS NULL RETURN n.name AS name"
-    )
-    assert len(re.findall(r"Value: ", uncapped)) == 3
-
-    counts: dict[str, int] = {}
-    for kind in ("person", "org", "place"):
-        rendered = await ask(
-            f"MATCH (n:{labels[kind]}) WHERE n._pending_job_id IS NULL "
-            "RETURN count(n) AS total"
-        )
-        counts[kind] = ast.literal_eval(re.findall(r"Value: (\{.*\})", rendered)[0])[
-            "total"
-        ]
-    assert counts == {"person": 3, "org": 3, "place": 1}
-    total = await call(
-        "compute_over_evidence", operation="sum", values=list(counts.values())
-    )
-    assert total == "7"
-    assert (
-        await call(
-            "compute_over_evidence",
-            operation="compare",
-            values=[counts["person"], counts["place"]],
-            compare_op="gt",
-        )
-        == "true"
-    )
-    assert (
-        await call("compute_over_evidence", operation="count", values=[1, 2, 3]) == "3"
-    )
-    assert "exactly two" in await call(
-        "compute_over_evidence", operation="compare", values=[1, 2, 3], compare_op="eq"
-    )
-
-    injected = env["injected_label"]
-    write_queries = {
-        "create": f"CREATE (n:{injected} {{name: 'Injected'}}) RETURN n",
-        "merge": f"MERGE (n:{injected} {{name: 'Injected'}}) RETURN n",
-        "detach_delete": f"MATCH (n:{org}) DETACH DELETE n",
-        "lowercase_delete": f"match (n:{org}) delete n",
-        "set": f"MATCH (n:{org}) SET n.name = 'Renamed' RETURN n",
-        "remove": f"MATCH (n:{org}) REMOVE n.name",
-        "call_side_effect": f"CALL db.createLabel('{injected}')",
-        "call_subquery": f"CALL {{ CREATE (n:{injected}) }} RETURN 1",
-    }
-    refusals: dict[str, str] = {}
-    for name, cypher in write_queries.items():
-        with pytest.raises(UnsafeCypherError):
-            reject_write_cypher(cypher)
-        outcome = await ask(cypher)
-        assert outcome.startswith("Error:"), name
-        refusals[name] = "refused"
-    unknown_label = await ask(
-        f"MATCH (n:Ghost_{injected}) WHERE n._pending_job_id IS NULL RETURN n"
-    )
-    assert unknown_label == "No results found."
-
-    after = await _snapshot(store, env["all_labels"], env["document_ids"])
-    assert after == before
-    assert len(after["nodes"]) == 7  # type: ignore[arg-type]
-    assert len(after["relations"]) == 5  # type: ignore[arg-type]
-    record["text2cypher"] = {
-        "org_names": sorted(names(read_orgs)),
-        "founder_rows": founder_rows,
-        "row_cap_2": 2,
-        "counts": counts,
-        "compute_sum": total,
-        "write_queries": refusals,
-        "unknown_label_rows": 0,
-        "nodes_before": len(before["nodes"]),  # type: ignore[arg-type]
-        "nodes_after": len(after["nodes"]),  # type: ignore[arg-type]
-        "relations_before": len(before["relations"]),  # type: ignore[arg-type]
-        "relations_after": len(after["relations"]),  # type: ignore[arg-type]
     }
 
     artifact = write_artifact("agent_tools", record)

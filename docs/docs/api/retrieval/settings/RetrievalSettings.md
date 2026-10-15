@@ -40,14 +40,6 @@ Configuration for retrieval methods and fusion.
   matters.
 - [**reranker_min_score**](#agrag-retrieval-settings-RetrievalSettings-reranker_min_score) (<code>float | None</code>) – Results scoring below this after rerank
   are dropped. None disables the threshold.
-- [**text2cypher_timeout_seconds**](#agrag-retrieval-settings-RetrievalSettings-text2cypher_timeout_seconds) (<code>float | None</code>) – Server-side transaction timeout
-  applied to generated read queries. The database terminates
-  a generated query that runs longer, so a pathological
-  query cannot hold server resources indefinitely. None
-  uses the server's default timeout.
-- [**text2cypher_max_rows**](#agrag-retrieval-settings-RetrievalSettings-text2cypher_max_rows) (<code>int</code>) – Maximum rows a generated read query may
-  return. Appended as a LIMIT clause when the generated
-  query declares none of its own.
 - [**cross_encoder_model**](#agrag-retrieval-settings-RetrievalSettings-cross_encoder_model) (<code>str</code>) – The sentence-transformers CrossEncoder model
   used for cross_encoder reranking. Env:
   RETRIEVAL_CROSS_ENCODER_MODEL.
@@ -150,18 +142,6 @@ resolved_entity_top_k: int = 10
 
 ```python
 rrf_k: int = 60
-```
-
-## `text2cypher_max_rows` \{#agrag-retrieval-settings-RetrievalSettings-text2cypher_max_rows}
-
-```python
-text2cypher_max_rows: int = 1000
-```
-
-## `text2cypher_timeout_seconds` \{#agrag-retrieval-settings-RetrievalSettings-text2cypher_timeout_seconds}
-
-```python
-text2cypher_timeout_seconds: float | None = 10.0
 ```
 
 ## `traversal_depth` \{#agrag-retrieval-settings-RetrievalSettings-traversal_depth}
