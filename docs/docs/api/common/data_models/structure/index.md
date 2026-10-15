@@ -23,7 +23,9 @@ Stable keys, node ids, reading order and ancestry for the sections of a Document
 
 **Attributes:**
 
+- [**DOCUMENT_ACTIVATION_LABEL**](DOCUMENT_ACTIVATION_LABEL.md) –
 - [**FIGURE_LABEL**](FIGURE_LABEL.md) –
+- [**HAS_ACTIVATION**](HAS_ACTIVATION.md) –
 - [**HAS_CHILD**](HAS_CHILD.md) –
 - [**HAS_DOCUMENT**](HAS_DOCUMENT.md) –
 - [**HAS_PART**](HAS_PART.md) –

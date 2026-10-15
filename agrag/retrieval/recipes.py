@@ -54,4 +54,3 @@ HYBRID_RERANKED = Recipe(
 )
 GRAPH_EXPAND = Recipe(methods=["entity"], bfs=True, limit=20, community_expand=True)
 THEMATIC = Recipe(methods=["community"], limit=5)
-TEXT2CYPHER = Recipe(methods=["text2cypher"], limit=10)

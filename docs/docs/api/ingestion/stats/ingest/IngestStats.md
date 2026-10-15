@@ -16,6 +16,7 @@ Ingestion-stage results.
 - [**quarantined_items**](#agrag-ingestion-stats-ingest-IngestStats-quarantined_items) (<code>list\[[StageFailure](../../../common/data_models/stage_failure/StageFailure.md)\]</code>) –
 - [**skipped**](#agrag-ingestion-stats-ingest-IngestStats-skipped) (<code>int</code>) –
 - [**sources**](#agrag-ingestion-stats-ingest-IngestStats-sources) (<code>int</code>) –
+- [**unchanged**](#agrag-ingestion-stats-ingest-IngestStats-unchanged) (<code>int</code>) –
 
 ## `documents` \{#agrag-ingestion-stats-ingest-IngestStats-documents}
 
@@ -45,4 +46,10 @@ skipped: int = 0
 
 ```python
 sources: int = 0
+```
+
+## `unchanged` \{#agrag-ingestion-stats-ingest-IngestStats-unchanged}
+
+```python
+unchanged: int = 0
 ```

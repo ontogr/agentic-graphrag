@@ -25,6 +25,7 @@ from agrag.common.data_models.resolved_entity import (
     ResolvedEntity,
 )
 from agrag.common.data_models.structure import (
+    DOCUMENT_ACTIVATION_LABEL,
     FIGURE_LABEL,
     SECTION_LABEL,
     SOURCE_LABEL,
@@ -262,7 +263,8 @@ class Graph:
                 ``update()``.
             max_llm_pairs: The most ambiguous entity pairs that resolution sends
                 to the LLM for each label. A lower value bounds the number of
-                verification calls and leaves more pairs undecided.
+                verification calls and leaves more pairs undecided. Zero sends
+                no pairs to the LLM.
         """
         self._schema = (
             schema if isinstance(schema, GraphSchema) else load_schema(schema)
@@ -390,6 +392,7 @@ class Graph:
                         *entity_labels,
                         CHUNK_LABEL,
                         COMMUNITY_LABEL,
+                        DOCUMENT_ACTIVATION_LABEL,
                         DOCUMENT_LABEL,
                         FIGURE_LABEL,
                         RESOLVED_ENTITY_LABEL,
@@ -547,9 +550,13 @@ class Graph:
 
         Give exactly one of ``source``, ``text``, and ``documents``.
 
-        ``add`` does not compare hashes. Adding a key that already exists
-        writes a second open version of the document; use ``update`` to
-        replace a document.
+        A key that already has a current version is handled as ``update``
+        handles it. Content that matches the stored version is skipped and
+        counted in ``ingestion.unchanged``, and changed content replaces the
+        current version. A key without a current
+        version, such as a new key or a deleted document, is added as a new
+        document. Calling ``add`` again with the same documents therefore writes
+        only what changed.
 
         If an extraction fails for a chunk, the document and its chunks are
         written without the extraction stamp, so the next ``update`` extracts
@@ -567,7 +574,8 @@ class Graph:
                 at the end with the fully-populated result.
             return_chunks: Whether to include the produced chunks in the
                 returned AddResult. False by default to avoid holding full text
-                for a large corpus when not needed.
+                for a large corpus when not needed. Chunks of a document that
+                is updated instead of added are not included.
             read_options: How loaders read sources, including the normalization of
                 decoded text. None uses ``ReadOptions()`` defaults.
 
@@ -638,6 +646,7 @@ class Graph:
         *,
         text: str | None = None,
         source: SourcesType | None = None,
+        document: Document | None = None,
         loader: Loader | None = None,
         error_policy: ErrorPolicy = ErrorPolicy.RAISE,
         read_options: ReadOptions | None = None,
@@ -676,9 +685,13 @@ class Graph:
 
         Args:
             document_key: The stable key of the document to replace.
-            text: Replacement text, exactly one of ``text``/``source``.
+            text: Replacement text. Give exactly one of ``text``, ``source``, and
+                ``document``.
             source: A single-file source, glob, or path list resolving to
                 exactly one document.
+            document: An already-built replacement Document. It skips loading and
+                normalization, so its text and ``content_hash`` are used as given.
+                Its ``resolved_document_key`` must equal ``document_key``.
             loader: A loader override for a single-file ``source``.
             error_policy: RAISE propagates a stage failure. Any other
                 policy records it and continues. Candidate storage failures
@@ -699,9 +712,10 @@ class Graph:
                 ``parts_closed=0``.
 
         Raises:
-            ValueError: Both or neither of ``text`` and ``source`` are given, a loader
-                override targets multiple sources, or a source resolves to any number
-                of documents other than one.
+            ValueError: Other than exactly one of ``text``, ``source``, and
+                ``document`` is given, a loader override targets multiple sources, a
+                source resolves to any number of documents other than one, or the
+                ``document`` key differs from ``document_key``.
 
         Note:
             The fresh-content path shares ``ingest_chunks()`` with
@@ -712,6 +726,7 @@ class Graph:
             document_key,
             text=text,
             source=source,
+            document=document,
             loader=loader,
             error_policy=error_policy,
             read_options=read_options,

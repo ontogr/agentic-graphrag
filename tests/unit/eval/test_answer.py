@@ -16,7 +16,6 @@ from pydantic import BaseModel
 
 from agrag.agents.ledger import Ledger
 from agrag.agents.result import AgentRunResult
-from agrag.common.data_models.query_value import QueryValue
 from agrag.common.data_models.resolved_entity import ResolvedEntity
 from agrag.common.data_models.search_result import SearchResult
 from agrag.eval.answer import (
@@ -61,7 +60,7 @@ class _ScriptedJudge(DeepEvalBaseLLM):
 
 
 def _result(answer: str) -> AgentRunResult:
-    """Build a run whose ledger holds one entity (E1) and one value (V1)."""
+    """Build a run whose ledger holds two entities, E1 and E2."""
     ledger = Ledger()
     ledger.render(
         SearchResult(
@@ -70,7 +69,13 @@ def _result(answer: str) -> AgentRunResult:
             method="entity",
         )
     )
-    ledger.render(SearchResult(item=QueryValue(value=94), score=1.0, method="cypher"))
+    ledger.render(
+        SearchResult(
+            item=ResolvedEntity(id=uuid4(), label="Company", name="Globex"),
+            score=1.0,
+            method="entity",
+        )
+    )
     return {
         "messages": [{"role": "assistant", "content": answer}],
         "ledger": ledger,
@@ -140,12 +145,12 @@ class TestAnswerCase:
         assert case.actual_output == "Acme [E1]."
         assert case.retrieval_context == [
             "[E1] Entity: Acme (Company)",
-            "[V1] Value: 94",
+            "[E2] Entity: Globex (Company)",
         ]
         assert case.metadata == {
             "citations": {
                 "E1": "[E1] Entity: Acme (Company)",
-                "V1": "[V1] Value: 94",
+                "E2": "[E2] Entity: Globex (Company)",
             }
         }
 
@@ -159,7 +164,7 @@ class TestCitationAccuracyMetric:
             "This is a supported claim [E1].",
             "This is a supported claim (E1).",
             "This is a supported claim E1.",
-            "This is a supported claim [E1, V1].",
+            "This is a supported claim [E1, E2].",
         ],
     )
     async def test_reads_every_key_style(self, answer: str) -> None:
@@ -203,7 +208,7 @@ class TestCitationAccuracyMetric:
 
     async def test_unsupported_sentence_lowers_precision(self) -> None:
         """The judge decides support from the cited evidence."""
-        answer = "This is a supported claim [E1]. This is an invented claim [V1]."
+        answer = "This is a supported claim [E1]. This is an invented claim [E2]."
 
         metric = await _score(answer)
 
@@ -230,7 +235,7 @@ class TestCitationAccuracyMetric:
         """U.S., Inc. and $6.7 billion stay inside one sentence."""
         answer = (
             "The U.S. Treasury bought Inc. Bonds worth $6.7 billion [E1]. "
-            "This is a supported claim [V1]."
+            "This is a supported claim [E2]."
         )
 
         metric = await _score(answer)
@@ -240,7 +245,7 @@ class TestCitationAccuracyMetric:
 
     async def test_splits_bullet_lines_into_sentences(self) -> None:
         """Each bullet line is its own sentence."""
-        answer = "- This is a supported claim [E1]\n- This is an invented claim [V1]"
+        answer = "- This is a supported claim [E1]\n- This is an invented claim [E2]"
 
         metric = await _score(answer)
 
@@ -277,7 +282,7 @@ class TestCitationAccuracyMetric:
         metric = CitationAccuracyMetric(_ScriptedJudge())
         case = answer_case(
             "q",
-            _result("This is a supported claim [E1]. This is an invented claim [V1]."),
+            _result("This is a supported claim [E1]. This is an invented claim [E2]."),
             "reference",
         )
 
@@ -300,7 +305,7 @@ class TestCitationAccuracyMetric:
 
     async def test_measure_rows_match_a_measure_rows(self) -> None:
         """The synchronous path records the same sentence rows as async."""
-        answer = "This is a supported claim [E1]. This is an invented claim [V1]."
+        answer = "This is a supported claim [E1]. This is an invented claim [E2]."
         sync_metric = CitationAccuracyMetric(_ScriptedJudge())
         sync_metric.measure(answer_case("q", _result(answer), "reference"))
         async_metric = await _score(answer)

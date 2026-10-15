@@ -15,12 +15,9 @@ from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
     InMemorySpanExporter,
 )
 
-from agrag.common.data_models.default_schema import DEFAULT_SCHEMA
 from agrag.common.data_models.vector_record import VectorHit
-from agrag.retrieval.retrievers import text2cypher as t2c_module
 from agrag.retrieval.retrievers.chunk import ChunkRetriever
 from agrag.retrieval.retrievers.entity import EntityRetriever
-from agrag.retrieval.retrievers.text2cypher import Text2CypherRetriever
 from agrag.retrieval.settings import RetrievalSettings
 
 
@@ -110,36 +107,3 @@ class TestEntityRetrieverSpans:
         entity_span = _named(exporter.get_finished_spans(), "agrag.retrieval.entity")[0]
         assert [e for e in entity_span.events if e.name == "exception"]
         assert entity_span.status.status_code.name == "ERROR"
-
-
-class TestText2CypherSpans:
-    """Text2CypherRetriever's execute_cypher spans."""
-
-    async def test_a_failed_generation_marks_the_span_error(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """A generation failure raises and marks the text2cypher span ERROR."""
-        provider, exporter = _provider()
-        tracer = provider.get_tracer("t")
-
-        async def _generate(self, question, *, failure_context=None):
-            raise RuntimeError("no baml client")
-
-        monkeypatch.setattr(
-            t2c_module.Text2CypherRetriever, "_generate_cypher", _generate
-        )
-        retriever = Text2CypherRetriever(
-            graph_store=AsyncMock(),
-            schema=DEFAULT_SCHEMA,
-            settings=RetrievalSettings(),
-            tracer=tracer,
-        )
-
-        with pytest.raises(RuntimeError, match="no baml client"):
-            await retriever.retrieve("q")
-
-        t2c_span = _named(exporter.get_finished_spans(), "agrag.retrieval.text2cypher")[
-            0
-        ]
-        assert [e for e in t2c_span.events if e.name == "exception"]
-        assert t2c_span.status.status_code.name == "ERROR"
