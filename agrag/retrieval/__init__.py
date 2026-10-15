@@ -13,7 +13,6 @@ from agrag.retrieval.recipes import (
     GRAPH_EXPAND,
     HYBRID,
     HYBRID_RERANKED,
-    TEXT2CYPHER,
     THEMATIC,
     Recipe,
 )
@@ -22,7 +21,6 @@ from agrag.retrieval.retrievers.bfs import BFSRetriever
 from agrag.retrieval.retrievers.chunk import ChunkRetriever
 from agrag.retrieval.retrievers.community import CommunityRetriever
 from agrag.retrieval.retrievers.entity import EntityRetriever
-from agrag.retrieval.retrievers.text2cypher import Text2CypherRetriever
 from agrag.retrieval.search_engine import SearchEngine
 from agrag.retrieval.settings import RetrievalSettings
 
@@ -33,7 +31,6 @@ __all__ = [
     "GRAPH_EXPAND",
     "HYBRID",
     "HYBRID_RERANKED",
-    "TEXT2CYPHER",
     "THEMATIC",
     "AllRetrievalMethodsFailedError",
     "BFSRetriever",
@@ -47,6 +44,5 @@ __all__ = [
     "ScopeDeniedError",
     "SearchEngine",
     "SearchFilters",
-    "Text2CypherRetriever",
     "UnknownRecipeMethodError",
 ]

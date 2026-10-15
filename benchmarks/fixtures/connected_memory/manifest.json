@@ -326,6 +326,14 @@
     "A": "reads the first Keep span of the first question",
     "B": "reads the second Keep span of the second question"
    },
+   "checkpoint": {
+    "completed": [
+     "A"
+    ],
+    "pending": [
+     "B"
+    ]
+   },
    "support": [
     {
      "role": "A",
@@ -344,14 +352,14 @@
      "role": "B",
      "question_id": "privacy_qa:c96be584",
      "document": "privacy_qa/Keep.txt",
-     "char_start": 4004,
-     "char_end": 4911,
-     "label_char_start": 4004,
-     "label_char_end": 4911,
+     "char_start": 4956,
+     "char_end": 5177,
+     "label_char_start": 4956,
+     "label_char_end": 5177,
      "shift": 0,
-     "text_sha256": "282f190f9f24b60838b390f9afc16c40eb01a603012c43f496108cd37501b6bf",
-     "answer": "Where we or our affiliate companies process your payments as a payment service provider, or where we fulfill any purchases you have made on Keep, we may collect, use and store your Personal Information in order to fulfill such purchases.\nLocation Data, Log Data and your device.Keep automatically collects Log Data from your device to enable and assist Keeps functionalities.\nIn addition, you may also permit Keep to access other content and data on your device  for example, your contact list and photo storage.\nOther than consented by you, we commit that we will not sell your personal information to any other third parties for their processing for any purposes.\nWe will ask for your explicit consent to share any sensitive personal information such as race, religion, sexual orientation, or health.\nWe will not disclose or transfer your personal information to any non-affiliated third parties, unless:\n",
-     "snippet_start": "Where we or our affiliate companies proc"
+     "text_sha256": "924f94886ad156b9e8ed3574550d8ede7218a13f2b6d3f47dbd3e3f2e2715d23",
+     "answer": "In order to participate in certain features, you may have to adjust your Privacy settings and share more information.\nYou may also choose to share your activity on other platforms, such as Facebook, Twitter or Instagram.\n",
+     "snippet_start": "In order to participate in certain featu"
     }
    ],
    "holdout": {
@@ -427,6 +435,7 @@
     "M2",
     "M3"
    ],
+   "unrelated_mutation": "M3",
    "holdout": {
     "mutation": "M2"
    }
@@ -559,13 +568,13 @@
      "case": "interruption_and_resume",
      "role": "B",
      "document": "privacy_qa/Keep.txt",
-     "v1_char_start": 4004,
-     "v1_char_end": 4911,
-     "char_start": 4004,
-     "char_end": 4933,
+     "v1_char_start": 4956,
+     "v1_char_end": 5177,
+     "char_start": 4978,
+     "char_end": 5199,
      "moved": true,
-     "answer_after": "Where we or our affiliate companies process your payments as a payment service provider, or where we fulfill any purchases you have made on Keep, we may collect, use and store your Personal Information in order to fulfill such purchases.\nLocation Data, Log Data and your device.Keep automatically collects Log Data from your device to enable and assist Keeps functionalities.\nIn addition, you may also permit Keep to access other content and data on your device  for example, your contact list and photo storage.\nOther than consented by you, we commit that we may share your personal information with advertising partners to any other third parties for their processing for any purposes.\nWe will ask for your explicit consent to share any sensitive personal information such as race, religion, sexual orientation, or health.\nWe will not disclose or transfer your personal information to any non-affiliated third parties, unless:\n",
-     "text_sha256_after": "6e354a7e1752cb7451c175907afc07e0343b57c388c4ace6e47c732353ae0b3a"
+     "answer_after": "In order to participate in certain features, you may have to adjust your Privacy settings and share more information.\nYou may also choose to share your activity on other platforms, such as Facebook, Twitter or Instagram.\n",
+     "text_sha256_after": "924f94886ad156b9e8ed3574550d8ede7218a13f2b6d3f47dbd3e3f2e2715d23"
     },
     {
      "case": "source_change_review",
@@ -707,13 +716,13 @@
      "case": "interruption_and_resume",
      "role": "B",
      "document": "privacy_qa/Keep.txt",
-     "v1_char_start": 4004,
-     "v1_char_end": 4911,
-     "char_start": 4004,
-     "char_end": 4911,
+     "v1_char_start": 4956,
+     "v1_char_end": 5177,
+     "char_start": 4956,
+     "char_end": 5177,
      "moved": false,
-     "answer_after": "Where we or our affiliate companies process your payments as a payment service provider, or where we fulfill any purchases you have made on Keep, we may collect, use and store your Personal Information in order to fulfill such purchases.\nLocation Data, Log Data and your device.Keep automatically collects Log Data from your device to enable and assist Keeps functionalities.\nIn addition, you may also permit Keep to access other content and data on your device  for example, your contact list and photo storage.\nOther than consented by you, we commit that we will not sell your personal information to any other third parties for their processing for any purposes.\nWe will ask for your explicit consent to share any sensitive personal information such as race, religion, sexual orientation, or health.\nWe will not disclose or transfer your personal information to any non-affiliated third parties, unless:\n",
-     "text_sha256_after": "282f190f9f24b60838b390f9afc16c40eb01a603012c43f496108cd37501b6bf"
+     "answer_after": "In order to participate in certain features, you may have to adjust your Privacy settings and share more information.\nYou may also choose to share your activity on other platforms, such as Facebook, Twitter or Instagram.\n",
+     "text_sha256_after": "924f94886ad156b9e8ed3574550d8ede7218a13f2b6d3f47dbd3e3f2e2715d23"
     },
     {
      "case": "source_change_review",
@@ -731,53 +740,41 @@
   },
   {
    "id": "M3",
-   "base": "contractnli/Kenway-NDA-Form-Blank.txt",
-   "base_content_sha256": "3dff6905cdc6ba5263a025b509f5c989ad4a3108a3ca726c753f1f9bf8072fb6",
-   "description": "Changes the signing rule of the variation clause, which sits after every labelled Kenway span.",
+   "base": "privacy_qa/Viber Messenger.txt",
+   "base_content_sha256": "6c92fa4cadaef3b1f37d0d34ea81cbccfcf3576d321e63fb916c24e64e100767",
+   "description": "Changes the sentence on where recipients are located, near the end of the policy, after every labelled Viber span. No case cites this document in the source-change review.",
    "edit": {
-    "char_start": 18144,
-    "old": "signed by both Parties",
-    "new": "signed by each Party",
-    "delta": -2
+    "char_start": 15684,
+    "old": "the recipients above may be located outside",
+    "new": "the recipients above are located outside",
+    "delta": -3
    },
-   "content_sha256": "608896b3f2e1340312906e77de17efdc305c1d83af34e35001677bf007663067",
-   "char_count": 19023,
+   "content_sha256": "278e16d548138205647a4361a6dee416ef7b9e9d95c269d2ccd1b4ab46a0422f",
+   "char_count": 27661,
    "spans_after": [
     {
-     "case": "source_change_review",
-     "role": "D2",
-     "document": "contractnli/Kenway-NDA-Form-Blank.txt",
-     "v1_char_start": 10289,
-     "v1_char_end": 10403,
-     "char_start": 10289,
-     "char_end": 10403,
+     "case": "multi_source_evidence",
+     "role": "viber",
+     "document": "privacy_qa/Viber Messenger.txt",
+     "v1_char_start": 11655,
+     "v1_char_end": 15357,
+     "char_start": 11655,
+     "char_end": 15357,
      "moved": false,
-     "answer_after": "The provisions of this Agreement shall continue to apply to any documents and materials retained by the Recipient.",
-     "text_sha256_after": "c6de7e28da257af5bd008ffe238d83ea06e2de3f025e55b24d7fbdabc542e162"
+     "answer_after": "We may keep activity data on a non-identifiable basis to improve our services.\nYour posts on public accounts and communities may remain available if you do not delete them.\nYour data is kept safe with us, but we do share your personal information with third parties we trust in order to provide you with our services, as follows:\n(a)The Viber Corporate Family:We may share the information we collect about you with the Viber corporate family, including our parent company, Rakuten Inc., and its and our affiliates and subsidiaries (To learn more about Rakuten Inc., which is a publicly traded company in Japan, please follow this link:http://global.rakuten.com/corp/about/).\nThe information may be disclosed to: (i) provide joint content and our services (eg, registration, coordination of membership accounts between the Viber corporate family, transactions, analytics and customer support); (ii) help detect and prevent potentially illegal acts, violations of our policies, fraud and/or data security breaches.\nThe information provided in your registration, if you link your email to the Viber account, will be shared with Rakuten group to create the Rakuten account and/or to link your Rakuten account with your Viber account.\nData about your use of the Viber Service and Rakuten group services will also be shared to the joint account.\nThe purpose of this practice is to provide joint content and a better service from us and the group, and allow you to enjoy from the Rakuten ecosystem benefits, as well as for fraud prevention and personalization of the services,and any other purpose described in the privacy policy of the other Rakuten group company providing the service.\nYou can choose to delink your Viber account from the Rakuten account at any time by editing your profile on the app.\n(b) App Providers and Other Third-Parties:We may disclose your information to service providers and other third-parties under contract who help with providing you and others our Services on our behalf or other services provided by third-parties via our Services (such as, but not limited to, fraud and spam investigations, payment processing, site analytics and operations, providing special partnership features in our service either on an aggregate non identifiable basis, or using a unique identifier which is not attributable to you).\nThey are required to secure the data they receive.\n(c) Advertising partners: to enable the limited advertisements on our service, we may share a unique advertising identifier that is not attributable to you, with our third party advertising partners, and advertising service providers, along with certain technical data about you (your language preference, country, city, and device data), based on our legitimate interest.\nThis includes partners managing our advertising placements and also advertisers themselves and their agencies or third parties managing their advertising demands.\nYour unique advertising identifier is created by your mobile devices operating system and you can change it or choose not to share it at any time.\nIf you want to know more, read our Cookies and Tracking Technologies Policy.\n(d) Legal and Law Enforcement: We may disclose your information to law enforcement, governmental agencies, or authorized third-parties, in response to a verified request relating to terror acts, criminal investigations or alleged illegal activity or any other activity that may expose us, you, or any other Viber user to legal liability.\n(e)Change of Control  New Owners: We may share your information with another business entity, if we plan to merge with or be acquired by that business, or are involved in a transaction with similar financial effect.\n",
+     "text_sha256_after": "808273a530df7e70cffb586137adda8cbd0d4dfaf973eeec7af43c1c9045f1fd"
     },
     {
-     "case": "source_change_review",
-     "role": "D2",
-     "document": "contractnli/Kenway-NDA-Form-Blank.txt",
-     "v1_char_start": 13679,
-     "v1_char_end": 13900,
-     "char_start": 13679,
-     "char_end": 13900,
+     "case": "multi_source_evidence",
+     "role": "viber",
+     "document": "privacy_qa/Viber Messenger.txt",
+     "v1_char_start": 11655,
+     "v1_char_end": 14803,
+     "char_start": 11655,
+     "char_end": 14803,
      "moved": false,
-     "answer_after": "The obligations of each Party shall, notwithstanding any earlier termination of negotiations or discussions between the Parties in relation to the Purpose, continue for a period of 2 years from the date of this Agreement.",
-     "text_sha256_after": "541b667cdd534cad1852b74b308d258b3f914e5f8be7364d199eac3350f17587"
-    },
-    {
-     "case": "source_change_review",
-     "role": "D2",
-     "document": "contractnli/Kenway-NDA-Form-Blank.txt",
-     "v1_char_start": 14063,
-     "v1_char_end": 14179,
-     "char_start": 14063,
-     "char_end": 14179,
-     "moved": false,
-     "answer_after": "6.3 Termination of this Agreement shall not affect any accrued rights or remedies to which either Party is entitled.",
-     "text_sha256_after": "6b4a1f6fed9e672acebb5a568082145212c7aaafd98b60974d3c01a40845f444"
+     "answer_after": "We may keep activity data on a non-identifiable basis to improve our services.\nYour posts on public accounts and communities may remain available if you do not delete them.\nYour data is kept safe with us, but we do share your personal information with third parties we trust in order to provide you with our services, as follows:\n(a)The Viber Corporate Family:We may share the information we collect about you with the Viber corporate family, including our parent company, Rakuten Inc., and its and our affiliates and subsidiaries (To learn more about Rakuten Inc., which is a publicly traded company in Japan, please follow this link:http://global.rakuten.com/corp/about/).\nThe information may be disclosed to: (i) provide joint content and our services (eg, registration, coordination of membership accounts between the Viber corporate family, transactions, analytics and customer support); (ii) help detect and prevent potentially illegal acts, violations of our policies, fraud and/or data security breaches.\nThe information provided in your registration, if you link your email to the Viber account, will be shared with Rakuten group to create the Rakuten account and/or to link your Rakuten account with your Viber account.\nData about your use of the Viber Service and Rakuten group services will also be shared to the joint account.\nThe purpose of this practice is to provide joint content and a better service from us and the group, and allow you to enjoy from the Rakuten ecosystem benefits, as well as for fraud prevention and personalization of the services,and any other purpose described in the privacy policy of the other Rakuten group company providing the service.\nYou can choose to delink your Viber account from the Rakuten account at any time by editing your profile on the app.\n(b) App Providers and Other Third-Parties:We may disclose your information to service providers and other third-parties under contract who help with providing you and others our Services on our behalf or other services provided by third-parties via our Services (such as, but not limited to, fraud and spam investigations, payment processing, site analytics and operations, providing special partnership features in our service either on an aggregate non identifiable basis, or using a unique identifier which is not attributable to you).\nThey are required to secure the data they receive.\n(c) Advertising partners: to enable the limited advertisements on our service, we may share a unique advertising identifier that is not attributable to you, with our third party advertising partners, and advertising service providers, along with certain technical data about you (your language preference, country, city, and device data), based on our legitimate interest.\nThis includes partners managing our advertising placements and also advertisers themselves and their agencies or third parties managing their advertising demands.\nYour unique advertising identifier is created by your mobile devices operating system and you can change it or choose not to share it at any time.\nIf you want to know more, read our Cookies and Tracking Technologies Policy.\n",
+     "text_sha256_after": "da1dcd69c2a6fb8417218e0c4d7e2e5a82b826e94f911ae24cc8c1f28491aca1"
     }
    ]
   }
