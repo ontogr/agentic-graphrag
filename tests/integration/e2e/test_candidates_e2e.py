@@ -31,6 +31,7 @@ from agrag.ingestion.extract import Extractor
 from agrag.ingestion.graph import Graph
 from agrag.ingestion.settings import ExtractionSettings
 from agrag.loaders.types import ErrorPolicy
+from tests.conftest import FAKE_EMBEDDING_DIMENSIONS
 from tests.integration._schema_cleanup import drop_schema_for
 from tests.integration.e2e._artifact import write_artifact
 
@@ -44,7 +45,7 @@ class _ConstantEmbedder(Embedder):
     model = "candidate-e2e"
 
     async def dimensions(self) -> int:
-        return 4
+        return FAKE_EMBEDDING_DIMENSIONS
 
     async def embed(self, texts: Sequence[str]) -> list[list[float]]:
         return [[0.1, 0.2, 0.3, 0.4] for _ in texts]

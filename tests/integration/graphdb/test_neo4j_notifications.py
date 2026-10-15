@@ -23,6 +23,7 @@ from agrag.embedding.base import Embedder
 from agrag.graphdb import build_graph_store
 from agrag.ingestion import Graph
 from agrag.ingestion.extract import Extractor
+from tests.conftest import FAKE_EMBEDDING_DIMENSIONS
 from tests.integration._schema_cleanup import drop_schema_for
 
 
@@ -36,7 +37,7 @@ class _ConstantEmbedder(Embedder):
 
     async def dimensions(self) -> int:
         """Return 4 dimensions."""
-        return 4
+        return FAKE_EMBEDDING_DIMENSIONS
 
     async def embed(self, texts: Sequence[str]) -> list[list[float]]:
         """Return the same vector for every text."""

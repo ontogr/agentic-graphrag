@@ -19,6 +19,7 @@ from agrag.graphdb import build_graph_store
 from agrag.retrieval.filters import SearchFilters
 from agrag.retrieval.methods.vector import vector_search
 from agrag.retrieval.settings import RetrievalSettings
+from tests.conftest import FAKE_EMBEDDING_DIMENSIONS
 
 
 neo4j_missing = importlib.util.find_spec("neo4j") is None
@@ -31,7 +32,7 @@ class _FixedEmbedder(Embedder):
 
     async def dimensions(self) -> int:
         """Return 4 dimensions."""
-        return 4
+        return FAKE_EMBEDDING_DIMENSIONS
 
     async def embed(self, texts: Sequence[str]) -> list[list[float]]:
         """Return deterministic vectors based on text hash."""

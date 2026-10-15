@@ -50,6 +50,7 @@ from agrag.retrieval.recipes import CHUNK, ENTITY, HYBRID, Recipe
 from agrag.retrieval.search_engine import SearchEngine
 from agrag.retrieval.settings import RetrievalSettings
 from agrag.vectordb import VectorStore, build_vector_store
+from tests.conftest import FAKE_EMBEDDING_DIMENSIONS
 from tests.integration._schema_cleanup import drop_schema_for
 from tests.integration.e2e._artifact import write_artifact
 
@@ -98,7 +99,7 @@ _DRUG_SIGNS = {
 _DRUG_AXIS = 3
 # The Neo4j vector index on the shared Chunk label keeps the size of the first
 # suite that creates it, and every other suite embeds with four dimensions.
-_DIMENSIONS = 4
+_DIMENSIONS = FAKE_EMBEDDING_DIMENSIONS
 
 
 class _TopicEmbedder(Embedder):

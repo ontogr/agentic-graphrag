@@ -40,6 +40,7 @@ from agrag.eval.trajectory import read_trajectory
 from agrag.graphdb import build_graph_store
 from agrag.retrieval.search_engine import SearchEngine
 from agrag.retrieval.settings import RetrievalSettings
+from tests.conftest import FAKE_EMBEDDING_DIMENSIONS
 
 
 _OUTPUT_DIR = Path(os.environ.get("AGRAG_TRACING_OUTPUT_DIR", "test-output"))
@@ -68,7 +69,7 @@ class _FakeKeywordEmbedder(Embedder):
 
     async def dimensions(self) -> int:
         """Return 4 dimensions."""
-        return 4
+        return FAKE_EMBEDDING_DIMENSIONS
 
     async def embed(self, texts: Sequence[str]) -> list[list[float]]:
         """Return one keyword-presence vector per text."""

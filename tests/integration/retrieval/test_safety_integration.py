@@ -15,6 +15,7 @@ from agrag.cypher.entities import validate_identifier
 from agrag.cypher.safety import UnsafeCypherError, reject_write_cypher
 from agrag.embedding.base import Embedder
 from agrag.graphdb import build_graph_store
+from tests.conftest import FAKE_EMBEDDING_DIMENSIONS
 
 
 neo4j_missing = importlib.util.find_spec("neo4j") is None
@@ -30,7 +31,7 @@ class _FixedEmbedder(Embedder):
 
     async def dimensions(self) -> int:
         """Return 4 dimensions."""
-        return 4
+        return FAKE_EMBEDDING_DIMENSIONS
 
     async def embed(self, texts: Sequence[str]) -> list[list[float]]:
         """Return deterministic vectors."""

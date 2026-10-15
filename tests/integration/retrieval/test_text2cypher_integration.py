@@ -34,6 +34,7 @@ from agrag.retrieval.errors import AllRetrievalMethodsFailedError
 from agrag.retrieval.recipes import TEXT2CYPHER
 from agrag.retrieval.retrievers.text2cypher import Text2CypherRetriever
 from agrag.retrieval.search_engine import SearchEngine
+from tests.conftest import FAKE_EMBEDDING_DIMENSIONS
 
 
 neo4j_missing = importlib.util.find_spec("neo4j") is None
@@ -57,7 +58,7 @@ class _FixedEmbedder(Embedder):
 
     async def dimensions(self) -> int:
         """Return 4 dimensions."""
-        return 4
+        return FAKE_EMBEDDING_DIMENSIONS
 
     async def embed(self, texts: Sequence[str]) -> list[list[float]]:
         """Return one deterministic vector per text."""

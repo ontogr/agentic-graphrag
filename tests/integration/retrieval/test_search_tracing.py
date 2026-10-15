@@ -45,6 +45,7 @@ from agrag.retrieval.methods.traversal import (
 from agrag.retrieval.recipes import HYBRID
 from agrag.retrieval.search_engine import SearchEngine
 from agrag.retrieval.settings import RetrievalSettings
+from tests.conftest import FAKE_EMBEDDING_DIMENSIONS
 
 
 neo4j_missing = importlib.util.find_spec("neo4j") is None
@@ -81,7 +82,7 @@ class _OrthogonalEmbedder(Embedder):
     """Embedder giving each distinct text its own orthogonal unit vector."""
 
     model = "orthogonal"
-    _DIMENSIONS = 4
+    _DIMENSIONS = FAKE_EMBEDDING_DIMENSIONS
 
     def __init__(self) -> None:
         """Start with an empty text-to-slot map."""
