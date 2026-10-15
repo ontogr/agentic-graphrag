@@ -31,8 +31,9 @@ class Chunk(DataPoint):
             content versions of the same logical document. Per-version
             identity lives in ``Chunk.id`` instead.
         content_hash: The content hash of the document version this chunk was
-            cut from. It stays on the chunk after the document changes, so a
-            superseded chunk still names the text it came from.
+            cut from, as a 64-character lowercase hexadecimal SHA-256 digest. It
+            stays on the chunk after the document changes, so a superseded chunk
+            still names the text it came from.
         index: The position of the chunk within its document, from 0.
         text: The chunk text.
         provenance: The location of this chunk in its source. A text source gives
@@ -56,7 +57,7 @@ class Chunk(DataPoint):
 
     id: UUID | None = None
     document_id: UUID
-    content_hash: str
+    content_hash: str = Field(min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$")
     index: int = 0
     text: str
     provenance: TextProvenance | PageProvenance = Field(discriminator="kind")
