@@ -27,10 +27,10 @@ class TestMakeTools:
     """make_tools assembles the discovery and traversal tool set."""
 
     def test_returns_ten_tools_for_an_empty_scope(self) -> None:
-        """An empty SearchFilters is not a scope, so the Cypher tool stays."""
+        """An empty SearchFilters is not a scope, so every unscoped tool stays."""
         tools = make_tools(MagicMock(), Ledger(), filters=SearchFilters())
 
-        assert len(tools) == 11
+        assert len(tools) == 10
 
     def test_tool_names(self) -> None:
         """The unscoped tool set is exactly the expected names."""
@@ -47,7 +47,6 @@ class TestMakeTools:
             "describe_entity",
             "traverse_from_entity",
             "compute_over_evidence",
-            "query_graph_directly",
         }
 
     def test_candidate_search_requires_opt_in_and_is_excluded_for_scopes(self) -> None:

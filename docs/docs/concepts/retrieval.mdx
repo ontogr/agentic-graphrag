@@ -91,7 +91,6 @@ sequenceDiagram
 | `entity` | Entities whose name and description match the meaning of the query. |
 | `chunk` | Passages of source text. Each hit is one chunk, with the headings above it. |
 | `community` | Reports on topics. |
-| `text2cypher` | Values that a graph query can compute, such as counts. A model writes a read-only query from the question. |
 
 The graph walk is a step, not a method. A recipe switches it on.
 
@@ -107,7 +106,6 @@ A recipe is a named list of configuration values. It is data, so you can read it
 | `HYBRID_RERANKED` | entity, chunk | community reports, cross-encoder re-rank | 10 |
 | `GRAPH_EXPAND` | entity | graph walk, community reports | 20 |
 | `THEMATIC` | community | none | 5 |
-| `TEXT2CYPHER` | text2cypher | none | 10 |
 
 ## Fusion
 
@@ -130,7 +128,7 @@ Why fuse ranks and not scores? A vector search, a keyword search, and a graph wa
 
 How do community reports survive the re-rank? The cross-encoder orders only the passages and entities. After it runs, the recipe keeps up to three slots for community reports. The re-rank cannot push every report out of the results.
 
-Why does one failed method not fail the search? A timeout in one method must not hide good results from another. The engine logs the failure and records it on the trace. If every method fails, the engine raises an error. Every method follows one rule. With a positive limit, it returns an empty list only when the search ran and found nothing. It raises on any failure it cannot recover from. This includes `text2cypher`, which repairs a failed query once and raises if the repair also fails, so a failed query or model call is never an empty result.
+Why does one failed method not fail the search? A timeout in one method must not hide good results from another. The engine logs the failure and records it on the trace. If every method fails, the engine raises an error. Every method follows one rule. With a positive limit, it returns an empty list only when the search ran and found nothing. It raises on any failure it cannot recover from.
 
 </details>
 

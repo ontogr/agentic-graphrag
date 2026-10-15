@@ -104,13 +104,14 @@ MUTATIONS = [
     },
     {
         "id": "M3",
-        "base": KENWAY,
+        "base": VIBER,
         "description": (
-            "Changes the signing rule of the variation clause, which sits after every "
-            "labelled Kenway span."
+            "Changes the sentence on where recipients are located, near the end of the "
+            "policy, after every labelled Viber span. No case cites this document in "
+            "the source-change review."
         ),
-        "old": "signed by both Parties",
-        "new": "signed by each Party",
+        "old": "the recipients above may be located outside",
+        "new": "the recipients above are located outside",
     },
 ]
 
@@ -149,6 +150,14 @@ def _sha(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
+def _occurrences(text: str, needle: str) -> list[int]:
+    """Return the start of every occurrence of a non-empty needle.
+
+    Occurrences may overlap, so ``"aa"`` occurs twice in ``"aaa"``.
+    """
+    return [m.start() for m in re.finditer(f"(?={re.escape(needle)})", text)]
+
+
 def locate_answer(
     text: str, char_start: int, char_end: int, answer: str
 ) -> tuple[int, int]:
@@ -169,10 +178,12 @@ def locate_answer(
     """
     if text[char_start:char_end] == answer:
         return char_start, char_end
-    count = text.count(answer)
-    if count != 1:
-        raise ValueError(f"answer occurs {count} times, expected exactly one")
-    start = text.index(answer)
+    occurrences = _occurrences(text, answer)
+    if len(occurrences) != 1:
+        raise ValueError(
+            f"answer occurs {len(occurrences)} times, expected exactly one"
+        )
+    start = occurrences[0]
     return start, start + len(answer)
 
 
@@ -202,7 +213,7 @@ def move_span(
     if char_start >= edit_end:
         return char_start + delta, char_end + delta, answer
     if char_start <= edit_start and char_end >= edit_end and old:
-        if answer.count(old) != 1:
+        if len(_occurrences(answer, old)) != 1:
             raise ValueError("the replaced text occurs in the answer not exactly once")
         return char_start, char_end + delta, answer.replace(old, new)
     raise ValueError("an edit partly overlaps a span")
@@ -218,10 +229,12 @@ def apply_edit(text: str, old: str, new: str) -> tuple[str, int]:
         ValueError: ``old`` does not occur once, or ``new`` already occurs.
     """
     if old:
-        count = text.count(old)
-        if count != 1:
-            raise ValueError(f"the edited text occurs {count} times, expected once")
-        start = text.index(old)
+        occurrences = _occurrences(text, old)
+        if len(occurrences) != 1:
+            raise ValueError(
+                f"the edited text occurs {len(occurrences)} times, expected once"
+            )
+        start = occurrences[0]
     else:
         start = len(text)
     if new in text:
@@ -305,15 +318,16 @@ def _phrase_matches(text: str, phrase: str) -> list[dict[str, Any]]:
         (m.start(), int(m.group(1)), m.group(2)) for m in MESSAGE_HEADER.finditer(text)
     ]
     matches = []
-    for match in re.finditer(re.escape(phrase), text):
-        _, message_id, speaker = max(h for h in headers if h[0] <= match.start())
+    for start in _occurrences(text, phrase):
+        end = start + len(phrase)
+        _, message_id, speaker = max(h for h in headers if h[0] <= start)
         matches.append(
             {
                 "message_id": message_id,
                 "speaker": speaker,
-                "char_start": match.start(),
-                "char_end": match.end(),
-                "text_sha256": _sha(match.group(0)),
+                "char_start": start,
+                "char_end": end,
+                "text_sha256": _sha(text[start:end]),
             }
         )
     return matches
@@ -466,11 +480,12 @@ def _cases(
                 "A": "reads the first Keep span of the first question",
                 "B": "reads the second Keep span of the second question",
             },
+            "checkpoint": {"completed": ["A"], "pending": ["B"]},
             "support": _label_support(
                 labels, "privacy_qa:fdf155d3", KEEP, keep, [(1221, 1361)], role="A"
             )
             + _label_support(
-                labels, "privacy_qa:c96be584", KEEP, keep, [(4004, 4911)], role="B"
+                labels, "privacy_qa:c96be584", KEEP, keep, [(4956, 5177)], role="B"
             ),
             "holdout": {"question": CASE_QUESTIONS["interruption_and_resume_holdout"]},
         },
@@ -490,6 +505,7 @@ def _cases(
                 role="D2",
             ),
             "mutations": ["M1", "M2", "M3"],
+            "unrelated_mutation": "M3",
             "holdout": {"mutation": "M2"},
         },
     ]
@@ -538,6 +554,40 @@ def _after_edit(
                 }
             )
     return edited, spans_after
+
+
+def _check_unrelated_edits(
+    cases: list[dict[str, Any]], mutations: list[dict[str, Any]]
+) -> None:
+    """Raise when an edit declared unrelated touches a cited document or span.
+
+    A case names its unrelated edit with ``unrelated_mutation``. The edited document
+    must not be cited by that case, and the edit must lie outside every span that
+    any case cites from that document.
+    """
+    mutations_by_id = {mutation["id"]: mutation for mutation in mutations}
+    for case in cases:
+        if "unrelated_mutation" not in case:
+            continue
+        mutation = mutations_by_id[case["unrelated_mutation"]]
+        if mutation["base"] in {span["document"] for span in _spans_of(case)}:
+            raise SystemExit(
+                f"{mutation['id']} edits a document that {case['id']} cites"
+            )
+        edit = mutation["edit"]
+        edit_end = edit["char_start"] + len(edit["old"])
+        for other in cases:
+            for span in _spans_of(other):
+                if span["document"] != mutation["base"]:
+                    continue
+                overlaps = (
+                    span["char_start"] < edit_end
+                    and edit["char_start"] < span["char_end"]
+                )
+                if overlaps:
+                    raise SystemExit(
+                        f"{mutation['id']} overlaps a span of {other['id']}"
+                    )
 
 
 def _breach_lines(uri: str, text: str) -> list[dict[str, Any]]:
@@ -678,6 +728,7 @@ def main() -> None:
                 "spans_after": spans_after,
             }
         )
+    _check_unrelated_edits(cases, mutations)
     relocated = [
         {
             "question_id": span["question_id"],

@@ -57,11 +57,8 @@ def build_agent(
             unreviewed-candidate search.
         filters: Retrieval scope applied to every tool search,
             e.g. document or tenant constraints. None searches
-            unfiltered. A non-empty scope also removes the
-            ``query_graph_directly`` tool, since a generated query
-            cannot be confined to a scope.
-        graph_schema: The schema the researcher prompt and the
-            ``query_graph_directly`` tool describe. None uses the
+            unfiltered.
+        graph_schema: The schema the researcher prompt describes. None uses the
             engine's own resolved schema; a value that differs from
             the engine's raises, so the prompt cannot describe a
             graph the engine does not search.

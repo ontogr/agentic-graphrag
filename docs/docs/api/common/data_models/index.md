@@ -25,7 +25,6 @@ Shared data models used by agrag components.
 - [**normalization**](normalization/index.md) – The Normalization model: how a loader turned source bytes into text.
 - [**presets**](presets/index.md) – Preset schema fragments that add entity types to a base schema.
 - [**provenance**](provenance/index.md) – Provenance types for a chunk.
-- [**query_value**](query_value/index.md) – A result row returned by a direct graph query.
 - [**relation**](relation/index.md) – The canonical, deduped graph relationship that merge mechanics produces.
 - [**resolved_entity**](resolved_entity/index.md) – Identity clusters for non-destructive entity resolution.
 - [**search_result**](search_result/index.md) – One retrieved item, tagged with source and relevance score.
