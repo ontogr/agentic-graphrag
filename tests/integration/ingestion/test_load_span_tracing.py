@@ -29,6 +29,7 @@ from agrag.embedding.base import Embedder
 from agrag.graphdb import build_graph_store
 from agrag.ingestion.extract import Extractor
 from agrag.ingestion.graph import Graph
+from tests.conftest import FAKE_EMBEDDING_DIMENSIONS
 
 
 neo4j_missing = importlib.util.find_spec("neo4j") is None
@@ -41,7 +42,7 @@ class _MockEmbedder(Embedder):
 
     async def dimensions(self) -> int:
         """Return fixed dimensions."""
-        return 4
+        return FAKE_EMBEDDING_DIMENSIONS
 
     async def embed(self, texts: Sequence[str]) -> list[list[float]]:
         """Return a constant vector for each input text."""

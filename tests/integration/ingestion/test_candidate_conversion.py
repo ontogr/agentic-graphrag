@@ -20,6 +20,7 @@ from agrag.cypher.entities import NODE_IDENTITY_LABEL
 from agrag.embedding.base import Embedder
 from agrag.graphdb import build_graph_store
 from agrag.ingestion import Extractor, Graph
+from tests.conftest import FAKE_EMBEDDING_DIMENSIONS
 
 
 neo4j_missing = importlib.util.find_spec("neo4j") is None
@@ -298,10 +299,10 @@ class _IntegrationEmbedder(Embedder):
     model = "candidate-conversion-test"
 
     async def dimensions(self) -> int:
-        return 4
+        return FAKE_EMBEDDING_DIMENSIONS
 
     async def embed(self, texts: Sequence[str]) -> list[list[float]]:
-        return [[1.0, 0.0, 0.0, 0.0] for _ in texts]
+        return [[1.0, *([0.0] * (FAKE_EMBEDDING_DIMENSIONS - 1))] for _ in texts]
 
 
 class _IntegrationExtractor(Extractor):

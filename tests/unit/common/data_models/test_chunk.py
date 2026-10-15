@@ -39,6 +39,24 @@ class TestChunkContentHash:
                 }
             )
 
+    @pytest.mark.parametrize(
+        "content_hash",
+        ["a" * 63, "a" * 65, "g" * 64, "A" * 64],
+        ids=["short", "long", "non-hex", "uppercase"],
+    )
+    def test_rejects_content_hashes_that_are_not_lowercase_sha256(
+        self, content_hash: str
+    ) -> None:
+        """Only 64-character lowercase hexadecimal digests are accepted."""
+        with pytest.raises(ValidationError, match="content_hash"):
+            _chunk(content_hash=content_hash)
+
+    def test_accepts_a_lowercase_sha256_digest(self) -> None:
+        """A 64-character lowercase hexadecimal digest is accepted unchanged."""
+        digest = "a" * 64
+
+        assert _chunk(content_hash=digest).content_hash == digest
+
 
 class TestChunkNodeRecord:
     """to_node_record writes the chunker fields only when set."""
