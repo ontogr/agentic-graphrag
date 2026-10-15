@@ -7,6 +7,7 @@ its result is kept in the download cache, keyed by the PDF hash and the Docling
 version.
 """
 
+import hashlib
 from collections.abc import Sequence
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
@@ -90,7 +91,7 @@ def pdf_document(
     Args:
         path: The downloaded PDF.
         uri: The document uri.
-        sha256: The hash of the PDF, which becomes the content hash.
+        sha256: The sha256 of the PDF bytes, which becomes the source hash.
         pages: The zero-based pages to convert, or None to convert them all.
 
     Returns:
@@ -128,7 +129,8 @@ def pdf_document(
         uri=uri,
         source_format=SourceFormat.PDF,
         family=DocumentFamily.PROSE,
-        content_hash=sha256,
+        content_hash=hashlib.sha256(text.encode("utf-8")).hexdigest(),
+        source_hash=sha256,
         loader_name="docling",
         loader_version=docling,
         char_count=len(text),

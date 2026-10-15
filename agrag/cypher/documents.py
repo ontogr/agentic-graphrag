@@ -40,15 +40,17 @@ def current_run_record_query() -> str:
 
     Returns:
         Parameterized Cypher expecting ``$document_key``. Returns at most one
-        row with ``chunker_hash``, ``schema_fingerprint`` and
-        ``extraction_fingerprint``. No row means the document has no open chunk.
+        row with ``version_id`` (from the open edge), ``chunker_hash``,
+        ``schema_fingerprint`` and ``extraction_fingerprint``. No row means the
+        document has no open chunk.
     """
     return (
         f"MATCH (d:{NODE_IDENTITY_LABEL}:Document {{document_key: $document_key}})"
         f"-[p:{HAS_PART}]->(c:{NODE_IDENTITY_LABEL}:Chunk) "
         f"WHERE p.invalid_at IS NULL AND {pending_filter_clause('p')} "
         f"AND {pending_filter_clause('c')} "
-        "RETURN c.chunker_hash AS chunker_hash, "
+        "RETURN p.version_id AS version_id, "
+        "c.chunker_hash AS chunker_hash, "
         "c.schema_fingerprint AS schema_fingerprint, "
         "c.extraction_fingerprint AS extraction_fingerprint "
         "ORDER BY p.valid_at DESC LIMIT 1"

@@ -42,6 +42,7 @@ from agrag.graphdb.base import GraphStore
 from agrag.ingestion.extract import Extractor
 from agrag.ingestion.graph import Graph
 from agrag.ingestion.settings import ExtractionSettings
+from agrag.loaders.common import text_sections
 from agrag.loaders.types import ErrorPolicy
 from agrag.retrieval.recipes import Recipe
 from agrag.retrieval.search_engine import SearchEngine
@@ -166,6 +167,7 @@ def _document(key: str, text: str) -> Document:
         encoding="utf-8",
         char_count=len(normalized),
         line_count=normalized.count("\n") + 1,
+        sections=text_sections(normalized),
     )
 
 
@@ -640,7 +642,8 @@ class TestSchemaChangeUpdate:
 
         deleted = await graph.delete_document(key)
 
-        assert deleted.parts_closed == 1
+        # The version has one chunk edge and one section edge.
+        assert deleted.parts_closed == 2
         assert await _open_chunks(env.store, key) == []
         assert await _search_chunks(env, embedder, schema, "ada") == []
 
