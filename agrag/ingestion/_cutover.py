@@ -32,7 +32,6 @@ from agrag.cypher.cutover_job_write import (
 )
 from agrag.cypher.documents import (
     flag_decisions_for_activation_query,
-    flag_dependent_decisions_for_activation_query,
     record_activation_query,
     set_chunk_extraction_fingerprint_query,
 )
@@ -419,10 +418,6 @@ async def _commit_pending_writes(
             await txn.execute_write(record_activation_query(), activation_params)
             await txn.execute_write(
                 flag_decisions_for_activation_query(),
-                {"activation_id": activation_params["id"]},
-            )
-            await txn.execute_write(
-                flag_dependent_decisions_for_activation_query(),
                 {"activation_id": activation_params["id"]},
             )
         await txn.execute_write(

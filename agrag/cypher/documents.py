@@ -1,6 +1,6 @@
 """Cypher reads and writes for persisted Document nodes."""
 
-from agrag.common.data_models.decision import DEPENDS_ON, HAS_SUPPORT
+from agrag.common.data_models.decision import HAS_SUPPORT
 from agrag.common.data_models.structure import (
     DOCUMENT_ACTIVATION_LABEL,
     HAS_ACTIVATION,
@@ -121,26 +121,13 @@ def flag_decisions_for_activation_query() -> str:
         "WHERE s.document_node_id = doc.id "
         "AND (a.verb IN ['delete', 'purge'] "
         "OR s.content_hash <> a.content_hash) "
-        "SET d.review_state = 'needs_review', "
+        "WITH DISTINCT d, a "
+        "MATCH (t:MemoryTask)-[:MADE]->(d) "
+        "MATCH (p:MemoryProject {project_id: t.project_id}) "
+        "SET p.review_incomplete = true, "
+        "p.review_epoch = coalesce(p.review_epoch, 0) + 1, "
+        "d.review_pending = true, d.review_state = 'needs_review', "
         "d.review_reason = CASE WHEN a.verb IN ['delete', 'purge'] "
         "THEN 'source_removed' ELSE 'source_changed' END "
         "RETURN count(DISTINCT d) AS flagged"
-    )
-
-
-def flag_dependent_decisions_for_activation_query() -> str:
-    """Build Cypher flagging active decisions that depend on changed evidence."""
-    return (
-        f"MATCH (doc:Document)-[:{HAS_ACTIVATION}]->"
-        f"(a:{DOCUMENT_ACTIVATION_LABEL} {{id: $activation_id}}) "
-        "MATCH (root:MemoryDecision {status: 'active'})"
-        f"-[:{HAS_SUPPORT}]->(s:MemorySupport {{kind: 'document'}}) "
-        "WHERE s.document_node_id = doc.id "
-        "AND (a.verb IN ['delete', 'purge'] OR s.content_hash <> a.content_hash) "
-        "MATCH (dependent:MemoryDecision {status: 'active'})"
-        f"-[:{DEPENDS_ON}*1..50]->(root) "
-        "WITH DISTINCT dependent "
-        "SET dependent.review_state = 'needs_review', "
-        "dependent.review_reason = 'dependency_review' "
-        "RETURN count(DISTINCT dependent) AS flagged"
     )

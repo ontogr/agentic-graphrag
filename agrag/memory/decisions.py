@@ -49,6 +49,12 @@ from agrag.cypher.memory import (
     memory_schema_queries,
     store_request_result_query,
 )
+from agrag.cypher.memory_review import (
+    claim_review_unit_query,
+    expand_review_unit_query,
+    finish_review_propagation_query,
+    flag_new_decision_for_review_query,
+)
 from agrag.cypher.schema import fulltext_index_name
 from agrag.evidence.ids import MalformedEvidenceIdError, decode_evidence_id
 from agrag.graphdb.base import GraphStore, GraphStoreTransaction
@@ -84,6 +90,8 @@ def _digest(operation: str, arguments: dict[str, Any]) -> str:
 def _decision_from_row(row: dict[str, Any]) -> Decision:
     """Validate a decision row and its typed supports."""
     raw = dict(row["decision"])
+    if row.get("review_incomplete") and raw.get("review_state", "clear") == "clear":
+        raw["review_state"] = ReviewState.UNKNOWN.value
     raw["task_name"] = row["task_name"]
     raw["supports"] = [dict(support) for support in row["supports"] if support]
     return Decision.model_validate(raw)
@@ -233,6 +241,37 @@ class DecisionMemory:
             found=bool(rows), decision=_decision_from_row(rows[0]) if rows else None
         )
 
+    async def continue_review_propagation(self, *, limit: int = 100) -> int:
+        """Expand at most ``limit`` queued decisions by one dependency hop each."""
+        processed = 0
+        for _ in range(max(0, limit)):
+
+            async def process(tx: GraphStoreTransaction) -> bool:
+                claimed = await tx.execute_write(
+                    claim_review_unit_query(), {"project_id": self._project_id}
+                )
+                if not claimed:
+                    return False
+                decision_id = claimed[0].get("id")
+                if decision_id:
+                    await tx.execute_write(
+                        expand_review_unit_query(),
+                        {
+                            "project_id": self._project_id,
+                            "decision_id": decision_id,
+                        },
+                    )
+                await tx.execute_write(
+                    finish_review_propagation_query(),
+                    {"project_id": self._project_id},
+                )
+                return bool(decision_id)
+
+            if not await self._store.run_in_transaction(process):
+                break
+            processed += 1
+        return processed
+
     async def list_review(
         self, *, task_name: str | None = None, limit: int = 20
     ) -> DecisionReviewList:
@@ -241,12 +280,14 @@ class DecisionMemory:
         rows = await self._store.execute_read(
             f"MATCH (t:{TASK_LABEL} {{project_id: $project_id}})-[:{MADE}]->"
             f"(d:{DECISION_LABEL} {{status: 'active'}}) "
-            "WHERE d.review_state = 'needs_review' "
+            "MATCH (p:MemoryProject {project_id: $project_id}) "
+            "WHERE (d.review_state = 'needs_review' OR p.review_incomplete) "
             "AND ($task_name IS NULL OR t.name = $task_name) "
             f"OPTIONAL MATCH (d)-[:{HAS_SUPPORT}]->(s:{SUPPORT_LABEL}) "
-            "WITH t, d, s ORDER BY s.ordinal "
-            "WITH t, d, collect(s) AS supports "
-            "RETURN d AS decision, supports, t.name AS task_name "
+            "WITH t, d, p, s ORDER BY s.ordinal "
+            "WITH t, d, p, collect(s) AS supports "
+            "RETURN d AS decision, supports, t.name AS task_name, "
+            "p.review_incomplete AS review_incomplete "
             "ORDER BY d.created_at DESC LIMIT $limit",
             {
                 "project_id": self._project_id,
@@ -256,8 +297,11 @@ class DecisionMemory:
         )
         count_rows = await self._store.execute_read(
             f"MATCH (t:{TASK_LABEL} {{project_id: $project_id}})-[:{MADE}]->"
-            f"(d:{DECISION_LABEL} {{status: 'active', review_state: 'needs_review'}}) "
-            "WHERE $task_name IS NULL OR t.name = $task_name RETURN count(d) AS count",
+            f"(d:{DECISION_LABEL} {{status: 'active'}}) "
+            "MATCH (p:MemoryProject {project_id: $project_id}) "
+            "WHERE (d.review_state = 'needs_review' OR p.review_incomplete) "
+            "AND ($task_name IS NULL OR t.name = $task_name) "
+            "RETURN count(d) AS count",
             {"project_id": self._project_id, "task_name": task_name},
         )
         count = int(count_rows[0]["count"])
@@ -316,10 +360,13 @@ class DecisionMemory:
             f"WHERE node:{DECISION_LABEL} AND node.status = 'active' "
             "AND ($task_name IS NULL OR t.name = $task_name) "
             f"OPTIONAL MATCH (node)-[:{HAS_SUPPORT}]->(s:{SUPPORT_LABEL}) "
-            "WITH node, score, t, s ORDER BY s.ordinal "
-            "WITH node, score, t, collect(s) AS supports "
+            "OPTIONAL MATCH (p:MemoryProject {project_id: $project_id}) "
+            "WITH node, score, t, p, s ORDER BY s.ordinal "
+            "WITH node, score, t, p, collect(s) AS supports "
             "RETURN node AS decision, supports, t.name AS task_name, "
-            "t.goal AS task_goal, score ORDER BY score DESC LIMIT $limit",
+            "t.goal AS task_goal, score, "
+            "coalesce(p.review_incomplete, false) AS review_incomplete "
+            "ORDER BY score DESC LIMIT $limit",
             {
                 "index": fulltext_index_name(
                     DECISION_LABEL, ["conclusion", "rationale"]
@@ -357,10 +404,12 @@ class DecisionMemory:
                 found = await self._store.execute_read(
                     f"MATCH (t:{TASK_LABEL} {{project_id: $project_id}})-[:{MADE}]->"
                     f"(d:{DECISION_LABEL}) WHERE d.id IN $ids "
+                    "OPTIONAL MATCH (p:MemoryProject {project_id: $project_id}) "
                     f"OPTIONAL MATCH (d)-[:{HAS_SUPPORT}]->(s:{SUPPORT_LABEL}) "
-                    "WITH d, t, s ORDER BY s.ordinal "
-                    "WITH d, t, collect(s) AS supports "
-                    "RETURN d AS decision, supports, t.name AS task_name",
+                    "WITH d, t, p, s ORDER BY s.ordinal "
+                    "WITH d, t, p, collect(s) AS supports "
+                    "RETURN d AS decision, supports, t.name AS task_name, "
+                    "coalesce(p.review_incomplete, false) AS review_incomplete",
                     {"project_id": self._project_id, "ids": ids},
                 )
                 decisions = [_decision_from_row(item) for item in found]
@@ -488,6 +537,10 @@ class DecisionMemory:
                     for index, support in enumerate(support_props)
                 ],
             },
+        )
+        await tx.execute_write(
+            flag_new_decision_for_review_query(),
+            {"project_id": self._project_id, "decision_id": identity},
         )
         if supersedes is not None:
             await tx.execute_write(
