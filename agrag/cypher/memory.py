@@ -113,7 +113,8 @@ def decision_status_query() -> str:
         f"MATCH (:{_TASK} {{project_id: $project_id}})-[:{_MADE}]->"
         f"(d:{_DECISION} {{id: $id}}) "
         "SET d.status = $status, d.rejection_reason = $reason, "
-        "d.rejected_by = $by RETURN d.id AS id"
+        "d.rejected_by = $by, d.review_state = 'clear', d.review_reason = null "
+        "RETURN d.id AS id"
     )
 
 

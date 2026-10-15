@@ -1,6 +1,13 @@
 """Cypher builders for durable, bounded decision review propagation."""
 
-from agrag.common.data_models.decision import DECISION_LABEL, DEPENDS_ON, MADE
+from agrag.common.data_models.decision import (
+    DECISION_LABEL,
+    DEPENDS_ON,
+    HAS_SUPPORT,
+    MADE,
+    SUPPORT_LABEL,
+)
+from agrag.common.data_models.structure import HAS_PART
 from agrag.common.data_models.task import PROJECT_LABEL, TASK_LABEL
 
 
@@ -60,4 +67,46 @@ def finish_review_propagation_query() -> str:
         "FOREACH (_ IN CASE WHEN pending = 0 THEN [1] ELSE [] END | "
         "SET p.review_incomplete = false) "
         "RETURN pending"
+    )
+
+
+def current_document_query() -> str:
+    """Read a document's current content hash and whether that version is live.
+
+    A version is live while its ``HAS_PART`` edges are open. A soft-deleted
+    document keeps its hash but has no open edges.
+    """
+    return (
+        "MATCH (doc:Document {id: $id}) "
+        f"OPTIONAL MATCH (doc)-[part:{HAS_PART}]->() WHERE part.invalid_at IS NULL "
+        "RETURN doc.document_key AS key, doc.current_content_hash AS hash, "
+        "count(part) > 0 AS live"
+    )
+
+
+def replace_document_supports_query() -> str:
+    """Replace a decision's document supports and keep its other supports.
+
+    Expects ``$project_id``, ``$decision_id`` and ``$supports``, a list of
+    support property maps that already carry their ids and ordinals.
+    """
+    return (
+        f"MATCH (t:{TASK_LABEL} {{project_id: $project_id}})-[:{MADE}]->"
+        f"(d:{DECISION_LABEL} {{id: $decision_id}}) "
+        f"OPTIONAL MATCH (d)-[:{HAS_SUPPORT}]->"
+        f"(old:{SUPPORT_LABEL} {{kind: 'document'}}) "
+        "DETACH DELETE old "
+        "WITH DISTINCT d UNWIND $supports AS item "
+        f"CREATE (d)-[:{HAS_SUPPORT}]->(s:{SUPPORT_LABEL}) SET s = item "
+        "RETURN d.id AS id"
+    )
+
+
+def clear_decision_review_query() -> str:
+    """Set a decision's review state to clear without touching its queue marker."""
+    return (
+        f"MATCH (:{TASK_LABEL} {{project_id: $project_id}})-[:{MADE}]->"
+        f"(d:{DECISION_LABEL} {{id: $decision_id}}) "
+        "SET d.review_state = 'clear', d.review_reason = null "
+        "RETURN d.id AS id"
     )

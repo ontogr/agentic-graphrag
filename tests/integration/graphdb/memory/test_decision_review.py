@@ -7,11 +7,13 @@ from agrag.common.data_models.decision import (
     ReviewState,
 )
 from agrag.common.data_models.evidence import DiscoveryMode, FetchStatus
+from agrag.common.data_models.memory_result import MemoryErrorCode
 from agrag.common.data_models.task import EventKind
 from agrag.evidence import discover, fetch
 from agrag.memory.decisions import DecisionMemory
 from agrag.memory.tasks import TaskMemory
 from tests.integration.retrieval.evidence._corpus import (
+    HARBOR_TEXT,
     BagOfWordsEmbedder,
     make_document,
 )
@@ -203,3 +205,171 @@ async def test_review_lists_are_project_scoped_and_bounded(store, project, docum
     result = await memory.list_review(limit=1)
     assert result.count == 0
     assert result.decisions == []
+
+
+async def _current_harbor_support(store, documents, query: str = "harbor"):
+    found = await discover(
+        store,
+        BagOfWordsEmbedder(),
+        query,
+        mode=DiscoveryMode.LEXICAL,
+        scope=frozenset({documents.harbor}),
+        limit=5,
+    )
+    evidence_id = found.hits[0].evidence_id
+    fetched = await fetch(
+        store, [evidence_id], scope=frozenset({documents.harbor}), max_chars=500
+    )
+    assert fetched[0].status is FetchStatus.OK
+    return evidence_id, fetched
+
+
+async def test_reaffirm_without_current_fetch_fails_and_keeps_flag(
+    store, project, documents
+):
+    """Reaffirming a changed document needs a fetch of its current version."""
+    memory, decision = await _record_document_decision(
+        store, project, documents, "reaffirm-unfetched"
+    )
+    await documents.graph.add(
+        documents=[
+            make_document(documents.harbor, "Harbor lighthouse replacement record.")
+        ]
+    )
+    await memory.continue_review_propagation(limit=10)
+    result = await memory.reaffirm_decision(
+        decision.id, [decision.supports[0]], fetched_evidence=[]
+    )
+    assert result.recorded is False
+    assert result.error is MemoryErrorCode.CANNOT_REVALIDATE
+    current = await memory.get_decision(decision.id)
+    assert current.decision.review_state is ReviewState.NEEDS_REVIEW
+
+
+async def test_reaffirm_of_removed_document_fails_even_with_ok_fetch(
+    store, project, documents
+):
+    """A soft-deleted document cannot be revalidated from any fetch of its text."""
+    memory, decision = await _record_document_decision(
+        store, project, documents, "reaffirm-removed"
+    )
+    earlier = await fetch(
+        store,
+        [decision.supports[0].evidence_id],
+        scope=frozenset({documents.harbor}),
+        max_chars=500,
+    )
+    assert earlier[0].status is FetchStatus.OK
+    await documents.graph.delete_document(documents.harbor)
+    later = await fetch(
+        store,
+        [decision.supports[0].evidence_id],
+        scope=frozenset({documents.harbor}),
+        max_chars=500,
+    )
+    for fetched in (earlier, later):
+        result = await memory.reaffirm_decision(
+            decision.id, [decision.supports[0]], fetched_evidence=fetched
+        )
+        assert result.error is MemoryErrorCode.CANNOT_REVALIDATE
+    current = await memory.get_decision(decision.id)
+    assert current.decision.review_state is ReviewState.NEEDS_REVIEW
+    assert current.decision.review_reason.value == "source_removed"
+
+
+async def test_reaffirm_with_current_fetch_clears_flag_and_records_reviewer(
+    store, project, documents
+):
+    """Reaffirming with the current version clears the flag and keeps the reviewer."""
+    memory, decision = await _record_document_decision(
+        store, project, documents, "reaffirm-clear"
+    )
+    await documents.graph.add(
+        documents=[
+            make_document(documents.harbor, "Harbor lighthouse replacement record.")
+        ]
+    )
+    await memory.continue_review_propagation(limit=10)
+    evidence_id, fetched = await _current_harbor_support(store, documents)
+    reviewer = DecisionMemory(store, project_id=project, agent_id="reviewer")
+    result = await reviewer.reaffirm_decision(
+        decision.id,
+        [DocumentSupportInput(evidence_id=evidence_id)],
+        fetched_evidence=fetched,
+        request_id="reaffirm-clear-1",
+    )
+    assert result.recorded
+    assert result.decision.review_state is ReviewState.CLEAR
+    assert result.decision.review_reason is None
+    assert result.decision.supports[0].content_hash == fetched[0].content_hash
+    retry = await reviewer.reaffirm_decision(
+        decision.id,
+        [DocumentSupportInput(evidence_id=evidence_id)],
+        fetched_evidence=fetched,
+        request_id="reaffirm-clear-1",
+    )
+    assert retry == result
+    events = await TaskMemory(store, project_id=project, agent_id="agent").list_events(
+        "reaffirm-clear"
+    )
+    assert events.events[-1].kind is EventKind.NOTE
+    assert events.events[-1].author == "reviewer"
+
+
+async def test_reaffirming_parent_leaves_dependent_child_flagged(
+    store, project, documents
+):
+    """Reaffirming a decision leaves the flags of its dependents in place."""
+    memory, parent = await _record_document_decision(
+        store, project, documents, "parent-reaffirm"
+    )
+    tasks = TaskMemory(store, project_id=project, agent_id="agent")
+    await tasks.create_task("child-reaffirm", "depend on a decision")
+    event = await tasks.record_event(
+        "child-reaffirm", EventKind.NOTE, payload="fixture"
+    )
+    child = await memory.record_decision(
+        "child-reaffirm",
+        "child-reaffirm-choice",
+        "follow parent",
+        "explicit dependency",
+        supports=[
+            DecisionSupportInput(decision_id=str(parent.id)),
+            EventSupportInput(task_name="child-reaffirm", seq=event.event.seq),
+        ],
+    )
+    assert child.recorded
+    await documents.graph.add(
+        documents=[
+            make_document(documents.harbor, "Harbor lighthouse replacement record.")
+        ]
+    )
+    await memory.continue_review_propagation(limit=10)
+    evidence_id, fetched = await _current_harbor_support(store, documents)
+    result = await memory.reaffirm_decision(
+        parent.id,
+        [DocumentSupportInput(evidence_id=evidence_id)],
+        fetched_evidence=fetched,
+    )
+    assert result.decision.review_state is ReviewState.CLEAR
+    await memory.continue_review_propagation(limit=10)
+    current_child = await memory.get_decision(child.decision.id)
+    assert current_child.decision.review_state is ReviewState.NEEDS_REVIEW
+    assert current_child.decision.review_reason.value == "dependency_review"
+
+
+async def test_revert_to_recorded_content_keeps_flag(store, project, documents):
+    """A document that returns to its recorded hash does not clear the flag."""
+    memory, decision = await _record_document_decision(
+        store, project, documents, "revert"
+    )
+    await documents.graph.add(
+        documents=[
+            make_document(documents.harbor, "Harbor lighthouse replacement record.")
+        ]
+    )
+    await documents.graph.add(documents=[make_document(documents.harbor, HARBOR_TEXT)])
+    await memory.continue_review_propagation(limit=10)
+    current = await memory.get_decision(decision.id)
+    assert current.decision.review_state is ReviewState.NEEDS_REVIEW
+    assert current.decision.review_reason.value == "source_changed"

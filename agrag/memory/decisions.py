@@ -30,6 +30,7 @@ from agrag.common.data_models.decision import (
     DocumentSupportInput,
     EventSupport,
     EventSupportInput,
+    ReaffirmDecisionResult,
     RecordDecisionResult,
     RejectDecisionResult,
     ReviewState,
@@ -38,8 +39,14 @@ from agrag.common.data_models.decision import (
 )
 from agrag.common.data_models.evidence import FetchOutcome, FetchStatus
 from agrag.common.data_models.memory_result import MemoryErrorCode
-from agrag.common.data_models.task import PROJECT_LABEL, REQUEST_LABEL, TASK_LABEL
+from agrag.common.data_models.task import (
+    PROJECT_LABEL,
+    REQUEST_LABEL,
+    TASK_LABEL,
+    EventKind,
+)
 from agrag.cypher.memory import (
+    append_event_query,
     claim_request_query,
     create_decision_query,
     decision_by_id_query,
@@ -47,13 +54,17 @@ from agrag.cypher.memory import (
     decision_status_query,
     find_task_query,
     memory_schema_queries,
+    set_event_id_query,
     store_request_result_query,
 )
 from agrag.cypher.memory_review import (
     claim_review_unit_query,
+    clear_decision_review_query,
+    current_document_query,
     expand_review_unit_query,
     finish_review_propagation_query,
     flag_new_decision_for_review_query,
+    replace_document_supports_query,
 )
 from agrag.cypher.schema import fulltext_index_name
 from agrag.evidence.ids import MalformedEvidenceIdError, decode_evidence_id
@@ -231,6 +242,55 @@ class DecisionMemory:
             lambda tx: self._reject(tx, decision_id, reason),
         )
 
+    async def reaffirm_decision(
+        self,
+        decision_id: UUID,
+        evidence: Sequence[DocumentSupportInput],
+        *,
+        fetched_evidence: Sequence[FetchOutcome] = (),
+        request_id: str | None = None,
+    ) -> ReaffirmDecisionResult:
+        """Confirm a decision still stands on the current version of its documents.
+
+        Review means the decision needs a look. It does not mean the decision
+        is false. Reaffirming records the caller as the reviewer, replaces the
+        decision's document supports with ``evidence``, and clears the review
+        flag. It does not change the flags of dependent decisions.
+
+        Every document the decision cites must be fetched in its current
+        version, and ``evidence`` must cite exactly those documents. A cited
+        document that is removed, or whose current version was not fetched
+        with status ``ok``, fails with ``cannot_revalidate`` and the decision
+        stays flagged.
+
+        Args:
+            decision_id: The id of the active decision to reaffirm.
+            evidence: The new document supports, one or more per cited document.
+            fetched_evidence: Fetch outcomes from this session. They must cover
+                the current version of each cited document.
+            request_id: An optional key that makes a retry return the stored
+                result of the first call.
+
+        Returns:
+            The reaffirmed decision, or a result with an error code.
+        """
+        args = {
+            "id": str(decision_id),
+            "evidence": [item.model_dump(mode="json") for item in evidence],
+            "fetched_evidence": [
+                item.model_dump(mode="json") for item in fetched_evidence
+            ],
+        }
+        return await self._write(
+            "reaffirm_decision",
+            args,
+            request_id,
+            ReaffirmDecisionResult,
+            lambda tx: self._reaffirm(
+                tx, decision_id, evidence=evidence, fetched=fetched_evidence
+            ),
+        )
+
     async def get_decision(self, decision_id: UUID) -> DecisionLookup:
         """Read a decision only when it belongs to this project."""
         rows = await self._store.execute_read(
@@ -275,7 +335,20 @@ class DecisionMemory:
     async def list_review(
         self, *, task_name: str | None = None, limit: int = 20
     ) -> DecisionReviewList:
-        """List active decisions needing review, within this project's bounds."""
+        """List active decisions that need a look, within this project's bounds.
+
+        A listed decision is flagged because a source or a decision it depends
+        on changed. Review means it needs a look, not that it is false. Use
+        ``reaffirm_decision``, ``supersede_decision`` or ``reject_decision`` to
+        clear the flag.
+
+        Args:
+            task_name: Only list decisions of this task, or all tasks if None.
+            limit: The number of decisions to return, capped at the page limit.
+
+        Returns:
+            The decisions in the page, the total count, and whether more exist.
+        """
         size = max(1, min(limit, DECISION_PAGE_LIMIT))
         rows = await self._store.execute_read(
             f"MATCH (t:{TASK_LABEL} {{project_id: $project_id}})-[:{MADE}]->"
@@ -545,7 +618,8 @@ class DecisionMemory:
         if supersedes is not None:
             await tx.execute_write(
                 f"MATCH (old:{DECISION_LABEL} {{id: $id}}) "
-                "SET old.status = 'superseded' "
+                "SET old.status = 'superseded', old.review_state = 'clear', "
+                "old.review_reason = null "
                 f"WITH old MATCH (new:{DECISION_LABEL} {{id: $new_id}}) "
                 f"CREATE (new)-[:{SUPERSEDES}]->(old)",
                 {"id": str(supersedes), "new_id": identity},
@@ -596,6 +670,132 @@ class DecisionMemory:
         )
         return RejectDecisionResult(
             recorded=True, decision=await self._get_decision_tx(tx, str(decision_id))
+        )
+
+    async def _reaffirm(
+        self,
+        tx: GraphStoreTransaction,
+        decision_id: UUID,
+        *,
+        evidence: Sequence[DocumentSupportInput],
+        fetched: Sequence[FetchOutcome],
+    ) -> ReaffirmDecisionResult:
+        lookup = await self._get_decision_tx(tx, str(decision_id))
+        if lookup is None:
+            raise _DecisionRefusedError(MemoryErrorCode.DECISION_NOT_FOUND)
+        if lookup.status is not DecisionStatus.ACTIVE:
+            raise _DecisionRefusedError(MemoryErrorCode.DECISION_NOT_ACTIVE)
+        await tx.execute_write(
+            f"MATCH (d:{DECISION_LABEL} {{id: $id, project_id: $project_id}}) "
+            "SET d.id = d.id RETURN d.id AS id",
+            {"id": str(decision_id), "project_id": self._project_id},
+        )
+        cited = {
+            str(support.document_node_id)
+            for support in lookup.supports
+            if isinstance(support, DocumentSupport)
+        }
+        for document_id in cited:
+            if not await self._is_revalidated(tx, document_id, fetched):
+                raise _DecisionRefusedError(MemoryErrorCode.CANNOT_REVALIDATE)
+        try:
+            support_props, changed = await self._validated_supports(
+                tx, evidence, fetched
+            )
+        except _DecisionRefusedError as refused:
+            if refused.code in (
+                MemoryErrorCode.SUPPORT_NOT_FETCHED,
+                MemoryErrorCode.SUPPORT_DOCUMENT_NOT_FOUND,
+            ):
+                raise _DecisionRefusedError(MemoryErrorCode.CANNOT_REVALIDATE) from None
+            raise
+        cited_by_evidence = {str(item["document_node_id"]) for item in support_props}
+        if changed or cited_by_evidence != cited:
+            raise _DecisionRefusedError(MemoryErrorCode.CANNOT_REVALIDATE)
+        created = datetime.now(UTC)
+        await tx.execute_write(
+            replace_document_supports_query(),
+            {
+                "project_id": self._project_id,
+                "decision_id": str(decision_id),
+                "supports": [
+                    {
+                        **support,
+                        "id": str(
+                            _uuid(
+                                "Support",
+                                decision_id,
+                                "reaffirm",
+                                created.isoformat(),
+                                index,
+                            )
+                        ),
+                        "project_id": self._project_id,
+                        "ordinal": len(lookup.supports) + index,
+                    }
+                    for index, support in enumerate(support_props)
+                ],
+            },
+        )
+        await tx.execute_write(
+            clear_decision_review_query(),
+            {"project_id": self._project_id, "decision_id": str(decision_id)},
+        )
+        await self._append_note(
+            tx,
+            task_id=lookup.task_id,
+            payload=f"Decision {decision_id} reaffirmed.",
+        )
+        return ReaffirmDecisionResult(
+            recorded=True, decision=await self._get_decision_tx(tx, str(decision_id))
+        )
+
+    async def _is_revalidated(
+        self,
+        tx: GraphStoreTransaction,
+        document_id: str,
+        fetched: Sequence[FetchOutcome],
+    ) -> bool:
+        """Check that the document is live and that a fetch returned its version."""
+        rows = await tx.execute_read(current_document_query(), {"id": document_id})
+        if not rows or not rows[0]["live"] or rows[0]["hash"] is None:
+            return False
+        return any(
+            item.status is FetchStatus.OK
+            and item.document_key == rows[0]["key"]
+            and item.content_hash == rows[0]["hash"]
+            and item.reference is not None
+            and str(item.reference.document_node_id) == document_id
+            for item in fetched
+        )
+
+    async def _append_note(
+        self, tx: GraphStoreTransaction, *, task_id: UUID, payload: str
+    ) -> None:
+        """Append a note event to a task, recorded by this agent."""
+        rows = await tx.execute_write(
+            append_event_query(),
+            {
+                "project_id": self._project_id,
+                "task_id": str(task_id),
+                "kind": EventKind.NOTE.value,
+                "role": None,
+                "name": None,
+                "payload": payload,
+                "payload_sha256": hashlib.sha256(payload.encode("utf-8")).hexdigest(),
+                "truncated": False,
+                "author": self._agent_id,
+                "at": datetime.now(UTC).isoformat(),
+            },
+        )
+        seq = int(rows[0]["seq"])
+        await tx.execute_write(
+            set_event_id_query(),
+            {
+                "task_id": str(task_id),
+                "seq": seq,
+                "id": str(_uuid("Event", task_id, seq)),
+            },
         )
 
     async def _validated_supports(

@@ -281,6 +281,16 @@ class RejectDecisionResult(WriteResult):
     decision: Decision | None = None
 
 
+class ReaffirmDecisionResult(WriteResult):
+    """The outcome of reaffirming a flagged decision.
+
+    Attributes:
+        decision: The reaffirmed decision when ``recorded`` is true.
+    """
+
+    decision: Decision | None = None
+
+
 class DecisionHit(BaseModel):
     """A decision returned by precedent search.
 
