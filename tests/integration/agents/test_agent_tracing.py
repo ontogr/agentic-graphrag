@@ -25,6 +25,7 @@ from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
 from agrag.agents.build import build_agent
 from agrag.agents.settings import AgentLLMSettings
 from agrag.common.data_models.chunk import CHUNK_LABEL, Chunk
+from agrag.common.data_models.document import Document
 from agrag.common.data_models.graph_record import NodeRecord, RelationRecord
 from agrag.common.data_models.provenance import TextProvenance
 from agrag.common.data_models.vector_record import Distance
@@ -138,7 +139,8 @@ class TestAgentTracing:
         self.robot_label = validate_identifier(f"Robot_{suffix}")
         self.embedder = _FakeKeywordEmbedder()
         self.chunk_ids: list = []
-        self.document_id = str(uuid4())
+        self.document_key = f"agent-tracing-{suffix}"
+        self.document_id = str(Document.node_id_for(document_key=self.document_key))
         yield
         for label in (self.person_label, self.company_label, self.robot_label):
             await self.store.execute_write(f"MATCH (n:{label}) DETACH DELETE n")
@@ -235,6 +237,11 @@ class TestAgentTracing:
             dimensions=4,
             distance=Distance.COSINE,
         )
+        await self.store.ensure_fulltext_index(
+            label=CHUNK_LABEL,
+            properties=["text"],
+        )
+        await self.store.execute_read("CALL db.awaitIndexes(60)")
 
     async def test_retrieval_spans_nest_under_their_tool_span(self) -> None:
         """Each retrieval span sits under a TOOL span of the agent run."""
@@ -252,7 +259,7 @@ class TestAgentTracing:
         agent = build_agent(
             graph_store=self.store,
             embedder=self.embedder,
-            scope=frozenset({self.document_id}),
+            scope=frozenset({self.document_key}),
             project_id="agent-tracing",
             agent_id="tracing-agent",
             llm_settings=settings,
@@ -270,17 +277,17 @@ class TestAgentTracing:
 
         tools = [span for span in spans if _is_tool(span)]
         assert tools, "the agent made no tool calls"
-        assert any(span.name == "agrag.retrieval.search" for span in spans)
-
-        # Each retrieval span's nearest TOOL ancestor is the call that made it.
-        owners: set[int] = set()
+        # Evidence discovery and fetch read the graph through the store, so
+        # each read sits under the evidence TOOL call that issued it.
+        owners: dict[int, str | None] = {}
         for span in spans:
-            if not span.name.startswith("agrag.retrieval."):
+            if span.name != "agrag.graphdb.execute_read":
                 continue
-            ancestors = _ancestors(span, by_id)
-            tool = next((a for a in ancestors if _is_tool(a)), None)
-            assert tool is not None, f"{span.name} has no TOOL ancestor"
-            owners.add(tool.context.span_id)
+            tool = next((a for a in _ancestors(span, by_id) if _is_tool(a)), None)
+            if tool is not None:
+                owners[tool.context.span_id] = _tool_name(tool)
+        assert owners, "no graph read ran under a tool span"
+        assert set(owners.values()) <= {"discover_evidence", "fetch_evidence"}
         assert len(owners) >= 2, "fewer than two tool calls ran retrieval"
 
         searches = [

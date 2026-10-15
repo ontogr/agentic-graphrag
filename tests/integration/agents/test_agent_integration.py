@@ -22,6 +22,7 @@ from agrag.agents.ledger import Ledger
 from agrag.agents.settings import AgentLLMSettings, AgentSettings
 from agrag.agents.tools import make_tools
 from agrag.common.data_models.chunk import CHUNK_LABEL, Chunk
+from agrag.common.data_models.document import Document
 from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.graph_record import NodeRecord, RelationRecord
 from agrag.common.data_models.graph_schema import (
@@ -537,7 +538,8 @@ class TestAgentBuildIntegration:
             graph_schema=self.schema,
         )
         self.chunk_ids: list = []
-        self.document_id = str(uuid4())
+        self.document_one = f"agent-integration-one-{uuid4().hex[:8]}"
+        self.document_two = f"agent-integration-two-{uuid4().hex[:8]}"
         yield
         for label in (self.label, self.other_label):
             await self.store.execute_write(f"MATCH (n:{label}) DETACH DELETE n")
@@ -592,9 +594,10 @@ class TestAgentBuildIntegration:
 
     async def _seed_chunk(self, text: str) -> None:
         """Write one chunk in this test's document partition."""
+        document_id = Document.node_id_for(document_key=self.document_one)
         chunk = Chunk(
             id=uuid4(),
-            document_id=uuid4(),
+            document_id=document_id,
             index=0,
             text=text,
             content_hash=hashlib.sha256(text.encode("utf-8")).hexdigest(),
@@ -609,7 +612,7 @@ class TestAgentBuildIntegration:
                     id=chunk.id,
                     labels=[CHUNK_LABEL],
                     properties={
-                        "document_id": self.document_id,
+                        "document_id": str(document_id),
                         "index": 0,
                         "text": text,
                         "content_hash": hashlib.sha256(
@@ -630,6 +633,11 @@ class TestAgentBuildIntegration:
             dimensions=4,
             distance=Distance.COSINE,
         )
+        await self.store.ensure_fulltext_index(
+            label=CHUNK_LABEL,
+            properties=["text"],
+        )
+        await self.store.execute_read("CALL db.awaitIndexes(60)")
 
     @staticmethod
     def _message_text(result: dict) -> str:

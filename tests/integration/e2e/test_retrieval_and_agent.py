@@ -243,7 +243,7 @@ class TestRetrievalE2E:
         )
 
     async def _ensure_retrieval_indexes(self) -> None:
-        """Provision the vector indexes retrieval searches.
+        """Provision the vector and full-text indexes retrieval searches.
 
         ``Graph.open`` provisions these while opening a graph; the
         tests here construct stores directly, so each test creates the
@@ -256,6 +256,12 @@ class TestRetrievalE2E:
                 dimensions=4,
                 distance=Distance.COSINE,
             )
+        for label in (self.drug_label, self.condition_label):
+            await self.store.ensure_fulltext_index(label=label, properties=["name"])
+        await self.store.ensure_fulltext_index(label=CHUNK_LABEL, properties=["text"])
+        # New indexes populate asynchronously; discovery reports
+        # INDEX_NOT_READY until they are ONLINE.
+        await self.store.execute_read("CALL db.awaitIndexes(60)")
 
     async def _seed_graph(
         self,
