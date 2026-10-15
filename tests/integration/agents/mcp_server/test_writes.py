@@ -139,12 +139,24 @@ class TestMcpMemoryTools:
             assert long_event.structured_content["event"]["payload_sha256"] == (
                 hashlib.sha256(long_payload.encode()).hexdigest()
             )
+            tool_call = await client.call_tool(
+                "record_event",
+                {
+                    "task_name": "mcp task",
+                    "kind": "tool_call",
+                    "payload": "search for the recorded event",
+                    "request_id": "tool-call-once",
+                    "name": "search",
+                },
+            )
+            assert tool_call.structured_content["event"]["kind"] == "tool_call"
             listed = await client.call_tool(
                 "list_events", {"task_name": "mcp task", "limit": 5}
             )
             assert [item["seq"] for item in listed.structured_content["events"]] == [
                 1,
                 2,
+                3,
             ]
             fetched = await client.call_tool(
                 "fetch_event", {"task_name": "mcp task", "seq": 1}
@@ -262,7 +274,7 @@ class TestMcpMemoryTools:
             existing = await client.call_tool(
                 "list_events", {"task_name": "mcp task", "limit": 5}
             )
-            assert len(existing.structured_content["events"]) == 2
+            assert len(existing.structured_content["events"]) == 3
 
         other_scope = read_only.model_copy(
             update={"project_id": f"other-{uuid4().hex}"}
