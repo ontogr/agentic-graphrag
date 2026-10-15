@@ -6,57 +6,27 @@ sidebar_label: build_agent
 # `agrag.agents.build.build_agent` \{#agrag-agents-build-build_agent}
 
 ```python
-build_agent(*, engine:SearchEngine, llm_settings:AgentLLMSettings, agent_settings:AgentSettings | None = None, filters:SearchFilters | None = None, graph_schema:GraphSchema | None = None, tracer:Tracer | None = None) -> Any
+build_agent(*, graph_store:GraphStore, embedder:Embedder, scope:frozenset[str], project_id:str, agent_id:str, llm_settings:AgentLLMSettings, agent_settings:AgentSettings | None = None, tracer:Tracer | None = None) -> Any
 ```
 
-Build the planner/researcher/verifier agent graph.
-
-Constructs a LangGraph-based agent with three roles:
-planner (decomposes the question), researcher (has tools),
-and verifier (judges evidence sufficiency and returns a
-structured verdict).
-
-Each call to `ainvoke` creates a fresh `Ledger` so
-citation numbering, identity mappings, and retrieved evidence
-do not leak across runs, and a fresh `ResearchAttemptLimiter`
-so one question's retry budget does not spend another's.
+Build one agent bound to trusted document and memory scopes.
 
 **Parameters:**
 
-- **engine** (<code>[SearchEngine](../../retrieval/search_engine/SearchEngine.md)</code>) – Retrieval to expose to the researcher subagent's
-  tools.
-- **llm_settings** (<code>[AgentLLMSettings](../settings/AgentLLMSettings.md)</code>) – The model every subagent role calls, via
-  build_chat_model. With several clients, the remaining
-  ones compose per strategy through agent middleware.
-- **agent_settings** (<code>[AgentSettings](../settings/AgentSettings.md) | None</code>) – Loop-level configuration; defaults from
-  environment. The recursion limit is enforced as the
-  LangGraph `recursion_limit` in the invoke config, and
-  `max_research_attempts` bounds how many times the
-  planner may re-research after an INSUFFICIENT verdict.
-  Set `search_candidates` to give the researcher the
-  unreviewed-candidate search.
-- **filters** (<code>[SearchFilters](../../retrieval/filters/SearchFilters.md) | None</code>) – Retrieval scope applied to every tool search,
-  e.g. document or tenant constraints. None searches
-  unfiltered.
-- **graph_schema** (<code>[GraphSchema](../../common/data_models/graph_schema/GraphSchema.md) | None</code>) – The schema the researcher prompt describes. None uses the
-  engine's own resolved schema; a value that differs from
-  the engine's raises, so the prompt cannot describe a
-  graph the engine does not search.
-- **tracer** (<code>Tracer | None</code>) – Receives OpenInference spans for every `ainvoke`,
-  including the researcher and verifier subagents' tool and
-  model calls. None emits no spans. Spans carry the question,
-  tool inputs, and evidence text.
+- **graph_store** (<code>[GraphStore](../../graphdb/base/GraphStore.md)</code>) – Store used by evidence and memory operations.
+- **embedder** (<code>[Embedder](../../embedding/base/Embedder.md)</code>) – Embedder used for semantic evidence discovery.
+- **scope** (<code>frozenset\[str\]</code>) – Document keys the agent may read.
+- **project_id** (<code>str</code>) – Trusted project identifier for task and decision memory.
+- **agent_id** (<code>str</code>) – Trusted author identifier for memory writes.
+- **llm_settings** (<code>[AgentLLMSettings](../settings/AgentLLMSettings.md)</code>) – Model configuration and composition strategy.
+- **agent_settings** (<code>[AgentSettings](../settings/AgentSettings.md) | None</code>) – Run limits. Defaults to environment settings.
+- **tracer** (<code>Tracer | None</code>) – Optional OpenTelemetry tracer for agent and model calls.
 
 **Returns:**
 
-- <code>Any</code> – An agent whose `ainvoke` returns an `AgentRunResult`: the
-- <code>Any</code> – run's `messages` plus its `ledger`, which maps each
-- <code>Any</code> – citation key in the answer back to its evidence. When
-- <code>Any</code> – deepagents is not installed, a single-search-plus-synthesis
-- <code>Any</code> – fallback with the same result shape.
+- <code>Any</code> – An agent with `ainvoke({"task_name": ..., "question": ...})`.
 
 **Raises:**
 
-- <code>[AgentMissingExtraError](../errors/AgentMissingExtraError.md)</code> – `tracer` is set but the `observability`
-  extra is not installed.
-- <code>ValueError</code> – `graph_schema` differs from the engine's schema.
+- <code>[AgentMissingExtraError](../errors/AgentMissingExtraError.md)</code> – The `agents` extra is not installed, or
+  tracing was requested without the `observability` extra.

@@ -1,15 +1,7 @@
-"""End-to-end test that a real agent run exports a span tree.
-
-Runs the deepagents planner with a real LLM against a stub search engine and
-an in-memory OpenTelemetry exporter. It checks the shape of the trace only:
-the planner delegates to the researcher through a ``task`` tool span, and the
-researcher's own tool calls appear beneath it. It skips without an LLM
-endpoint in ``.env``. The span dump goes to the e2e artifact directory.
-"""
+"""End-to-end test that a task-scoped agent run exports tool spans."""
 
 import importlib.util
 import os
-from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
 import pytest
@@ -22,9 +14,8 @@ from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
 
 from agrag.agents.build import build_agent
 from agrag.agents.settings import AgentLLMSettings
-from agrag.common.data_models.default_schema import DEFAULT_SCHEMA
-from agrag.common.data_models.entity import Entity
-from agrag.common.data_models.search_result import SearchResult
+from agrag.embedding import build_embedder
+from agrag.graphdb import build_graph_store
 from tests.integration.e2e._artifact import write_artifact
 
 
@@ -39,38 +30,35 @@ def _llm_configured() -> bool:
 @pytest.mark.skipif(
     importlib.util.find_spec("deepagents") is None, reason="deepagents not installed"
 )
+@pytest.mark.skipif(
+    importlib.util.find_spec("neo4j") is None, reason="neo4j extra not installed"
+)
 @pytest.mark.skipif(not _llm_configured(), reason="LLM endpoint not configured")
 class TestAgentTracingE2E:
-    """A traced agent run exports planner, researcher and tool spans."""
+    """A traced agent run exports tool spans nested under its own spans."""
 
-    async def test_researcher_tool_spans_nest_under_the_task_span(self) -> None:
-        """The researcher's tool calls are descendants of the ``task`` span."""
+    async def test_tool_spans_have_a_parent_span(self) -> None:
+        """Tool calls are descendants of a span from the agent run."""
         exporter = InMemorySpanExporter()
         provider = TracerProvider()
         provider.add_span_processor(SimpleSpanProcessor(exporter))
-        engine = MagicMock()
-        engine.graph_schema = DEFAULT_SCHEMA
-        engine.find_entity = AsyncMock(return_value=None)
-        engine.list_relationship_types = AsyncMock(return_value=[])
-        engine.traverse = AsyncMock(return_value=[])
-        engine.search = AsyncMock(
-            return_value=[
-                SearchResult(
-                    item=Entity(id=uuid4(), label="Person", name="Alice"),
-                    score=0.9,
-                    method="entity",
-                )
-            ]
-        )
+        graph_store = build_graph_store("neo4j")
+        await graph_store.connect()
+        embedder = build_embedder("ibm-granite/granite-embedding-small-english-r2")
         agent = build_agent(
-            engine=engine,
+            graph_store=graph_store,
+            embedder=embedder,
+            scope=frozenset(),
+            project_id="agent-tracing-e2e",
+            agent_id="tracing-agent",
             llm_settings=AgentLLMSettings.from_openai_compatible_env(),
             tracer=provider.get_tracer("agrag-e2e"),
         )
 
         await agent.ainvoke(
-            {"messages": [{"role": "user", "content": "Who is Alice?"}]}
+            {"task_name": f"alice-{uuid4().hex[:8]}", "question": "Who is Alice?"}
         )
+        await graph_store.close()
 
         spans = exporter.get_finished_spans()
         by_id = {span.context.span_id: span for span in spans}
@@ -79,8 +67,7 @@ class TestAgentTracingE2E:
             for span in spans
             if span.attributes.get("openinference.span.kind") == "TOOL"
         ]
-        tasks = [span for span in tools if span.name == "task"]
-        assert tasks, "the planner did not delegate through the task tool"
+        assert tools, "the agent emitted no tool span"
 
         def ancestors(span: ReadableSpan) -> set[int]:
             found: set[int] = set()
@@ -89,15 +76,12 @@ class TestAgentTracingE2E:
                 found.add(span.context.span_id)
             return found
 
-        task_ids = {span.context.span_id for span in tasks}
-        nested = [
-            span for span in tools if span.name != "task" and task_ids & ancestors(span)
-        ]
-        assert nested, "no researcher tool span sits under a task span"
+        nested = [span for span in tools if ancestors(span)]
+        assert nested, "no tool span has a parent span"
         record = write_artifact(
             "agent_tracing",
             {
-                "has_task_span": bool(tasks),
+                "has_tool_span": bool(tools),
                 "has_nested_tool_span": bool(nested),
                 "kinds": sorted(
                     {

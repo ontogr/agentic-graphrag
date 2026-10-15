@@ -16,7 +16,7 @@ Score whether each cited sentence follows from the evidence it cites.
 The unit is the sentence. A sentence counts as cited when it carries a
 citation key. A judge decides whether the text of the cited evidence supports
 the sentence. It scores each sentence with one `GEval` run. A cited key that
-the run's ledger did not assign is fabricated: the sentence is unsupported and
+the run did not fetch is fabricated: the sentence is unsupported and
 no judge call happens.
 
 The score is the F1 of two ratios. Precision is supported cited sentences

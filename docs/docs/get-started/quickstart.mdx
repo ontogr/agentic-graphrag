@@ -273,7 +273,6 @@ from agrag.agents.settings import AgentLLMSettings
 from agrag.common.data_models.graph_schema import EntityType, GraphSchema, RelationType
 from agrag.embedding import build_embedder
 from agrag.graphdb import build_graph_store
-from agrag.retrieval.search_engine import SearchEngine
 
 schema = GraphSchema(
     name="company-facts",
@@ -309,22 +308,20 @@ async def main() -> None:
     graph_store = build_graph_store("neo4j")
     await graph_store.connect()
     try:
-        engine = SearchEngine(
-            graph_store=graph_store,
-            embedder=build_embedder("ibm-granite/granite-embedding-small-english-r2"),
-            graph_schema=schema,
-        )
+        embedder = build_embedder("ibm-granite/granite-embedding-small-english-r2")
         agent = build_agent(
-            engine=engine,
+            graph_store=graph_store,
+            embedder=embedder,
+            scope=frozenset({"company-notes.md"}),
+            project_id="quickstart",
+            agent_id="quickstart-agent",
             llm_settings=AgentLLMSettings.from_openai_compatible_env(),
-            graph_schema=schema,
         )
         result = await agent.ainvoke(
-            {"messages": [{"role": "user", "content": QUESTION}]}
+            {"task_name": "company-founder", "question": QUESTION}
         )
-        answer = result["messages"][-1]
-        print(answer["content"] if isinstance(answer, dict) else answer.content)
-        print("evidence keys:", ", ".join(result["ledger"].keys))
+        print(result["answer"])
+        print("evidence ids:", ", ".join(item.evidence_id for item in result["citations"]))
     finally:
         await graph_store.close()
 

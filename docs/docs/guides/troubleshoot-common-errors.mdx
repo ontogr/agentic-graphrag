@@ -88,6 +88,7 @@ The message names the extra to install. The command in the message is correct.
 | `ExtractorMissingExtraError: 'GlinerExtractor' needs the 'extract' extra` | `extract` |
 | `ExtractorMissingExtraError: 'BAMLExtractor' needs the 'llm' extra` | `llm` |
 | `AgentMissingExtraError: needs the 'observability' extra` | `observability` |
+| `AgentMissingExtraError: needs the 'agents' extra` | `agents` |
 | `MissingExtraError: '.pdf' needs the 'docling' extra` | `docling` |
 
 Install an extra with `uv pip install "agentic-graphrag[<extra>]"`.
@@ -95,7 +96,7 @@ Install an extra with `uv pip install "agentic-graphrag[<extra>]"`.
 A source with a missing loader extra follows your error policy. With `SKIP`, Agentic GraphRAG skips the file. With `QUARANTINE`, Agentic GraphRAG sets it aside and reports it. With `RAISE`, the run stops.
 
 :::note
-Without the `agents` extra, `build_agent` raises no error. It returns a simple agent that runs one search and writes one answer. Install `agents` to get the planner, researcher, and verifier.
+`build_agent` raises `AgentMissingExtraError` when the `agents` extra is not installed. Install `agents` to build the task agent.
 :::
 
 ## The LLM extractor returns fewer entities than expected
@@ -215,7 +216,7 @@ The vector index does not exist. A search in the Neo4j vector indexes returns no
 
 The engine uses another embedder than the graph. A query vector of another size makes each Neo4j vector search fail, so `search` raises `AllRetrievalMethodsFailedError` instead of returning results. Pass `SearchEngine` the embedder that you pass to `Graph.open`. To change the model of the graph, see the next section.
 
-The simple agent answers `No relevant evidence found.` when a search returns nothing.
+When a search returns nothing, the agent has no evidence to cite. Its answer says that the evidence is insufficient.
 
 ## The embedding dimension does not match
 

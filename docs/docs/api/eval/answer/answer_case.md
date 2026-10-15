@@ -11,9 +11,8 @@ answer_case(question:str, result:AgentRunResult, reference:str) -> LLMTestCase
 
 Build the test case that every answer-quality metric scores.
 
-`retrieval_context` holds the evidence the agent saw, as the ledger
-rendered it, in key order. `metadata["citations"]` maps each
-key to that text for `CitationAccuracyMetric`.
+`retrieval_context` holds the fetched evidence. `metadata["citations"]`
+maps each evidence id to its text for `CitationAccuracyMetric`.
 
 **Parameters:**
 
