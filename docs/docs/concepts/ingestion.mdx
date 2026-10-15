@@ -89,6 +89,10 @@ The Document node stores the schema name, the schema version, the schema fingerp
 
 The escalation budget is not part of the extraction fingerprint, so a change of the budget does not extract a document again. The chunks do not depend on the extraction settings, so a re-extraction keeps the chunks and their embeddings. A change of the chunker or the schema structure writes a new version, so the document is chunked and embedded again.
 
+`Graph.add` applies this same table to each document whose key already has a current version. A key without a current version is added as a new document.
+
+Each change that a job commits also adds a `DocumentActivation` node to the document, linked by a `HAS_ACTIVATION` edge. The node records the verb (`add`, `update` or `delete`), the content hash of the new version, the content hash that it replaces, the version id and the job id. The Document node counts its records in `activation_seq`, so the history of a document stays in order even when an earlier version comes back. A re-extraction in place, a date-only update and an unchanged `add` write no record.
+
 ## Example
 
 You call `Graph.add` with a folder of 200 files and `ErrorPolicy.SKIP`. One file ends in `.dat`, and no loader reads that extension. The loader skips it and counts it. The other 199 files become documents and chunks. The `AddResult` shows 199 documents, 1 skipped source, and the number of entities that extraction found.

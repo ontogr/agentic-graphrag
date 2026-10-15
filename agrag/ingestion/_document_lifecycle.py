@@ -8,8 +8,9 @@ version.
 from __future__ import annotations
 
 from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import date
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 from uuid import UUID
 
 from pydantic import BaseModel
@@ -23,6 +24,36 @@ from agrag.graphdb.base import GraphStore
 
 if TYPE_CHECKING:
     from agrag.graphdb.base import GraphStoreTransaction
+
+
+@dataclass(frozen=True, slots=True)
+class DocumentChange:
+    """A committed change to one document, written as an activation record.
+
+    The cutover job passes it to the commit transaction, which appends one
+    activation to the document's history in the same transaction that flips
+    its edges.
+
+    Attributes:
+        document_node_id: The id of the Document node the change applies to.
+        document_key: The stable key of the document.
+        verb: ``add`` for the first version of a key, ``update`` for a new
+            version that replaces the current one, or ``delete`` for a
+            soft deletion.
+        content_hash: The content hash of the new version, or ``None`` for a
+            delete.
+        previous_content_hash: The content hash of the version the change
+            replaces, or ``None`` when the key had no stored version.
+        version_id: The version id of the new version, or ``None`` for a
+            delete.
+    """
+
+    document_node_id: UUID
+    document_key: str
+    verb: Literal["add", "update", "delete"]
+    content_hash: str | None
+    previous_content_hash: str | None
+    version_id: str | None
 
 
 class DocumentLookup(BaseModel):
