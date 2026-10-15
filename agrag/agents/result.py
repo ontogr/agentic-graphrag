@@ -13,7 +13,17 @@ class AgentTaskRef(TypedDict):
 
 
 class AgentRunResult(TypedDict):
-    """Outcome, answer, evidence references and conversation for one run."""
+    """Outcome, answer, evidence references and conversation for one run.
+
+    Attributes:
+        answer: Final answer text.
+        status: Outcome after evidence, write and budget checks.
+        citations: Complete fetched evidence supporting the answer.
+        invalid_citations: Cited evidence ids that did not pass validation.
+        recording_failures: Descriptions of task writes that did not complete.
+        task: Task name and latest persisted event sequence.
+        messages: Messages produced by the agent.
+    """
 
     answer: str
     status: Literal[
@@ -26,5 +36,6 @@ class AgentRunResult(TypedDict):
     ]
     citations: list[FetchOutcome]
     invalid_citations: list[str]
+    recording_failures: list[str]
     task: AgentTaskRef
     messages: list[Any]

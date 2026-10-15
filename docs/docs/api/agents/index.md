@@ -17,12 +17,12 @@ extra. Importing this package does not require that extra.
 - [**errors**](errors/index.md) – Errors raised by the agent layer.
 - [**harness**](harness/index.md) – Process-global DeepAgents harness profile registration.
 - [**ledger**](ledger/index.md) – Citation ledger: assigns and tracks stable keys for one agent run.
-- [**middleware**](middleware/index.md) – Middleware for composing configured chat models.
+- [**middleware**](middleware/index.md) – Middleware for composing configured chat models and capturing task events.
 - [**model**](model/index.md) – Translate LLMClientConfig into the matching LangChain chat model.
 - [**prompts**](prompts/index.md) – The single default agent prompt.
 - [**result**](result/index.md) – Typed result returned after a task-scoped agent run.
 - [**settings**](settings/index.md) – Env-backed LLM and loop config for the agent layer.
-- [**tools**](tools/index.md) – Agent tools: thin wrappers calling SearchEngine with fixed Recipes.
+- [**tools**](tools/index.md) – Tools bound to one task run: evidence, navigation, task and decision tools.
 - [**tracing**](tracing/index.md) – Per-run OpenInference tracing for agent runs.
 - [**verification**](verification/index.md) – The structured verdict of the fixed-input verifier.
 

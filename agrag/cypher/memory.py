@@ -348,6 +348,18 @@ def step_page_query() -> str:
     )
 
 
+def steps_in_state_page_query() -> str:
+    """Build Cypher reading one page of a task's steps in one state, by name."""
+    return (
+        f"MATCH (t:{_TASK} {{id: $task_id, project_id: $project_id}})"
+        f"-[:{_HAS_STEP}]->(s:{_STEP}) "
+        "WHERE s.state = $state AND ($after_name IS NULL OR s.name > $after_name) "
+        "RETURN s.name AS name, s.kind AS kind, s.state AS state, "
+        "s.result_event_seq AS result_event_seq "
+        "ORDER BY s.name LIMIT $limit"
+    )
+
+
 def claim_request_query() -> str:
     """Build Cypher that claims a request id, or reads the claim it already has.
 
