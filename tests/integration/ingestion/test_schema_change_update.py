@@ -47,6 +47,7 @@ from agrag.loaders.types import ErrorPolicy
 from agrag.retrieval.recipes import Recipe
 from agrag.retrieval.search_engine import SearchEngine
 from agrag.retrieval.settings import RetrievalSettings
+from tests.conftest import FAKE_EMBEDDING_DIMENSIONS
 from tests.integration._schema_cleanup import drop_schema_for
 from tests.integration.e2e._artifact import write_artifact
 
@@ -75,7 +76,7 @@ class _RecordingEmbedder(Embedder):
 
     async def dimensions(self) -> int:
         """Return 4 dimensions."""
-        return 4
+        return FAKE_EMBEDDING_DIMENSIONS
 
     async def embed(self, texts: Sequence[str]) -> list[list[float]]:
         """Record the texts and return vectors that follow the known keywords."""

@@ -29,6 +29,7 @@ from agrag.graphdb.base import GraphStore
 from agrag.ingestion.extract import Extractor
 from agrag.ingestion.graph import Graph
 from agrag.loaders.common import text_sections
+from tests.conftest import FAKE_EMBEDDING_DIMENSIONS
 
 
 neo4j_missing = importlib.util.find_spec("neo4j") is None
@@ -55,14 +56,14 @@ class _FixedEmbedder(Embedder):
 
     async def dimensions(self) -> int:
         """Return 4 dimensions."""
-        return 4
+        return FAKE_EMBEDDING_DIMENSIONS
 
     async def embed(self, texts: Sequence[str]) -> list[list[float]]:
         """Return a constant vector, or raise when a text holds the marker."""
         for text in texts:
             if self.fail_marker is not None and self.fail_marker in text:
                 raise RuntimeError("embedder unavailable")
-        return [[0.1] * 4 for _ in texts]
+        return [[0.1] * FAKE_EMBEDDING_DIMENSIONS for _ in texts]
 
 
 class _NoopExtractor(Extractor):
