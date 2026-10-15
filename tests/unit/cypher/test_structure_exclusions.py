@@ -18,6 +18,8 @@ STRUCTURE_TYPES = (
     "HAS_CHILD",
     "HAS_DOCUMENT",
     "HAS_ACTIVATION",
+    "HAS_EVENT",
+    "HAS_STEP",
     "MENTIONED_IN",
     "MEMBER_OF",
 )
