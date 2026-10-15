@@ -309,7 +309,12 @@ def build_server(
         checks = await verify_citations(
             cited_evidence_ids, session.fetched_ids, scope=scope
         )
-        return CitationResult(checks=checks)
+        kept, dropped = _drop_to_budget(
+            checks,
+            lambda items: CitationResult(checks=items, truncated=True),
+            settings.max_response_chars,
+        )
+        return CitationResult(checks=kept, truncated=dropped)
 
     return server
 
@@ -364,7 +369,7 @@ async def _dimensions_agree(
     except Exception:
         _LOGGER.exception("Could not read the vector index dimension")
         raise ToolError(_STORE_UNAVAILABLE) from None
-    return not rows or rows[0]["dimensions"] == embedder_dimensions
+    return bool(rows) and rows[0]["dimensions"] == embedder_dimensions
 
 
 def _with_semantic_failure(lexical: DiscoveryResult) -> DiscoveryResult:
@@ -417,6 +422,8 @@ def _drop_to_budget(
     while kept and _serialized_size(build(kept)) > budget:
         kept.pop()
         dropped = True
+    if _serialized_size(build(kept)) > budget:
+        raise ToolError("max_response_chars is too small for an empty result")
     return kept, dropped
 
 

@@ -355,8 +355,7 @@ class TestOutputLimits:
 
         [outcome] = FetchResult.model_validate(structured).outcomes
         assert outcome.status is FetchStatus.TRUNCATED
-        assert outcome.text is not None
-        assert len(outcome.text) == 20
+        assert outcome.text == GOLD_SENTENCE[:20]
 
     async def test_too_many_ids_is_a_correctable_tool_error(
         self, evidence_env: EvidenceEnv
@@ -524,6 +523,38 @@ class TestEmbeddingModelMismatch:
         result = DiscoveryResult.model_validate(structured)
         assert result.status is DiscoveryStatus.OK
         assert result.failures == []
+        assert result.hits
+        assert all(DiscoveryLeg.SEMANTIC in hit.legs for hit in result.hits)
+
+    async def test_citation_checks_fit_the_response_budget(
+        self, evidence_env: EvidenceEnv
+    ) -> None:
+        """Drop trailing citation checks and mark them when the budget is tight."""
+        env = evidence_env
+        cited_ids = ["x" * 200, "y" * 200]
+        async with Client(
+            _server(env.store, env, max_response_chars=300, max_fetch_ids=2)
+        ) as client:
+            structured = await _structured(
+                client, "check_citations", {"cited_evidence_ids": cited_ids}
+            )
+
+        result = CitationResult.model_validate(structured)
+        assert result.truncated is True
+        assert 2 * len(result.model_dump_json()) <= 300
+
+    async def test_too_small_response_budget_returns_a_tool_error(
+        self, evidence_env: EvidenceEnv
+    ) -> None:
+        """Do not return even an empty result envelope above the configured cap."""
+        env = evidence_env
+        async with Client(_server(env.store, env, max_response_chars=1)) as client:
+            result = await client.call_tool(
+                "search_evidence", {"query": "unknown", "mode": "lexical"}
+            )
+
+        assert result.is_error is True
+        assert "too small for an empty result" in _text(result)
 
 
 class TestCancellation:

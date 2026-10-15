@@ -319,6 +319,9 @@ class CitationResult(BaseModel):
 
     Attributes:
         checks: One verdict for each cited id, in the order given.
+        truncated: True when trailing checks were dropped to stay within a
+            serving layer's response-size limit.
     """
 
     checks: list[CitationCheck] = Field(default_factory=list)
+    truncated: bool = False
