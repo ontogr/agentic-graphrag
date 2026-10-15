@@ -74,6 +74,7 @@ def _result(answer: str) -> AgentRunResult:
             ),
         ],
         "invalid_citations": [],
+        "recording_failures": [],
         "task": {"name": "test", "last_event_seq": 0},
         "messages": [{"role": "assistant", "content": answer}],
     }
@@ -86,6 +87,7 @@ def _run(messages: list[Any]) -> AgentRunResult:
         "status": "answered",
         "citations": [],
         "invalid_citations": [],
+        "recording_failures": [],
         "task": {"name": "test", "last_event_seq": 0},
         "messages": messages,
     }

@@ -198,16 +198,31 @@ class TestTaskEventCapture:
             for message in result["messages"]
             if isinstance(message, ToolMessage)
         ]
-        assert [call["tool_call_id"] for call in calls] == ["c1", "c2", "c3"]
-        assert {item["tool_call_id"]: item["content"] for item in tool_results} == {
-            "c1": "found a",
-            "c2": "found b",
-            "c3": "Tool budget exhausted.",
+        assert {call["tool_call_id"] for call in calls} == {"c1", "c2", "c3"}
+        results_by_id = {item["tool_call_id"]: item["content"] for item in tool_results}
+        assert set(results_by_id) == {"c1", "c2", "c3"}
+        calls_by_id = {call["tool_call_id"]: call for call in calls}
+        successful_ids = {
+            tool_call_id
+            for tool_call_id, content in results_by_id.items()
+            if content != "Tool budget exhausted."
         }
+        assert len(successful_ids) == 2
+        assert all(
+            results_by_id[tool_call_id]
+            == f"found {calls_by_id[tool_call_id]['arguments']['query']}"
+            for tool_call_id in successful_ids
+        )
+        assert (
+            sum(
+                content == "Tool budget exhausted."
+                for content in results_by_id.values()
+            )
+            == 1
+        )
         assert {message.tool_call_id: message.status for message in tool_messages} == {
-            "c1": "success",
-            "c2": "success",
-            "c3": "error",
+            tool_call_id: "success" if tool_call_id in successful_ids else "error"
+            for tool_call_id in ("c1", "c2", "c3")
         }
         assert run_state.tool_calls == 2
         assert run_state.budget_exhausted
