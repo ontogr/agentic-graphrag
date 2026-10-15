@@ -262,7 +262,8 @@ class Graph:
                 ``update()``.
             max_llm_pairs: The most ambiguous entity pairs that resolution sends
                 to the LLM for each label. A lower value bounds the number of
-                verification calls and leaves more pairs undecided.
+                verification calls and leaves more pairs undecided. Zero sends
+                no pairs to the LLM.
         """
         self._schema = (
             schema if isinstance(schema, GraphSchema) else load_schema(schema)
