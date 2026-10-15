@@ -32,6 +32,7 @@ Shared data models used by agrag components.
 - [**provenance**](provenance/index.md) – Provenance types for a chunk.
 - [**relation**](relation/index.md) – The canonical, deduped graph relationship that merge mechanics produces.
 - [**resolved_entity**](resolved_entity/index.md) – Identity clusters for non-destructive entity resolution.
+- [**retention**](retention/index.md) – Models for project-scoped event redaction and task deletion.
 - [**search_result**](search_result/index.md) – One retrieved item, tagged with source and relevance score.
 - [**stage_failure**](stage_failure/index.md) – Per-stage failure record and its per-call cap.
 - [**structure**](structure/index.md) – Stable keys, node ids, reading order and ancestry for the sections of a Document.
