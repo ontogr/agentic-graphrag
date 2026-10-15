@@ -1,1 +1,0 @@
-"""VectorStore integration test package."""

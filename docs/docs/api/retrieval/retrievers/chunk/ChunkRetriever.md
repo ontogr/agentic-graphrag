@@ -6,17 +6,15 @@ sidebar_label: ChunkRetriever
 # `agrag.retrieval.retrievers.chunk.ChunkRetriever` \{#agrag-retrieval-retrievers-chunk-ChunkRetriever}
 
 ```python
-ChunkRetriever(*, graph_store:GraphStore, embedder:Embedder, vector_store:VectorStore | None = None, settings:RetrievalSettings | None = None, tracer:Tracer | None = None) -> None
+ChunkRetriever(*, graph_store:GraphStore, embedder:Embedder, settings:RetrievalSettings | None = None, tracer:Tracer | None = None) -> None
 ```
 
 Bases: <code>[Retriever](../base/Retriever.md)</code>
 
 Dense chunk search via vector similarity.
 
-Embeds the query, searches via the GraphStore-native or VectorStore
-path, then loads each hit into a Chunk. The native
-path searches the `Chunk` vector index ingestion provisions; the
-VectorStore path searches `chunk_collection`.
+Embeds the query, searches the `Chunk` vector index that ingestion
+provisions, then loads each hit into a Chunk.
 
 **Functions:**
 
@@ -28,10 +26,8 @@ VectorStore path searches `chunk_collection`.
 
 **Parameters:**
 
-- **graph_store** (<code>[GraphStore](../../../graphdb/base/GraphStore.md)</code>) – Backs chunk search when vector_store is
-  absent.
+- **graph_store** (<code>[GraphStore](../../../graphdb/base/GraphStore.md)</code>) – Backs chunk search and the chunk reads.
 - **embedder** (<code>[Embedder](../../../embedding/base/Embedder.md)</code>) – Produces query vectors.
-- **vector_store** (<code>[VectorStore](../../../vectordb/base/VectorStore.md) | None</code>) – Optional VectorStore for hybrid search.
 - **settings** (<code>[RetrievalSettings](../../settings/RetrievalSettings.md) | None</code>) – Retrieval configuration. Defaults from
   environment.
 - **tracer** (<code>Tracer | None</code>) – Opens spans for the retriever and its children. None

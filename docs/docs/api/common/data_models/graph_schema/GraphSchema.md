@@ -12,8 +12,8 @@ A versioned contract of entity and relation types.
 Every extraction call is validated against a GraphSchema. There is no
 schema-free extraction path. Round-trip with
 `model_dump(mode="json")` and `model_validate()`. A schema declaring
-an entity property name that the vector payload reserves fails that
-validation. See `EntityType.properties`.
+an entity property name that the graph reserves fails that validation.
+See `EntityType.properties`.
 
 Construct a new schema to change its types. Ancestor access revalidates the
 hierarchy so direct parent edits cannot cause an invalid traversal.

@@ -41,7 +41,7 @@ uv run pre-commit install
 
 - Unit tests must not touch the network. Sockets are disabled by default.
 - Tests that need external services go in `tests/integration/`. `tests/conftest.py` applies the `integration`, `enable_socket`, and flaky rerun markers to tests in that directory. Do not add those markers by hand.
-- Run integration tests with `make test-integration`. They need the relevant external services and configuration. `make dev-services-up` starts the local Neo4j, Qdrant, Weaviate, and Milvus services used by integration tests. `make dev-services-down` stops them and removes their data.
+- Run integration tests with `make test-integration`. They need the relevant external services and configuration. `make dev-services-up` starts the local Neo4j service used by integration tests. `make dev-services-down` stops it and removes its data.
 - Run serial end-to-end tests with `make test-e2e`. They need a reachable Neo4j database. Do not run them against a database used by another test suite.
 - `make test-all` runs the unit, integration, and end-to-end suites. These broader suites need the services described above.
 - Aim for 80-90% coverage on new code. Do not write assertion-free tests to hit a number.
@@ -96,7 +96,7 @@ If you push to `main` with changes under `docs/`, `agrag/`, or `pyproject.toml`,
 | `make test-integration` | Run integration tests with external services |
 | `make test-e2e` | Run serial end-to-end tests with Neo4j |
 | `make test-all` | Run unit, integration, and end-to-end tests |
-| `make dev-services-up` | Start local Neo4j, Qdrant, Weaviate, and Milvus services |
+| `make dev-services-up` | Start the local Neo4j service |
 | `make dev-services-down` | Stop local services and remove their data |
 | `make test-eval` | Run judged and real-agent evals (needs Neo4j and an LLM key) |
 | `make test-eval-extraction` | Score the extractor on the KPI-EDGAR gold set (needs an LLM key) |

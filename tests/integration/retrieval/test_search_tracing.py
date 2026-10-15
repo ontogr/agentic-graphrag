@@ -351,14 +351,12 @@ class TestSearchTracingEndToEnd:
         for name in ("agrag.retrieval.entity", "agrag.retrieval.chunk"):
             retrievers = [span for span in spans if span.name == name]
             assert retrievers, f"missing {name} span"
-        # No adapter span is an orphan: every graphdb, vectordb and embedding
-        # span sits under an agrag.retrieval.* span.
+        # No adapter span is an orphan: every graphdb and embedding span sits
+        # under an agrag.retrieval.* span.
         adapters = [
             span
             for span in spans
-            if span.name.startswith(
-                ("agrag.graphdb.", "agrag.vectordb.", "agrag.embedding.")
-            )
+            if span.name.startswith(("agrag.graphdb.", "agrag.embedding."))
         ]
         assert adapters, "expected adapter spans from the real store"
         for adapter in adapters:
@@ -428,7 +426,6 @@ class TestSearchTracingEndToEnd:
                 "Ada",
                 graph_store=self.store,
                 embedder=self.embedder,
-                vector_store=None,
                 settings=self.settings,
                 entity_labels=[self.label],
                 tracer=self.tracer,

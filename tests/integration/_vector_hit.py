@@ -1,8 +1,6 @@
-"""Shared assertions for VectorHit results across vector and graph stores.
+"""Shared assertions for VectorHit results from the graph store.
 
-Both ``tests/integration/vectordb/`` and ``tests/integration/graphdb/`` import
-this helper so the two backends prove they return the same ``VectorHit`` shape,
-with no adapter between them.
+The graph store tests import this helper so every hit is a plain ``VectorHit``.
 """
 
 from uuid import UUID
@@ -16,7 +14,7 @@ def assert_is_usable_vector_hit(
     """Assert a hit is a plain ``VectorHit`` usable by any consumer.
 
     Args:
-        hit: The hit returned by either a ``VectorStore`` or a ``GraphStore``.
+        hit: The hit returned by a ``GraphStore``.
         expected_id: The id the hit must carry.
         expected_text: The ``text`` payload the hit must carry.
     """
