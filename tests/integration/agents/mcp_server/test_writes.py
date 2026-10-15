@@ -78,6 +78,12 @@ class TestMcpMemoryTools:
             )
             assert "project_id" not in create_schema["properties"]
             assert "agent_id" not in create_schema["properties"]
+            decision_schema = next(
+                tool.input_schema
+                for tool in tool_list.tools
+                if tool.name == "record_decision"
+            )
+            assert "fetched_evidence" not in decision_schema["properties"]
             tool_by_name = {tool.name: tool for tool in tool_list.tools}
             assert tool_by_name["create_task"].annotations.read_only_hint is False
             assert tool_by_name["get_task"].annotations.read_only_hint is True
@@ -164,6 +170,34 @@ class TestMcpMemoryTools:
             assert fetched.structured_content["events"][0]["payload"] == (
                 "event from the MCP host"
             )
+            evidence_search = await client.call_tool(
+                "search_evidence",
+                {
+                    "query": "keep upload activity database",
+                    "mode": "lexical",
+                    "limit": 1,
+                },
+            )
+            evidence_id = evidence_search.structured_content["hits"][0]["evidence_id"]
+            missing_fetch = await client.call_tool(
+                "record_decision",
+                {
+                    "task_name": "mcp task",
+                    "choice_key": "unfetched-support",
+                    "conclusion": "Reject this write.",
+                    "rationale": "The evidence was not fetched.",
+                    "supports": [{"evidence_id": evidence_id}],
+                    "assumptions": [],
+                    "open_questions": [],
+                    "request_id": "unfetched-decision",
+                },
+            )
+            assert missing_fetch.structured_content["recorded"] is False
+            assert missing_fetch.structured_content["error"] == "support_not_fetched"
+            evidence_fetch = await client.call_tool(
+                "fetch_evidence", {"evidence_ids": [evidence_id]}
+            )
+            assert evidence_fetch.structured_content["outcomes"][0]["status"] == "ok"
             step = await client.call_tool(
                 "set_step",
                 {
@@ -184,7 +218,10 @@ class TestMcpMemoryTools:
                     "choice_key": "store-event",
                     "conclusion": "Keep the event",
                     "rationale": "The recorded event supports this choice.",
-                    "supports": [{"task_name": "mcp task", "seq": 1}],
+                    "supports": [
+                        {"task_name": "mcp task", "seq": 1},
+                        {"evidence_id": evidence_id},
+                    ],
                     "assumptions": [],
                     "open_questions": [],
                     "request_id": "decision-once",
