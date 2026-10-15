@@ -71,15 +71,20 @@ An empty result is not an error. Check that the search labels match the schema u
 
 ```python
 import asyncio
+import hashlib
 
 from agrag.agents.build import build_agent
 from agrag.agents.settings import AgentLLMSettings
 from agrag.retrieval.search_engine import SearchEngine
 from agrag.common.data_models import DEFAULT_SCHEMA
+from agrag.common.data_models.document import Document, DocumentFamily, SourceFormat
 from agrag.embedding import build_embedder
 from agrag.graphdb import build_graph_store
 from agrag.ingestion import Graph
 from agrag.ingestion.extract import GlinerExtractor
+
+TEXT = "Aspirin treats headaches. Ibuprofen also treats headaches."
+DOCUMENT_KEY = "headache-notes"
 
 
 async def main() -> None:
@@ -92,11 +97,21 @@ async def main() -> None:
         extractor=GlinerExtractor(),
     )
     try:
-        await graph.add(text="Aspirin treats headaches. Ibuprofen also treats headaches.")
+        await graph.add(documents=[Document(
+            text=TEXT,
+            title="Headache notes",
+            uri="notes://headache",
+            document_key=DOCUMENT_KEY,
+            source_format=SourceFormat.TXT,
+            family=DocumentFamily.PROSE,
+            content_hash=hashlib.sha256(TEXT.encode()).hexdigest(),
+            loader_name="manual",
+            char_count=len(TEXT),
+        )])
         agent = build_agent(
             graph_store=graph_store,
             embedder=embedder,
-            scope=frozenset({"aspirin-notes"}),
+            scope=frozenset({DOCUMENT_KEY}),
             project_id="headache-research",
             agent_id="research-agent",
             llm_settings=AgentLLMSettings.from_openai_compatible_env(),
@@ -129,13 +144,19 @@ citation checks.
 
 ```python
 import asyncio
+import hashlib
 
 from agrag.agents.build import build_agent
 from agrag.agents.settings import AgentLLMSettings
+from agrag.common.data_models import DEFAULT_SCHEMA
+from agrag.common.data_models.document import Document, DocumentFamily, SourceFormat
 from agrag.embedding import build_embedder
 from agrag.graphdb import build_graph_store
 from agrag.ingestion import Graph
 from agrag.ingestion.extract import GlinerExtractor
+
+TEXT = "Aspirin treats headaches. Ibuprofen also treats headaches."
+DOCUMENT_KEY = "headache-notes"
 
 
 async def main() -> None:
@@ -148,11 +169,21 @@ async def main() -> None:
         extractor=GlinerExtractor(),
     )
     try:
-        await graph.add(text="Aspirin treats headaches. Ibuprofen also treats headaches.")
+        await graph.add(documents=[Document(
+            text=TEXT,
+            title="Headache notes",
+            uri="notes://headache",
+            document_key=DOCUMENT_KEY,
+            source_format=SourceFormat.TXT,
+            family=DocumentFamily.PROSE,
+            content_hash=hashlib.sha256(TEXT.encode()).hexdigest(),
+            loader_name="manual",
+            char_count=len(TEXT),
+        )])
         agent = build_agent(
             graph_store=graph_store,
             embedder=embedder,
-            scope=frozenset({"doc-1", "doc-2"}),
+            scope=frozenset({DOCUMENT_KEY}),
             project_id="headache-research",
             agent_id="research-agent",
             llm_settings=AgentLLMSettings.from_openai_compatible_env(),
