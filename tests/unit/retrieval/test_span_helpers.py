@@ -26,7 +26,6 @@ from agrag.retrieval.fusion import fuse
 from agrag.retrieval.methods.vector import vector_search
 from agrag.retrieval.rerank.cross_encoder import cross_encoder_rerank
 from agrag.retrieval.rerank.node_distance import node_distance_rerank
-from agrag.retrieval.settings import RetrievalSettings
 
 
 def _provider() -> tuple[TracerProvider, InMemorySpanExporter]:
@@ -65,10 +64,10 @@ class _MockEmbedder:
 
 
 class TestVectorSearchSpan:
-    """vector_search records the store path and its hits."""
+    """vector_search records its labels, limit, and hits."""
 
     async def test_native_path_records_graph_native_and_hits(self) -> None:
-        """The native path sets agrag.store=graph_native with hit ids."""
+        """The search records the labels, limit, and hit ids and scores."""
         provider, exporter = _provider()
         tracer = provider.get_tracer("t")
         hit_a = VectorHit(id=uuid4(), score=0.9, payload={})
@@ -80,12 +79,9 @@ class TestVectorSearchSpan:
             "q",
             embedder=_MockEmbedder(),
             graph_store=gs,
-            vector_store=None,
-            collection="agrag_entities",
             labels=["Person", "Drug"],
             limit=10,
             filters=None,
-            settings=RetrievalSettings(),
             tracer=tracer,
         )
 
@@ -93,8 +89,6 @@ class TestVectorSearchSpan:
         assert len(spans) == 1
         attributes = spans[0].attributes
         assert attributes is not None
-        assert attributes["agrag.store"] == "graph_native"
-        assert attributes["agrag.collection"] == "agrag_entities"
         assert list(attributes["agrag.labels"]) == ["Person", "Drug"]
         assert attributes["agrag.limit"] == 10
         assert json.loads(attributes["agrag.filters"]) == {
@@ -106,35 +100,6 @@ class TestVectorSearchSpan:
         assert attributes["agrag.hit_count"] == 2
         assert list(attributes["agrag.hit_ids"]) == [str(hits[0].id), str(hits[1].id)]
         assert list(attributes["agrag.hit_scores"]) == [0.9, 0.4]
-
-    async def test_vector_store_path_records_vector_store(self) -> None:
-        """The VectorStore path sets agrag.store=vector_store."""
-        provider, exporter = _provider()
-        tracer = provider.get_tracer("t")
-        vs = AsyncMock()
-        vs.hybrid_search.return_value = []
-
-        await vector_search(
-            "q",
-            embedder=_MockEmbedder(),
-            graph_store=AsyncMock(),
-            vector_store=vs,
-            collection="agrag_entities",
-            labels=["Person"],
-            limit=5,
-            filters=None,
-            settings=RetrievalSettings(),
-            tracer=tracer,
-        )
-
-        attributes = _named(
-            exporter.get_finished_spans(), "agrag.retrieval.vector_search"
-        )[0].attributes
-        assert attributes is not None
-        assert attributes["agrag.store"] == "vector_store"
-        assert attributes["agrag.hit_count"] == 0
-        assert "agrag.hit_ids" not in attributes
-        assert "agrag.hit_scores" not in attributes
 
 
 class TestFuseSpan:

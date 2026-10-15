@@ -10,4 +10,4 @@ Low-level search method helpers shared by retrievers.
 **Modules:**
 
 - [**traversal**](traversal/index.md) – Entity resolution and seeded traversal, callable without a SearchEngine.
-- [**vector**](vector/index.md) – Shared vector search helper for GraphStore and VectorStore.
+- [**vector**](vector/index.md) – Shared vector search helper over the GraphStore native vector indexes.

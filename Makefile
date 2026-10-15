@@ -20,7 +20,7 @@ help:
 	@echo "  make bench-dry DOMAIN=<name> MODE=lite|full - Bound calls and tokens without a model"
 	@echo "  make bench-clean      - Delete the benchmark graphs and volumes"
 	@echo "  make test-cov-map     - Run all suites with JUnit files and per-test coverage contexts"
-	@echo "  make dev-services-up  - Start local Neo4j/Qdrant/Weaviate/Milvus for integration tests"
+	@echo "  make dev-services-up  - Start local Neo4j for integration tests"
 	@echo "  make dev-services-down - Stop and remove local backend services and their data"
 	@echo "  make cov-report       - Generate coverage reports (xml, html)"
 	@echo "  make cov              - Run tests and generate coverage reports"
@@ -76,7 +76,7 @@ test:
 # writes. The graph group runs second, so the scanning suite sees as few of
 # those writes as the run can arrange. End-to-end tests are a separate target.
 test-integration:
-	uv run pytest tests/integration/agents tests/integration/ingestion tests/integration/embedding tests/integration/vectordb tests/integration/loaders tests/integration/llm -v -n auto --dist loadscope \
+	uv run pytest tests/integration/agents tests/integration/ingestion tests/integration/embedding tests/integration/loaders tests/integration/llm -v -n auto --dist loadscope \
 		-o "addopts=--strict-markers --strict-config --disable-socket --allow-unix-socket -ra" \
 		$(COV_ARGS) --junitxml=pytest-integration-results-ingestion.xml
 	uv run pytest tests/integration/retrieval tests/integration/graphdb tests/integration/cypher -v -n auto --dist loadgroup \
@@ -232,7 +232,7 @@ wheel-test: build
 	rm -rf .wheelenv
 	uv venv .wheelenv
 	uv pip install --python .wheelenv/bin/python dist/*.whl
-	cd /tmp && "$(CURDIR)/.wheelenv/bin/python" -c "import agrag, agrag.agents, agrag.chunking, agrag.common.data_models, agrag.embedding, agrag.graphdb, agrag.ingestion, agrag.loaders, agrag.retrieval, agrag.vectordb; print(agrag.__version__)"
+	cd /tmp && "$(CURDIR)/.wheelenv/bin/python" -c "import agrag, agrag.agents, agrag.chunking, agrag.common.data_models, agrag.embedding, agrag.graphdb, agrag.ingestion, agrag.loaders, agrag.retrieval; print(agrag.__version__)"
 
 clean:
 	rm -rf .coverage coverage.xml htmlcov dist build .wheelenv *.egg-info pytest-results.xml pytest-integration-results*.xml
@@ -245,7 +245,7 @@ clean:
 DOCS_GRIPPE2MD ?= uv run --group docs griffe2md
 DOCS_PYTHON ?= uv run python
 # Community APIs live in agrag.ingestion.community, not agrag.communities.
-DOCS_API_PKGS ?= agents chunking common embedding eval graphdb ingestion loaders observability retrieval vectordb candidates
+DOCS_API_PKGS ?= agents chunking common embedding eval graphdb ingestion loaders observability retrieval candidates
 
 docs-api:
 	mkdir -p docs/docs/api
@@ -305,7 +305,7 @@ docs-build: docs-api docs-lint-links docs-check-version
 # The generated API pages hold docstring examples that are not self-contained, so they never run.
 #
 # CI runs the pages in three shards, each on its own runner with its own Neo4j and
-# Qdrant. Set DOCS_SHARD=1, 2 or 3 to run one shard. Shards hold whole pages, because
+# Set DOCS_SHARD=1, 2 or 3 to run one shard. Shards hold whole pages, because
 # blocks of one page run in file order and can read what an earlier block wrote.
 # Shards 1 and 2 list their pages. Shard 3 runs both docs folders except those pages,
 # so a new page always runs somewhere. The lists balance measured run time (about 45

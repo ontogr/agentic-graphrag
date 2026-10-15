@@ -19,7 +19,6 @@ on:
       - "agrag/graphdb/**"
       - "agrag/llm/**"
       - "agrag/loaders/**"
-      - "agrag/vectordb/**"
       - "agrag/eval/answer.py"
       - "agrag/eval/judge.py"
       - "agrag/eval/repeat.py"
