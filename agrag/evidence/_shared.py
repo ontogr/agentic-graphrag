@@ -239,7 +239,9 @@ class IndexSpec:
     prop: str
 
 
-async def indexes_ready(store: GraphStore, specs: Sequence[IndexSpec]) -> IndexState:
+async def indexes_ready(
+    store: GraphStore, specs: Sequence[IndexSpec], *, timeout: float | None = None
+) -> IndexState:
     """Return READY when every spec names an ONLINE index of the right shape.
 
     The name alone is not enough: an index under the same name but built for
@@ -249,12 +251,16 @@ async def indexes_ready(store: GraphStore, specs: Sequence[IndexSpec]) -> IndexS
     Args:
         store: The graph store to ask.
         specs: The indexes that a call needs.
+        timeout: Server-side transaction timeout in seconds. None uses the
+            server's default.
 
     Returns:
         ``IndexState.READY`` or ``IndexState.NOT_READY``.
     """
     rows = await store.execute_read(
-        index_states_query(), {"names": [spec.name for spec in specs]}
+        index_states_query(),
+        {"names": [spec.name for spec in specs]},
+        timeout=timeout,
     )
     found = {row["name"]: row for row in rows}
     for spec in specs:

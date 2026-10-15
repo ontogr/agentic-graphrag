@@ -34,6 +34,7 @@ async def fetch(
     *,
     scope: frozenset[str],
     max_chars: int,
+    timeout: float | None = None,
 ) -> list[FetchOutcome]:
     """Return the text of each evidence id, in the order given.
 
@@ -55,6 +56,8 @@ async def fetch(
             every id unavailable.
         max_chars: The most characters returned for each id. Must be positive.
             Longer text is cut and marked ``truncated``.
+        timeout: Server-side transaction timeout in seconds for each store read.
+            None uses the server's default.
 
     Returns:
         One outcome for each id, in the same order.
@@ -66,7 +69,7 @@ async def fetch(
         raise ValueError(f"max_chars must be positive, got {max_chars}")
     allowed = scope_node_ids(scope)
     return [
-        await _fetch_one(store, evidence_id, allowed, max_chars)
+        await _fetch_one(store, evidence_id, allowed, max_chars, timeout)
         for evidence_id in evidence_ids
     ]
 
@@ -76,6 +79,7 @@ async def _fetch_one(
     evidence_id: str,
     allowed: frozenset[str],
     max_chars: int,
+    timeout: float | None,
 ) -> FetchOutcome:
     """Fetch one evidence id."""
     try:
@@ -96,7 +100,7 @@ async def _fetch_one(
         parameters["chunk_id"] = str(reference.chunk_id)
     try:
         rows = await store.execute_read(
-            evidence_chunks_query(by_chunk_id=by_chunk), parameters
+            evidence_chunks_query(by_chunk_id=by_chunk), parameters, timeout=timeout
         )
     except Exception:
         _LOGGER.exception(

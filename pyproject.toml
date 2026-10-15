@@ -44,6 +44,7 @@ dependencies = [
 docling = ["docling>=2.135"]
 embed-local = ["sentence-transformers>=5"]
 neo4j = ["neo4j>=5.22"]
+mcp = ["mcp>=2.3,<3"]
 observability = [
   "opentelemetry-sdk>=1.20",
   "opentelemetry-exporter-otlp>=1.20",
@@ -78,6 +79,9 @@ eval = [
 ]
 community = ["graspologic-native>=1.2.5"]
 schema-formats = ["rdflib>=7.1"]
+
+[project.scripts]
+agrag-mcp = "agrag.mcp_server.__main__:main"
 
 [project.urls]
 Documentation = "https://ontogr.github.io/agentic-graphrag/"
