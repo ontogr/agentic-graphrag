@@ -1,6 +1,7 @@
 """Helpers shared by discovery, fetch and citation checks."""
 
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Mapping, Sequence
+from dataclasses import dataclass
 from typing import Any
 
 from agrag.common.data_models.chunk import Chunk
@@ -9,8 +10,52 @@ from agrag.common.data_models.evidence import (
     CONTENT_HASH_PREFIX_LENGTH,
     EvidenceKind,
     EvidenceReference,
+    IndexState,
 )
 from agrag.common.data_models.provenance import TextProvenance
+from agrag.cypher.evidence import index_states_query
+from agrag.graphdb.base import GraphStore
+
+
+@dataclass(frozen=True)
+class IndexSpec:
+    """The name, type, label and property a search leg's index must have."""
+
+    name: str
+    index_type: str
+    label: str
+    prop: str
+
+
+async def indexes_ready(
+    store: GraphStore,
+    specs: Sequence[IndexSpec],
+    *,
+    timeout: float | None = None,
+) -> IndexState:
+    """Return READY when every named index is ONLINE and has the expected schema.
+
+    The name alone is not enough: an index under the same name but built for
+    another label or property would return wrong passages, so type, label and
+    property are checked too.
+    """
+    rows = await store.execute_read(
+        index_states_query(),
+        {"names": [spec.name for spec in specs]},
+        timeout=timeout,
+    )
+    found = {row["name"]: row for row in rows}
+    for spec in specs:
+        row = found.get(spec.name)
+        if (
+            row is None
+            or row["state"] != "ONLINE"
+            or row["type"] != spec.index_type
+            or list(row["labelsOrTypes"] or []) != [spec.label]
+            or list(row["properties"] or []) != [spec.prop]
+        ):
+            return IndexState.NOT_READY
+    return IndexState.READY
 
 
 def scope_node_ids(scope: Iterable[str]) -> frozenset[str]:

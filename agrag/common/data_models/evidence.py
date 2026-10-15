@@ -138,6 +138,60 @@ class IndexState(StrEnum):
     NOT_READY = "not_ready"
 
 
+class SourceState(StrEnum):
+    """The lifecycle state of one document source."""
+
+    CURRENT = "current"
+    PENDING = "pending"
+    FAILED = "failed"
+    DELETED = "deleted"
+    UNKNOWN = "unknown"
+
+
+class SourceIndexStatus(BaseModel):
+    """The state and population progress of one search index.
+
+    Attributes:
+        name: Database index name.
+        state: Database state such as ``ONLINE``, ``POPULATING``, or ``FAILED``.
+        population_percent: Population progress, or None when unavailable.
+    """
+
+    name: str
+    state: str
+    population_percent: float | None = None
+
+
+class SourceStatus(BaseModel):
+    """The committed version, active job and index state for one source.
+
+    Attributes:
+        document_key: Stable source key requested by the caller.
+        state: Lifecycle state derived from committed rows and the latest job.
+        content_hash: Hash of the committed current version, if any.
+        activation_seq: Sequence number of the latest committed activation.
+        version_id: Version id on the current open ``HAS_PART`` edges.
+        job_id: Id of the latest incomplete cutover job.
+        job_status: Lifecycle status of that job.
+        lease_expires_at: Lease expiry timestamp rendered as text.
+        job_age_seconds: Age of the latest incomplete job.
+        job_error: Stored job error or expired-lease reason.
+        indexes: Full-text and vector index states used by discovery.
+    """
+
+    document_key: str
+    state: SourceState
+    content_hash: str | None = None
+    activation_seq: int | None = None
+    version_id: str | None = None
+    job_id: str | None = None
+    job_status: str | None = None
+    lease_expires_at: str | None = None
+    job_age_seconds: float | None = None
+    job_error: str | None = None
+    indexes: list[SourceIndexStatus] = Field(default_factory=list)
+
+
 class DiscoveryHit(BaseModel):
     """One visible passage found by discovery.
 

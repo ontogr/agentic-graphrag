@@ -19,6 +19,7 @@ from agrag.common.data_models.candidate_review import SchemaPatch
 from agrag.common.data_models.chunk import CHUNK_LABEL
 from agrag.common.data_models.community import COMMUNITY_LABEL
 from agrag.common.data_models.document import DOCUMENT_LABEL, Document
+from agrag.common.data_models.evidence import SourceStatus
 from agrag.common.data_models.graph_schema import GraphSchema
 from agrag.common.data_models.resolved_entity import (
     RESOLVED_ENTITY_LABEL,
@@ -36,7 +37,9 @@ from agrag.common.schema_fingerprint import (
     RunRecord,
     run_record,
 )
+from agrag.cypher.documents import await_indexes_query, indexes_not_ready_query
 from agrag.embedding.base import Embedder
+from agrag.evidence.source_status import source_status as read_source_status
 from agrag.graphdb.base import GraphStore
 from agrag.ingestion._candidate_conversion import convert_candidates
 from agrag.ingestion._escalation import format_escalation
@@ -437,6 +440,22 @@ class Graph:
                     dimensions=dimensions,
                     distance=distance,
                 )
+                try:
+                    await graph_store.execute_read(
+                        await_indexes_query(), {"timeout_seconds": 60}
+                    )
+                    unavailable_indexes = await graph_store.execute_read(
+                        indexes_not_ready_query()
+                    )
+                except Exception as error:
+                    raise RuntimeError(
+                        "Graph indexes did not become ready within 60 seconds"
+                    ) from error
+                if unavailable_indexes:
+                    raise RuntimeError(
+                        "Graph indexes did not become ready within 60 seconds: "
+                        f"{unavailable_indexes}"
+                    )
                 recovery_collections: tuple[str, ...] = ()
                 if vector_store is not None:
                     settings = retrieval_settings or RetrievalSettings()
@@ -787,6 +806,10 @@ class Graph:
             cleanup=self._cleanup(),
             tracer=self._tracer,
         )
+
+    async def source_status(self, document_key: str) -> SourceStatus:
+        """Read a source's version, job lease and discovery index state."""
+        return await read_source_status(self._graph_store, document_key)
 
     def _run_record(self) -> RunRecord:
         """Describe the current extraction setup for stamping a document."""
