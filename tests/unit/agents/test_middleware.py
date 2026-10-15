@@ -32,7 +32,7 @@ class TestRoundRobinModelMiddleware:
 
         def handler(request: ModelRequest) -> ModelResponse:
             seen.append(request.model)
-            return "ok"  # type: ignore[return-value]
+            return "ok"  # ty: ignore[invalid-return-type]  # type: ignore[return-value]
 
         for _ in range(3):
             middleware.wrap_model_call(_request(first), handler)
