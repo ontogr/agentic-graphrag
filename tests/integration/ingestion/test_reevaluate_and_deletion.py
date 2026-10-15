@@ -31,6 +31,7 @@ from agrag.ingestion.graph import Graph
 from agrag.ingestion.resolve import LLMVerify
 from agrag.ingestion.resolve import resolution as resolution_module
 from agrag.ingestion.resolved_entities import MatchDecision, write_matches_and_rebuild
+from tests.conftest import FAKE_EMBEDDING_DIMENSIONS
 
 
 neo4j_missing = importlib.util.find_spec("neo4j") is None
@@ -43,7 +44,7 @@ class _FixedEmbedder(Embedder):
 
     async def dimensions(self) -> int:
         """Return a small fixed dimension."""
-        return 4
+        return FAKE_EMBEDDING_DIMENSIONS
 
     async def embed(self, texts: Sequence[str]) -> list[list[float]]:
         """Return a constant vector for every text."""
@@ -57,7 +58,7 @@ class _BandEmbedder(Embedder):
 
     async def dimensions(self) -> int:
         """Return the existing shared vector-index dimension."""
-        return 4
+        return FAKE_EMBEDDING_DIMENSIONS
 
     async def embed(self, texts: Sequence[str]) -> list[list[float]]:
         """Return vectors with cosine similarity in the LLM review band."""

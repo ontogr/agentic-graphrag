@@ -20,7 +20,9 @@ def main() -> None:
     """Serve the evidence tools over stdio until the client disconnects.
 
     The embedding model loads on the first semantic or hybrid search, not at
-    startup. The graph store is closed when the server stops.
+    startup. This command uses FastEmbed with ``EMBEDDING_*`` settings. For other
+    backends, construct the embedder and pass it to ``build_server``. The graph
+    store is closed when the server stops.
 
     Raises:
         McpServerMissingExtraError: The ``mcp`` extra is not installed.

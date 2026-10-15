@@ -26,9 +26,12 @@ from agrag.embedding.base import Embedder
 from agrag.graphdb import build_graph_store
 from agrag.ingestion import Extractor, Graph
 from agrag.schema import load_schema
+from tests.conftest import FAKE_EMBEDDING_DIMENSIONS
 
 
 neo4j_missing = importlib.util.find_spec("neo4j") is None
+
+pytestmark = pytest.mark.xdist_group(name="candidate_state")
 
 
 @pytest.mark.skipif(neo4j_missing, reason="neo4j extra not installed")
@@ -492,7 +495,7 @@ class _ReviewEmbedder(Embedder):
     model = "candidate-review-test"
 
     async def dimensions(self) -> int:
-        return 4
+        return FAKE_EMBEDDING_DIMENSIONS
 
     async def embed(self, texts: Sequence[str]) -> list[list[float]]:
         return [[1.0, 0.0, 0.0, 0.0] for _ in texts]

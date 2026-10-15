@@ -5,9 +5,9 @@ adds the trusted scope from settings, output limits, and the error mapping. It
 has no write path.
 
 Semantic and hybrid search need the same ``EMBEDDING_*`` settings that ingestion
-used. The first semantic or hybrid call in a server process compares the query
-embedder's dimension with the Chunk vector index. On a mismatch the semantic leg
-does not run.
+used. Each semantic or hybrid call compares the query embedder's dimension with
+the Chunk vector index. On a dimension mismatch the semantic leg does not run.
+Equal dimensions do not establish that the embedding models are the same.
 """
 
 import logging
@@ -70,13 +70,10 @@ class _Session:
         fetched_ids: Evidence ids that fetch returned in full. Citation checks
             trace against this record. It is not persisted, so a restart clears
             it.
-        semantic_ready: Whether the query embedder matches the Chunk vector
-            index. None until the first semantic or hybrid search checks it.
     """
 
     fetched_ids: set[str] = field(default_factory=set)
     fetched_evidence: dict[str, Any] = field(default_factory=dict)
-    semantic_ready: bool | None = None
 
 
 def _store_lifespan(
@@ -124,7 +121,7 @@ def _register_memory_tools(
 def build_server(  # noqa: PLR0915
     store: GraphStore, embedder: Embedder, settings: McpServerSettings
 ) -> MCPServer:
-    """Return the MCP server with evidence tools and scoped memory operations.
+    """Return the evidence MCP server with its read tools and, when enabled, writes.
 
     The lifespan connects the store once, when the server starts. It does not
     close the store, because the caller owns the store and its connection pool.
@@ -134,8 +131,7 @@ def build_server(  # noqa: PLR0915
             ``settings.request_deadline_seconds`` as its timeout.
         embedder: Embeds queries for the semantic leg of a search. A search in
             lexical mode does not call it.
-        settings: Trusted document and project scope, identity, access gates and
-            output limits.
+        settings: The trusted scope and the output limits.
 
     Returns:
         A server ready for ``run()`` or for an in-memory client.
@@ -163,8 +159,9 @@ def build_server(  # noqa: PLR0915
             "both. Each hit has an evidence id for fetch_evidence. A score orders "
             "hits and is not a confidence. No hits does not prove that the "
             "documents lack the information. Semantic and hybrid modes need the "
-            "same EMBEDDING_* settings that ingestion used. When they differ, "
-            "semantic mode fails and hybrid mode returns lexical hits only."
+            "same embedding model and backend that ingestion used. Dimension "
+            "mismatches fail semantic mode and make hybrid mode return lexical "
+            "hits only. Equal dimensions do not verify model identity."
         ),
     )
     async def search_evidence(
@@ -176,17 +173,15 @@ def build_server(  # noqa: PLR0915
         """Find passages that match a query, best first.
 
         Args:
-            ctx: The request context. Its lifespan state caches the embedding
-                check.
+            ctx: The request context.
             query: The words to search for.
             mode: Which search legs run. The default runs both.
             limit: The most hits to return. Values above the configured maximum
                 are capped, and the result is marked truncated.
 
         Returns:
-            The hits and the status of the search. In hybrid mode, a query
-            embedder that differs from the stored vectors gives lexical hits and
-            a failed semantic leg.
+            The hits and the status of the search. In hybrid mode, mismatched
+            vector dimensions give lexical hits and a failed semantic leg.
 
         Raises:
             ToolError: The evidence store could not run the search, or the query
@@ -194,14 +189,14 @@ def build_server(  # noqa: PLR0915
         """
         requested = settings.max_hits if limit is None else limit
         effective = min(requested, settings.max_hits)
-        semantic_ready = True
+        dimension_mismatch = False
         if mode is not DiscoveryMode.LEXICAL:
-            semantic_ready = await _semantic_ready(
-                _session(ctx), store, embedder, deadline=deadline
+            dimension_mismatch = await _dimensions_mismatch(
+                store, embedder, deadline=deadline
             )
-            if not semantic_ready and mode is DiscoveryMode.SEMANTIC:
+            if dimension_mismatch and mode is DiscoveryMode.SEMANTIC:
                 raise ToolError(_EMBEDDING_MISMATCH)
-        search_mode = mode if semantic_ready else DiscoveryMode.LEXICAL
+        search_mode = DiscoveryMode.LEXICAL if dimension_mismatch else mode
         try:
             result = await discover(
                 store,
@@ -217,7 +212,7 @@ def build_server(  # noqa: PLR0915
             raise ToolError(_STORE_UNAVAILABLE) from None
         if result.status is DiscoveryStatus.FAILED:
             raise ToolError(_STORE_UNAVAILABLE)
-        if not semantic_ready:
+        if dimension_mismatch:
             result = _with_semantic_failure(result)
 
         snippets_cut = False
@@ -294,17 +289,17 @@ def build_server(  # noqa: PLR0915
             settings.max_response_chars,
         )
         session = _session(ctx)
-        session.fetched_ids.update(
-            outcome.evidence_id
-            for outcome in kept
-            if outcome.status is FetchStatus.OK and not outcome.partial
-        )
         session.fetched_evidence.update(
             {
                 outcome.evidence_id: outcome
                 for outcome in kept
                 if outcome.status is FetchStatus.OK and not outcome.partial
             }
+        )
+        session.fetched_ids.update(
+            outcome.evidence_id
+            for outcome in kept
+            if outcome.status is FetchStatus.OK and not outcome.partial
         )
         return FetchResult(outcomes=kept, truncated=dropped)
 
@@ -349,48 +344,10 @@ def build_server(  # noqa: PLR0915
     return server
 
 
-async def _semantic_ready(
-    session: _Session,
-    store: GraphStore,
-    embedder: Embedder,
-    *,
-    deadline: float,
-) -> bool:
-    """Return whether the query embedder matches the Chunk vector index.
-
-    The verdict is computed once per server process and then cached in the
-    session. A failed check is not cached, so the next call tries again.
-
-    Args:
-        session: The state of the server process.
-        store: The graph store that holds the vector index.
-        embedder: The query embedder.
-        deadline: The timeout of the index read, in seconds.
-
-    Returns:
-        False when the index dimension differs from the embedder dimension.
-        True otherwise, including when the index does not exist yet. A missing
-        index is reported as index_not_ready by the search.
-
-    Raises:
-        ToolError: The embedder or the store could not answer the check.
-    """
-    if session.semantic_ready is None:
-        session.semantic_ready = await _dimensions_agree(
-            store, embedder, deadline=deadline
-        )
-    return session.semantic_ready
-
-
-async def _dimensions_agree(
+async def _dimensions_mismatch(
     store: GraphStore, embedder: Embedder, *, deadline: float
 ) -> bool:
-    """Compare the embedder dimension with the dimension of the Chunk index."""
-    try:
-        embedder_dimensions = await embedder.dimensions()
-    except Exception:
-        _LOGGER.exception("The query embedder could not report its dimensions")
-        raise ToolError(_EMBEDDER_UNAVAILABLE) from None
+    """Detect incompatible dimensions, leaving absent indexes to discovery."""
     try:
         rows = await store.execute_read(
             *vector_index_dimensions_query(CHUNK_LABEL, _EMBEDDING_PROPERTY),
@@ -399,7 +356,14 @@ async def _dimensions_agree(
     except Exception:
         _LOGGER.exception("Could not read the vector index dimension")
         raise ToolError(_STORE_UNAVAILABLE) from None
-    return bool(rows) and rows[0]["dimensions"] == embedder_dimensions
+    if not rows:
+        return False
+    try:
+        embedder_dimensions = await embedder.dimensions()
+    except Exception:
+        _LOGGER.exception("The query embedder could not report its dimensions")
+        raise ToolError(_EMBEDDER_UNAVAILABLE) from None
+    return rows[0]["dimensions"] != embedder_dimensions
 
 
 def _with_semantic_failure(lexical: DiscoveryResult) -> DiscoveryResult:
