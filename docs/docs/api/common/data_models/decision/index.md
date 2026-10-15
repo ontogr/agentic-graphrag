@@ -16,6 +16,7 @@ Models for decision records: choices, their evidence supports and reads.
 - [**DecisionLookup**](DecisionLookup.md) – The result of reading one decision by id.
 - [**DecisionPage**](DecisionPage.md) – A capped list of decisions with the total that matched.
 - [**DecisionPageLookup**](DecisionPageLookup.md) – The result of listing a task's decisions by name.
+- [**DecisionReviewList**](DecisionReviewList.md) – A bounded project-scoped page of decisions requiring review.
 - [**DecisionStatus**](DecisionStatus.md) – Lifecycle state of a decision. Only active decisions are reused.
 - [**DecisionSupport**](DecisionSupport.md) – A stored dependency on another decision.
 - [**DecisionSupportInput**](DecisionSupportInput.md) – An active decision that this decision depends on.
@@ -23,6 +24,7 @@ Models for decision records: choices, their evidence supports and reads.
 - [**DocumentSupportInput**](DocumentSupportInput.md) – A passage the caller fetched, named by its evidence id.
 - [**EventSupport**](EventSupport.md) – A stored event support.
 - [**EventSupportInput**](EventSupportInput.md) – An existing event of a task in the same project.
+- [**ReaffirmDecisionResult**](ReaffirmDecisionResult.md) – The outcome of reaffirming a flagged decision.
 - [**RecordDecisionResult**](RecordDecisionResult.md) – The outcome of recording a decision.
 - [**RejectDecisionResult**](RejectDecisionResult.md) – The outcome of rejecting a decision.
 - [**ReviewReason**](ReviewReason.md) – Why a decision needs review.

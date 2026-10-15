@@ -1,6 +1,7 @@
 """Cypher reads and writes for persisted Document nodes."""
 
 from agrag.common.data_models.cutover_job import CUTOVER_JOB_LABEL
+from agrag.common.data_models.decision import HAS_SUPPORT
 from agrag.common.data_models.structure import (
     DOCUMENT_ACTIVATION_LABEL,
     HAS_ACTIVATION,
@@ -116,6 +117,29 @@ def record_activation_query() -> str:
         "version_id: $version_id, activation_seq: d.activation_seq, "
         "activated_at: datetime(), job_id: $job_id}) "
         "RETURN a.activation_seq AS activation_seq"
+    )
+
+
+def flag_decisions_for_activation_query() -> str:
+    """Build a project-independent direct flag for one committed activation."""
+    return (
+        f"MATCH (doc:Document)-[:{HAS_ACTIVATION}]->"
+        f"(a:{DOCUMENT_ACTIVATION_LABEL} {{id: $activation_id}}) "
+        "MATCH (d:MemoryDecision {status: 'active'}) "
+        f"-[:{HAS_SUPPORT}]->"
+        "(s:MemorySupport {kind: 'document'}) "
+        "WHERE s.document_node_id = doc.id "
+        "AND (a.verb IN ['delete', 'purge'] "
+        "OR s.content_hash <> a.content_hash) "
+        "WITH DISTINCT d, a "
+        "MATCH (t:MemoryTask)-[:MADE]->(d) "
+        "MATCH (p:MemoryProject {project_id: t.project_id}) "
+        "SET p.review_incomplete = true, "
+        "p.review_epoch = coalesce(p.review_epoch, 0) + 1, "
+        "d.review_pending = true, d.review_state = 'needs_review', "
+        "d.review_reason = CASE WHEN a.verb IN ['delete', 'purge'] "
+        "THEN 'source_removed' ELSE 'source_changed' END "
+        "RETURN count(DISTINCT d) AS flagged"
     )
 
 

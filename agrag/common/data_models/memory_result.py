@@ -26,6 +26,7 @@ class MemoryErrorCode(StrEnum):
     DECISION_NOT_FOUND = "decision_not_found"
     DECISION_NOT_ACTIVE = "decision_not_active"
     SUPPORT_DECISION_NOT_ACTIVE = "support_decision_not_active"
+    CANNOT_REVALIDATE = "cannot_revalidate"
 
 
 class WriteResult(BaseModel):

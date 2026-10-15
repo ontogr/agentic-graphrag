@@ -379,10 +379,12 @@ class TaskMemory:
         decision_rows = await self._store.execute_read(
             "MATCH (t:MemoryTask {project_id: $project_id, id: $task_id})"
             "-[:MADE]->(d:MemoryDecision {status: 'active'}) "
+            "MATCH (p:MemoryProject {project_id: $project_id}) "
             "OPTIONAL MATCH (d)-[:HAS_SUPPORT]->(s:MemorySupport) "
-            "WITH t, d, s ORDER BY s.ordinal "
-            "WITH t, d, collect(s) AS supports "
-            "RETURN d AS decision, supports, t.name AS task_name "
+            "WITH t, d, p, s ORDER BY s.ordinal "
+            "WITH t, d, p, collect(s) AS supports "
+            "RETURN d AS decision, supports, t.name AS task_name, "
+            "p.review_incomplete AS review_incomplete "
             "ORDER BY d.created_at DESC LIMIT 21",
             params,
         )
