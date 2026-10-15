@@ -425,8 +425,6 @@ class TestCutoverJobLeaseLifetime:
                 document_key=key,
                 affected_entity_ids=[],
                 graph_store=store,
-                vector_store=None,
-                vector_collections=[],
                 settings=CutoverJobSettings(lease_ttl_seconds=1),
                 pending_write=slow_write,
                 cleanup=cleanup,

@@ -27,7 +27,7 @@ from agrag.ingestion.merge import (
     relation_id,
 )
 from agrag.ingestion.resolve.resolution import BatchResolution
-from agrag.ingestion.resolved_embeddings import _synchronize_resolved_entity_vectors
+from agrag.ingestion.resolved_embeddings import embed_resolved_entities
 from agrag.ingestion.resolved_entities import (
     MatchComponent,
     decisions_by_component,
@@ -48,7 +48,7 @@ class MergeStageResult:
         survivors: The merged entities this call wrote, keyed by id.
         created_entity_ids: The ids of survivors that no committed entity existed
             for, so this call created them.
-        resolved_vector_failures: Failures from syncing resolved-entity vectors.
+        resolved_vector_failures: Failures from embedding resolved entities.
         relation_records: Domain relations between the batch's survivors, merged
             with the relations the graph already holds.
         mentioned_in_records: MENTIONED_IN edges from each real mention's chunk
@@ -72,7 +72,6 @@ async def merge_stage(
     ctx: StageContext,
     *,
     graph_schema: GraphSchema,
-    resolved_entity_collection: str,
     rebuilt_components: list[MatchComponent] | None,
 ) -> MergeStageResult:
     """Merge resolved mentions into survivors and map relations onto them.
@@ -86,9 +85,8 @@ async def merge_stage(
         relations: The relations extracted from this batch's chunks.
         batch: The resolver output for the same mentions.
         ctx: The store the merged entities are written to, the embedder, the
-            optional vector index, the error policy, the job and the tracer.
+            error policy, the job and the tracer.
         graph_schema: The schema the merge and rebuild work against.
-        resolved_entity_collection: The collection for resolved-entity vectors.
         rebuilt_components: When set, each rebuilt component is appended with
             its decisions and members.
 
@@ -122,7 +120,6 @@ async def merge_stage(
         merge_failures,
         ctx,
         graph_schema=graph_schema,
-        resolved_entity_collection=resolved_entity_collection,
         pending_job_id=pending_job_id,
         rebuilt_components=rebuilt_components,
     )
@@ -282,14 +279,13 @@ async def _rebuild_components(
     ctx: StageContext,
     *,
     graph_schema: GraphSchema,
-    resolved_entity_collection: str,
     pending_job_id: str | None,
     rebuilt_components: list[MatchComponent] | None,
 ) -> list[StageFailure]:
     """Rebuild each resolver component around its merged members.
 
     Components that raise are appended to ``merge_failures``. Returns the
-    resolved-entity vector failures from the components that rebuilt.
+    resolved-entity embedding failures from the components that rebuilt.
     """
     if batch.result is None:
         return []
@@ -334,17 +330,14 @@ async def _rebuild_components(
                 continue
             if rebuilt_components is not None:
                 rebuilt_components.append((decisions, members))
-            # Synchronized per component, not batched after the loop: a
-            # later component's failure under ErrorPolicy.RAISE must not
-            # skip vector cleanup for components already committed above.
+            # Embedded per component, not batched after the loop, so a later
+            # component's failure under ErrorPolicy.RAISE does not skip the
+            # embeddings of components already committed above.
             resolved_vector_failures.extend(
-                await _synchronize_resolved_entity_vectors(
+                await embed_resolved_entities(
                     [rebuild.resolved_entity],
-                    rebuild.removed_entity_ids,
                     embedder=ctx.embedder,
                     graph_store=ctx.graph_store,
-                    vector_store=ctx.vector_store,
-                    vector_collection=resolved_entity_collection,
                     error_policy=ctx.error_policy,
                     pending_job_id=ctx.job_id,
                     deferred=ctx.deferred,

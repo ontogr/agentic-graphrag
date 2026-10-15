@@ -12,9 +12,7 @@ The commit transaction replays the list after the job flips to committed, so
 a committed row changes only together with the commit. ``GraphStore`` writes
 the tag when the caller passes ``pending_job_id`` to an upsert, so records
 never carry it and the validators below reject it. Retrieval query builders
-exclude tagged rows with ``pending_filter_clause``. Vector stores keep a
-job's records under staging ids with a ``_pending`` flag and the job id in
-the payload, and promote them to their real ids at commit.
+exclude tagged rows with ``pending_filter_clause``.
 
 Rollback deletes the rows a job tagged. Committed rows are never tagged by a
 job, so rollback cannot delete data committed earlier and leaves those rows

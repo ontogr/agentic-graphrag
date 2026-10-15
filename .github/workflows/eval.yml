@@ -17,7 +17,6 @@ on:
       - "agrag/retrieval/**"
       - "agrag/ingestion/**"
       - "agrag/graphdb/**"
-      - "agrag/vectordb/**"
       - "agrag/llm/**"
       - "agrag/loaders/**"
       - "agrag/eval/judge.py"

@@ -36,7 +36,6 @@ from agrag.ingestion._structure import StructureRecords
 from agrag.ingestion.stats import IngestStats
 from agrag.loaders.types import ErrorPolicy
 from agrag.observability import get_tracer
-from agrag.retrieval.settings import RetrievalSettings
 
 
 def _node(label: str) -> NodeRecord:
@@ -235,9 +234,7 @@ class TestEmptyChunkWrites:
             [],
             graph_store=store,
             embedder=AsyncMock(),
-            vector_store=None,
             graph_schema=DEFAULT_SCHEMA,
-            retrieval_settings=RetrievalSettings(),
             error_policy=error_policy,
             ingestion=IngestStats(documents=1),
             placements={},

@@ -170,8 +170,7 @@ class TestNeo4jTracing:
         provider.add_span_processor(SimpleSpanProcessor(exporter))
         tracer = provider.get_tracer("agrag-test")
         # A unique label per run keeps this test isolated from other runs
-        # sharing the same long-lived local Neo4j instance, matching the
-        # unique-collection-name pattern tests/integration/vectordb/ uses.
+        # sharing the same long-lived local Neo4j instance.
         label = validate_identifier(f"Trace_{uuid4().hex[:8]}")
         store = Neo4jGraphStore(tracer=tracer)
         await store.connect()
