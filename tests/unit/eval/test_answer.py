@@ -7,17 +7,14 @@ splits it into sentences, finds citation keys and combines the results.
 """
 
 from typing import Any
-from uuid import uuid4
 
 import pytest
 from deepeval.models import DeepEvalBaseLLM
 from langchain_core.messages import AIMessage, HumanMessage
 from pydantic import BaseModel
 
-from agrag.agents.ledger import Ledger
 from agrag.agents.result import AgentRunResult
-from agrag.common.data_models.resolved_entity import ResolvedEntity
-from agrag.common.data_models.search_result import SearchResult
+from agrag.common.data_models.evidence import FetchOutcome, FetchStatus
 from agrag.eval.answer import (
     CitationAccuracyMetric,
     answer_case,
@@ -60,31 +57,38 @@ class _ScriptedJudge(DeepEvalBaseLLM):
 
 
 def _result(answer: str) -> AgentRunResult:
-    """Build a run whose ledger holds two entities, E1 and E2."""
-    ledger = Ledger()
-    ledger.render(
-        SearchResult(
-            item=ResolvedEntity(id=uuid4(), label="Company", name="Acme"),
-            score=1.0,
-            method="entity",
-        )
-    )
-    ledger.render(
-        SearchResult(
-            item=ResolvedEntity(id=uuid4(), label="Company", name="Globex"),
-            score=1.0,
-            method="entity",
-        )
-    )
+    """Build a run with two fetched evidence items, E1 and E2."""
     return {
+        "answer": answer,
+        "status": "answered",
+        "citations": [
+            FetchOutcome(
+                evidence_id="E1",
+                status=FetchStatus.OK,
+                text="[E1] Entity: Acme (Company)",
+            ),
+            FetchOutcome(
+                evidence_id="E2",
+                status=FetchStatus.OK,
+                text="[E2] Entity: Globex (Company)",
+            ),
+        ],
+        "invalid_citations": [],
+        "task": {"name": "test", "last_event_seq": 0},
         "messages": [{"role": "assistant", "content": answer}],
-        "ledger": ledger,
     }
 
 
 def _run(messages: list[Any]) -> AgentRunResult:
-    """Build a run with the given messages and an empty ledger."""
-    return {"messages": messages, "ledger": Ledger()}
+    """Build a run with the given messages and no fetched evidence."""
+    return {
+        "answer": "",
+        "status": "answered",
+        "citations": [],
+        "invalid_citations": [],
+        "task": {"name": "test", "last_event_seq": 0},
+        "messages": messages,
+    }
 
 
 async def _score(answer: str, judge: _ScriptedJudge | None = None) -> Any:

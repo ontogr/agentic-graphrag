@@ -7,25 +7,49 @@ sidebar_label: AgentRunResult
 
 Bases: <code>TypedDict</code>
 
-Result of one agent run.
-
-The deep-agent path also passes through the other keys of the LangGraph
-state at runtime; only the keys below are part of the contract.
+Outcome, answer, evidence references and conversation for one run.
 
 **Attributes:**
 
-- [**messages**](#agrag-agents-result-AgentRunResult-messages) (<code>list\[Any\]</code>) – The conversation, ending with the assistant's answer.
-- [**ledger**](#agrag-agents-result-AgentRunResult-ledger) (<code>[Ledger](../ledger/Ledger-ref.md)</code>) – Citation keys assigned during this run. Use
-  `ledger.resolve(key)` to get the evidence behind a key.
+- [**answer**](#agrag-agents-result-AgentRunResult-answer) (<code>str</code>) –
+- [**citations**](#agrag-agents-result-AgentRunResult-citations) (<code>list\[[FetchOutcome](../../common/data_models/evidence/FetchOutcome.md)\]</code>) –
+- [**invalid_citations**](#agrag-agents-result-AgentRunResult-invalid_citations) (<code>list\[str\]</code>) –
+- [**messages**](#agrag-agents-result-AgentRunResult-messages) (<code>list\[Any\]</code>) –
+- [**status**](#agrag-agents-result-AgentRunResult-status) (<code>Literal['answered', 'insufficient_evidence', 'partial_retrieval', 'partial', 'recording_failed', 'budget_exhausted']</code>) –
+- [**task**](#agrag-agents-result-AgentRunResult-task) (<code>[AgentTaskRef](AgentTaskRef.md)</code>) –
 
-## `ledger` \{#agrag-agents-result-AgentRunResult-ledger}
+## `answer` \{#agrag-agents-result-AgentRunResult-answer}
 
 ```python
-ledger: Ledger
+answer: str
+```
+
+## `citations` \{#agrag-agents-result-AgentRunResult-citations}
+
+```python
+citations: list[FetchOutcome]
+```
+
+## `invalid_citations` \{#agrag-agents-result-AgentRunResult-invalid_citations}
+
+```python
+invalid_citations: list[str]
 ```
 
 ## `messages` \{#agrag-agents-result-AgentRunResult-messages}
 
 ```python
 messages: list[Any]
+```
+
+## `status` \{#agrag-agents-result-AgentRunResult-status}
+
+```python
+status: Literal['answered', 'insufficient_evidence', 'partial_retrieval', 'partial', 'recording_failed', 'budget_exhausted']
+```
+
+## `task` \{#agrag-agents-result-AgentRunResult-task}
+
+```python
+task: AgentTaskRef
 ```

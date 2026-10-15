@@ -135,7 +135,7 @@ async def test_agent_trajectory_meets_thresholds(
         with SpanCapture() as capture:
             agent = agent_factory(capture.tracer)
             result = await agent.ainvoke(
-                {"messages": [{"role": "user", "content": item["question"]}]}
+                {"task_name": item["id"], "question": item["question"]}
             )
         trajectory = capture.trajectory()
         answer = final_answer(result)

@@ -27,19 +27,12 @@ from agrag.agents.build import build_agent
 from agrag.agents.settings import AgentLLMSettings
 from agrag.common.data_models.chunk import CHUNK_LABEL, Chunk
 from agrag.common.data_models.graph_record import NodeRecord, RelationRecord
-from agrag.common.data_models.graph_schema import (
-    EntityType,
-    GraphSchema,
-    RelationType,
-)
 from agrag.common.data_models.provenance import TextProvenance
 from agrag.common.data_models.vector_record import Distance
 from agrag.cypher.entities import validate_identifier
 from agrag.embedding.base import Embedder
 from agrag.eval.trajectory import read_trajectory
 from agrag.graphdb import build_graph_store
-from agrag.retrieval.search_engine import SearchEngine
-from agrag.retrieval.settings import RetrievalSettings
 from tests.conftest import FAKE_EMBEDDING_DIMENSIONS
 
 
@@ -258,30 +251,16 @@ class TestAgentTracing:
         await self._seed_chunk(0, _FOUNDER_CHUNK)
         await self._seed_chunk(1, _LIFT_CHUNK)
 
-        engine = SearchEngine(
+        agent = build_agent(
             graph_store=self.store,
             embedder=self.embedder,
-            settings=RetrievalSettings(entity_top_k=10, chunk_top_k=10),
-            graph_schema=GraphSchema(
-                name="agent_tracing",
-                version="1",
-                entities=[
-                    EntityType(label=self.person_label, description="A person."),
-                    EntityType(label=self.company_label, description="A company."),
-                    EntityType(label=self.robot_label, description="A robot model."),
-                ],
-                relations=[
-                    RelationType(
-                        label="FOUNDED",
-                        description="A person founded a company.",
-                        patterns=[(self.person_label, self.company_label)],
-                    )
-                ],
-            ),
+            scope=frozenset({self.document_id}),
+            project_id="agent-tracing",
+            agent_id="tracing-agent",
+            llm_settings=settings,
             tracer=self.tracer,
         )
-        agent = build_agent(engine=engine, llm_settings=settings, tracer=self.tracer)
-        await agent.ainvoke({"messages": [{"role": "user", "content": _PROMPT}]})
+        await agent.ainvoke({"task_name": "tracing-run", "question": _PROMPT})
         self.provider.force_flush()
 
         spans = self.exporter.get_finished_spans()

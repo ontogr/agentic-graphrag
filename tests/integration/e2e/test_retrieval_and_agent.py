@@ -602,38 +602,32 @@ class TestRetrievalE2E:
     async def test_agent_answer_contains_evidence(self) -> None:
         """The agent's answer contains evidence from the graph."""
         await self._seed_graph()
+        text = "Aspirin is effective for treating headaches."
+        await self._graph().add(text=text)
 
         from agrag.agents.build import build_agent  # noqa: PLC0415
         from agrag.agents.settings import (  # noqa: PLC0415
             AgentLLMSettings,
         )
 
-        engine = SearchEngine(
+        settings = AgentLLMSettings.from_openai_compatible_env()
+        agent = build_agent(
             graph_store=self.store,
             embedder=self.embedder,
-            settings=self.settings,
-            graph_schema=self.schema,
+            scope=frozenset(
+                {f"inline://{hashlib.sha256(text.encode()).hexdigest()[:16]}"}
+            ),
+            project_id="retrieval-e2e",
+            agent_id="e2e-agent",
+            llm_settings=settings,
         )
-
-        settings = AgentLLMSettings.from_openai_compatible_env()
-        agent = build_agent(engine=engine, llm_settings=settings)
 
         result = await agent.ainvoke(
             {
-                "messages": [
-                    {
-                        "role": "user",
-                        "content": "What treats headaches?",
-                    }
-                ]
+                "task_name": "headache-treatment",
+                "question": "What treats headaches?",
             }
         )
 
-        last_message = result["messages"][-1]
-        answer = (
-            last_message["content"]
-            if isinstance(last_message, dict)
-            else last_message.content
-        )
-        # The answer should reference Aspirin or citation keys.
-        assert "aspirin" in answer.lower() or "[E" in answer or "[C" in answer
+        assert "aspirin" in result["answer"].lower()
+        assert result["citations"]

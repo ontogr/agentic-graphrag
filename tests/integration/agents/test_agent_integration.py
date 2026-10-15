@@ -646,7 +646,14 @@ class TestAgentBuildIntegration:
     def test_build_agent_returns_compiled_graph(self) -> None:
         """build_agent returns a compiled graph or _SimpleAgent."""
         settings = AgentLLMSettings.from_openai_compatible_env()
-        agent = build_agent(engine=self.engine, llm_settings=settings)
+        agent = build_agent(
+            graph_store=self.store,
+            embedder=self.embedder,
+            scope=frozenset({self.document_one, self.document_two}),
+            project_id="agent-integration",
+            agent_id="integration-agent",
+            llm_settings=settings,
+        )
         assert agent is not None
         assert hasattr(agent, "ainvoke")
 
@@ -657,12 +664,26 @@ class TestAgentBuildIntegration:
     async def test_simple_agent_ainvoke(self) -> None:
         """The agent graph returns a response via the configured LLM."""
         settings = AgentLLMSettings.from_openai_compatible_env()
-        agent = build_agent(engine=self.engine, llm_settings=settings)
-        result = await agent.ainvoke(
-            {"messages": [{"role": "user", "content": "test"}]}
+        agent = build_agent(
+            graph_store=self.store,
+            embedder=self.embedder,
+            scope=frozenset({self.document_one, self.document_two}),
+            project_id="agent-integration",
+            agent_id="integration-agent",
+            llm_settings=settings,
         )
-        assert "messages" in result
-        assert len(result["messages"]) >= 1
+        result = await agent.ainvoke(
+            {"task_name": "simple-agent", "question": "test"}
+        )
+        assert result["task"]["name"] == "simple-agent"
+        assert result["status"] in {
+            "answered",
+            "insufficient_evidence",
+            "partial_retrieval",
+            "partial",
+            "recording_failed",
+            "budget_exhausted",
+        }
 
     @pytest.mark.skipif(neo4j_missing, reason="neo4j extra not installed")
     @pytest.mark.skipif(
@@ -678,18 +699,21 @@ class TestAgentBuildIntegration:
         )
 
         settings = AgentLLMSettings.from_openai_compatible_env()
-        agent = build_agent(engine=self.engine, llm_settings=settings)
+        agent = build_agent(
+            graph_store=self.store,
+            embedder=self.embedder,
+            scope=frozenset({self.document_one, self.document_two}),
+            project_id="agent-integration",
+            agent_id="integration-agent",
+            llm_settings=settings,
+        )
         result = await agent.ainvoke(
             {
-                "messages": [
-                    {
-                        "role": "user",
-                        "content": (
-                            "Where does Alice work, and what does the source "
-                            "text say about her time there?"
-                        ),
-                    }
-                ]
+                "task_name": "multi-hop-question",
+                "question": (
+                    "Where does Alice work, and what does the source "
+                    "text say about her time there?"
+                ),
             }
         )
 
@@ -703,7 +727,7 @@ class TestAgentBuildIntegration:
             self._message_text({"messages": [message]})
             for message in result.get("messages", [])[:-1]
         )
-        citation_pattern = r"\b[EGRCVX]\d+\b"
+        citation_pattern = r"ev1:[sc]:[0-9a-f-]+:[0-9a-f-]+:[0-9a-f-]+"
         transcript_keys = set(re.findall(citation_pattern, transcript))
         assert transcript_keys, "research findings contain no citation keys"
         answer = self._message_text(result)
@@ -719,15 +743,18 @@ class TestAgentBuildIntegration:
         await self._seed_entity(self.label, "Alice")
 
         settings = AgentLLMSettings.from_openai_compatible_env()
-        agent = build_agent(engine=self.engine, llm_settings=settings)
+        agent = build_agent(
+            graph_store=self.store,
+            embedder=self.embedder,
+            scope=frozenset({self.document_one, self.document_two}),
+            project_id="agent-integration",
+            agent_id="integration-agent",
+            llm_settings=settings,
+        )
         result = await agent.ainvoke(
             {
-                "messages": [
-                    {
-                        "role": "user",
-                        "content": "What year did Alice found the engines team?",
-                    }
-                ]
+                "task_name": "under-evidenced-question",
+                "question": "What year did Alice found the engines team?",
             }
         )
 
@@ -751,21 +778,21 @@ class TestAgentBuildIntegration:
 
         settings = AgentLLMSettings.from_openai_compatible_env()
         agent = build_agent(
-            engine=self.engine,
+            graph_store=self.store,
+            embedder=self.embedder,
+            scope=frozenset({self.document_one, self.document_two}),
+            project_id="agent-integration",
+            agent_id="integration-agent",
             llm_settings=settings,
-            agent_settings=AgentSettings(max_research_attempts=1),
+            agent_settings=AgentSettings(max_tool_calls=1),
         )
         result = await agent.ainvoke(
             {
-                "messages": [
-                    {
-                        "role": "user",
-                        "content": (
-                            "Where does Alice work, and what does the source "
-                            "text say about her time there?"
-                        ),
-                    }
-                ]
+                "task_name": "tool-budget-question",
+                "question": (
+                    "Where does Alice work, and what does the source "
+                    "text say about her time there?"
+                ),
             }
         )
 

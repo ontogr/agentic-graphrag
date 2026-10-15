@@ -34,7 +34,7 @@ async def test_agent_answer_scores_in_unit_range(
 ) -> None:
     """A real agent answer gets a GEval score between 0 and 1."""
     agent = agent_factory()
-    result = await agent.ainvoke({"messages": [{"role": "user", "content": QUESTION}]})
+    result = await agent.ainvoke({"task_name": "harness", "question": QUESTION})
     metric = GEval(
         name="Correctness",
         criteria=(

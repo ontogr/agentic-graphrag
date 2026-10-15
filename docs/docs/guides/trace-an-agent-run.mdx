@@ -56,19 +56,19 @@ async def main() -> None:
     )
     try:
         await graph.add(text="Aspirin treats headaches. Ibuprofen also treats headaches.")
-        engine = SearchEngine(graph_store=graph_store, embedder=embedder)
         agent = build_agent(
-            engine=engine,
+            graph_store=graph_store,
+            embedder=embedder,
+            scope=frozenset({"aspirin-notes"}),
+            project_id="headache-research",
+            agent_id="research-agent",
             llm_settings=AgentLLMSettings.from_openai_compatible_env(),
-            graph_schema=DEFAULT_SCHEMA,
             tracer=tracer,
         )
 
-        await agent.ainvoke({
-            "messages": [
-                {"role": "user", "content": "What treats headaches?"}
-            ]
-        })
+        await agent.ainvoke(
+            {"task_name": "headache-treatment", "question": "What treats headaches?"}
+        )
     finally:
         await graph_store.close()
 
