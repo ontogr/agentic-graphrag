@@ -25,6 +25,7 @@ from agrag.common.data_models.resolved_entity import (
     ResolvedEntity,
 )
 from agrag.common.data_models.structure import (
+    DOCUMENT_ACTIVATION_LABEL,
     FIGURE_LABEL,
     SECTION_LABEL,
     SOURCE_LABEL,
@@ -326,12 +327,13 @@ class Graph:
         this graph will ever write (schema's own labels/types plus the fixed
         system names CHUNK_LABEL/SYSTEM_RELATION_TYPES), then
         setup_constraints(), then setup_indexes(), then vector indexes for
-        every schema entity label — so a brand-new database is fully ready,
-        including the merge_key uniqueness constraints the global exact-match
-        tier relies on and the embedding vector indexes native search needs,
-        before this call returns. When vector_store is set, the entity, chunk,
-        and community collections are provisioned there too (created when
-        missing) so the dual writes never hit an absent collection.
+        every schema entity label, then the full-text index on chunk text. A
+        brand-new database is fully ready, including the merge_key uniqueness
+        constraints the global exact-match tier relies on, the embedding vector
+        indexes native search needs, and the chunk full-text index that evidence
+        discovery reads, before this call returns. When vector_store is set,
+        the entity, chunk, and community collections are provisioned there too
+        (created when missing) so the dual writes never hit an absent collection.
 
         Args:
             schema: The schema the extractor receives. A ``GraphSchema`` is
@@ -390,6 +392,7 @@ class Graph:
                         *entity_labels,
                         CHUNK_LABEL,
                         COMMUNITY_LABEL,
+                        DOCUMENT_ACTIVATION_LABEL,
                         DOCUMENT_LABEL,
                         FIGURE_LABEL,
                         RESOLVED_ENTITY_LABEL,
@@ -417,6 +420,10 @@ class Graph:
                     vector_property="embedding",
                     dimensions=dimensions,
                     distance=distance,
+                )
+                await graph_store.ensure_fulltext_index(
+                    label=CHUNK_LABEL,
+                    properties=["text"],
                 )
                 await graph_store.ensure_vector_index(
                     label=COMMUNITY_LABEL,
@@ -543,9 +550,13 @@ class Graph:
 
         Give exactly one of ``source``, ``text``, and ``documents``.
 
-        ``add`` does not compare hashes. Adding a key that already exists
-        writes a second open version of the document; use ``update`` to
-        replace a document.
+        A key that already has a current version is handled as ``update``
+        handles it. Content that matches the stored version is skipped and
+        counted in ``ingestion.unchanged``, and changed content replaces the
+        current version. A key without a current
+        version, such as a new key or a deleted document, is added as a new
+        document. Calling ``add`` again with the same documents therefore writes
+        only what changed.
 
         If an extraction fails for a chunk, the document and its chunks are
         written without the extraction stamp, so the next ``update`` extracts
@@ -563,7 +574,8 @@ class Graph:
                 at the end with the fully-populated result.
             return_chunks: Whether to include the produced chunks in the
                 returned AddResult. False by default to avoid holding full text
-                for a large corpus when not needed.
+                for a large corpus when not needed. Chunks of a document that
+                is updated instead of added are not included.
             read_options: How loaders read sources, including the normalization of
                 decoded text. None uses ``ReadOptions()`` defaults.
 

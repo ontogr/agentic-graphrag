@@ -258,7 +258,6 @@ def loader_document(uri: str, text: str) -> Document:
         opts=opts,
         title="inline",
         sections=text_sections(normalized),
-        content_hash=_sha(normalized),
     )
     return document.model_copy(
         update={"normalization": normalization, "document_key": uri}

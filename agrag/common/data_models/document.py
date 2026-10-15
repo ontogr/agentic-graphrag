@@ -196,36 +196,37 @@ class Document(DataPoint):
     A prose source, such as a Markdown file, makes one Document. A record source,
     such as a CSV file, makes one Document per row.
 
-    The way the system computes ``content_hash`` depends on the loader. A text
-    loader hashes the decoded text. A docling loader hashes the raw source bytes
-    instead of the parsed output, because docling's parsed output can change
-    between docling versions and between runs on different hardware.
+    ``content_hash`` is always the sha256 of ``text``, whatever the loader. The
+    chunk offsets index ``text``, so the hash names the text they point into.
+    ``source_hash`` is the sha256 of the raw source bytes, and it is kept apart so
+    that a change of converter output is still visible as a content change.
 
-    The system computes ``id`` from ``content_hash`` and ``record_id`` unless the caller
-    passes ``id`` directly. A record-family document without ``record_id`` also mixes
-    in ``record_index`` plus ``source_hash``, or ``uri`` when ``source_hash`` is not
-    set. Pass ``id`` only when rebuilding a document from stored data.
+    ``id`` is always the persisted Document node id for ``document_key``. The
+    system computes it, and an explicit ``id`` must equal that value.
 
     Attributes:
         text: The document text. For a docling source, this holds the docling
             Markdown export. The chunker does not read it for a docling source: the
-            chunks come from ``sections``.
+            chunks come from ``sections``. The loaders leave it empty when
+            ``store_text`` is off.
         title: The document title.
         published_at: The date the source says it was published, or ``None``.
         content_date: The date the content describes, or ``None``.
-        uri: The location of the source. This value is not part of the document id.
+        uri: The location of the source. It is not part of the node id, which
+            follows ``document_key``.
         source_format: The format the loader used to read this document.
         family: The shape of the source: one document per file, or one document per
             record.
-        content_hash: The hash that forms the document id.
+        content_hash: The sha256 hex digest of ``text`` as UTF-8 bytes.
         loader_name: The name of the loader that produced this document, for example
             ``"text"`` or ``"docling"``.
         loader_version: The version of the loader package. Does not affect the
             document id.
         encoding: The text encoding. Text loaders set this field. Other loaders
             leave it empty.
-        source_hash: The hash of the whole source file. Record-family documents set
-            this field.
+        source_hash: The sha256 hex digest of the raw bytes of the source file.
+            Every document read from a file sets this field. Inline text leaves it
+            ``None``.
         char_count: The number of characters in ``text``.
         line_count: The number of lines in ``text``. Some loaders do not set this field.
         record_index: The 0-based row number in the source. Record-family documents
@@ -321,21 +322,13 @@ class Document(DataPoint):
         return self
 
     @model_validator(mode="after")
-    def _resolve_id(self) -> "Document":
-        """Compute ``id`` from the content hash unless the caller passed one."""
-        if self.id is None:
-            self.id = self.id_for(
-                content_hash=self.content_hash,
-                record_id=self.record_id,
-                record_index=self.record_index,
-                source_hash=self.source_hash,
-                uri=self.uri,
-            )
-        return self
+    def _resolve_identity(self) -> "Document":
+        """Default the document key, then set ``id`` from it.
 
-    @model_validator(mode="after")
-    def _resolve_document_key(self) -> "Document":
-        """Default the stable key to the source and record identity."""
+        Raises:
+            ValueError: ``id`` was passed and does not match the node id of the
+                document key.
+        """
         if self.document_key is None:
             if self.record_id is not None:
                 self.document_key = f"{self.uri}:{self.record_id}"
@@ -343,25 +336,15 @@ class Document(DataPoint):
                 self.document_key = f"{self.uri}:{self.record_index}"
             else:
                 self.document_key = self.uri
-        return self
-
-    @property
-    def resolved_id(self) -> UUID:
-        """Return the document id. It is never ``None`` after construction succeeds.
-
-        ``id`` is typed as optional because callers can omit it and let
-        ``_resolve_id`` derive it. Every constructed ``Document`` has a
-        non-``None`` id by the time callers see it. Use this property instead
-        of ``id`` where a non-optional value is required, such as building a
-        ``Chunk``.
-
-        Raises:
-            RuntimeError: ``id`` is still ``None``, which means a validator was
-                bypassed, for example via ``model_construct``.
-        """
+        node_id = Document.node_id_for(document_key=self.resolved_document_key)
         if self.id is None:
-            raise RuntimeError("Document.id was not resolved by its validator")
-        return self.id
+            self.id = node_id
+        elif self.id != node_id:
+            raise ValueError(
+                f"id {self.id} does not match the node id {node_id} "
+                f"of document key {self.document_key!r}"
+            )
+        return self
 
     @property
     def resolved_document_key(self) -> str:
@@ -382,53 +365,13 @@ class Document(DataPoint):
         return self.document_key
 
     @classmethod
-    def id_for(
-        cls,
-        *,
-        content_hash: str,
-        record_id: str | None = None,
-        record_index: int | None = None,
-        source_hash: str | None = None,
-        uri: str | None = None,
-    ) -> UUID:
-        """Compute the document id.
-
-        A record id, when given, wins over the content hash. Without a record id,
-        a record-family document (``record_index`` is not ``None``) mixes in its
-        source hash and row index, so two rows with identical text but no
-        configured id column still get distinct ids. When the source hash is not
-        available, this falls back to ``uri`` so that two different sources still
-        do not collide.
-
-        Args:
-            content_hash: The document's content hash.
-            record_id: The value from the configured id column, when the source has one.
-            record_index: The 0-based row number, for a record-family document.
-            source_hash: The hash of the whole source file, for a record-family
-                document.
-            uri: The document's source location, used in place of ``source_hash``
-                when the caller does not supply one.
-
-        Returns:
-            The document id.
-        """
-        if record_id is not None:
-            key = record_id
-        elif record_index is not None:
-            key = f"{source_hash or uri}:{record_index}:{content_hash}"
-        else:
-            key = content_hash
-        return uuid5(NAMESPACE_OID, f"Document:{key}")
-
-    @classmethod
     def node_id_for(cls, *, document_key: str) -> UUID:
         """Compute the persisted Document graph node id.
 
-        Distinct from ``id_for()``. This id is keyed on ``document_key``, not
-        the content hash, so it stays the same across content changes to the
-        same logical document. Conflating the two ids gives every content
-        version of a document its own graph node instead of one node with a
-        changing content hash.
+        The id is keyed on ``document_key``, not the content hash, so it stays
+        the same across content changes to the same logical document. Every
+        content version of a document shares one graph node with a changing
+        content hash.
 
         Args:
             document_key: The document's stable key.

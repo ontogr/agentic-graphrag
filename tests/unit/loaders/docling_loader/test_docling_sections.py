@@ -68,11 +68,11 @@ class TestMarkdown:
         assert document.sections
         assert document.source_format.value == "markdown"
 
-    def test_content_hash_comes_from_the_raw_bytes(self) -> None:
-        """The parsed output can change between versions, so it is not hashed."""
+    def test_source_hash_comes_from_the_raw_bytes(self) -> None:
+        """The source hash covers the file bytes, not the parsed output."""
         raw = (FIXTURES / "structured.md").read_bytes()
 
-        assert _load("structured.md").content_hash == hashlib.sha256(raw).hexdigest()
+        assert _load("structured.md").source_hash == hashlib.sha256(raw).hexdigest()
 
 
 class TestOtherFormats:

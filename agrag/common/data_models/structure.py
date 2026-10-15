@@ -1,5 +1,6 @@
 """Stable keys, node ids, reading order and ancestry for the sections of a Document."""
 
+import hashlib
 import json
 from uuid import NAMESPACE_OID, UUID, uuid5
 
@@ -14,31 +15,70 @@ SECTION_LABEL = "Section"
 TABLE_LABEL = "Table"
 FIGURE_LABEL = "Figure"
 SOURCE_LABEL = "Source"
+DOCUMENT_ACTIVATION_LABEL = "DocumentActivation"
 HAS_CHILD = "HAS_CHILD"
 HAS_PART = "HAS_PART"
 HAS_DOCUMENT = "HAS_DOCUMENT"
+HAS_ACTIVATION = "HAS_ACTIVATION"
 
 
 def _uuid(*parts: str | int | UUID) -> UUID:
     return uuid5(NAMESPACE_OID, json.dumps([str(part) for part in parts]))
 
 
-def version_id(document: Document) -> str:
-    """Return the id of one version of a document, as ``HAS_PART`` edges use it.
+def structure_fingerprint(document: Document) -> str:
+    """Return a sha256 hex digest of the section tree of a document.
 
-    A version is one content together with the schema structure that ran
-    against it. A new structure makes new sections and chunks. A change of
-    descriptions or extraction settings keeps the version, so its chunks stay.
+    The digest covers each section's heading, depth and parent, and each unit's
+    kind and character span. It does not cover the text, which the content hash
+    covers. The same text split into different sections gives different digests.
 
     Args:
         document: The document.
 
     Returns:
-        The id, which changes when the content hash or the schema fingerprint
-        changes.
+        The digest, or the empty string when the document has no sections.
+    """
+    if not document.sections:
+        return ""
+    tree = [
+        [
+            section.heading,
+            section.depth,
+            section.parent,
+            [
+                [unit.kind.value, unit.char_start, unit.char_end]
+                for unit in section.units
+            ],
+        ]
+        for section in document.sections
+    ]
+    canonical = json.dumps(tree, ensure_ascii=True, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode("ascii")).hexdigest()
+
+
+def version_id(document: Document) -> str:
+    """Return the id of one version of a document, as ``HAS_PART`` edges use it.
+
+    A version is one content, the section structure it was cut with, and the
+    schema structure that ran against it. A new section structure makes new
+    sections and chunks. A change of descriptions or extraction settings keeps
+    the version, so its chunks stay.
+
+    Args:
+        document: The document.
+
+    Returns:
+        The id, which changes when the content hash, the section structure or
+        the schema fingerprint changes.
     """
     return str(
-        _uuid("Version", document.content_hash, document.schema_fingerprint or "")
+        _uuid(
+            "Version",
+            document.content_hash,
+            document.schema_fingerprint or "",
+            structure_fingerprint(document),
+        )
     )
 
 

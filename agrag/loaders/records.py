@@ -11,8 +11,8 @@ from agrag.loaders.base import RecordLoader
 from agrag.loaders.common import (
     build_prose_document,
     build_record_document,
+    raw_source_hash,
     read_within_limit,
-    record_source_hash,
     source_title,
 )
 from agrag.loaders.decode import decode_text
@@ -67,11 +67,12 @@ class CsvLoader(RecordLoader):
                 loader_name="csv",
                 opts=opts,
                 title=source_title(source),
+                source_hash=raw_source_hash(raw),
             )
             return
 
         delimiter = opts.csv_delimiter or ("\t" if source.extension == ".tsv" else ",")
-        source_hash = record_source_hash(raw)
+        source_hash = raw_source_hash(raw)
         try:
             reader = csv.DictReader(
                 io.StringIO(decoded.text), delimiter=delimiter, strict=True
@@ -144,10 +145,11 @@ class JsonlLoader(RecordLoader):
                 loader_name="jsonl",
                 opts=opts,
                 title=source_title(source),
+                source_hash=raw_source_hash(raw),
             )
             return
 
-        source_hash = record_source_hash(raw)
+        source_hash = raw_source_hash(raw)
         record_index = -1
         for line_no, raw_line in enumerate(decoded.text.split("\n")):
             line = raw_line.strip()
@@ -201,6 +203,7 @@ class JsonlLoader(RecordLoader):
             loader_name="jsonl",
             opts=opts,
             title=str(index),
+            source_hash=source_hash,
         )
 
 
@@ -248,7 +251,7 @@ class JsonLoader(RecordLoader):
         except json.JSONDecodeError as exc:
             raise MalformedRecordError(f"Failed to parse {source.uri}: {exc}") from exc
 
-        source_hash = record_source_hash(raw)
+        source_hash = raw_source_hash(raw)
         if isinstance(data, list) and opts.json_mode != JsonMode.DOCUMENT:
             for index, element in enumerate(data):
                 if index < start_at:
@@ -274,6 +277,7 @@ class JsonLoader(RecordLoader):
             loader_name="json",
             opts=opts,
             title=source_title(source),
+            source_hash=source_hash,
         )
 
     @staticmethod
@@ -311,4 +315,5 @@ class JsonLoader(RecordLoader):
             loader_name="json",
             opts=opts,
             title=str(index),
+            source_hash=source_hash,
         )

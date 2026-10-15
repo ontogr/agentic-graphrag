@@ -22,6 +22,7 @@ driver's managed transactions with no added retry loop.
 - [**blocked_candidate_keys**](#agrag-graphdb-neo4j-Neo4jGraphStore-blocked_candidate_keys) – Return keys with a committed candidate that is not pending.
 - [**close**](#agrag-graphdb-neo4j-Neo4jGraphStore-close) – Close the driver, releasing its connection pool.
 - [**connect**](#agrag-graphdb-neo4j-Neo4jGraphStore-connect) – Open the driver and verify connectivity.
+- [**ensure_fulltext_index**](#agrag-graphdb-neo4j-Neo4jGraphStore-ensure_fulltext_index) – Create a full-text index over node properties if it does not exist.
 - [**ensure_relation_constraint**](#agrag-graphdb-neo4j-Neo4jGraphStore-ensure_relation_constraint) – Create a relationship type's `id` uniqueness constraint once.
 - [**ensure_vector_index**](#agrag-graphdb-neo4j-Neo4jGraphStore-ensure_vector_index) – Create a native vector index if it does not exist.
 - [**execute_read**](#agrag-graphdb-neo4j-Neo4jGraphStore-execute_read) – Run a read transaction and return its rows.
@@ -68,6 +69,18 @@ connect() -> None
 ```
 
 Open the driver and verify connectivity.
+
+## `ensure_fulltext_index` \{#agrag-graphdb-neo4j-Neo4jGraphStore-ensure_fulltext_index}
+
+```python
+ensure_fulltext_index(*, label:str, properties:Sequence[str]) -> None
+```
+
+Create a full-text index over node properties if it does not exist.
+
+A concurrent creator can commit the same index after this operation
+starts. Neo4j reports that race as an equivalent-schema error, which
+means the requested index already exists.
 
 ## `ensure_relation_constraint` \{#agrag-graphdb-neo4j-Neo4jGraphStore-ensure_relation_constraint}
 
