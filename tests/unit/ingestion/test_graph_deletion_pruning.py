@@ -146,6 +146,12 @@ class _ScriptedStore(GraphStore):
         """No-op vector index creation."""
         return
 
+    async def ensure_fulltext_index(
+        self, *, label: str, properties: Sequence[str]
+    ) -> None:
+        """No-op full-text index creation."""
+        return
+
     async def vector_search(
         self,
         *,

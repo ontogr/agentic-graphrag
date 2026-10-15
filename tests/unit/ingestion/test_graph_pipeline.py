@@ -177,6 +177,10 @@ class MockStore(CutoverJobLeaseFake, GraphStore):
         """No-op vector index creation."""
         pass
 
+    async def ensure_fulltext_index(self, **kw: Any) -> None:
+        """No-op full-text index creation."""
+        pass
+
     async def vector_search(self, **kw: Any) -> list[VectorHit]:
         """Return no hits."""
         return []
