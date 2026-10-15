@@ -28,12 +28,6 @@ from agrag.cypher.resolution_read import (
     fetch_active_resolved_member_ids_query,
     load_resolved_entities_by_id_query,
 )
-from agrag.cypher.safety import (
-    MissingIdentityGuardError,
-    reject_write_cypher,
-    require_identity_guard,
-    require_pending_guard,
-)
 from agrag.graphdb import build_graph_store
 from agrag.graphdb.base import GraphStore
 
@@ -294,17 +288,9 @@ class TestCandidateVisibility:
                 f"MATCH (n) WHERE n:{NODE_IDENTITY_LABEL} "
                 "AND n._pending_job_id IS NULL RETURN n",
             ):
-                reject_write_cypher(query)
-                require_pending_guard(query)
-                require_identity_guard(query)
                 returned = await store.execute_read(query)
                 assert not any(
                     candidate in repr(returned) for candidate in candidate_ids
-                )
-            with pytest.raises(MissingIdentityGuardError):
-                require_identity_guard(
-                    f"MATCH (n:{CANDIDATE_LABEL}) "
-                    "WHERE n._pending_job_id IS NULL RETURN n"
                 )
         finally:
             await store.execute_write(

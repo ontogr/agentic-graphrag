@@ -5,7 +5,7 @@ sidebar_label: retrievers
 
 # `agrag.retrieval.retrievers` \{#agrag-retrieval-retrievers}
 
-Retriever implementations for entity, chunk, BFS, and text2cypher search.
+Retriever implementations for entity, chunk, BFS, and community search.
 
 **Modules:**
 
@@ -14,4 +14,3 @@ Retriever implementations for entity, chunk, BFS, and text2cypher search.
 - [**chunk**](chunk/index.md) – Chunk retriever: dense vector search over chunks.
 - [**community**](community/index.md) – Community retriever: dense vector search over community reports.
 - [**entity**](entity/index.md) – Entity retriever: dense vector search over entities.
-- [**text2cypher**](text2cypher/index.md) – Text2Cypher retriever: generate Cypher from natural language.

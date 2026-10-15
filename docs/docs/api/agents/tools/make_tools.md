@@ -29,9 +29,5 @@ Build the agent's tool set over one SearchEngine and Ledger.
 - <code>list\[Any\]</code> – look_up_entity, explore_related, answer_from_graph_structure,
 - <code>list\[Any\]</code> – answer_thematic_question, list_relationship_types,
 - <code>list\[Any\]</code> – find_related_entities, describe_entity, traverse_from_entity,
-- <code>list\[Any\]</code> – and compute_over_evidence. query_graph_directly and
-- <code>list\[Any\]</code> – search_unreviewed_candidates join only when filters is None or empty;
-- <code>list\[Any\]</code> – the candidate tool also requires include_candidates=True. The Cypher
-- <code>list\[Any\]</code> – tool runs a generated
-- <code>list\[Any\]</code> – read-only Cypher query, which cannot be confined to a caller
-- <code>list\[Any\]</code> – scope, so a scoped agent never receives it.
+- <code>list\[Any\]</code> – and compute_over_evidence. search_unreviewed_candidates joins only
+- <code>list\[Any\]</code> – when filters is None or empty and include_candidates=True.

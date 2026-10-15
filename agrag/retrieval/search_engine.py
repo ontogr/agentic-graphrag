@@ -44,7 +44,6 @@ from agrag.retrieval.retrievers.bfs import BFSRetriever
 from agrag.retrieval.retrievers.chunk import ChunkRetriever
 from agrag.retrieval.retrievers.community import CommunityRetriever
 from agrag.retrieval.retrievers.entity import EntityRetriever
-from agrag.retrieval.retrievers.text2cypher import Text2CypherRetriever
 from agrag.retrieval.settings import RetrievalSettings
 from agrag.retrieval.tracing import record_results, retrieval_span
 from agrag.vectordb.base import VectorStore
@@ -101,12 +100,11 @@ class SearchEngine:
                 against, one vector index each, as provisioned by
                 ``Graph.open``. Retained as a checked input only: it must
                 name exactly the labels graph_schema declares, since the
-                schema is what native search and generated Cypher both
-                read. Omit it and let the schema drive both. Ignored when
-                a vector_store is configured.
+                schema is what native search reads. Omit it and let the
+                schema drive search. Ignored when a vector_store is
+                configured.
             graph_schema: The graph's declared schema, ground truth for
-                native entity labels and for generated Cypher. None uses
-                ``DEFAULT_SCHEMA``.
+                native entity labels. None uses ``DEFAULT_SCHEMA``.
             tracer: Opens the search span and flows to every retriever
                 and free function the engine calls. None opens no
                 recorded span.
@@ -576,12 +574,6 @@ class SearchEngine:
                 graph_store=self._graph_store,
                 embedder=self._embedder,
                 vector_store=self._vector_store,
-                settings=self._settings,
-                tracer=self._tracer,
-            ),
-            "text2cypher": Text2CypherRetriever(
-                graph_store=self._graph_store,
-                schema=self._graph_schema,
                 settings=self._settings,
                 tracer=self._tracer,
             ),

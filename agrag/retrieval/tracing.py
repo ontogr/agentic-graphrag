@@ -20,7 +20,6 @@ from opentelemetry.trace import Span, Tracer
 from agrag.common.data_models.chunk import Chunk
 from agrag.common.data_models.community import Community
 from agrag.common.data_models.entity import Entity
-from agrag.common.data_models.query_value import QueryValue
 from agrag.common.data_models.relation import Relation
 from agrag.common.data_models.resolved_entity import ResolvedEntity
 from agrag.common.data_models.search_result import SearchResult
@@ -51,8 +50,6 @@ def result_text(result: SearchResult) -> str:
         return item.text
     if isinstance(item, Relation):
         return f"{item.type}({item.source_id}, {item.target_id})"
-    if isinstance(item, QueryValue):
-        return json.dumps(item.value, default=str)
     return str(item)
 
 

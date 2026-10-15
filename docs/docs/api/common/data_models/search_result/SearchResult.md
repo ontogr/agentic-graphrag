@@ -11,8 +11,8 @@ One retrieved item, tagged with where it came from.
 
 **Attributes:**
 
-- [**item**](#agrag-common-data_models-search_result-SearchResult-item) (<code>Union\[[Entity](../entity/Entity-ref.md), [ResolvedEntity](../resolved_entity/ResolvedEntity.md), [Relation](../relation/Relation-ref.md), [Chunk](../chunk/Chunk-ref.md), [Community](../community/Community-ref.md), [QueryValue](../query_value/QueryValue.md)\]</code>) – The retrieved Entity, ResolvedEntity, Relation, Chunk, or
-  Community, or scalar query value.
+- [**item**](#agrag-common-data_models-search_result-SearchResult-item) (<code>Union\[[Entity](../entity/Entity-ref.md), [ResolvedEntity](../resolved_entity/ResolvedEntity.md), [Relation](../relation/Relation-ref.md), [Chunk](../chunk/Chunk-ref.md), [Community](../community/Community-ref.md)\]</code>) – The retrieved Entity, ResolvedEntity, Relation, Chunk, or
+  Community.
 - [**score**](#agrag-common-data_models-search_result-SearchResult-score) (<code>float</code>) – The method's own relevance score. Not comparable
   across methods until Fusion normalizes it.
 - [**method**](#agrag-common-data_models-search_result-SearchResult-method) (<code>str</code>) – The name of the retrieval method that produced
@@ -34,7 +34,7 @@ Return the (type, id) key Fusion deduplicates on.
 ## `item` \{#agrag-common-data_models-search_result-SearchResult-item}
 
 ```python
-item: Union[Entity, ResolvedEntity, Relation, Chunk, Community, QueryValue]
+item: Union[Entity, ResolvedEntity, Relation, Chunk, Community]
 ```
 
 ## `method` \{#agrag-common-data_models-search_result-SearchResult-method}
