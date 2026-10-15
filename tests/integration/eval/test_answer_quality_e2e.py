@@ -148,7 +148,7 @@ async def test_answer_quality_means_meet_thresholds(
         provider.add_span_processor(SimpleSpanProcessor(exporter))
         agent = answer_quality_agent_factory(provider.get_tracer("answer-quality"))
         result = await agent.ainvoke(
-            {"messages": [{"role": "user", "content": item["question"]}]}
+            {"task_name": item["id"], "question": item["question"]}
         )
         with capsys.disabled():
             print(

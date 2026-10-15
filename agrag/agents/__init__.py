@@ -1,4 +1,4 @@
-"""Agentic layer: planner/researcher/verifier over SearchEngine.
+"""Agentic layer: one task-scoped evidence agent over the graph.
 
 ``build_agent`` is imported lazily because it needs the optional ``agents``
 extra. Importing this package does not require that extra.

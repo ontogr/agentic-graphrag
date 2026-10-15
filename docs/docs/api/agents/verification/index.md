@@ -5,11 +5,11 @@ sidebar_label: verification
 
 # `agrag.agents.verification` \{#agrag-agents-verification}
 
-The verifier subagent's structured verdict.
+The structured verdict of the fixed-input verifier.
 
 **Classes:**
 
-- [**VerificationResult**](VerificationResult.md) – The verifier's structured verdict on the researcher's findings.
+- [**VerificationResult**](VerificationResult.md) – The verifier's structured verdict on the agent's findings.
 
 **Functions:**
 

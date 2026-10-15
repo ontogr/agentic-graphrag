@@ -1,8 +1,10 @@
 """The public Graph API for ingestion."""
 
+import asyncio
 import contextlib
 import functools
 import logging
+import time
 from collections.abc import Callable, Sequence
 from importlib.util import find_spec
 from pathlib import Path
@@ -36,7 +38,7 @@ from agrag.common.schema_fingerprint import (
     RunRecord,
     run_record,
 )
-from agrag.cypher.documents import await_indexes_query, indexes_not_ready_query
+from agrag.cypher.documents import indexes_not_ready_query
 from agrag.embedding.base import Embedder
 from agrag.evidence.source_status import source_status as read_source_status
 from agrag.graphdb.base import GraphStore
@@ -194,6 +196,34 @@ def _default_llm_extractor(tracer: Tracer | None) -> BAMLExtractor | None:
         except RuntimeError:
             return None
     return BAMLExtractor(settings=settings, tracer=tracer)
+
+
+async def _await_indexes_online(graph_store: GraphStore, timeout: float = 60.0) -> None:
+    """Wait until no index in the database is outside the ONLINE state.
+
+    An index that another client creates or drops while this runs is only a
+    transient blocker: it comes online or disappears from the listing, so the
+    wait polls the listing instead of failing on the first index it cannot
+    guarantee.
+
+    Args:
+        graph_store: The store whose database is checked.
+        timeout: Seconds to wait before giving up.
+
+    Raises:
+        RuntimeError: Indexes were still not ONLINE when the timeout passed.
+    """
+    deadline = time.monotonic() + timeout
+    while True:
+        pending = await graph_store.execute_read(indexes_not_ready_query())
+        if not pending:
+            return
+        if time.monotonic() >= deadline:
+            raise RuntimeError(
+                f"Graph indexes did not become ready within {timeout:.0f} seconds: "
+                f"{pending}"
+            )
+        await asyncio.sleep(0.25)
 
 
 class Graph:
@@ -411,22 +441,7 @@ class Graph:
                     dimensions=dimensions,
                     distance=distance,
                 )
-                try:
-                    await graph_store.execute_read(
-                        await_indexes_query(), {"timeout_seconds": 60}
-                    )
-                    unavailable_indexes = await graph_store.execute_read(
-                        indexes_not_ready_query()
-                    )
-                except Exception as error:
-                    raise RuntimeError(
-                        "Graph indexes did not become ready within 60 seconds"
-                    ) from error
-                if unavailable_indexes:
-                    raise RuntimeError(
-                        "Graph indexes did not become ready within 60 seconds: "
-                        f"{unavailable_indexes}"
-                    )
+                await _await_indexes_online(graph_store)
                 graph = cls(
                     schema=schema,
                     graph_store=graph_store,

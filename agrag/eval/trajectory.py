@@ -43,7 +43,7 @@ class Step(BaseModel):
         started: Start time in nanoseconds.
         ended: End time in nanoseconds.
         subagent: The ``subagent_type`` of the nearest ancestor ``task``
-            span, or None for a planner step.
+            span, or None when no task span encloses it.
     """
 
     kind: Literal["tool", "llm"]
@@ -195,9 +195,9 @@ def read_trajectory(spans: Sequence[ReadableSpan]) -> Trajectory:
     Keeps ``TOOL`` and ``LLM`` spans, drops ``CHAIN`` spans, and orders steps
     by start time rather than export order. Skips spans ``agrag`` opens
     itself and spans nested under an ``agrag.eval.judge`` span, so judge
-    calls and BAML request spans never read as planner steps. A step's
+    calls and BAML request spans never read as agent steps. A step's
     ``subagent`` is the ``subagent_type`` of its nearest ancestor ``task``
-    span, or None for a planner step.
+    span, or None when no task span encloses it.
 
     Args:
         spans: The finished spans of one traced agent run.
@@ -230,8 +230,18 @@ class SpanCapture:
     Example:
         ```python
         with SpanCapture() as capture:
-            agent = build_agent(engine, settings, tracer=capture.tracer)
-            result = await agent.ainvoke({"messages": [...]})
+            agent = build_agent(
+                graph_store=graph_store,
+                embedder=embedder,
+                scope=document_keys,
+                project_id="research",
+                agent_id="analyst",
+                llm_settings=settings,
+                tracer=capture.tracer,
+            )
+            result = await agent.ainvoke(
+                {"task_name": "question", "question": "What happened?"}
+            )
         trajectory = capture.trajectory()
         ```
     """
@@ -279,7 +289,7 @@ class SpanCapture:
 def trajectory_case(question: str, answer: str, trajectory: Trajectory) -> LLMTestCase:
     """Build the test case every trajectory metric scores.
 
-    ``tools_called`` holds every ``TOOL`` step, planner and researcher, as a
+    ``tools_called`` holds every ``TOOL`` step, as a
     ``ToolCall``. ``metadata["trajectory"]`` holds the serialized trajectory
     the deterministic metrics read.
 
@@ -310,17 +320,6 @@ def _case_trajectory(test_case: LLMTestCase) -> Trajectory:
     if raw is None:
         raise ValueError("trajectory metric needs a case built by trajectory_case")
     return Trajectory.model_validate(raw)
-
-
-def _task_spans(trajectory: Trajectory, subagent_type: str) -> list[Step]:
-    """Return the delegation spans for one subagent type."""
-    return [
-        step
-        for step in trajectory.steps
-        if step.kind == "tool"
-        and step.name == "task"
-        and step.args.get("subagent_type") == subagent_type
-    ]
 
 
 class _ToolCallFunction(TypedDict):
@@ -430,8 +429,8 @@ _TRAJECTORY_QUALITY_PROMPT = (
     "a knowledge graph. Read the question and the tool calls the agent made, "
     "in order, then score the trajectory from 0 to 1.\n\n"
     "Score high when the steps follow logically from the question, the "
-    "researcher's tool calls are targeted at the question, and the verifier "
-    "was consulted before the answer. Score low when the steps wander, "
+    "tool calls are targeted at the question, and the answer rests on "
+    "evidence the agent fetched. Score low when the steps wander, "
     "repeat without new information, or skip verification. Shorter is not "
     "better and longer is not better: judge only whether the work answers "
     "the question.\n\n"
@@ -509,84 +508,6 @@ class _ScoreRepairModel(BaseChatModel):
         return _ScoreRepairRunnable(
             self.wrapped.with_structured_output(schema, **kwargs)
         )
-
-
-def verifier_before_answer_metric(*, threshold: float = 0.5) -> ScoreMetric:
-    """Build the metric that the verifier ran before the answer.
-
-    Passes when the planner's last ``LLM`` span starts after at least one
-    verifier ``task`` span ended. Scores 1.0 or 0.0.
-
-    Args:
-        threshold: The minimum score that counts as success.
-
-    Returns:
-        A ``ScoreMetric`` that scores verifier-before-answer.
-    """
-
-    def scorer(test_case: LLMTestCase) -> ScoreResult:
-        trajectory = _case_trajectory(test_case)
-        verifier_ends = [step.ended for step in _task_spans(trajectory, "verifier")]
-        if not verifier_ends:
-            return ScoreResult(0.0, "No verifier task span ran before the answer.", {})
-        planner_starts = [
-            step.started
-            for step in trajectory.steps
-            if step.kind == "llm" and step.subagent is None
-        ]
-        if not planner_starts:
-            return ScoreResult(0.0, "No planner LLM span wrote an answer.", {})
-        if any(end < max(planner_starts) for end in verifier_ends):
-            return ScoreResult(1.0, "The verifier ran before the answer.", {})
-        return ScoreResult(0.0, "The verifier finished after the answer started.", {})
-
-    return ScoreMetric("Verifier before answer", scorer, threshold)
-
-
-def retry_budget_metric(max_attempts: int, *, threshold: float = 0.5) -> ScoreMetric:
-    """Build the metric that retries stay within budget.
-
-    Counts researcher ``task`` spans starting after the first verifier
-    ``task`` span ended. A call the limiter blocks leaves no span, so only
-    executed delegations count. Scores 1.0 or 0.0.
-
-    Args:
-        max_attempts: How many researcher retries after verification pass.
-        threshold: The minimum score that counts as success.
-
-    Returns:
-        A ``ScoreMetric`` that scores the retry budget.
-    """
-
-    def scorer(test_case: LLMTestCase) -> ScoreResult:
-        trajectory = _case_trajectory(test_case)
-        verifier_ends = sorted(
-            step.ended for step in _task_spans(trajectory, "verifier")
-        )
-        if not verifier_ends:
-            return ScoreResult(
-                1.0, "No verifier span ran, so no retry was counted.", {}
-            )
-        retries = sum(
-            1
-            for step in _task_spans(trajectory, "researcher")
-            if step.started > verifier_ends[0]
-        )
-        if retries <= max_attempts:
-            return ScoreResult(
-                1.0,
-                f"{retries} researcher retries after verification "
-                f"(budget {max_attempts}).",
-                {},
-            )
-        return ScoreResult(
-            0.0,
-            f"{retries} researcher retries after verification exceed "
-            f"the budget of {max_attempts}.",
-            {},
-        )
-
-    return ScoreMetric("Retry budget", scorer, threshold)
 
 
 def expected_tools_metric(

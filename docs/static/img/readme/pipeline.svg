@@ -114,14 +114,14 @@
 <text x="92" y="853" font-size="22" font-weight="700" fill="#ffffff" text-anchor="start" >Agent</text>
 <text x="1378" y="852" font-size="16" font-weight="400" fill="#ffffff" text-anchor="end" >build_agent</text>
 <g filter="url(#shadow)"><rect x="70" y="884" width="250" height="62" rx="10" fill="#ffffff" stroke="#3730a3" stroke-width="1.8"/></g>
-<text x="195.0" y="912.0" font-size="18" font-weight="700" fill="#0f172a" text-anchor="middle" >Planner</text>
-<text x="195.0" y="931.0" font-size="13" font-weight="400" fill="#334155" text-anchor="middle" >splits the question</text>
+<text x="195.0" y="912.0" font-size="18" font-weight="700" fill="#0f172a" text-anchor="middle" >Task agent</text>
+<text x="195.0" y="931.0" font-size="13" font-weight="400" fill="#334155" text-anchor="middle" >reads the task view</text>
 <g filter="url(#shadow)"><rect x="400" y="884" width="250" height="62" rx="10" fill="#ffffff" stroke="#3730a3" stroke-width="1.8"/></g>
-<text x="525.0" y="912.0" font-size="18" font-weight="700" fill="#0f172a" text-anchor="middle" >Researcher</text>
-<text x="525.0" y="931.0" font-size="13" font-weight="400" fill="#334155" text-anchor="middle" >searches the graph</text>
+<text x="525.0" y="912.0" font-size="18" font-weight="700" fill="#0f172a" text-anchor="middle" >Evidence tools</text>
+<text x="525.0" y="931.0" font-size="13" font-weight="400" fill="#334155" text-anchor="middle" >discover and fetch</text>
 <g filter="url(#shadow)"><rect x="730" y="884" width="250" height="62" rx="10" fill="#ffffff" stroke="#3730a3" stroke-width="1.8"/></g>
-<text x="855.0" y="912.0" font-size="18" font-weight="700" fill="#0f172a" text-anchor="middle" >Verifier</text>
-<text x="855.0" y="931.0" font-size="13" font-weight="400" fill="#334155" text-anchor="middle" >checks the evidence</text>
+<text x="855.0" y="912.0" font-size="18" font-weight="700" fill="#0f172a" text-anchor="middle" >Citation check</text>
+<text x="855.0" y="931.0" font-size="13" font-weight="400" fill="#334155" text-anchor="middle" >validates cited keys</text>
 <g filter="url(#shadow)"><rect x="1060" y="884" width="250" height="62" rx="10" fill="#ffffff" stroke="#3730a3" stroke-width="1.8"/></g>
 <text x="1185.0" y="912.0" font-size="18" font-weight="700" fill="#0f172a" text-anchor="middle" >Cited answer</text>
 <text x="1185.0" y="931.0" font-size="13" font-weight="400" fill="#334155" text-anchor="middle" >keys E1, C1, V1</text>

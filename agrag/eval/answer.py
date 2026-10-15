@@ -28,7 +28,7 @@ from agrag.agents.result import AgentRunResult
 
 ABSTENTION = "No relevant evidence found."
 
-_KEY = r"[EGRCVX]\d+"
+_KEY = r"(?:[EGRCVX]\d+|ev1:[sc]:[0-9a-f-]+:[0-9a-f-]+:[0-9a-f-]+)"
 _KEY_TOKEN = re.compile(rf"\b{_KEY}\b")
 _KEY_GROUP = re.compile(rf"[\[(]\s*{_KEY}(?:\s*[,;]\s*{_KEY})*\s*[\])]")
 _BRACKETED = re.compile(r"[\[(][^\[\]()]*[\])]")
@@ -108,22 +108,19 @@ def final_answer(result: AgentRunResult) -> str:
 
 
 def _rendered_evidence(result: AgentRunResult) -> dict[str, str]:
-    """Return each ledger key with the text the agent saw for it, in key order."""
-    ledger = result["ledger"]
-    evidence = {}
-    for key in ledger.keys:
-        found = ledger.resolve(key)
-        if found is not None:
-            evidence[key] = ledger.render(found)
-    return evidence
+    """Return each validated evidence id with the text the agent saw."""
+    return {
+        item.evidence_id: item.text
+        for item in result["citations"]
+        if item.text is not None
+    }
 
 
 def answer_case(question: str, result: AgentRunResult, reference: str) -> LLMTestCase:
     """Build the test case that every answer-quality metric scores.
 
-    ``retrieval_context`` holds the evidence the agent saw, as the ledger
-    rendered it, in key order. ``metadata["citations"]`` maps each
-    key to that text for ``CitationAccuracyMetric``.
+    ``retrieval_context`` holds the fetched evidence. ``metadata["citations"]``
+    maps each evidence id to its text for ``CitationAccuracyMetric``.
 
     Args:
         question: The question the agent answered.
@@ -358,7 +355,7 @@ class CitationAccuracyMetric(BaseMetric):
     The unit is the sentence. A sentence counts as cited when it carries a
     citation key. A judge decides whether the text of the cited evidence supports
     the sentence. It scores each sentence with one ``GEval`` run. A cited key that
-    the run's ledger did not assign is fabricated: the sentence is unsupported and
+    the run did not fetch is fabricated: the sentence is unsupported and
     no judge call happens.
 
     The score is the F1 of two ratios. Precision is supported cited sentences

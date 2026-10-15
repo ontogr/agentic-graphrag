@@ -3,6 +3,7 @@
 from typing import Literal
 
 from dotenv import load_dotenv
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from agrag.llm.client_config import LLMClientConfig
@@ -90,17 +91,10 @@ class AgentSettings(BaseSettings):
         recursion_limit: The maximum LangGraph step count before
             the loop stops and reports incomplete progress.
             Env: ``AGENT_RECURSION_LIMIT``.
-        max_research_attempts: The maximum number of times the
-            planner may re-delegate to the researcher after
-            receiving ``INSUFFICIENT`` from the verifier. The
-            planner's initial decomposition into sub-questions is
-            not bounded by this field; the LangGraph recursion
-            limit remains the backstop for that pass.
-            Env: ``AGENT_MAX_RESEARCH_ATTEMPTS``.
-        search_candidates: Whether the researcher gets a tool that searches
-            items the extractor kept out of the graph. Its answers are marked
-            unreviewed. A scoped agent never gets it.
-            Env: ``AGENT_SEARCH_CANDIDATES``.
+        max_tool_calls: Maximum number of tool calls in one task run.
+            Env: ``AGENT_MAX_TOOL_CALLS``.
+        max_result_characters: Maximum text returned by one evidence fetch.
+            Env: ``AGENT_MAX_RESULT_CHARACTERS``.
 
     Env prefix: ``AGENT_``.
     """
@@ -109,6 +103,6 @@ class AgentSettings(BaseSettings):
         env_prefix="AGENT_", env_file=".env", extra="ignore", hide_input_in_errors=True
     )
 
-    recursion_limit: int = 50
-    max_research_attempts: int = 3
-    search_candidates: bool = False
+    recursion_limit: int = Field(default=50, ge=1)
+    max_tool_calls: int = Field(default=20, ge=1)
+    max_result_characters: int = Field(default=12_000, ge=1)

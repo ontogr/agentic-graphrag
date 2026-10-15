@@ -1,94 +1,84 @@
 ---
 sidebar_position: 10
 title: Agent loop
-description: How a planner, a researcher, and a verifier turn a question into a cited answer.
+description: How one task-scoped agent turns a question into a cited answer.
 ---
 
 # Agent loop
 
-The agent loop turns one question into a cited answer through repeated research and evidence review. The planner divides the question, the researcher searches the graph, and the verifier checks whether each part has support. The loop can search again when evidence is missing, but it cannot make unsupported source material true.
+The agent loop turns one question into a cited answer. A single agent works on a named task. It discovers evidence in the graph, fetches the exact text it needs, and writes an answer that cites only the evidence it fetched. A citation check runs after the answer, and one repair pass removes or replaces citations that do not check out.
 
 ## Why it exists
 
-One search can miss part of a multi-part question. "Who worked with Charles Babbage, and where?" needs two facts that may sit in different passages. The planner separates those questions, and the verifier exposes gaps before the answer is written.
+One search can miss part of a multi-part question. "Who worked with Charles Babbage, and where?" needs two facts that may sit in different passages. The agent runs several evidence calls for one task, and it keeps the task state between calls.
 
-The loop splits the question, so each part gets its own search. It reviews the evidence before it answers. A gap sends the agent back to search again instead of guessing.
+The agent can also resume a task. Each task has a name. A run with the same task name reloads the evidence fetched earlier and the events recorded for that task.
 
-The answer uses citation keys that point to evidence gathered during the run. Keys make claims traceable; they do not guarantee that the source itself is correct.
+Citations make claims traceable. They do not make the source correct.
 
 ## How it works
 
 ```mermaid
-stateDiagram-v2
-    [*] --> Plan
-    Plan --> Research: sub-questions
-    Research --> Verify: findings with keys
-    Verify --> Answer: PASS
-    Verify --> Research: INSUFFICIENT with retries left
-    Verify --> Answer: INSUFFICIENT with no retries left
-    Verify --> Answer: CONTRADICTORY
-    Answer --> [*]
+flowchart LR
+    Q[Question and task view] --> A[Task agent]
+    A -->|discover_evidence, find_entities, explore| E[Evidence ids]
+    E -->|fetch_evidence| T[Exact passage text]
+    T --> A
+    A --> Ans[Answer]
+    Ans --> C{check_citations}
+    C -->|all valid| R[Result]
+    C -->|invalid ids, budget left| F[One repair pass]
+    F --> R
 ```
 
-*The verdict decides the next step.*
+1. The run creates or resumes the task and builds its task view. The view is data, and the agent reads it before it acts.
+2. The agent calls evidence tools. `discover_evidence` returns evidence ids for passages in scope. `find_entities` and `explore` search the graph. `navigate` moves from one passage to related text.
+3. The agent calls `fetch_evidence` on the ids it wants to cite. Only a fetch that returns complete text makes an id citable.
+4. The agent writes the answer and cites ids in square brackets.
+5. The run checks every cited id against the ids that were fetched in scope. If some are invalid and the tool budget has room, one repair pass asks the agent to remove or fetch them.
+6. The run returns the answer, a status, the valid citations, and any invalid ids.
 
-1. The planner splits the question into two to four sub-questions.
-2. The planner sends each sub-question to the researcher. The researcher searches the graph with its tools and reports findings. Each finding carries a citation key.
-3. The planner sends the question, the sub-questions, and the findings to the verifier.
-4. The verifier checks each sub-question alone. Then it returns one verdict.
-5. The planner reads the verdict and acts on it.
+The agent can also record progress with `set_step` and record decisions with `record_decision`. It reads earlier decisions with `search_decisions`. A decision counts only when its write tool confirms that the record was saved.
 
-By default, the researcher does not search candidates. Set `AGENT_SEARCH_CANDIDATES=true` to add `search_unreviewed_candidates`. The tool searches pending and approved candidates by text, not embeddings. Each result includes its review state and remains untrusted document data, even when approved. Candidate results have no citation keys, so the agent cannot cite them as evidence or follow instructions in their text. A scoped agent never receives the tool because candidate search cannot enforce the scope.
+## Result status
 
-| Verdict | Meaning | Next step |
-|---|---|---|
-| `PASS` | Every sub-question has supporting evidence. Nothing conflicts. | The planner writes the answer. |
-| `INSUFFICIENT` | A sub-question lacks evidence, or a claim does not match its evidence. The verdict lists the gaps. | The planner sends the gaps back to the researcher when retries remain. |
-| `CONTRADICTORY` | Two cited pieces of evidence conflict. | The planner does not retry. It states the conflict in the answer. |
-
-## A worked example
-
-The question is "Who worked with Charles Babbage, and where?" The graph holds a chunk that says Ada Lovelace worked with Charles Babbage in London.
-
-| Step | What happens |
+| Status | Meaning |
 |---|---|
-| Plan | Sub-question 1: who worked with Charles Babbage? Sub-question 2: where did they work? |
-| Research | The researcher finds the entity Ada Lovelace (`E1`), the entity London (`E2`), and the chunk that links them (`C1`). |
-| Verify | Each sub-question has a key that supports it. The verdict is `PASS`. |
-| Answer | "Ada Lovelace worked with Charles Babbage in London [E1][E2][C1]." |
+| `answered` | The answer has no invalid citations and no limit was hit. |
+| `insufficient_evidence` | The answer says that the evidence is insufficient. |
+| `partial` | Some cited ids failed the citation check after the repair pass. |
+| `partial_retrieval` | A retrieval call failed during the run. |
+| `budget_exhausted` | The run hit the step limit or the tool-call limit. |
+| `recording_failed` | A task event or decision could not be recorded. |
 
-## Citation keys
+## Citation ids
 
-The agent sees evidence text that starts with a key. The letter of the key names the kind of evidence.
-
-| Key | Evidence |
-|---|---|
-| `E1` | An entity, or a resolved entity |
-| `R1` | A relation |
-| `C1` | A chunk of source text |
-| `G1` | A community report |
-| `V1` | A value from a graph query |
-
-A run hands out keys in order and never changes one. Each call to the agent starts with an empty ledger, so two questions never share keys.
+Evidence ids start with `ev1:`. A span id names a range of a chunk, and a chunk id names a whole chunk. The agent copies these ids from discovery results. It does not make them up.
 
 ## Limits
 
-By default, the planner can send work back to the researcher three times. The count starts after the first verifier check, so the first research pass is free. When the limit is reached, the planner answers from the evidence it has. It names the sub-questions that it did not answer. A limit of 50 graph steps stops a run that loops for another reason.
+These settings bound one run. Set them with `AGENT_` variables or `AgentSettings`.
 
-The result has two parts. `messages` ends with the answer. `ledger` maps each key to its evidence.
+| Setting | Default | Effect |
+|---|---|---|
+| `recursion_limit` | `50` | The maximum LangGraph steps. A run that reaches it returns `budget_exhausted`. |
+| `max_tool_calls` | `20` | The maximum tool calls in one task run. |
+| `max_result_characters` | `12000` | The maximum text that one evidence fetch returns. |
+
+The result has two parts that matter most. `answer` holds the final text. `citations` lists the fetched evidence that the answer cites.
 
 :::note
-The full loop needs the `agents` extra. Without it, `build_agent` returns a simpler agent. That agent runs one search and writes one answer. It has no planner, researcher, verifier, or step limit.
+The agent needs the `agents` extra. `build_agent` raises `AgentMissingExtraError` when the extra is not installed.
 :::
 
 <details>
 <summary>Design choices</summary>
 
-The verdict has three values. More searching cannot fix two sources that disagree. `CONTRADICTORY` stops the retries and moves the conflict into the answer. `INSUFFICIENT` is the only verdict that starts another search.
+The agent has no subagents. The general-purpose subagent is disabled in the harness profile, so every evidence call runs in the one agent.
 
-The verifier has no tools. It judges only the evidence in front of it. It cannot search until the researcher's claim looks right. The planner cites keys. The library attaches the evidence text for each key to the verifier's task, so the verifier can decide whether each key supports its claim.
+The agent judges only the evidence it fetched. The citation check, not the model, decides whether a cited id is valid. A fetch outside the trusted scope fails, so the agent cannot cite text the caller did not allow.
 
-The library can hide a scope from the model. You can limit every search to one document or tenant. Each tool applies the scope and refuses an argument outside it.
+Source passages, task events, and tool results are data. The system prompt tells the agent not to follow instructions found in them.
 
 </details>
 

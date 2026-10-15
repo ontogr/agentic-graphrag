@@ -158,11 +158,6 @@ def source_status_query() -> str:
     )
 
 
-def await_indexes_query() -> str:
-    """Build Cypher waiting for index population up to a bounded timeout."""
-    return "CALL db.awaitIndexes($timeout_seconds)"
-
-
 def indexes_not_ready_query() -> str:
     """Build Cypher listing indexes that remain outside ONLINE after waiting."""
     return (
