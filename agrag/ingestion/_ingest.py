@@ -31,9 +31,11 @@ from agrag.common.data_models.structure import version_id
 from agrag.common.data_models.update_decision import UpdateDecision
 from agrag.common.schema_fingerprint import RunRecord
 from agrag.cypher.documents import (
-    document_chunk_count_query,
     document_cited_relation_endpoints_query,
+    document_cited_relation_ids_query,
+    document_content_ids_query,
     document_mentioned_entities_query,
+    document_pending_candidate_ids_query,
     update_document_dates_query,
 )
 from agrag.cypher.relations import entities_in_documents_query
@@ -72,6 +74,7 @@ from agrag.loaders.walk import normalize_inline_text
 
 
 logger = logging.getLogger(__name__)
+_PURGE_RECORD_LIMIT = 10_000
 
 CleanupStep = Callable[
     [list[UUID], list[UUID], list[UUID]], Awaitable[list[StageFailure]]
@@ -1159,17 +1162,54 @@ async def purge_document(  # noqa: PLR0913
         if found is None:
             return UpdateResult(document_key=document_key, no_op=True)
         document_params = {"document_node_id": str(found.document_node_id)}
-        counted = await graph_store.execute_read(
-            document_chunk_count_query(), document_params
+        bounded_params = {
+            **document_params,
+            "limit": _PURGE_RECORD_LIMIT + 1,
+        }
+        content = await graph_store.execute_read(
+            document_content_ids_query(), bounded_params
         )
-        if not counted or not counted[0]["chunks"]:
+        if not content:
             return UpdateResult(document_key=document_key, no_op=True)
+        if len(content) > _PURGE_RECORD_LIMIT:
+            raise ValueError(
+                f"Cannot purge document {document_key!r}: it exceeds the "
+                f"safe limit of {_PURGE_RECORD_LIMIT} content records."
+            )
+        relations = await graph_store.execute_read(
+            document_cited_relation_ids_query(), bounded_params
+        )
+        if len(relations) > _PURGE_RECORD_LIMIT:
+            raise ValueError(
+                f"Cannot purge document {document_key!r}: it exceeds the "
+                f"safe limit of {_PURGE_RECORD_LIMIT} cited relations."
+            )
+        candidates = await graph_store.execute_read(
+            document_pending_candidate_ids_query(), bounded_params
+        )
+        if len(candidates) > _PURGE_RECORD_LIMIT:
+            raise ValueError(
+                f"Cannot purge document {document_key!r}: it exceeds the "
+                f"safe limit of {_PURGE_RECORD_LIMIT} pending candidates."
+            )
         mentioned = await graph_store.execute_read(
-            document_mentioned_entities_query(), document_params
+            document_mentioned_entities_query(), bounded_params
         )
+        if len(mentioned) > _PURGE_RECORD_LIMIT:
+            raise ValueError(
+                f"Cannot purge document {document_key!r}: affected-entity "
+                f"tracking exceeds the safe limit of {_PURGE_RECORD_LIMIT} records."
+            )
+        cited_limit = _PURGE_RECORD_LIMIT + 1 - len(mentioned)
         cited = await graph_store.execute_read(
-            document_cited_relation_endpoints_query(), document_params
+            document_cited_relation_endpoints_query(),
+            {**document_params, "limit": cited_limit},
         )
+        if len(mentioned) + len(cited) > _PURGE_RECORD_LIMIT:
+            raise ValueError(
+                f"Cannot purge document {document_key!r}: affected-entity "
+                f"tracking exceeds the safe limit of {_PURGE_RECORD_LIMIT} records."
+            )
         affected = list(
             dict.fromkeys(UUID(str(row["id"])) for row in [*mentioned, *cited])
         )

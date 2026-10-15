@@ -196,16 +196,19 @@ def indexes_not_ready_query() -> str:
     )
 
 
-def document_chunk_count_query() -> str:
-    """Build Cypher counting the stored chunks of a document in every version.
+def document_content_ids_query() -> str:
+    """Build Cypher reading a bounded set of all stored content nodes.
 
     Returns:
-        Parameterized Cypher expecting ``$document_node_id``. Returns ``chunks``.
+        Parameterized Cypher expecting ``$document_node_id`` and ``$limit``.
+        Returns one row per chunk, section, table or figure, up to ``$limit``.
     """
     return (
-        f"MATCH (c:{NODE_IDENTITY_LABEL}:{CHUNK_LABEL} "
-        "{document_id: $document_node_id}) "
-        "RETURN count(c) AS chunks"
+        f"MATCH (n:{NODE_IDENTITY_LABEL}) "
+        "WHERE n.document_id = $document_node_id "
+        f"AND (n:{CHUNK_LABEL} OR n:{SECTION_LABEL} OR n:{TABLE_LABEL} "
+        f"OR n:{FIGURE_LABEL}) "
+        "RETURN n.id AS id LIMIT $limit"
     )
 
 
@@ -213,14 +216,14 @@ def document_mentioned_entities_query() -> str:
     """Build Cypher listing the entities that any version's chunks mention.
 
     Returns:
-        Parameterized Cypher expecting ``$document_node_id``. Returns ``id``, one
-        row per entity.
+        Parameterized Cypher expecting ``$document_node_id`` and ``$limit``.
+        Returns up to ``$limit`` distinct entity ids.
     """
     return (
         f"MATCH (c:{NODE_IDENTITY_LABEL}:{CHUNK_LABEL} "
         "{document_id: $document_node_id})"
         f"-[:MENTIONED_IN]->(e:{NODE_IDENTITY_LABEL}) "
-        "RETURN DISTINCT e.id AS id"
+        "RETURN DISTINCT e.id AS id LIMIT $limit"
     )
 
 
@@ -261,8 +264,8 @@ def document_cited_relation_endpoints_query() -> str:
     entities.
 
     Returns:
-        Parameterized Cypher expecting ``$document_node_id``. Returns ``id``, one
-        row per entity.
+        Parameterized Cypher expecting ``$document_node_id`` and ``$limit``.
+        Returns up to ``$limit`` distinct entity ids.
     """
     return (
         f"MATCH (a:{NODE_IDENTITY_LABEL})-[r]->(b:{NODE_IDENTITY_LABEL}) "
@@ -271,7 +274,27 @@ def document_cited_relation_endpoints_query() -> str:
         f"MATCH (c:{NODE_IDENTITY_LABEL}:{CHUNK_LABEL} "
         "{document_id: $document_node_id}) "
         "WHERE c.id IN r.source_chunk_ids } "
-        "UNWIND [a.id, b.id] AS id RETURN DISTINCT id"
+        "UNWIND [a.id, b.id] AS id RETURN DISTINCT id LIMIT $limit"
+    )
+
+
+def document_cited_relation_ids_query() -> str:
+    """Build Cypher reading a bounded set of relations citing document chunks."""
+    return (
+        "MATCH ()-[r]->() WHERE r.source_chunk_ids IS NOT NULL AND EXISTS { "
+        f"MATCH (c:{NODE_IDENTITY_LABEL}:{CHUNK_LABEL} "
+        "{document_id: $document_node_id}) "
+        "WHERE c.id IN r.source_chunk_ids } "
+        "RETURN elementId(r) AS id LIMIT $limit"
+    )
+
+
+def document_pending_candidate_ids_query() -> str:
+    """Build Cypher reading a bounded set of pending candidates on document chunks."""
+    return (
+        f"MATCH (n:{CANDIDATE_LABEL})-[:{EVIDENCED_BY}]->"
+        f"(c:{NODE_IDENTITY_LABEL}:{CHUNK_LABEL} {{document_id: $document_node_id}}) "
+        "WHERE n.state = 'pending' RETURN DISTINCT n.id AS id LIMIT $limit"
     )
 
 

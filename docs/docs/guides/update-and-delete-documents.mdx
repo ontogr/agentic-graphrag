@@ -166,7 +166,7 @@ The call hard-deletes the chunks, sections, tables and figures of every version 
 
 Pending candidates that cite the document are deleted. Approved and rejected candidates stay, but their links to deleted chunks are removed. Community summaries are not rebuilt by purge; run community detection again to refresh them.
 
-Purge belongs to `Graph`, not `RetentionMemory`, because it removes ingested content and runs graph cleanup. It scans relationships for `source_chunk_ids` citations, including relations whose endpoints no longer have mention links. These array membership checks have no index. Content deletion runs in one transaction, and cleanup retains the affected entity ids, so large graphs can require substantial time and memory.
+Purge belongs to `Graph`, not `RetentionMemory`, because it removes ingested content and runs graph cleanup. It scans relationships for `source_chunk_ids` citations, including relations whose endpoints no longer have mention links. These array membership checks have no index. Content deletion runs in one transaction. Before starting the cutover job, preflight rejects more than 10,000 content nodes, cited relations, pending candidates, or combined mention and citation endpoint records with `ValueError`. An entity counted in both endpoint sets counts twice toward this limit. Large graphs can still take time to scan.
 
 ## See what stays in the graph
 

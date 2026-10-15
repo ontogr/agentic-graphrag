@@ -411,7 +411,9 @@ the graph schema, embedder and cutover settings to clean up, and
 Approved and rejected candidates remain without their removed evidence
 links. Community summaries remain until community detection runs again.
 Purge scans relationships for chunk citations and deletes content in one
-transaction, so large graphs can require substantial time and memory.
+transaction. Preflight rejects more than 10,000 content nodes, cited
+relations, pending candidates, or combined mention and citation endpoint
+records before starting the cutover job.
 
 **Parameters:**
 
@@ -422,6 +424,10 @@ transaction, so large graphs can require substantial time and memory.
 - <code>[UpdateResult](../reports/update_result/UpdateResult.md)</code> – The purge summary: `no_op=True` when no content was stored under the
   key, otherwise `parts_closed` with `new_content_hash=None`
   and no `add_result`.
+
+**Raises:**
+
+- <code>ValueError</code> – The document exceeds a purge preflight record limit.
 
 ## `reevaluate` \{#agrag-ingestion-graph-Graph-reevaluate}
 

@@ -292,6 +292,46 @@ async def _cleanup(store: GraphStore, keys: list[str], name: str) -> None:
 class TestDocumentPurge:
     """Purge removes every version's content and evidence and nothing else."""
 
+    async def test_oversized_purge_is_rejected_before_cutover(self) -> None:
+        """Oversized stored content is rejected without creating a purge record."""
+        store = build_graph_store("neo4j")
+        await store.connect()
+        probe = f"purgeprobe{uuid4().hex[:8]}"
+        key = f"purge://{uuid4().hex}"
+        graph = await _open_graph(store, probe, (probe,))
+        try:
+            await graph.add(documents=[_prose_document(key, f"{probe} record.")])
+            document_id = str(Document.node_id_for(document_key=key))
+            await store.execute_write(
+                "UNWIND range(1, 10001) AS index "
+                "CREATE (:_Node:Chunk {id: $prefix + toString(index), "
+                "document_id: $document_id})",
+                {"prefix": f"oversized-{uuid4().hex}-", "document_id": document_id},
+            )
+
+            try:
+                await graph.purge_document(key)
+            except ValueError as error:
+                assert "10000" in str(error)
+            else:
+                raise AssertionError("oversized purge was not rejected")
+
+            assert await _purge_activations(store, key) == 0
+            jobs = await store.execute_read(
+                "MATCH (job:CutoverJob {document_key: $key, verb: 'purge_document'}) "
+                "RETURN count(job) AS count",
+                {"key": key},
+            )
+            assert jobs[0]["count"] == 0
+        finally:
+            await store.execute_write(
+                "MATCH (n:Chunk {document_id: $document_id}) "
+                "WHERE n.id STARTS WITH 'oversized-' DETACH DELETE n",
+                {"document_id": str(Document.node_id_for(document_key=key))},
+            )
+            await _cleanup(store, [key], probe)
+            await store.close()
+
     async def test_purge_removes_every_version_text_and_evidence(self) -> None:
         """No stored text survives, linked entities go, and evidence is gone."""
         store = build_graph_store("neo4j")
