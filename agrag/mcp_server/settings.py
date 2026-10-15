@@ -24,10 +24,10 @@ class McpServerSettings(BaseSettings):
             ``AGRAG_MCP_MAX_FETCH_CHARS``.
         max_fetch_ids: The most evidence ids one fetch or citation check takes.
             Env: ``AGRAG_MCP_MAX_FETCH_IDS``.
-        max_response_chars: The most characters of one serialized result. The
-            limit counts the text and structured copies that the SDK sends, so
-            each result is measured at twice its JSON length. Env:
-            ``AGRAG_MCP_MAX_RESPONSE_CHARS``.
+        max_response_chars: The most characters of one result as sent. Memory
+            tool results send their JSON once, beside a short text block. Search
+            and fetch results still send their JSON twice, so they count at twice
+            their JSON length. Env: ``AGRAG_MCP_MAX_RESPONSE_CHARS``.
         request_deadline_seconds: The server-side timeout of each store read.
             Env: ``AGRAG_MCP_REQUEST_DEADLINE_SECONDS``.
         project_id: Trusted project scope for task and decision operations. Env:
@@ -56,7 +56,7 @@ class McpServerSettings(BaseSettings):
     max_snippet_chars: int = Field(default=240, ge=1)
     max_fetch_chars: int = Field(default=4000, ge=1)
     max_fetch_ids: int = Field(default=20, ge=1)
-    max_response_chars: int = Field(default=100000, ge=1)
+    max_response_chars: int = Field(default=60000, ge=1)
     request_deadline_seconds: float = Field(default=30.0, gt=0)
     project_id: str = ""
     agent_id: str = ""

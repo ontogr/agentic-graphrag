@@ -1,16 +1,13 @@
 """Register bounded task and decision tools on the local MCP server."""
 
-import asyncio
-from collections.abc import Awaitable, Callable, Sequence
-from typing import Annotated, Any, TypeVar
+from collections.abc import Callable, Sequence
+from typing import Annotated, Any
 from uuid import UUID
 
 from mcp.server import MCPServer
 from mcp.server.mcpserver import Context
-from mcp.server.mcpserver.exceptions import ToolError
-from mcp.types import ToolAnnotations
+from mcp.types import CallToolResult, ToolAnnotations
 from pydantic import Field
-from pydantic_core import to_json
 
 from agrag.common.data_models.decision import (
     RecordDecisionResult,
@@ -27,6 +24,7 @@ from agrag.common.data_models.task import (
     StepState,
 )
 from agrag.graphdb.base import GraphStore
+from agrag.mcp_server.results import bounded_result
 from agrag.mcp_server.settings import McpServerSettings
 from agrag.memory import DecisionMemory, TaskMemory
 
@@ -43,7 +41,6 @@ _REJECT = ToolAnnotations(
     idempotent_hint=True,
     open_world_hint=False,
 )
-_ResultT = TypeVar("_ResultT")
 
 
 def register_write_tools(
@@ -83,9 +80,9 @@ def register_write_tools(
         name: Annotated[str, Field(min_length=1, max_length=200)],
         goal: Annotated[str, Field(min_length=1, max_length=4000)],
         request_id: Annotated[str, Field(min_length=1, max_length=64)],
-    ) -> CreateTaskResult:
+    ) -> Annotated[CallToolResult, CreateTaskResult]:
         """Create a task in the configured project with a retry key."""
-        return await _bounded(
+        return await bounded_result(
             deadline,
             settings.max_response_chars,
             tasks.create_task(name, goal, request_id=request_id),
@@ -105,9 +102,9 @@ def register_write_tools(
         request_id: Annotated[str, Field(min_length=1, max_length=64)],
         role: Annotated[str | None, Field(max_length=100)] = None,
         name: Annotated[str | None, Field(max_length=200)] = None,
-    ) -> RecordEventResult:
+    ) -> Annotated[CallToolResult, RecordEventResult]:
         """Append one message, tool call, tool result or note."""
-        return await _bounded(
+        return await bounded_result(
             deadline,
             settings.max_response_chars,
             tasks.record_event(
@@ -128,9 +125,9 @@ def register_write_tools(
         request_id: Annotated[str, Field(min_length=1, max_length=64)],
         kind: StepKind = StepKind.OTHER,
         result_event_seq: Annotated[int | None, Field(ge=1)] = None,
-    ) -> SetStepResult:
+    ) -> Annotated[CallToolResult, SetStepResult]:
         """Set a step state and optionally link its result event."""
-        return await _bounded(
+        return await bounded_result(
             deadline,
             settings.max_response_chars,
             tasks.set_step(
@@ -160,10 +157,10 @@ def register_write_tools(
         request_id: Annotated[str, Field(min_length=1, max_length=64)],
         assumptions: Annotated[list[str], Field(max_length=20)],
         open_questions: Annotated[list[str], Field(max_length=20)],
-    ) -> RecordDecisionResult:
+    ) -> Annotated[CallToolResult, RecordDecisionResult]:
         """Record a supported decision with a safe retry key."""
         fetched = list(fetched_evidence_for(ctx))
-        return await _bounded(
+        return await bounded_result(
             deadline,
             settings.max_response_chars,
             decisions.record_decision(
@@ -193,9 +190,9 @@ def register_write_tools(
         request_id: Annotated[str, Field(min_length=1, max_length=64)],
         assumptions: Annotated[list[str], Field(max_length=20)],
         open_questions: Annotated[list[str], Field(max_length=20)],
-    ) -> RecordDecisionResult:
+    ) -> Annotated[CallToolResult, RecordDecisionResult]:
         """Record a same-choice replacement with its reason and support."""
-        return await _bounded(
+        return await bounded_result(
             deadline,
             settings.max_response_chars,
             decisions.supersede_decision(
@@ -221,26 +218,10 @@ def register_write_tools(
             decision_id: UUID,
             reason: Annotated[str, Field(min_length=1, max_length=4000)],
             request_id: Annotated[str, Field(min_length=1, max_length=64)],
-        ) -> RejectDecisionResult:
+        ) -> Annotated[CallToolResult, RejectDecisionResult]:
             """Mark a decision rejected using the operator-authorized tool."""
-            return await _bounded(
+            return await bounded_result(
                 deadline,
                 settings.max_response_chars,
                 decisions.reject_decision(decision_id, reason, request_id=request_id),
             )
-
-
-async def _bounded(
-    deadline: float,
-    response_limit: int,
-    operation: Awaitable[_ResultT],
-) -> _ResultT:
-    """Apply the deadline and serialized-result cap without exposing details."""
-    try:
-        async with asyncio.timeout(deadline):
-            result = await operation
-    except TimeoutError:
-        raise ToolError("memory operation deadline exceeded") from None
-    if 2 * len(to_json(result)) > response_limit:
-        raise ToolError("memory result exceeds the configured response limit")
-    return result
