@@ -38,10 +38,11 @@ class DocumentChange:
         document_node_id: The id of the Document node the change applies to.
         document_key: The stable key of the document.
         verb: ``add`` for the first version of a key, ``update`` for a new
-            version that replaces the current one, or ``delete`` for a
-            soft deletion.
+            version that replaces the current one, ``delete`` for a
+            soft deletion, or ``purge`` for the removal of every version's
+            content.
         content_hash: The content hash of the new version, or ``None`` for a
-            delete.
+            delete or purge.
         previous_content_hash: The content hash of the version the change
             replaces, or ``None`` when the key had no stored version.
         version_id: The version id of the new version, or ``None`` for a
@@ -50,7 +51,7 @@ class DocumentChange:
 
     document_node_id: UUID
     document_key: str
-    verb: Literal["add", "update", "delete"]
+    verb: Literal["add", "update", "delete", "purge"]
     content_hash: str | None
     previous_content_hash: str | None
     version_id: str | None

@@ -48,6 +48,7 @@ from agrag.ingestion._ingest import (
     CleanupStep,
     add_documents,
     delete_document,
+    purge_document,
     update_document,
 )
 from agrag.ingestion._job_cleanup import finish_job
@@ -752,6 +753,49 @@ class Graph:
     async def source_status(self, document_key: str) -> SourceStatus:
         """Read a source's version, job lease and discovery index state."""
         return await read_source_status(self._graph_store, document_key)
+
+    async def purge_document(self, document_key: str) -> UpdateResult:
+        """Hard-delete every stored version of a document and its evidence.
+
+        The commit removes the chunk, section, table and figure nodes of every
+        version. Each relation that cites those chunks in ``source_chunk_ids``
+        drops them, and a relation left with no evidence is deleted, whether or
+        not a chunk still mentions its endpoints. Pending candidates that cite
+        the chunks are deleted too. Entities that lose their last evidence, the
+        ones mentioned by the chunks and the endpoints of the relations they
+        cited, are pruned after the commit, as for a delete. The Document node
+        and its activation records stay, and each dependent decision is flagged
+        ``source_removed``. Purging a key that has no stored content is a no-op.
+
+        This lives on ``Graph`` rather than ``RetentionMemory``: a purge needs
+        the graph schema, embedder and cutover settings to clean up, and
+        ``RetentionMemory`` covers only project-scoped memory records.
+
+        Approved and rejected candidates remain without their removed evidence
+        links. Community summaries remain until community detection runs again.
+        Purge scans relationships for chunk citations and deletes content in one
+        transaction. Preflight rejects more than 10,000 content nodes, cited
+        relations, pending candidates, or combined mention and citation endpoint
+        records before starting the cutover job.
+
+        Args:
+            document_key: The stable key of the document to purge.
+
+        Returns:
+            The purge summary: ``no_op=True`` when no content was stored under the
+                key, otherwise ``parts_closed`` with ``new_content_hash=None``
+                and no ``add_result``.
+
+        Raises:
+            ValueError: The document exceeds a purge preflight record limit.
+        """
+        return await purge_document(
+            document_key,
+            graph_store=self._graph_store,
+            cutover_settings=self._cutover_settings,
+            cleanup=self._cleanup(),
+            tracer=self._tracer,
+        )
 
     def _run_record(self) -> RunRecord:
         """Describe the current extraction setup for stamping a document."""

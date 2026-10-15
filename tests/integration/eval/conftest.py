@@ -366,6 +366,7 @@ async def answer_quality_graph(
             extractor=_FactExtractor(names),
         )
         await graph.add(source=documents)
+        await store.execute_read("CALL db.awaitIndexes(60)")
         engine = SearchEngine(
             graph_store=store,
             embedder=embedder,
