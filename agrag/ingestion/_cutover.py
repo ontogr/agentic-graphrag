@@ -31,6 +31,7 @@ from agrag.cypher.cutover_job_write import (
     steal_terminal_job_query,
 )
 from agrag.cypher.documents import (
+    flag_decisions_for_activation_query,
     record_activation_query,
     set_chunk_extraction_fingerprint_query,
 )
@@ -413,8 +414,11 @@ async def _commit_pending_writes(
                 {"document_node_id": str(candidate_document_node_id)},
             )
         if change is not None:
+            activation_params = _activation_params(job_id, change)
+            await txn.execute_write(record_activation_query(), activation_params)
             await txn.execute_write(
-                record_activation_query(), _activation_params(job_id, change)
+                flag_decisions_for_activation_query(),
+                {"activation_id": activation_params["id"]},
             )
         await txn.execute_write(
             record_parts_closed_query(),

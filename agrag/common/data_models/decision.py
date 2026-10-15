@@ -1,5 +1,7 @@
 """Models for decision records: choices, their evidence supports and reads."""
 
+from __future__ import annotations
+
 from datetime import datetime
 from enum import StrEnum
 from typing import Annotated, Literal
@@ -45,6 +47,9 @@ class ReviewReason(StrEnum):
     """Why a decision needs review."""
 
     SOURCE_CHANGED_DURING_RECORDING = "source_changed_during_recording"
+    SOURCE_CHANGED = "source_changed"
+    SOURCE_REMOVED = "source_removed"
+    DEPENDENCY_REVIEW = "dependency_review"
 
 
 class SupportKind(StrEnum):
@@ -203,6 +208,15 @@ class Decision(BaseModel):
     supports: list[Support] = Field(default_factory=list)
 
 
+class DecisionReviewList(BaseModel):
+    """A bounded project-scoped page of decisions requiring review."""
+
+    model_config = ConfigDict(frozen=True)
+    decisions: list[Decision] = Field(default_factory=list)
+    count: int = 0
+    truncated: bool = False
+
+
 class DecisionPage(BaseModel):
     """A capped list of decisions with the total that matched.
 
@@ -262,6 +276,16 @@ class RejectDecisionResult(WriteResult):
 
     Attributes:
         decision: The rejected decision when ``recorded`` is true.
+    """
+
+    decision: Decision | None = None
+
+
+class ReaffirmDecisionResult(WriteResult):
+    """The outcome of reaffirming a flagged decision.
+
+    Attributes:
+        decision: The reaffirmed decision when ``recorded`` is true.
     """
 
     decision: Decision | None = None
