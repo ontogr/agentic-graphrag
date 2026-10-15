@@ -36,6 +36,15 @@ def update_document_dates_query() -> str:
     )
 
 
+def retire_document_version_query() -> str:
+    """Build Cypher clearing the current content hash after source deletion."""
+    return (
+        f"MATCH (n:{NODE_IDENTITY_LABEL}:Document {{id: $document_node_id}}) "
+        "SET n.current_content_hash = null "
+        "RETURN n.id AS id"
+    )
+
+
 def current_run_record_query() -> str:
     """Build Cypher reading the run record of a document's current chunks.
 

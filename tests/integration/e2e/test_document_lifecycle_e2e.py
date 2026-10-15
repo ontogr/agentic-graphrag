@@ -26,11 +26,19 @@ import pytest
 from agrag.common.data_models.chunk import Chunk
 from agrag.common.data_models.document import Document, DocumentFamily, SourceFormat
 from agrag.common.data_models.entity import Entity
+from agrag.common.data_models.evidence import (
+    DiscoveryMode,
+    DiscoveryStatus,
+    FetchStatus,
+    SourceState,
+    VersionStatus,
+)
 from agrag.common.data_models.extraction import ExtractedEntity, ExtractionResult
 from agrag.common.data_models.graph_schema import EntityType, GraphSchema
 from agrag.common.data_models.resolved_entity import ResolvedEntity
 from agrag.cypher.entities import validate_identifier
 from agrag.embedding.base import Embedder
+from agrag.evidence import discover, fetch
 from agrag.graphdb import build_graph_store
 from agrag.graphdb.base import GraphStore
 from agrag.ingestion.extract import Extractor
@@ -427,6 +435,17 @@ class TestDocumentLifecycleE2E:
 
         # Step 4: delete document b. Its own entities go, and headache stays
         # because the new version of document a still mentions it.
+        historical = await discover(
+            env.store,
+            env.embedder,
+            "ibuprofen",
+            mode=DiscoveryMode.LEXICAL,
+            limit=10,
+            scope=frozenset({key_a, key_b}),
+        )
+        historical_hit = next(
+            hit for hit in historical.hits if hit.document_key == key_b
+        )
         deleted = await env.graph.delete_document(key_b)
         assert deleted.no_op is False
         assert deleted.parts_closed == 2
@@ -441,6 +460,26 @@ class TestDocumentLifecycleE2E:
         ]
         hits_deleted = await env.chunk_hits("ibuprofen fever")
         assert "fever+headache+ibuprofen" not in hits_deleted
+        deleted_discovery = await discover(
+            env.store,
+            env.embedder,
+            "ibuprofen",
+            mode=DiscoveryMode.LEXICAL,
+            limit=10,
+            scope=frozenset({key_b}),
+        )
+        assert deleted_discovery.status is DiscoveryStatus.NO_MATCH
+        historical_fetch = await fetch(
+            env.store,
+            [historical_hit.evidence_id],
+            scope=frozenset({key_b}),
+            max_chars=1000,
+        )
+        assert historical_fetch[0].status is FetchStatus.OK
+        assert historical_fetch[0].status_of_version is VersionStatus.SUPERSEDED
+        assert historical_fetch[0].text is not None
+        assert "Ibuprofen" in historical_fetch[0].text
+        assert (await env.graph.source_status(key_b)).state is SourceState.DELETED
         assert "Ibuprofen" not in await env.entity_hits("Ibuprofen")
         assert (await env.chunk_hits("headache"))[0] == "headache+inflammation+naproxen"
         unknown = await env.graph.delete_document(env.key("never_added"))
@@ -477,6 +516,111 @@ class TestDocumentLifecycleE2E:
         assert (await env.chunk_hits("naproxen"))[0] == "headache+naproxen"
         artifact = write_artifact("document_lifecycle_same_length", state)
         assert artifact["entities"] == ["Headache", "Naproxen"]
+
+    async def test_open_finishes_cleanup_after_committed_add(
+        self, env: _Env, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Reopening recovers a committed job whose cleanup did not finish."""
+        key = env.key("c")
+        text = env.text("Aspirin relieves headache.")
+
+        def failed_cleanup(error_policy: ErrorPolicy = ErrorPolicy.RAISE) -> Any:
+            async def fail(*_: Any) -> None:
+                raise RuntimeError("simulated cleanup interruption")
+
+            return fail
+
+        monkeypatch.setattr(env.graph, "_cleanup", failed_cleanup)
+        with pytest.raises(RuntimeError, match="simulated cleanup interruption"):
+            await env.graph.add(documents=[_document(key, text)])
+        await env.store.execute_write(
+            "MATCH (job:CutoverJob {document_key: $key}) "
+            "SET job.lease_expires_at = datetime() - duration('PT1S')",
+            {"key": key},
+        )
+
+        reopened = await Graph.open(
+            schema=GraphSchema(
+                name="lifecycle",
+                version="1",
+                entities=[
+                    EntityType(label=env.drug_label, description="A medication."),
+                    EntityType(label=env.condition_label, description="A condition."),
+                ],
+                relations=[],
+            ),
+            graph_store=env.store,
+            embedder=env.embedder,
+            extractor=env.extractor,
+        )
+
+        status = await reopened.source_status(key)
+        assert status.state is SourceState.CURRENT
+        assert status.activation_seq == 1
+        jobs = await env.store.execute_read(
+            "MATCH (job:CutoverJob {document_key: $key}) RETURN job.status AS status",
+            {"key": key},
+        )
+        assert jobs == [{"status": "done"}]
+
+    async def test_open_rolls_back_pending_job_before_commit(self, env: _Env) -> None:
+        """Reopening removes pending writes without changing committed state."""
+        key = env.key("c")
+        await env.graph.add(
+            documents=[_document(key, env.text("Aspirin relieves headache."))]
+        )
+        prior = await env.graph.source_status(key)
+        job_id, pending_id, token = str(uuid4()), str(uuid4()), str(uuid4())
+        await env.store.execute_write(
+            "MATCH (job:CutoverJob {document_key: $key}) "
+            "SET job.id = $job, job.status = 'pending', job.verb = 'update', "
+            "job.lease_token = $token, job.lease_expires_at = "
+            "datetime() - duration('PT1S'), job.affected_entity_ids = [] "
+            "WITH job MATCH (document:Document {document_key: $key}) "
+            "CREATE (chunk:Chunk:_Node {id: $pending, text: $text, "
+            "_pending_job_id: $job}) "
+            "CREATE (document)-[:HAS_PART {_pending_job_id: $job}]->(chunk)",
+            {
+                "key": key,
+                "job": job_id,
+                "pending": pending_id,
+                "token": token,
+                "text": env.text("Uncommitted ibuprofen passage."),
+            },
+        )
+
+        await Graph.open(
+            schema=GraphSchema(
+                name="lifecycle",
+                version="1",
+                entities=[
+                    EntityType(label=env.drug_label, description="A medication."),
+                    EntityType(label=env.condition_label, description="A condition."),
+                ],
+                relations=[],
+            ),
+            graph_store=env.store,
+            embedder=env.embedder,
+            extractor=env.extractor,
+        )
+
+        recovered = await env.graph.source_status(key)
+        assert recovered.state is SourceState.CURRENT
+        assert recovered.content_hash == prior.content_hash
+        assert recovered.activation_seq == prior.activation_seq
+        assert recovered.job_id is None
+        rows = await env.store.execute_read(
+            "MATCH (n) WHERE n.id = $pending OR n._pending_job_id = $job "
+            "RETURN count(n) AS remaining",
+            {"pending": pending_id, "job": job_id},
+        )
+        assert rows == [{"remaining": 0}]
+        activations = await env.store.execute_read(
+            "MATCH (activation:DocumentActivation {document_key: $key}) "
+            "RETURN count(activation) AS count",
+            {"key": key},
+        )
+        assert activations == [{"count": 1}]
 
     async def test_interrupted_adds_recover_on_rerun(  # noqa: PLR0915
         self, env: _Env
@@ -522,6 +666,10 @@ class TestDocumentLifecycleE2E:
         partial = await env.snapshot()
         assert partial["entities"] == ["Aspirin", "Headache"]
         assert partial["supported"]["d"] == []
+        failed_status = await env.graph.source_status(env.key("d"))
+        assert failed_status.state is SourceState.FAILED
+        assert failed_status.content_hash == _content_hash(bad)
+        assert failed_status.activation_seq == 1
         env.extractor.fail_marker = None
         rerun = await env.graph.add(
             documents=[_document(env.key("c"), good), _document(env.key("d"), bad)],
@@ -530,6 +678,8 @@ class TestDocumentLifecycleE2E:
         assert rerun.extraction.failures_total == 0
         healed = await env.snapshot()
         assert healed == complete
+        healed_status = await env.graph.source_status(env.key("d"))
+        assert healed_status.state is SourceState.CURRENT
         artifact["2_extractor_skip"] = {
             "failures_total": skipped.extraction.failures_total,
             "failure_type": skipped.extraction.failures[0].error_type,

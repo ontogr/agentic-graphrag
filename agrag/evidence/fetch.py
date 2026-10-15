@@ -32,7 +32,7 @@ class _Stored:
     version_id: str | None
     closed_at: str | None
     document_key: str
-    current_content_hash: str
+    current_content_hash: str | None
 
 
 async def fetch(
@@ -51,9 +51,9 @@ async def fetch(
     ``unavailable``. A missing id and an id outside the scope give the same
     outcome. A chunk reference returns the stored text of that chunk.
 
-    The status of a version is ``current`` when the id's content hash matches the
-    document's current content hash, and ``superseded`` otherwise. Superseded text
-    is still returned.
+    The status of a version is ``current`` when its content hash matches the
+    document's current content hash. Updated and deleted versions are
+    ``superseded``; their text is still returned.
 
     Args:
         store: The graph store to read.
