@@ -35,6 +35,7 @@ from agrag.common.data_models.graph_schema import (
 )
 from agrag.common.data_models.vector_record import VectorHit
 from agrag.cypher.cutover_job_read import find_incomplete_jobs_query
+from agrag.cypher.documents import await_indexes_query, indexes_not_ready_query
 from agrag.embedding.base import Embedder
 from agrag.graphdb.base import GraphStore
 from agrag.graphdb.serialize import parse_entity_node
@@ -97,12 +98,16 @@ class MockStore(CutoverJobLeaseFake, GraphStore):
     ) -> list[dict[str, Any]]:
         """Record the read and return the next canned response.
 
-        The crash-recovery scan ``Graph.open()`` runs first finds no
-        leftover jobs here, so it never consumes a canned response.
+        Index-readiness and crash-recovery reads from ``Graph.open()`` do not
+        consume responses intended for the test.
         """
         del timeout
         self.execute_read_calls.append((query, parameters))
-        if query == find_incomplete_jobs_query():
+        if query in {
+            find_incomplete_jobs_query(),
+            await_indexes_query(),
+            indexes_not_ready_query(),
+        }:
             return []
         if self._read_index < len(self.execute_read_responses):
             response = self.execute_read_responses[self._read_index]
