@@ -94,10 +94,27 @@ delete -> False 2
 
 ## Update a document
 
-Call `Graph.update` with the key and the new content. Give exactly one of `text` or `source`. A `source` must be a single file.
+Call `Graph.update` with the key and the new content. Give exactly one of `text`, `source`, or `document`. A `source` must be a single file.
 
 ```python notest
 result = await graph.update("apollo-notes", text="New text")
+```
+
+Pass `document` when you have already built a `Document`. Agentic GraphRAG skips loading and normalization and uses the document's text and `content_hash` as they are. The `resolved_document_key` of the document must equal the key you pass, or `Graph.update` raises `ValueError`.
+
+```python notest
+replacement = Document(
+    text="New text",
+    title="Apollo notes",
+    uri="notes://apollo",
+    document_key="apollo-notes",
+    source_format=SourceFormat.TXT,
+    family=DocumentFamily.PROSE,
+    content_hash=hashlib.sha256(b"New text").hexdigest(),
+    loader_name="manual",
+    char_count=len("New text"),
+)
+result = await graph.update("apollo-notes", document=replacement)
 ```
 
 Read the result:

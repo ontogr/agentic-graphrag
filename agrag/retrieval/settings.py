@@ -36,14 +36,6 @@ class RetrievalSettings(BaseSettings):
             matters.
         reranker_min_score: Results scoring below this after rerank
             are dropped. None disables the threshold.
-        text2cypher_timeout_seconds: Server-side transaction timeout
-            applied to generated read queries. The database terminates
-            a generated query that runs longer, so a pathological
-            query cannot hold server resources indefinitely. None
-            uses the server's default timeout.
-        text2cypher_max_rows: Maximum rows a generated read query may
-            return. Appended as a LIMIT clause when the generated
-            query declares none of its own.
         cross_encoder_model: The sentence-transformers CrossEncoder model
             used for cross_encoder reranking. Env:
             RETRIEVAL_CROSS_ENCODER_MODEL.
@@ -79,8 +71,6 @@ class RetrievalSettings(BaseSettings):
     traversal_limit: int = 50
     rrf_k: int = 60
     reranker_min_score: float | None = None
-    text2cypher_timeout_seconds: float | None = 10.0
-    text2cypher_max_rows: int = 1000
     cross_encoder_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
     community_collection: str = "agrag_communities"
     community_top_k: int = 5

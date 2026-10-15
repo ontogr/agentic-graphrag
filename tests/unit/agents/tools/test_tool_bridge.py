@@ -1,4 +1,4 @@
-"""Tests for the tool span bridge across the ten engine-calling tools.
+"""Tests for the tool span bridge across the nine engine-calling tools.
 
 Each tool is invoked with ``config={"callbacks": run_callbacks(tracer)}`` over
 a stub engine whose methods open a span: that span must have the tool's own
@@ -31,7 +31,6 @@ TOOLS = [
     (search_tools.make_explore_related_tool, {"query": "q"}),
     (search_tools.make_answer_from_graph_structure_tool, {"query": "q"}),
     (search_tools.make_answer_thematic_question_tool, {"query": "q"}),
-    (search_tools.make_query_graph_directly_tool, {"query": "q"}),
     (traversal_tools.make_list_relationship_types_tool, {"entity": "Acme"}),
     (
         traversal_tools.make_find_related_entities_tool,

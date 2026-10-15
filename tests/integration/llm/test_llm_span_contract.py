@@ -7,7 +7,6 @@ whose request span lost an attribute, fails here. The captured span tree is
 written to a JSON artifact under ``reports/llm/`` for hand inspection.
 """
 
-import contextlib
 import hashlib
 import importlib.util
 from typing import Any
@@ -26,14 +25,12 @@ from agrag.common.data_models.default_schema import DEFAULT_SCHEMA
 from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.extraction import ExtractedEntity
 from agrag.common.data_models.provenance import TextProvenance
-from agrag.cypher.safety import MissingPendingGuardError
 from agrag.eval.judge import ChatModelJudge
 from agrag.ingestion.community import generate_community_reports
 from agrag.ingestion.extract import BAMLExtractor, ExtractionLLMSettings
 from agrag.ingestion.merge import resolve_description
 from agrag.ingestion.resolve.resolver import LLMVerify
 from agrag.loaders.types import ErrorPolicy
-from agrag.retrieval.retrievers.text2cypher import Text2CypherRetriever
 from tests.integration.llm._local_llm import (
     COMPLETION_TOKENS,
     PROMPT_TOKENS,
@@ -181,18 +178,6 @@ def _chat_model(local: LocalLLM) -> Any:
         base_url=local.url("ok"),
         max_retries=0,
     )
-
-
-class _EmptyStore(Any):
-    """A graph store whose every read returns nothing."""
-
-    async def execute_read(self, *args: Any, **kwargs: Any) -> list[Any]:
-        """Return no rows, so the retriever produces no results."""
-        return []
-
-    async def get_schema(self, *args: Any, **kwargs: Any) -> Any:
-        """Return the generic schema."""
-        return DEFAULT_SCHEMA
 
 
 def _within(
@@ -355,43 +340,6 @@ class TestCommunity:
         assert (call.attributes or {})["agrag.llm.function"] == "SummarizeCommunities"
         assert len(local.received) == 1
         write_span_tree(span_tree_path("community.json"), spans)
-
-
-class TestText2Cypher:
-    """The text2cypher path traces generation under its own span."""
-
-    async def test_text2cypher_nests_the_subtree(
-        self,
-        local: LocalLLM,
-        capture: tuple[Any, InMemorySpanExporter],
-        monkeypatch: Any,
-    ) -> None:
-        """A traced retriever records the repair flag and the BAML subtree."""
-        tracer, exporter = capture
-        env_for(local, monkeypatch, "cypher")
-        retriever = Text2CypherRetriever(
-            graph_store=_EmptyStore(), schema=DEFAULT_SCHEMA, tracer=tracer
-        )
-
-        # Whether a query passes the pending-row guard depends on the model,
-        # so a repair attempt, or a rejection after it, is a valid outcome.
-        # The test checks the trace of the first attempt only.
-        with contextlib.suppress(MissingPendingGuardError):
-            await retriever.retrieve("who is Ada Lovelace?")
-
-        spans = exporter.get_finished_spans()
-        generates = sorted(
-            (s for s in spans if s.name == "agrag.retrieval.generate_cypher"),
-            key=lambda s: s.start_time or 0,
-        )
-        assert generates, "no agrag.retrieval.generate_cypher span was recorded"
-        generate = generates[0]
-        assert (generate.attributes or {})["agrag.is_repair"] is False
-        call = _assert_llm_subtree(
-            _within(spans, generate), "agrag.retrieval.generate_cypher"
-        )
-        assert (call.attributes or {})["agrag.llm.function"] == "GenerateCypherQuery"
-        write_span_tree(span_tree_path("text2cypher.json"), spans)
 
 
 class TestJudge:

@@ -380,7 +380,7 @@ async def test_community_via_store_e2e() -> None:  # noqa: PLR0915
             assert isinstance(g1.item, Community)
             # make_tools reuses same engine/ledger.
             tools = make_tools(engine, ledger)
-            assert len(tools) == 11
+            assert len(tools) == 10
             artifact = write_artifact(
                 "community_store_seeded",
                 {
