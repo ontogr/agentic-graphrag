@@ -246,7 +246,12 @@ class TestEquivalenceWithDirectCalls:
             )
 
         assert direct.status is DiscoveryStatus.OK
-        assert DiscoveryResult.model_validate(structured) == direct
+        result = DiscoveryResult.model_validate(structured)
+        assert result.hits
+        assert all(hit.score > 0 for hit in result.hits)
+        # Parallel corpus writes change full-text scores between the two calls.
+        exclude = {"hits": {"__all__": {"score"}}}
+        assert result.model_dump(exclude=exclude) == direct.model_dump(exclude=exclude)
 
     async def test_fetch_returns_gold_text_and_treats_out_of_scope_like_missing(
         self, evidence_env: EvidenceEnv
@@ -506,7 +511,12 @@ class TestEmbeddingModelMismatch:
             scope=_settings(env).scope,
         )
 
-        assert DiscoveryResult.model_validate(structured) == direct
+        result = DiscoveryResult.model_validate(structured)
+        assert result.hits
+        assert all(hit.score > 0 for hit in result.hits)
+        # Parallel corpus writes change full-text scores between the two calls.
+        exclude = {"hits": {"__all__": {"score"}}}
+        assert result.model_dump(exclude=exclude) == direct.model_dump(exclude=exclude)
 
     async def test_semantic_search_works_with_the_matching_embedder(
         self, evidence_env: EvidenceEnv
