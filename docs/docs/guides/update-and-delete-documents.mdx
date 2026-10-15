@@ -154,6 +154,16 @@ result = await graph.delete_document("apollo-notes")
 
 The call removes the document from search. It does not delete the document node, the chunks or the history. A key that does not exist gives `no_op=True`.
 
+## Purge a document
+
+Call `Graph.purge_document` with the key when the text itself must leave the graph.
+
+```python notest
+result = await graph.purge_document("apollo-notes")
+```
+
+The call hard-deletes the chunks, sections, tables and figures of every version of the document, with their mention and relation evidence. Entities that lose their last evidence are removed. Evidence ids from the document then fetch as `unavailable`. The document node and its activation records stay, so the history shows that the purge happened. Decisions that cite the document are flagged for review with the reason `source_removed`. A key with no stored content gives `no_op=True`.
+
 ## See what stays in the graph
 
 After the script above, run this query. It lists the chunks of each document and whether the link to them is open.

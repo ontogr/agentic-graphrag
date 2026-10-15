@@ -1,10 +1,15 @@
 """Cypher reads and writes for persisted Document nodes."""
 
+from agrag.common.data_models.candidate import CANDIDATE_LABEL, EVIDENCED_BY
+from agrag.common.data_models.chunk import CHUNK_LABEL
 from agrag.common.data_models.decision import HAS_SUPPORT
 from agrag.common.data_models.structure import (
     DOCUMENT_ACTIVATION_LABEL,
+    FIGURE_LABEL,
     HAS_ACTIVATION,
     HAS_PART,
+    SECTION_LABEL,
+    TABLE_LABEL,
 )
 from agrag.cypher._pending_filter import pending_filter_clause
 from agrag.cypher.entities import NODE_IDENTITY_LABEL
@@ -130,4 +135,95 @@ def flag_decisions_for_activation_query() -> str:
         "d.review_reason = CASE WHEN a.verb IN ['delete', 'purge'] "
         "THEN 'source_removed' ELSE 'source_changed' END "
         "RETURN count(DISTINCT d) AS flagged"
+    )
+
+
+def document_chunk_count_query() -> str:
+    """Build Cypher counting the stored chunks of a document in every version.
+
+    Returns:
+        Parameterized Cypher expecting ``$document_node_id``. Returns ``chunks``.
+    """
+    return (
+        f"MATCH (c:{NODE_IDENTITY_LABEL}:{CHUNK_LABEL} "
+        "{document_id: $document_node_id}) "
+        "RETURN count(c) AS chunks"
+    )
+
+
+def document_mentioned_entities_query() -> str:
+    """Build Cypher listing the entities that any version's chunks mention.
+
+    Returns:
+        Parameterized Cypher expecting ``$document_node_id``. Returns ``id``, one
+        row per entity.
+    """
+    return (
+        f"MATCH (c:{NODE_IDENTITY_LABEL}:{CHUNK_LABEL} "
+        "{document_id: $document_node_id})"
+        f"-[:MENTIONED_IN]->(e:{NODE_IDENTITY_LABEL}) "
+        "RETURN DISTINCT e.id AS id"
+    )
+
+
+def purge_relation_evidence_query() -> str:
+    """Build Cypher removing every version's chunks from relation evidence.
+
+    Walks the entities the document's chunks mention and strips their chunk ids
+    from each relation's ``source_chunk_ids``. A relation left with no evidence
+    is deleted. Must run before the chunks are deleted, since it reads the
+    ``MENTIONED_IN`` edges.
+
+    Returns:
+        Parameterized Cypher expecting ``$document_node_id``. Returns ``deleted``,
+        the relations removed.
+    """
+    return (
+        f"MATCH (c:{NODE_IDENTITY_LABEL}:{CHUNK_LABEL} "
+        "{document_id: $document_node_id})"
+        f"-[:MENTIONED_IN]->(entity:{NODE_IDENTITY_LABEL}) "
+        "WITH collect(DISTINCT c.id) AS chunk_ids, "
+        "collect(DISTINCT entity) AS entities "
+        "UNWIND entities AS entity "
+        f"MATCH (entity)-[r]-(:{NODE_IDENTITY_LABEL}) "
+        "WHERE r.source_chunk_ids IS NOT NULL "
+        "AND any(cid IN r.source_chunk_ids WHERE cid IN chunk_ids) "
+        "SET r.source_chunk_ids = "
+        "[cid IN r.source_chunk_ids WHERE NOT cid IN chunk_ids] "
+        "WITH DISTINCT r WHERE size(r.source_chunk_ids) = 0 "
+        "WITH collect(r) AS doomed "
+        "FOREACH (relation IN doomed | DETACH DELETE relation) "
+        "RETURN size(doomed) AS deleted"
+    )
+
+
+def purge_candidate_evidence_query() -> str:
+    """Build Cypher deleting pending candidates evidenced by any version's chunks.
+
+    Returns:
+        Parameterized Cypher expecting ``$document_node_id``. Returns ``deleted``.
+    """
+    return (
+        f"MATCH (n:{CANDIDATE_LABEL})-[:{EVIDENCED_BY}]->"
+        f"(c:{NODE_IDENTITY_LABEL}:{CHUNK_LABEL} {{document_id: $document_node_id}}) "
+        "DETACH DELETE n RETURN count(n) AS deleted"
+    )
+
+
+def purge_document_nodes_query() -> str:
+    """Build Cypher hard-deleting every chunk, section, table and figure of a document.
+
+    Matches on the ``document_id`` property, so every version is removed. Detach
+    deletion also removes the nodes' edges, including ``HAS_PART`` and
+    ``MENTIONED_IN``. The Document node and its activation records stay.
+
+    Returns:
+        Parameterized Cypher expecting ``$document_node_id``. Returns ``deleted``.
+    """
+    return (
+        f"MATCH (n:{NODE_IDENTITY_LABEL}) "
+        "WHERE n.document_id = $document_node_id "
+        f"AND (n:{CHUNK_LABEL} OR n:{SECTION_LABEL} OR n:{TABLE_LABEL} "
+        f"OR n:{FIGURE_LABEL}) "
+        "DETACH DELETE n RETURN count(n) AS deleted"
     )

@@ -43,6 +43,7 @@ from agrag.ingestion._ingest import (
     CleanupStep,
     add_documents,
     delete_document,
+    purge_document,
     update_document,
 )
 from agrag.ingestion._job_cleanup import finish_job
@@ -708,6 +709,32 @@ class Graph:
             ``Graph.add()`` for the shared ingestion behavior.
         """
         return await delete_document(
+            document_key,
+            graph_store=self._graph_store,
+            cutover_settings=self._cutover_settings,
+            cleanup=self._cleanup(),
+            tracer=self._tracer,
+        )
+
+    async def purge_document(self, document_key: str) -> UpdateResult:
+        """Hard-delete every stored version of a document and its evidence.
+
+        The commit removes the chunk, section, table and figure nodes of every
+        version, with their mention and relation evidence. Pending candidates
+        that cite them are deleted too. Entities that lose their last evidence
+        are pruned after the commit, as for a delete. The Document node and its
+        activation records stay, and each dependent decision is flagged
+        ``source_removed``. Purging a key that has no stored content is a no-op.
+
+        Args:
+            document_key: The stable key of the document to purge.
+
+        Returns:
+            The purge summary: ``no_op=True`` when no content was stored under the
+                key, otherwise ``parts_closed`` with ``new_content_hash=None``
+                and no ``add_result``.
+        """
+        return await purge_document(
             document_key,
             graph_store=self._graph_store,
             cutover_settings=self._cutover_settings,

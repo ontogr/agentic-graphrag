@@ -373,3 +373,32 @@ async def test_revert_to_recorded_content_keeps_flag(store, project, documents):
     current = await memory.get_decision(decision.id)
     assert current.decision.review_state is ReviewState.NEEDS_REVIEW
     assert current.decision.review_reason.value == "source_changed"
+
+
+async def test_purge_flags_decisions_supported_by_removed_document(
+    store, project, documents
+):
+    """Purging a document flags its supported decisions and their dependents."""
+    memory, decision = await _record_document_decision(
+        store, project, documents, "purged-source"
+    )
+    tasks = TaskMemory(store, project_id=project, agent_id="agent")
+    await tasks.create_task("purged-consumer", "depends on the source decision")
+    dependent = await memory.record_decision(
+        "purged-consumer",
+        "choice-purged-consumer",
+        "follow the source",
+        "explicit dependency",
+        supports=[DecisionSupportInput(decision_id=str(decision.id))],
+    )
+    assert dependent.recorded and dependent.decision is not None
+
+    await documents.graph.purge_document(documents.harbor)
+    await memory.continue_review_propagation(limit=10)
+
+    direct = await memory.get_decision(decision.id)
+    child = await memory.get_decision(dependent.decision.id)
+    assert direct.decision.review_state is ReviewState.NEEDS_REVIEW
+    assert direct.decision.review_reason.value == "source_removed"
+    assert child.decision.review_state is ReviewState.NEEDS_REVIEW
+    assert child.decision.review_reason.value == "dependency_review"

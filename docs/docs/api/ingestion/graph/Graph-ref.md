@@ -20,6 +20,7 @@ A knowledge graph that a caller can open and add content to.
 - [**delete_document**](#agrag-ingestion-graph-Graph-delete_document) – Soft-delete a document by closing its current HAS_PART edges.
 - [**detect_communities**](#agrag-ingestion-graph-Graph-detect_communities) – Detect entity communities via hierarchical Leiden.
 - [**open**](#agrag-ingestion-graph-Graph-open) – Open a graph, connecting and fully provisioning graph_store.
+- [**purge_document**](#agrag-ingestion-graph-Graph-purge_document) – Hard-delete every stored version of a document and its evidence.
 - [**reevaluate**](#agrag-ingestion-graph-Graph-reevaluate) – Reevaluate matches among the given entities.
 - [**update**](#agrag-ingestion-graph-Graph-update) – Replace one document version, or re-extract it in place.
 
@@ -383,6 +384,31 @@ index that evidence discovery reads, before this call returns.
 - <code>Exception</code> – Whatever connect(), registration, constraint/index
   setup, or vector-index provisioning raises. graph_store is
   closed first, so a failed open() never leaks a connection.
+
+## `purge_document` \{#agrag-ingestion-graph-Graph-purge_document}
+
+```python
+purge_document(document_key:str) -> UpdateResult
+```
+
+Hard-delete every stored version of a document and its evidence.
+
+The commit removes the chunk, section, table and figure nodes of every
+version, with their mention and relation evidence. Pending candidates
+that cite them are deleted too. Entities that lose their last evidence
+are pruned after the commit, as for a delete. The Document node and its
+activation records stay, and each dependent decision is flagged
+`source_removed`. Purging a key that has no stored content is a no-op.
+
+**Parameters:**
+
+- **document_key** (<code>str</code>) – The stable key of the document to purge.
+
+**Returns:**
+
+- <code>[UpdateResult](../reports/update_result/UpdateResult.md)</code> – The purge summary: `no_op=True` when no content was stored under the
+  key, otherwise `parts_closed` with `new_content_hash=None`
+  and no `add_result`.
 
 ## `reevaluate` \{#agrag-ingestion-graph-Graph-reevaluate}
 

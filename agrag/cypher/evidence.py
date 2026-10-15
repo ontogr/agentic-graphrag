@@ -115,6 +115,13 @@ def evidence_chunks_query(*, by_chunk_id: bool) -> str:
         hash.
     """
     chunk_filter = "AND chunk.id = $chunk_id " if by_chunk_id else ""
+    # A deleted document has no open edge left, so none of its versions is read.
+    # Superseded versions stay readable while the document has a current version.
+    still_present = (
+        f"EXISTS {{ MATCH (document)-[open:{HAS_PART}]->"
+        f"(:{NODE_IDENTITY_LABEL}:{CHUNK_LABEL}) "
+        f"WHERE open.invalid_at IS NULL AND {pending_filter_clause('open')} }}"
+    )
     return (
         f"MATCH (document:{NODE_IDENTITY_LABEL}:{DOCUMENT_LABEL} {{id: $document_id}})"
         f"-[part:{HAS_PART}]->(chunk:{NODE_IDENTITY_LABEL}:{CHUNK_LABEL}) "
@@ -123,6 +130,7 @@ def evidence_chunks_query(*, by_chunk_id: bool) -> str:
         f"AND {pending_filter_clause('document')} "
         f"AND {pending_filter_clause('part')} "
         f"AND {pending_filter_clause('chunk')} "
+        f"AND {still_present} "
         f"RETURN chunk {_CHUNK_FIELDS} AS chunk, part.version_id AS version_id, "
         "toString(part.invalid_at) AS closed_at, "
         "document.document_key AS document_key, document.title AS title, "
