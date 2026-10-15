@@ -17,13 +17,11 @@ Constraints applied across every retrieval method in one call.
 - [**document_ids**](#agrag-retrieval-filters-SearchFilters-document_ids) (<code>list\[str\]</code>) – Restrict results to entities and chunks from these
   source documents.
 - [**properties**](#agrag-retrieval-filters-SearchFilters-properties) (<code>dict\[str, Any\]</code>) – Exact-match property filters, applied
-  identically to vector-store payload filters and Cypher
-  WHERE clauses.
+  identically to Cypher WHERE clauses.
 
 **Functions:**
 
 - [**to_cypher_where**](#agrag-retrieval-filters-SearchFilters-to_cypher_where) – Return a parameterized WHERE clause fragment.
-- [**to_payload_filter**](#agrag-retrieval-filters-SearchFilters-to_payload_filter) – Return a flat-dict filter for VectorStore search calls.
 - [**to_property_filter**](#agrag-retrieval-filters-SearchFilters-to_property_filter) – Return a flat-dict filter over node properties only.
 
 ## `document_ids` \{#agrag-retrieval-filters-SearchFilters-document_ids}
@@ -70,25 +68,6 @@ as labels on nodes. Document-id and property filters go through
 **Returns:**
 
 - <code>tuple\[str, dict\[str, Any\]\]</code> – The WHERE clause text and parameters dict.
-
-## `to_payload_filter` \{#agrag-retrieval-filters-SearchFilters-to_payload_filter}
-
-```python
-to_payload_filter() -> dict[str, Any]
-```
-
-Return a flat-dict filter for VectorStore search calls.
-
-Labels become a `label` payload key, which is how a
-VectorStore records the graph label a record came from. A
-GraphStore holds labels on the node itself, not as a property,
-so the native path uses `to_property_filter` instead and
-selects labels by the index it searches.
-
-**Returns:**
-
-- <code>dict\[str, Any\]</code> – A dict suitable for VectorStore.search/hybrid_search
-- <code>dict\[str, Any\]</code> – filters parameter.
 
 ## `to_property_filter` \{#agrag-retrieval-filters-SearchFilters-to_property_filter}
 

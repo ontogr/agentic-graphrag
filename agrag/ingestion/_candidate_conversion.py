@@ -30,17 +30,11 @@ from agrag.cypher.candidate_conversion import (
 from agrag.embedding.base import Embedder
 from agrag.graphdb.base import GraphStore, GraphStoreTransaction
 from agrag.graphdb.entities import load_entities
-from agrag.ingestion._ingest_pipeline import (
-    _embed_and_upsert_survivors,
-    _upsert_vectors,
-    _vector_record,
-)
+from agrag.ingestion._ingest_pipeline import _embed_and_upsert_survivors
 from agrag.ingestion.merge import mentioned_in_id, relation_id
 from agrag.ingestion.reports import ConversionReport
 from agrag.loaders.types import ErrorPolicy
 from agrag.observability import record_stage_failure
-from agrag.retrieval.settings import RetrievalSettings
-from agrag.vectordb.base import VectorStore
 
 
 _TRUE = {"true", "yes", "1"}
@@ -100,12 +94,10 @@ async def convert_candidates(
     graph_store: GraphStore,
     schema: GraphSchema,
     embedder: Embedder,
-    vector_store: VectorStore | None,
-    retrieval_settings: RetrievalSettings,
     error_policy: ErrorPolicy,
     tracer: Tracer,
 ) -> ConversionReport:
-    """Convert approved patch rows atomically, then mirror committed vectors."""
+    """Convert approved patch rows atomically, then re-embed changed entities."""
     check_patch_applied(schema, patch)
     report = ConversionReport()
     now = datetime.now(UTC).isoformat()
@@ -174,23 +166,14 @@ async def convert_candidates(
             if candidate_id not in handled and candidate_id not in report.skipped:
                 report.skipped[candidate_id] = "not approved"
 
-        converted_rows = [
-            item
-            for rows_by_label in converts.values()
-            for item in rows_by_label
-            if item["id"] in converted_ids
-        ]
         written_properties = {
             name: [row for row in values if row["candidate_id"] in handled]
             for name, values in properties.items()
         }
-        await _mirror_and_reembed(
-            converted_rows,
+        await _reembed_changed_descriptions(
             written_properties,
             graph_store=graph_store,
             embedder=embedder,
-            vector_store=vector_store,
-            retrieval_settings=retrieval_settings,
             error_policy=error_policy,
             report=report,
         )
@@ -482,37 +465,15 @@ def _mention(chunk_id: str, entity_id: str, now: str) -> RelationRecord:
     )
 
 
-async def _mirror_and_reembed(
-    converted: list[dict[str, Any]],
+async def _reembed_changed_descriptions(
     property_rows: Mapping[str, list[dict[str, Any]]],
     *,
     graph_store: GraphStore,
     embedder: Embedder,
-    vector_store: VectorStore | None,
-    retrieval_settings: RetrievalSettings,
     error_policy: ErrorPolicy,
     report: ConversionReport,
 ) -> None:
-    """Mirror committed entity vectors and refresh changed descriptions."""
-    if vector_store is not None and converted:
-        records = [
-            _vector_record(
-                UUID(row["id"]),
-                row["embedding"],
-                label=row["label"],
-                text=row["text"],
-                properties={},
-            )
-            for row in converted
-        ]
-        try:
-            await _upsert_vectors(
-                vector_store, retrieval_settings.entity_collection, records
-            )
-        except Exception as exc:  # noqa: BLE001
-            if error_policy is ErrorPolicy.RAISE:
-                raise
-            report.failures.append(_failure("entity_vector_store", exc))
+    """Re-embed the entities whose description this conversion wrote."""
     descriptions = property_rows.get("description", [])
     if descriptions:
         try:
@@ -525,11 +486,6 @@ async def _mirror_and_reembed(
                     embedder=embedder,
                     graph_store=graph_store,
                     error_policy=error_policy,
-                    vector_store=vector_store,
-                    vector_collection=retrieval_settings.entity_collection,
-                    labels_by_id={
-                        entity.id: entity.label for entity in entities.values()
-                    },
                 )
             )
         except Exception as exc:  # noqa: BLE001

@@ -6,20 +6,20 @@ sidebar_label: EntityRetriever
 # `agrag.retrieval.retrievers.entity.EntityRetriever` \{#agrag-retrieval-retrievers-entity-EntityRetriever}
 
 ```python
-EntityRetriever(*, graph_store:GraphStore, embedder:Embedder, vector_store:VectorStore | None = None, settings:RetrievalSettings | None = None, entity_labels:Sequence[str] | None = None, tracer:Tracer | None = None) -> None
+EntityRetriever(*, graph_store:GraphStore, embedder:Embedder, settings:RetrievalSettings | None = None, entity_labels:Sequence[str] | None = None, tracer:Tracer | None = None) -> None
 ```
 
 Bases: <code>[Retriever](../base/Retriever.md)</code>
 
 Dense entity search via vector similarity.
 
-Embeds the query, searches via the GraphStore-native or
-VectorStore path, then loads every hit from the graph. A hit that
-no longer exists in the graph is dropped.
+Embeds the query, searches the graph's native vector indexes, then
+loads every hit from the graph. A hit that no longer exists in the
+graph is dropped.
 
-The native path searches one vector index per entity label, so it
-needs the labels ingestion provisioned indexes for: the label
-filter when the caller sets one, otherwise `entity_labels`.
+One vector index exists per entity label, so the search needs the
+labels ingestion provisioned indexes for: the label filter when the
+caller sets one, otherwise `entity_labels`.
 
 **Functions:**
 
@@ -31,10 +31,8 @@ filter when the caller sets one, otherwise `entity_labels`.
 
 **Parameters:**
 
-- **graph_store** (<code>[GraphStore](../../../graphdb/base/GraphStore.md)</code>) – Backs entity search when vector_store is
-  absent.
+- **graph_store** (<code>[GraphStore](../../../graphdb/base/GraphStore.md)</code>) – Backs entity search and the entity reads.
 - **embedder** (<code>[Embedder](../../../embedding/base/Embedder.md)</code>) – Produces query vectors.
-- **vector_store** (<code>[VectorStore](../../../vectordb/base/VectorStore.md) | None</code>) – Optional VectorStore for hybrid search.
 - **settings** (<code>[RetrievalSettings](../../settings/RetrievalSettings.md) | None</code>) – Retrieval configuration. Defaults from
   environment.
 - **entity_labels** (<code>Sequence\[str\] | None</code>) – The schema entity labels native search runs
