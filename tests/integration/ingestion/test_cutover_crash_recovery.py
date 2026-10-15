@@ -38,6 +38,7 @@ from agrag.graphdb.base import GraphStore
 from agrag.ingestion.extract import Extractor
 from agrag.ingestion.graph import Graph
 from agrag.ingestion.settings import CutoverJobSettings
+from tests.conftest import FAKE_EMBEDDING_DIMENSIONS
 
 
 neo4j_missing = importlib.util.find_spec("neo4j") is None
@@ -71,7 +72,7 @@ class _FixedEmbedder(Embedder):
 
     async def dimensions(self) -> int:
         """Return a small fixed dimension."""
-        return 4
+        return FAKE_EMBEDDING_DIMENSIONS
 
     async def embed(self, texts: Sequence[str]) -> list[list[float]]:
         """Return a vector derived from each text's embedding key.

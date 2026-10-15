@@ -25,14 +25,10 @@ from agrag.graphdb import build_graph_store
 from agrag.graphdb.base import GraphStore
 from agrag.ingestion.extract import Extractor
 from agrag.ingestion.graph import Graph
+from tests.conftest import FAKE_EMBEDDING_DIMENSIONS
 
 
 neo4j_missing = importlib.util.find_spec("neo4j") is None
-
-
-# The Chunk vector index is shared by every integration test in the database.
-# Use the dimension of the lifecycle end-to-end test so the two can share it.
-_VECTOR_DIMENSIONS = 4
 
 
 class _ConstantEmbedder(Embedder):
@@ -42,11 +38,11 @@ class _ConstantEmbedder(Embedder):
 
     async def dimensions(self) -> int:
         """Return the dimension of the shared Chunk vector index."""
-        return _VECTOR_DIMENSIONS
+        return FAKE_EMBEDDING_DIMENSIONS
 
     async def embed(self, texts: Sequence[str]) -> list[list[float]]:
         """Return one fixed vector per text."""
-        return [[0.25] * _VECTOR_DIMENSIONS for _ in texts]
+        return [[0.25] * FAKE_EMBEDDING_DIMENSIONS for _ in texts]
 
 
 class _NoEntityExtractor(Extractor):

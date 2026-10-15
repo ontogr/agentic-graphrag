@@ -33,6 +33,7 @@ from agrag.retrieval.recipes import HYBRID_RERANKED, THEMATIC, Recipe
 from agrag.retrieval.retrievers.community import CommunityRetriever
 from agrag.retrieval.search_engine import SearchEngine
 from agrag.retrieval.settings import RetrievalSettings
+from tests.conftest import FAKE_EMBEDDING_DIMENSIONS
 
 
 neo4j_missing = importlib.util.find_spec("neo4j") is None
@@ -45,7 +46,7 @@ class _FixedEmbedder(Embedder):
 
     async def dimensions(self) -> int:
         """Return 4 dimensions."""
-        return 4
+        return FAKE_EMBEDDING_DIMENSIONS
 
     async def embed(self, texts: Sequence[str]) -> list[list[float]]:
         """Return a deterministic vector per text.

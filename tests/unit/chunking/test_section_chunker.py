@@ -1,5 +1,6 @@
 """Tests for the section chunker: packing, splitting, merging and tables."""
 
+import hashlib
 from types import SimpleNamespace
 
 import pytest
@@ -505,9 +506,9 @@ class TestIds:
         ids = {
             c.id
             for chunker, hash_ in [
-                (_chunker(), "v1"),
-                (_chunker(), "v2"),
-                (_chunker(size=60), "v1"),
+                (_chunker(), hashlib.sha256(b"v1").hexdigest()),
+                (_chunker(), hashlib.sha256(b"v2").hexdigest()),
+                (_chunker(size=60), hashlib.sha256(b"v1").hexdigest()),
             ]
             for c in chunker.chunk(
                 text_document([_words(20)], content_hash=hash_)

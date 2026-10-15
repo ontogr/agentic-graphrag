@@ -29,9 +29,10 @@ from agrag.common.data_models.graph_schema import GraphSchema
 from agrag.embedding.base import Embedder
 from agrag.evidence.ids import encode_evidence_id
 from agrag.ingestion.extract import Extractor
+from tests.conftest import FAKE_EMBEDDING_DIMENSIONS
 
 
-VECTOR_DIMENSIONS = 4
+VECTOR_DIMENSIONS = FAKE_EMBEDDING_DIMENSIONS
 
 _AXES: dict[str, int] = {
     **dict.fromkeys(

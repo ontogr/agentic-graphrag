@@ -25,6 +25,7 @@ from agrag.graphdb import build_graph_store
 from agrag.ingestion import _cutover
 from agrag.ingestion.extract import Extractor
 from agrag.ingestion.graph import Graph
+from tests.conftest import FAKE_EMBEDDING_DIMENSIONS
 
 
 neo4j_missing = importlib.util.find_spec("neo4j") is None
@@ -41,7 +42,7 @@ class _SuffixEmbedder(Embedder):
 
     async def dimensions(self) -> int:
         """Return the dimension of the shared instance's vector indexes."""
-        return 4
+        return FAKE_EMBEDDING_DIMENSIONS
 
     async def embed(self, texts: Sequence[str]) -> list[list[float]]:
         """Return the run vector for own texts, the foreign one otherwise."""

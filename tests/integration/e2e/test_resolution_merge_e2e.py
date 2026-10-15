@@ -23,6 +23,7 @@ artifact under ``reports/e2e/`` with names and counts only.
 """
 
 import contextlib
+import hashlib
 import importlib.util
 import itertools
 from collections.abc import AsyncGenerator, Sequence
@@ -53,6 +54,7 @@ from agrag.ingestion.merge import (
 from agrag.retrieval.recipes import ENTITY
 from agrag.retrieval.search_engine import SearchEngine
 from agrag.retrieval.settings import RetrievalSettings
+from tests.conftest import FAKE_EMBEDDING_DIMENSIONS
 from tests.integration._schema_cleanup import drop_schema_for
 from tests.integration.e2e._artifact import write_artifact
 
@@ -109,7 +111,7 @@ class _ConceptEmbedder(Embedder):
 
     async def dimensions(self) -> int:
         """Return 4, the size of the shared instance's vector indexes."""
-        return 4
+        return FAKE_EMBEDDING_DIMENSIONS
 
     async def embed(self, texts: Sequence[str]) -> list[list[float]]:
         """Return the vector for each text's leading name.
@@ -180,7 +182,7 @@ def _document(key: str, text: str) -> Document:
         document_key=key,
         source_format=SourceFormat.TXT,
         family=DocumentFamily.PROSE,
-        content_hash=key,
+        content_hash=hashlib.sha256(text.encode("utf-8")).hexdigest(),
         loader_name="inline",
         encoding="utf-8",
         char_count=len(text),

@@ -22,6 +22,7 @@ from agrag.cypher.entities import validate_identifier
 from agrag.cypher.relations import fetch_all_relations_query_cursor
 from agrag.embedding.base import Embedder
 from agrag.graphdb import build_graph_store
+from tests.conftest import FAKE_EMBEDDING_DIMENSIONS
 
 
 neo4j_missing = importlib.util.find_spec("neo4j") is None
@@ -34,7 +35,7 @@ class _FixedEmbedder(Embedder):
 
     async def dimensions(self) -> int:
         """Return fixed dimension count."""
-        return 4
+        return FAKE_EMBEDDING_DIMENSIONS
 
     async def embed(self, texts):
         """Return a deterministic vector per text."""

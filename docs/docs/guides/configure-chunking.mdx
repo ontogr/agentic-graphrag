@@ -109,6 +109,8 @@ asyncio.run(main())
 `Chunker.chunk` works on a `Document` and needs no database. This is the quickest way to test a size.
 
 ```python
+import hashlib
+
 from agrag.chunking import Chunker
 from agrag.common.data_models.document import Document, DocumentFamily, SourceFormat
 
@@ -119,7 +121,7 @@ document = Document(
     uri="sample.txt",
     source_format=SourceFormat.TXT,
     family=DocumentFamily.PROSE,
-    content_hash="sample",
+    content_hash=hashlib.sha256(text.encode("utf-8")).hexdigest(),
     loader_name="text",
     char_count=len(text),
 )

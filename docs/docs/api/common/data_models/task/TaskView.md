@@ -22,6 +22,20 @@ A bounded resume view of one task. It never includes event bodies.
   cap hides. Every state is a key.
 - [**steps_truncated**](#agrag-common-data_models-task-TaskView-steps_truncated) (<code>bool</code>) – Whether some steps are hidden by the cap.
 - [**decisions**](#agrag-common-data_models-task-TaskView-decisions) (<code>list\[[Decision](../decision/Decision-ref.md)\]</code>) – Active decisions, newest first, capped at 20.
+- [**review_decisions**](#agrag-common-data_models-task-TaskView-review_decisions) (<code>list\[[Decision](../decision/Decision-ref.md)\]</code>) – Active decisions needing review, capped at 20.
+- [**conflicts**](#agrag-common-data_models-task-TaskView-conflicts) (<code>list\[[ConflictGroup](../decision/ConflictGroup.md)\]</code>) – Conflicting choices that include this task, capped at 10.
+
+## `conflicts` \{#agrag-common-data_models-task-TaskView-conflicts}
+
+```python
+conflicts: list[ConflictGroup] = Field(default_factory=list)
+```
+
+## `conflicts_truncated` \{#agrag-common-data_models-task-TaskView-conflicts_truncated}
+
+```python
+conflicts_truncated: bool = False
+```
 
 ## `decision_count` \{#agrag-common-data_models-task-TaskView-decision_count}
 
@@ -57,6 +71,12 @@ last_event_seq: int
 
 ```python
 model_config = ConfigDict(frozen=True)
+```
+
+## `review_decisions` \{#agrag-common-data_models-task-TaskView-review_decisions}
+
+```python
+review_decisions: list[Decision] = Field(default_factory=list)
 ```
 
 ## `status` \{#agrag-common-data_models-task-TaskView-status}

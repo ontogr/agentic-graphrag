@@ -24,6 +24,7 @@ from agrag.ingestion.extract import Extractor
 from agrag.ingestion.graph import Graph
 from agrag.loaders.base import ProseLoader
 from agrag.loaders.types import ReadOptions, SourceRef
+from tests.conftest import FAKE_EMBEDDING_DIMENSIONS
 from tests.integration.e2e._artifact import write_artifact
 
 
@@ -40,12 +41,12 @@ class _FixedEmbedder(Embedder):
 
     async def dimensions(self) -> int:
         """Return the vector size."""
-        return 4
+        return FAKE_EMBEDDING_DIMENSIONS
 
     async def embed(self, texts: Sequence[str]) -> list[list[float]]:
         """Return one fixed vector for each input text."""
         self.texts.extend(texts)
-        return [[0.1] * 4 for _ in texts]
+        return [[0.1] * FAKE_EMBEDDING_DIMENSIONS for _ in texts]
 
 
 class _NoopExtractor(Extractor):
