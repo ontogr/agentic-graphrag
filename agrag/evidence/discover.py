@@ -93,6 +93,7 @@ async def discover(
     mode: DiscoveryMode,
     limit: int,
     scope: frozenset[str],
+    timeout: float | None = None,
 ) -> DiscoveryResult:
     """Find up to ``limit`` visible passages that match a query.
 
@@ -111,6 +112,8 @@ async def discover(
         mode: Which legs to run.
         limit: The most hits to return. Must be positive.
         scope: Keys of the documents that may be searched.
+        timeout: Server-side transaction timeout in seconds for each store read.
+            None uses the server's default.
 
     Returns:
         The hits, best first, with the status, truncation flag, index state and
@@ -130,7 +133,9 @@ async def discover(
         else [DiscoveryLeg(mode.value)]
     )
     try:
-        index_state = await indexes_ready(store, _index_specs(legs))
+        index_state = await indexes_ready(
+            store, _index_specs(legs), timeout=timeout
+        )
     except Exception:
         _LOGGER.exception("Evidence index state read failed")
         return DiscoveryResult(status=DiscoveryStatus.FAILED)
@@ -146,7 +151,13 @@ async def discover(
     for leg in legs:
         try:
             visible, leg_truncated = await _run_leg(
-                store, embedder, leg, query, scope_ids=scope_ids, limit=limit
+                store,
+                embedder,
+                leg,
+                query,
+                scope_ids=scope_ids,
+                limit=limit,
+                timeout=timeout,
             )
         except Exception:
             _LOGGER.exception("Evidence search leg %s failed", leg.value)
@@ -215,6 +226,7 @@ async def _run_leg(
     *,
     scope_ids: list[str],
     limit: int,
+    timeout: float | None,
 ) -> tuple[list[_Visible], bool]:
     """Return the visible hits of one leg and whether the search hit its ceiling.
 
@@ -243,6 +255,7 @@ async def _run_leg(
         rows = await store.execute_read(
             statement,
             {**parameters, "k": candidates, "scope_ids": scope_ids},
+            timeout=timeout,
         )
         visible = _visible_rows(rows)
         if len(visible) >= limit:

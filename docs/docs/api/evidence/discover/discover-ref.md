@@ -6,7 +6,7 @@ sidebar_label: discover
 # `agrag.evidence.discover.discover` \{#agrag-evidence-discover-discover}
 
 ```python
-discover(store:GraphStore, embedder:Embedder, query:str, *, mode:DiscoveryMode, limit:int, scope:frozenset[str]) -> DiscoveryResult
+discover(store:GraphStore, embedder:Embedder, query:str, *, mode:DiscoveryMode, limit:int, scope:frozenset[str], timeout:float | None = None) -> DiscoveryResult
 ```
 
 Find up to `limit` visible passages that match a query.
@@ -27,6 +27,8 @@ without searching when `scope` is empty.
 - **mode** (<code>[DiscoveryMode](../../common/data_models/evidence/DiscoveryMode.md)</code>) – Which legs to run.
 - **limit** (<code>int</code>) – The most hits to return. Must be positive.
 - **scope** (<code>frozenset\[str\]</code>) – Keys of the documents that may be searched.
+- **timeout** (<code>float | None</code>) – Server-side transaction timeout in seconds for each store read.
+  None uses the server's default.
 
 **Returns:**
 

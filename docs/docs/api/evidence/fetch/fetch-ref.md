@@ -6,7 +6,7 @@ sidebar_label: fetch
 # `agrag.evidence.fetch.fetch` \{#agrag-evidence-fetch-fetch}
 
 ```python
-fetch(store:GraphStore, evidence_ids:Sequence[str], *, scope:frozenset[str], max_chars:int) -> list[FetchOutcome]
+fetch(store:GraphStore, evidence_ids:Sequence[str], *, scope:frozenset[str], max_chars:int, timeout:float | None = None) -> list[FetchOutcome]
 ```
 
 Return the text of each evidence id, in the order given.
@@ -30,6 +30,8 @@ document's current content hash. Updated and deleted versions are
   every id unavailable.
 - **max_chars** (<code>int</code>) – The most characters returned for each id. Must be positive.
   Longer text is cut and marked `truncated`.
+- **timeout** (<code>float | None</code>) – Server-side transaction timeout in seconds for each store read.
+  None uses the server's default.
 
 **Returns:**
 
