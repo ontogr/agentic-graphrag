@@ -8,7 +8,6 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_core.outputs import ChatGeneration, ChatResult
 from pydantic import ValidationError
 
-from agrag.agents.prompts import VERIFIER_SYSTEM
 from agrag.agents.verification import VerificationResult, verify_findings
 
 
@@ -85,7 +84,7 @@ class TestVerifyFindings:
         assert result == VerificationResult(reasoning="ok", status="INSUFFICIENT")
         system, user = model.seen
         assert isinstance(system, SystemMessage)
-        assert system.content == VERIFIER_SYSTEM
+        assert "Return a structured\nverdict." in system.content
         assert isinstance(user, HumanMessage)
         for part in ("Q-main?", "1. sub one", "2. sub two", "[E1] finding text"):
             assert part in user.content

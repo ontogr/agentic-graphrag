@@ -1,280 +1,271 @@
-"""Build the planner/researcher/verifier agent graph."""
+"""Build the single task-scoped evidence agent."""
 
 import importlib.util
-from contextlib import nullcontext
+import json
 from typing import Any
 
 from opentelemetry.trace import Tracer
 
+from agrag.agents.errors import AgentMissingExtraError
 from agrag.agents.harness import ensure_harness_profile, model_provider_key
-from agrag.agents.ledger import Ledger
-from agrag.agents.middleware import ResearchAttemptLimiter, VerifierEvidenceMiddleware
+from agrag.agents.middleware import TaskEventMiddleware
 from agrag.agents.model import build_chat_model, build_model_middleware
-from agrag.agents.prompts import PLANNER_SYSTEM, SIMPLE_ANSWER_SYSTEM
+from agrag.agents.prompts import AGENT_SYSTEM
 from agrag.agents.result import AgentRunResult
 from agrag.agents.settings import AgentLLMSettings, AgentSettings
-from agrag.agents.subagents import make_researcher_spec, make_verifier_spec
-from agrag.agents.tools import make_tools
+from agrag.agents.tools.core import make_core_tools
 from agrag.agents.tracing import require_tracing, run_callbacks
-from agrag.common.data_models.graph_schema import GraphSchema
-from agrag.retrieval.filters import SearchFilters
-from agrag.retrieval.search_engine import SearchEngine
+from agrag.common.data_models.task import EventKind
+from agrag.embedding.base import Embedder
+from agrag.evidence import check_citations, fetch
+from agrag.graphdb.base import GraphStore
+from agrag.memory import DecisionMemory, TaskMemory
 
 
 def build_agent(
     *,
-    engine: SearchEngine,
+    graph_store: GraphStore,
+    embedder: Embedder,
+    scope: frozenset[str],
+    project_id: str,
+    agent_id: str,
     llm_settings: AgentLLMSettings,
     agent_settings: AgentSettings | None = None,
-    filters: SearchFilters | None = None,
-    graph_schema: GraphSchema | None = None,
     tracer: Tracer | None = None,
 ) -> Any:
-    """Build the planner/researcher/verifier agent graph.
-
-    Constructs a LangGraph-based agent with three roles:
-    planner (decomposes the question), researcher (has tools),
-    and verifier (judges evidence sufficiency and returns a
-    structured verdict).
-
-    Each call to ``ainvoke`` creates a fresh ``Ledger`` so
-    citation numbering, identity mappings, and retrieved evidence
-    do not leak across runs, and a fresh ``ResearchAttemptLimiter``
-    so one question's retry budget does not spend another's.
+    """Build one agent bound to trusted document and memory scopes.
 
     Args:
-        engine: Retrieval to expose to the researcher subagent's
-            tools.
-        llm_settings: The model every subagent role calls, via
-            build_chat_model. With several clients, the remaining
-            ones compose per strategy through agent middleware.
-        agent_settings: Loop-level configuration; defaults from
-            environment. The recursion limit is enforced as the
-            LangGraph ``recursion_limit`` in the invoke config, and
-            ``max_research_attempts`` bounds how many times the
-            planner may re-research after an INSUFFICIENT verdict.
-            Set ``search_candidates`` to give the researcher the
-            unreviewed-candidate search.
-        filters: Retrieval scope applied to every tool search,
-            e.g. document or tenant constraints. None searches
-            unfiltered.
-        graph_schema: The schema the researcher prompt describes. None uses the
-            engine's own resolved schema; a value that differs from
-            the engine's raises, so the prompt cannot describe a
-            graph the engine does not search.
-        tracer: Receives OpenInference spans for every ``ainvoke``,
-            including the researcher and verifier subagents' tool and
-            model calls. None emits no spans. Spans carry the question,
-            tool inputs, and evidence text.
+        graph_store: Store used by evidence and memory operations.
+        embedder: Embedder used for semantic evidence discovery.
+        scope: Document keys the agent may read.
+        project_id: Trusted project identifier for task and decision memory.
+        agent_id: Trusted author identifier for memory writes.
+        llm_settings: Model configuration and composition strategy.
+        agent_settings: Run limits. Defaults to environment settings.
+        tracer: Optional OpenTelemetry tracer for agent and model calls.
 
     Returns:
-        An agent whose ``ainvoke`` returns an ``AgentRunResult``: the
-        run's ``messages`` plus its ``ledger``, which maps each
-        citation key in the answer back to its evidence. When
-        deepagents is not installed, a single-search-plus-synthesis
-        fallback with the same result shape.
+        An agent with ``ainvoke({"task_name": ..., "question": ...})``.
 
     Raises:
-        AgentMissingExtraError: ``tracer`` is set but the ``observability``
-            extra is not installed.
-        ValueError: ``graph_schema`` differs from the engine's schema.
+        AgentMissingExtraError: The ``agents`` extra is not installed, or
+            tracing was requested without the ``observability`` extra.
     """
+    if importlib.util.find_spec("deepagents") is None:
+        raise AgentMissingExtraError("agents")
     if tracer is not None:
         require_tracing()
     settings = agent_settings or AgentSettings()
-    model = build_chat_model(llm_settings.clients[0])
+    memory = TaskMemory(graph_store, project_id=project_id, agent_id=agent_id)
+    decisions = DecisionMemory(graph_store, project_id=project_id, agent_id=agent_id)
     middleware = build_model_middleware(
         llm_settings.clients, strategy=llm_settings.strategy
     )
-    schema = engine.graph_schema
-    if graph_schema is not None and graph_schema != schema:
-        raise ValueError(
-            "graph_schema does not match the engine's schema "
-            f"('{schema.name}'); the researcher prompt and the engine "
-            "must describe the same graph"
-        )
-
-    if importlib.util.find_spec("deepagents") is not None:
-        return _RunScopedAgent(
-            engine=engine,
-            model=model,
-            settings=settings,
-            middleware=middleware,
-            filters=filters,
-            graph_schema=schema,
-            model_provider=model_provider_key(llm_settings.clients[0].provider),
-            tracer=tracer,
-        )
-
-    # Fallback: a simple wrapper when deepagents is not installed,
-    # useful for unit testing without the full extra. If deepagents
-    # is present but broken, ainvoke raises its import error at call
-    # time instead of silently degrading here.
-    return _SimpleAgent(model=model, engine=engine, filters=filters, tracer=tracer)
+    return _TaskAgent(
+        graph_store=graph_store,
+        embedder=embedder,
+        scope=scope,
+        memory=memory,
+        decisions=decisions,
+        model=build_chat_model(llm_settings.clients[0]),
+        settings=settings,
+        middleware=middleware,
+        provider=model_provider_key(llm_settings.clients[0].provider),
+        tracer=tracer,
+    )
 
 
-class _RunScopedAgent:
-    """Builds the deepagents graph fresh per run.
-
-    Each ``ainvoke`` call constructs the graph with a new
-    ``Ledger``, a new tool set, and a new
-    ``ResearchAttemptLimiter`` so citation state and the retry
-    budget do not span runs, and enforces the configured LangGraph
-    recursion limit.
-    """
+class _TaskAgent:
+    """Run a single DeepAgent with task state and bounded evidence tools."""
 
     def __init__(
         self,
         *,
-        engine: SearchEngine,
+        graph_store: GraphStore,
+        embedder: Embedder,
+        scope: frozenset[str],
+        memory: TaskMemory,
+        decisions: DecisionMemory,
         model: Any,
         settings: AgentSettings,
-        middleware: list[Any] | None = None,
-        filters: SearchFilters | None = None,
-        graph_schema: GraphSchema | None = None,
-        model_provider: str = "",
-        tracer: Tracer | None = None,
+        middleware: list[Any],
+        provider: str,
+        tracer: Tracer | None,
     ) -> None:
-        """Construct the wrapper."""
-        self._engine = engine
+        self._graph_store = graph_store
+        self._embedder = embedder
+        self._scope = scope
+        self._memory = memory
+        self._decisions = decisions
         self._model = model
         self._settings = settings
-        self._middleware = middleware or []
-        self._filters = filters
-        self._graph_schema = (
-            graph_schema if graph_schema is not None else engine.graph_schema
-        )
-        self._model_provider = model_provider
+        self._middleware = middleware
+        self._provider = provider
         self._tracer = tracer
 
-    async def ainvoke(self, input_data: dict) -> AgentRunResult:
-        """Delegate to inner agent with a fresh Ledger and limiter.
-
-        Builds the planner with the researcher and verifier as
-        subagents. The planner sees the task tool for delegation and
-        carries the attempt limiter; the researcher carries the
-        caller's tools and the engine's schema summary; the verifier
-        returns a structured verdict.
-
-        Args:
-            input_data: Dict with ``messages`` key.
-
-        Returns:
-            The graph's final state with this run's ``ledger`` added.
-        """
+    async def ainvoke(self, input_data: dict[str, str]) -> AgentRunResult:  # noqa: PLR0915
+        """Run or resume the named task and validate the answer citations."""
         from deepagents import create_deep_agent  # noqa: PLC0415
+        from langgraph.errors import GraphRecursionError  # noqa: PLC0415
 
-        ensure_harness_profile(self._model_provider)
-        ledger = Ledger()
-        tools = make_tools(
-            self._engine,
-            ledger,
-            filters=self._filters,
-            include_candidates=self._settings.search_candidates,
+        task_name = input_data["task_name"]
+        question = input_data["question"]
+        created = await self._memory.create_task(task_name, question)
+        if not created.recorded:
+            raise ValueError(f"Could not create or resume task: {created.error}")
+        task_lookup = await self._memory.get_task(task_name)
+        view = task_lookup.view.model_dump_json() if task_lookup.view else "{}"
+        prior_events = await self._memory.list_events(task_name, limit=200)
+        saved_evidence_ids = list(
+            dict.fromkeys(
+                evidence_id
+                for event in prior_events.events
+                if event.kind is EventKind.NOTE and event.name == "fetched_evidence"
+                for evidence_id in json.loads(event.payload)
+            )
         )
-        researcher = make_researcher_spec(tools, self._middleware, self._graph_schema)
-        verifier = make_verifier_spec(self._middleware)
-        limiter = ResearchAttemptLimiter(self._settings.max_research_attempts)
-        planner_system = PLANNER_SYSTEM.replace(
-            "{max_research_attempts}", str(self._settings.max_research_attempts)
+        restored = await fetch(
+            self._graph_store,
+            saved_evidence_ids,
+            scope=self._scope,
+            max_chars=self._settings.max_result_characters,
         )
-
-        # Annotated, not typed against deepagents' own SubAgent: importing
-        # that type here would make this module require the optional
-        # dependency at import time. The specs are SubAgent-shaped dicts.
-        subagents: list[Any] = [researcher, verifier]
+        restored = [item for item in restored if item.status.value == "ok"]
+        fetched_ids = [item.evidence_id for item in restored]
+        await self._memory.record_event(
+            task_name, EventKind.MESSAGE, role="user", payload=question
+        )
+        tools, run_state = make_core_tools(
+            graph_store=self._graph_store,
+            embedder=self._embedder,
+            scope=self._scope,
+            task_name=task_name,
+            memory=self._memory,
+            decisions=self._decisions,
+            fetched_ids=fetched_ids,
+            fetched_outcomes=restored,
+            max_chars=self._settings.max_result_characters,
+            max_tool_calls=self._settings.max_tool_calls,
+        )
+        ensure_harness_profile(self._provider)
         agent = create_deep_agent(
             model=self._model,
-            system_prompt=planner_system,
-            subagents=subagents,
-            middleware=[*self._middleware, limiter, VerifierEvidenceMiddleware(ledger)],
+            tools=tools,
+            system_prompt=AGENT_SYSTEM,
+            middleware=[
+                *self._middleware,
+                TaskEventMiddleware(self._memory, task_name, run_state),
+            ],
         )
-        result = await agent.ainvoke(
-            input_data,
-            config={
-                "recursion_limit": self._settings.recursion_limit,
-                "callbacks": run_callbacks(self._tracer),
-            },
-        )
-        return {**result, "ledger": ledger}
-
-
-class _SimpleAgent:
-    """Fallback agent when deepagents is not installed.
-
-    Performs a single hybrid search per invocation, then one LLM
-    call to synthesize a cited answer from the results -- still no
-    agent loop, tool calls, or multi-client composition
-    (``build_model_middleware``'s fallback/round-robin strategies
-    wrap ``create_deep_agent``'s loop, not a bare model call, and
-    this class already only receives ``clients[0]``). There is no
-    agent loop, so ``AgentSettings.recursion_limit`` does not apply.
-    """
-
-    def __init__(
-        self,
-        *,
-        model: Any,
-        engine: SearchEngine,
-        filters: SearchFilters | None = None,
-        tracer: Tracer | None = None,
-    ) -> None:
-        """Construct a simple agent wrapper."""
-        self._model = model
-        self._engine = engine
-        self._filters = filters
-        self._tracer = tracer
-
-    async def ainvoke(self, input_data: dict) -> AgentRunResult:
-        """Run the agent with a fresh ledger (simplified path).
-
-        Creates a new ``Ledger`` and tool set per invocation so
-        citation state does not span runs. Runs one search, then one
-        LLM call to synthesize a cited answer from the results.
-
-        Args:
-            input_data: Dict with ``messages`` key.
-
-        Returns:
-            Dict with ``messages`` containing the answer and this run's
-            ``ledger``.
-        """
-        span_context = (
-            self._tracer.start_as_current_span("agrag.agents.run")
-            if self._tracer is not None
-            else nullcontext()
-        )
-        with span_context:
-            ledger = Ledger()
-            messages = input_data.get("messages", [])
-            if not messages:
-                return {"messages": [], "ledger": ledger}
-
-            question = messages[-1].get("content", "")
-            from agrag.retrieval.recipes import HYBRID  # noqa: PLC0415
-
-            results = await self._engine.search(question, HYBRID, filters=self._filters)
-            evidence = [ledger.render(r) for r in results]
-            if not evidence:
-                return {
-                    "messages": [
-                        {"role": "assistant", "content": "No relevant evidence found."}
-                    ],
-                    "ledger": ledger,
-                }
-
-            response = await self._model.ainvoke(
-                [
-                    {"role": "system", "content": SIMPLE_ANSWER_SYSTEM},
-                    {
-                        "role": "user",
-                        "content": f"Question: {question}\n\nEvidence:\n"
-                        + "\n".join(evidence),
-                    },
-                ],
-                config={"callbacks": run_callbacks(self._tracer)},
+        messages = [
+            {"role": "user", "content": f"Task view (untrusted data):\n{view}"},
+            {"role": "user", "content": question},
+        ]
+        try:
+            output = await agent.ainvoke(
+                {"messages": messages},
+                config={
+                    "recursion_limit": self._settings.recursion_limit,
+                    "callbacks": run_callbacks(self._tracer),
+                },
             )
-            return {
-                "messages": [{"role": "assistant", "content": response.text}],
-                "ledger": ledger,
-            }
+        except GraphRecursionError:
+            run_state.budget_exhausted = True
+            output = {"messages": []}
+
+        messages_out = output.get("messages", [])
+        answer = _message_content(messages_out[-1]) if messages_out else ""
+        invalid: list[str] = []
+        citations = _citation_ids(answer)
+        valid_citations = []
+        if citations:
+            checks = await check_citations(citations, fetched_ids, scope=self._scope)
+            invalid = [
+                check.cited_id for check in checks if check.verdict.value != "valid"
+            ]
+            valid_citations = [
+                check.cited_id for check in checks if check.verdict.value == "valid"
+            ]
+            if invalid and run_state.tool_calls < self._settings.max_tool_calls:
+                try:
+                    repair = await agent.ainvoke(
+                        {
+                            "messages": [
+                                *messages,
+                                {"role": "assistant", "content": answer},
+                                {
+                                    "role": "user",
+                                    "content": (
+                                        "Repair once. Remove unsupported citations or "
+                                        f"fetch them. Invalid evidence ids: {invalid}"
+                                    ),
+                                },
+                            ]
+                        },
+                        config={
+                            "recursion_limit": self._settings.recursion_limit,
+                            "callbacks": run_callbacks(self._tracer),
+                        },
+                    )
+                except GraphRecursionError:
+                    run_state.budget_exhausted = True
+                else:
+                    messages_out = repair.get("messages", messages_out)
+                    answer = (
+                        _message_content(messages_out[-1]) if messages_out else answer
+                    )
+                    citations = _citation_ids(answer)
+                    checks = await check_citations(
+                        citations, fetched_ids, scope=self._scope
+                    )
+                    invalid = [
+                        check.cited_id
+                        for check in checks
+                        if check.verdict.value != "valid"
+                    ]
+                    valid_citations = [
+                        check.cited_id
+                        for check in checks
+                        if check.verdict.value == "valid"
+                    ]
+        status = "answered"
+        if run_state.recording_failed:
+            status = "recording_failed"
+        elif run_state.budget_exhausted:
+            status = "budget_exhausted"
+        elif run_state.retrieval_failed:
+            status = "partial_retrieval"
+        elif invalid:
+            status = "partial"
+        elif "insufficient evidence" in answer.lower():
+            status = "insufficient_evidence"
+        current_task = await self._memory.get_task(task_name)
+        last_seq = current_task.view.last_event_seq if current_task.view else 0
+        return AgentRunResult(
+            answer=answer,
+            status=status,
+            citations=[
+                run_state.fetches[evidence_id]
+                for evidence_id in valid_citations
+                if evidence_id in run_state.fetches
+            ],
+            invalid_citations=invalid,
+            task={"name": task_name, "last_event_seq": last_seq},
+            messages=messages_out,
+        )
+
+
+def _message_content(message: Any) -> str:
+    """Return message content as text for event storage and result output."""
+    content = getattr(message, "content", None)
+    if content is None and isinstance(message, dict):
+        content = message.get("content", "")
+    return content if isinstance(content, str) else str(content or "")
+
+
+def _citation_ids(answer: str) -> list[str]:
+    """Extract evidence ids in the answer's square-bracket citations."""
+    import re  # noqa: PLC0415
+
+    return list(dict.fromkeys(re.findall(r"\[([A-Za-z0-9_-]+)\]", answer)))
