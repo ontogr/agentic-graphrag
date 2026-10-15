@@ -8,7 +8,6 @@ corpus, like the other agent integration tests, so it shares the database-wide
 ``Chunk`` vector index with them. It skips when no agent LLM endpoint is configured.
 """
 
-import hashlib
 import json
 import os
 from collections.abc import AsyncGenerator, Sequence
@@ -34,6 +33,11 @@ from agrag.embedding.base import Embedder
 from agrag.eval.trajectory import read_trajectory
 from agrag.graphdb import build_graph_store
 from tests.conftest import FAKE_EMBEDDING_DIMENSIONS
+from tests.integration.agents._visible_document import (
+    delete_documents,
+    document_content_hash,
+    seed_document_part,
+)
 
 
 _OUTPUT_DIR = Path(os.environ.get("AGRAG_TRACING_OUTPUT_DIR", "test-output"))
@@ -152,6 +156,7 @@ class TestAgentTracing:
                 f"MATCH (n:{CHUNK_LABEL}) WHERE n.id IN $ids DETACH DELETE n",
                 {"ids": [str(chunk_id) for chunk_id in self.chunk_ids]},
             )
+        await delete_documents(self.store, [self.document_key])
         await self.store.close()
 
     async def _seed_entity(self, label: str, name: str) -> UUID:
@@ -180,6 +185,7 @@ class TestAgentTracing:
             dimensions=4,
             distance=Distance.COSINE,
         )
+        await self.store.ensure_fulltext_index(label=label, properties=["name"])
         return entity_id
 
     async def _seed_relation(self, rel_type: str, start_id: UUID, end_id: UUID) -> None:
@@ -203,7 +209,7 @@ class TestAgentTracing:
             document_id=UUID(self.document_id),
             index=index,
             text=text,
-            content_hash=hashlib.sha256(text.encode("utf-8")).hexdigest(),
+            content_hash=document_content_hash(self.document_key),
             provenance=TextProvenance(char_start=0, char_end=len(text)),
         )
         chunk.embedding = await self.embedder.embed_one(text)
@@ -218,9 +224,7 @@ class TestAgentTracing:
                         "document_id": self.document_id,
                         "index": index,
                         "text": text,
-                        "content_hash": hashlib.sha256(
-                            text.encode("utf-8")
-                        ).hexdigest(),
+                        "content_hash": document_content_hash(self.document_key),
                         "provenance": '{"kind":"text","char_start":0,'
                         f'"char_end":{len(text)}}}',
                         "heading_path": [],
@@ -240,6 +244,9 @@ class TestAgentTracing:
         await self.store.ensure_fulltext_index(
             label=CHUNK_LABEL,
             properties=["text"],
+        )
+        await seed_document_part(
+            self.store, document_key=self.document_key, chunk_id=chunk.id
         )
         await self.store.execute_read("CALL db.awaitIndexes(60)")
 

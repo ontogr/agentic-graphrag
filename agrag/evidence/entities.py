@@ -345,12 +345,23 @@ def _is_canonical_uuid(value: str) -> bool:
 
 
 async def _entity_labels(store: GraphStore, labels: Sequence[str] | None) -> list[str]:
-    """Return the labels to search, given or discovered from the vector indexes."""
+    """Return the labels to search, given or discovered from their indexes.
+
+    A discovered label needs both the vector index and the full-text index, so a
+    label that has only one of them is not searched.
+    """
     if labels is not None:
         return sorted(set(labels))
     rows = await store.execute_read(entity_labels_query())
-    found = {str(label) for row in rows for label in row["labelsOrTypes"]}
-    return sorted(found - _NON_ENTITY_LABELS)
+    vector_labels: set[str] = set()
+    fulltext_labels: set[str] = set()
+    for row in rows:
+        names = {str(label) for label in row["labelsOrTypes"]}
+        if row["type"] == _VECTOR_TYPE:
+            vector_labels |= names
+        elif row["type"] == _FULLTEXT_TYPE:
+            fulltext_labels |= names
+    return sorted((vector_labels & fulltext_labels) - _NON_ENTITY_LABELS)
 
 
 def _index_specs(

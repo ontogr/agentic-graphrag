@@ -255,20 +255,22 @@ def navigation_sections_query(relation: NavigationRelation) -> str:
 
 
 def entity_labels_query() -> str:
-    """Build the query that lists the entity labels with a vector index.
+    """Build the query that lists the indexes of entity labels.
 
-    Every entity label has a vector index on ``embedding``, and no other label
-    needs one of that name, so the labels of those indexes are the entity labels.
+    An entity label has a vector index on ``embedding`` and a full-text index on
+    ``name``. Other labels may have only one of them, so the caller keeps the
+    labels that have both.
 
     Returns:
-        Cypher returning one ``labelsOrTypes`` row per distinct index, a list
-        of labels. It takes no parameters. Neo4j 5 does not allow ``UNWIND``
+        Cypher returning one row per index, with its ``labelsOrTypes`` list and
+        ``type``. It takes no parameters. Neo4j 5 does not allow ``UNWIND``
         directly after ``SHOW``, so the caller flattens the lists.
     """
     return (
         "SHOW INDEXES YIELD labelsOrTypes, properties, type "
-        "WHERE type = 'VECTOR' AND properties = ['embedding'] "
-        "RETURN DISTINCT labelsOrTypes"
+        "WHERE (type = 'VECTOR' AND properties = ['embedding']) "
+        "OR (type = 'FULLTEXT' AND properties = ['name']) "
+        "RETURN DISTINCT labelsOrTypes, type"
     )
 
 

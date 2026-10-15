@@ -10,6 +10,7 @@ from typing import Any
 from uuid import UUID
 
 from agrag.agents.middleware import RunState, record_event_or_flag
+from agrag.agents.tracing import tool_span_context
 from agrag.common.data_models.decision import DocumentSupportInput
 from agrag.common.data_models.evidence import (
     DiscoveryMode,
@@ -63,7 +64,10 @@ def make_core_tools(  # noqa: PLR0915
 
     @tool
     async def discover_evidence(
-        query: str, mode: str = "hybrid", limit: int = 8
+        query: str,
+        mode: str = "hybrid",
+        limit: int = 8,
+        callbacks: Any = None,
     ) -> str:
         """Find in-scope source passages and return their evidence ids."""
         if not admit():
@@ -71,14 +75,15 @@ def make_core_tools(  # noqa: PLR0915
         if not 1 <= limit <= 50:
             return "Limit must be between 1 and 50."
         try:
-            found = await discover(
-                graph_store,
-                embedder,
-                query,
-                mode=DiscoveryMode(mode),
-                limit=limit,
-                scope=scope,
-            )
+            with tool_span_context(callbacks):
+                found = await discover(
+                    graph_store,
+                    embedder,
+                    query,
+                    mode=DiscoveryMode(mode),
+                    limit=limit,
+                    scope=scope,
+                )
         except (ValueError, KeyError) as exc:
             return f"Invalid discovery request: {exc}"
         state.retrieval_failed |= (
@@ -88,15 +93,16 @@ def make_core_tools(  # noqa: PLR0915
         return found.model_dump_json()
 
     @tool
-    async def fetch_evidence(evidence_ids: list[str]) -> str:
+    async def fetch_evidence(evidence_ids: list[str], callbacks: Any = None) -> str:
         """Fetch exact passage text for evidence ids returned by discovery."""
         if not admit():
             return "Tool budget exhausted."
         if len(evidence_ids) > 20:
             return "Fetch at most 20 evidence ids per call."
-        outcomes = await fetch(
-            graph_store, evidence_ids, scope=scope, max_chars=max_chars
-        )
+        with tool_span_context(callbacks):
+            outcomes = await fetch(
+                graph_store, evidence_ids, scope=scope, max_chars=max_chars
+            )
         for outcome in outcomes:
             state.fetches[outcome.evidence_id] = outcome
             if outcome.status is FetchStatus.OK:

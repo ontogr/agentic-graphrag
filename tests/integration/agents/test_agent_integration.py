@@ -7,7 +7,6 @@ LLM endpoint; like the LLM ingestion tests, it reads its config from
 is configured.
 """
 
-import hashlib
 import importlib.util
 import os
 import re
@@ -38,6 +37,11 @@ from agrag.graphdb import build_graph_store
 from agrag.retrieval.search_engine import SearchEngine
 from agrag.retrieval.settings import RetrievalSettings
 from tests.conftest import FAKE_EMBEDDING_DIMENSIONS
+from tests.integration.agents._visible_document import (
+    delete_documents,
+    document_content_hash,
+    seed_document_part,
+)
 
 
 neo4j_missing = importlib.util.find_spec("neo4j") is None
@@ -203,6 +207,7 @@ class TestAgentBuildIntegration:
                 f"MATCH (n:{CHUNK_LABEL}) WHERE n.id IN $ids DETACH DELETE n",
                 {"ids": [str(chunk_id) for chunk_id in self.chunk_ids]},
             )
+        await delete_documents(self.store, [self.document_one, self.document_two])
         await self.store.close()
 
     async def _seed_entity(self, label: str, name: str) -> UUID:
@@ -231,6 +236,7 @@ class TestAgentBuildIntegration:
             dimensions=4,
             distance=Distance.COSINE,
         )
+        await self.store.ensure_fulltext_index(label=label, properties=["name"])
         return entity_id
 
     async def _seed_relation(self, rel_type: str, start_id: UUID, end_id: UUID) -> None:
@@ -255,7 +261,7 @@ class TestAgentBuildIntegration:
             document_id=document_id,
             index=0,
             text=text,
-            content_hash=hashlib.sha256(text.encode("utf-8")).hexdigest(),
+            content_hash=document_content_hash(self.document_one),
             provenance=TextProvenance(char_start=0, char_end=len(text)),
         )
         chunk.embedding = await self.embedder.embed_one(text)
@@ -270,9 +276,7 @@ class TestAgentBuildIntegration:
                         "document_id": str(document_id),
                         "index": 0,
                         "text": text,
-                        "content_hash": hashlib.sha256(
-                            text.encode("utf-8")
-                        ).hexdigest(),
+                        "content_hash": document_content_hash(self.document_one),
                         "provenance": '{"kind":"text","char_start":0,'
                         f'"char_end":{len(text)}}}',
                         "heading_path": [],
@@ -291,6 +295,9 @@ class TestAgentBuildIntegration:
         await self.store.ensure_fulltext_index(
             label=CHUNK_LABEL,
             properties=["text"],
+        )
+        await seed_document_part(
+            self.store, document_key=self.document_one, chunk_id=chunk.id
         )
         await self.store.execute_read("CALL db.awaitIndexes(60)")
 

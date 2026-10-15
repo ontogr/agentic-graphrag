@@ -16,3 +16,4 @@ appear in one trace under the run.
 
 - [**require_tracing**](require_tracing.md) – Raise a typed error when tracing dependencies are unavailable.
 - [**run_callbacks**](run_callbacks.md) – Return the callbacks for one agent run.
+- [**tool_span_context**](tool_span_context.md) – Return a context in which the running tool's OpenInference span is current.
