@@ -14,6 +14,7 @@ extraction and resolution short.
 """
 
 import argparse
+import hashlib
 import json
 import re
 from pathlib import Path
@@ -85,7 +86,7 @@ def _answerable_from_chunk(example: dict, text: str) -> bool:
         uri="page.txt",
         source_format=SourceFormat.TXT,
         family=DocumentFamily.PROSE,
-        content_hash="page",
+        content_hash=hashlib.sha256(text.encode("utf-8")).hexdigest(),
         loader_name="text",
         char_count=len(text),
         sections=[DocumentSection(heading="", depth=0, units=units)],
