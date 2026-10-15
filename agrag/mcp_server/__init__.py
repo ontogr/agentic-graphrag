@@ -30,7 +30,8 @@ keys. The server refuses to start when the list is empty. Logs go to stderr,
 and stdout carries only protocol messages.
 
 Semantic and hybrid search need the same ``EMBEDDING_*`` settings that ingestion
-used. On the first such call the server compares the query embedder's dimension
-with the stored vectors. When they differ, semantic search fails and hybrid
-search returns lexical hits only.
+used. Each such call compares the query embedder's dimension with the vector
+index. When dimensions differ, semantic search fails and hybrid search returns
+lexical hits only. Equal dimensions do not verify model identity. The command
+uses FastEmbed. To use another backend, pass its embedder to ``build_server``.
 """
