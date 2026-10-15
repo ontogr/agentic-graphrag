@@ -21,7 +21,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from agrag.chunking.chunker import ChunkPlacement
 from agrag.common.data_models.candidate import CandidateRecord
-from agrag.common.data_models.chunk import CHUNK_LABEL, Chunk
+from agrag.common.data_models.chunk import Chunk
 from agrag.common.data_models.document import Document
 from agrag.common.data_models.dropped import DroppedCount, sum_dropped
 from agrag.common.data_models.entity import Entity
@@ -33,7 +33,6 @@ from agrag.common.data_models.extraction import (
 from agrag.common.data_models.graph_record import DeferredWrites
 from agrag.common.data_models.graph_schema import GraphSchema
 from agrag.common.data_models.stage_failure import StageFailure, cap_failures
-from agrag.common.data_models.vector_record import VectorRecord
 from agrag.common.graph_rows import node_properties, row_node
 from agrag.common.schema_fingerprint import schema_fingerprint
 from agrag.cypher.entities import (
@@ -81,8 +80,6 @@ from agrag.observability import (
     get_tracer,
     record_stage_failure,
 )
-from agrag.retrieval.settings import RetrievalSettings
-from agrag.vectordb.base import VectorStore
 
 
 async def _run_extractor(
@@ -515,7 +512,6 @@ async def embed_chunks_stage(
     chunk_writes: WriteOutcome,
     ctx: StageContext,
     *,
-    vector_collection: str,
     embed_heading_path: bool,
 ) -> EmbedStageResult:
     """Embed the chunks of this batch that the graph holds, and write vectors.
@@ -530,7 +526,6 @@ async def embed_chunks_stage(
         chunk_ids: The ids of the chunks this batch tried to write.
         chunk_writes: The outcome of the Chunk node write.
         ctx: The stores, embedder, error policy, job and tracer.
-        vector_collection: The VectorStore collection to write into.
         embed_heading_path: Whether the embedder gets each heading path above
             the chunk text.
 
@@ -557,8 +552,6 @@ async def embed_chunks_stage(
             embedder=ctx.embedder,
             graph_store=ctx.graph_store,
             error_policy=ctx.error_policy,
-            vector_store=ctx.vector_store,
-            vector_collection=vector_collection,
             pending_job_id=ctx.job_id,
             deferred=ctx.deferred,
             embed_heading_path=embed_heading_path,
@@ -569,8 +562,6 @@ async def embed_chunks_stage(
 async def embed_survivors_stage(
     survivors: dict[UUID, Entity],
     ctx: StageContext,
-    *,
-    vector_collection: str,
 ) -> EmbedStageResult:
     """Refresh the embedding of each survivor that this batch merged.
 
@@ -578,7 +569,6 @@ async def embed_survivors_stage(
         survivors: The merged entities written by this call, keyed by id.
         ctx: The stores, embedder, error policy, job and tracer. The tracer
             opens its span only when there are survivors.
-        vector_collection: The VectorStore collection to write into.
 
     Returns:
         The failures of the embed and vector writes.
@@ -595,9 +585,6 @@ async def embed_survivors_stage(
             embedder=ctx.embedder,
             graph_store=ctx.graph_store,
             error_policy=ctx.error_policy,
-            vector_store=ctx.vector_store,
-            vector_collection=vector_collection,
-            labels_by_id={ent.id: ent.label for ent in survivors.values()},
             pending_job_id=ctx.job_id,
             deferred=ctx.deferred,
         )
@@ -611,7 +598,6 @@ async def _resolve_and_merge(
     ctx: StageContext,
     *,
     graph_schema: GraphSchema,
-    retrieval_settings: RetrievalSettings,
     rebuilt_components: list[MatchComponent] | None,
     max_llm_pairs: int,
 ) -> tuple[ResolutionStats, MergeStageResult]:
@@ -636,7 +622,6 @@ async def _resolve_and_merge(
         chunks,
         ctx,
         graph_schema=graph_schema,
-        retrieval_settings=retrieval_settings,
         max_llm_pairs=max_llm_pairs,
     )
     merge = await merge_stage(
@@ -645,7 +630,6 @@ async def _resolve_and_merge(
         resolution.batch,
         ctx,
         graph_schema=graph_schema,
-        resolved_entity_collection=retrieval_settings.resolved_entity_collection,
         rebuilt_components=rebuilt_components,
     )
     return resolution.stats, merge
@@ -660,9 +644,7 @@ async def ingest_chunks(
     *,
     graph_store: GraphStore,
     embedder: Embedder,
-    vector_store: VectorStore | None,
     graph_schema: GraphSchema,
-    retrieval_settings: RetrievalSettings,
     error_policy: ErrorPolicy,
     ingestion: IngestStats,
     placements: Mapping[UUID, ChunkPlacement],
@@ -696,9 +678,7 @@ async def ingest_chunks(
         extraction_failures: Failures recorded before this stage.
         graph_store: The store every stage reads and writes.
         embedder: Embeds chunks, mentions and survivors.
-        vector_store: Optional vector index mirrored by the embedding stages.
         graph_schema: The schema the resolver and merge work against.
-        retrieval_settings: Names the collections the stages write to.
         error_policy: How a failed record, write or embed is reported.
         ingestion: The ingestion stats carried into the result.
         placements: Where each chunk sits in its document's structure.
@@ -731,7 +711,6 @@ async def ingest_chunks(
     ctx = StageContext(
         graph_store=graph_store,
         embedder=embedder,
-        vector_store=vector_store,
         error_policy=error_policy,
         tracer=get_tracer(tracer),
         job_id=job_uuid,
@@ -744,7 +723,6 @@ async def ingest_chunks(
             chunks,
             ctx,
             graph_schema=graph_schema,
-            retrieval_settings=retrieval_settings,
             rebuilt_components=rebuilt_components,
             max_llm_pairs=max_llm_pairs,
         )
@@ -759,7 +737,6 @@ async def ingest_chunks(
                 nodes.chunk_ids,
                 nodes.chunk_writes,
                 ctx,
-                vector_collection=retrieval_settings.chunk_collection,
                 embed_heading_path=embed_heading_path,
             )
         relation_writes = await write_relations_stage(
@@ -778,7 +755,6 @@ async def ingest_chunks(
         survivor_embeds = await embed_survivors_stage(
             merge.survivors,
             ctx,
-            vector_collection=retrieval_settings.entity_collection,
         )
         storage_capped = cap_failures(
             [
@@ -846,83 +822,6 @@ async def ingest_chunks(
     )
 
 
-def _vector_record(
-    record_id: UUID,
-    vector: list[float],
-    *,
-    label: str,
-    text: str,
-    properties: dict[str, object] | None = None,
-) -> VectorRecord:
-    """Build a VectorRecord whose payload matches the retrievers' reads.
-
-    ``label`` lets SearchFilters.to_payload_filter scope a search;
-    ``text`` is the field the VectorStore backends sparse-embed for
-    hybrid_search's keyword arm.
-
-    Args:
-        record_id: The domain object's id.
-        vector: The dense embedding.
-        label: The graph label the domain object carries.
-        text: The embedding_text the vector was computed from.
-        properties: Additional payload fields for metadata filtering.
-
-    Returns:
-        The record ready for VectorStore.upsert.
-    """
-    payload = {"label": label, "text": text}
-    if properties:
-        payload.update(properties)
-    return VectorRecord(id=record_id, vector=vector, payload=payload)
-
-
-async def _upsert_vectors(
-    vector_store: VectorStore | None,
-    collection: str,
-    records: list[VectorRecord],
-    *,
-    pending_job_id: UUID | str | None = None,
-) -> None:
-    """Upsert records to the VectorStore when one is configured.
-
-    Records whose vector is empty are skipped: an embed failure leaves
-    None on the domain object, and an empty vector cannot be searched, so
-    writing it would only corrupt the collection.
-
-    Args:
-        vector_store: The store to write to, or None to do nothing.
-        collection: The collection name to write into.
-        records: The records to upsert.
-        pending_job_id: The in-flight Cutover Job staging these records. None
-            writes committed records, for callers outside a job.
-    """
-    if vector_store is None:
-        return
-    writable = [record for record in records if record.vector]
-    if not writable:
-        return
-    await vector_store.upsert(
-        collection,
-        writable,
-        pending_job_id=UUID(str(pending_job_id)) if pending_job_id else None,
-    )
-
-
-async def _delete_vectors(
-    vector_store: VectorStore | None, collection: str, ids: Sequence[UUID]
-) -> None:
-    """Delete records from the VectorStore when one is configured.
-
-    Args:
-        vector_store: The store to delete from, or None to do nothing.
-        collection: The collection name to delete from.
-        ids: The record ids to delete.
-    """
-    if vector_store is None or not ids:
-        return
-    await vector_store.delete(collection, list(ids))
-
-
 async def _persisted_chunk_ids(
     ctx: StageContext, chunk_ids: set[UUID]
 ) -> tuple[set[UUID], list[StageFailure]]:
@@ -931,7 +830,7 @@ async def _persisted_chunk_ids(
     ``upsert_nodes`` writes its batches in sequence, so a failure partway
     through leaves the earlier batches committed. Embedding only the ids the
     graph really holds keeps those chunks searchable and keeps a chunk that
-    never landed out of the VectorStore.
+    never landed out of the vector index.
 
     Args:
         ctx: Where the chunk nodes are read. The job id counts chunks this same
@@ -1001,8 +900,6 @@ async def _embed_and_upsert_chunks(
     embedder: Embedder,
     graph_store: GraphStore,
     error_policy: ErrorPolicy,
-    vector_store: VectorStore | None = None,
-    vector_collection: str = "",
     pending_job_id: UUID | str | None = None,
     deferred: DeferredWrites | None = None,
     embed_heading_path: bool = False,
@@ -1010,8 +907,8 @@ async def _embed_and_upsert_chunks(
     """Embed every chunk's text and write the vectors back onto their nodes.
 
     With ``embed_heading_path``, the embedder gets each chunk's heading path above
-    its text. The stored text, the ``expected_text`` guard and the vector payload
-    text stay the raw chunk text.
+    its text. The stored text and the ``expected_text`` guard stay the raw chunk
+    text.
 
     On failure, clears any embedding already written to the chunk nodes
     rather than leaving one computed for stale text in place: vector
@@ -1021,21 +918,6 @@ async def _embed_and_upsert_chunks(
     text between this call's embed and its clear does not accidentally
     wipe a newer vector.
 
-    When vector_store is set, every successfully written vector is also
-    upserted there so SearchEngine's VectorStore path matches the
-    GraphStore-native path. Each record carries its chunk's
-    ``document_id``, which is what a document-scoped SearchFilters
-    compiles to, so filtering by document works on both paths. A
-    VectorStore failure honors error_policy: RAISE propagates, otherwise
-    it is recorded as a StageFailure and the native search path keeps
-    working without it. The failure leaves the collection untouched: the
-    mirror has no conditional write, so deleting the records this call
-    failed to replace would race a concurrent re-ingest and could remove
-    the newer vector it just wrote. The stored record keeps its previous
-    text until the next successful ingest rewrites it, and retrieval
-    loads every hit from the graph, so only that record's score is
-    stale.
-
     Args:
         chunks: The chunks this call wrote to graph_store already.
         embedder: Produces one vector per chunk text.
@@ -1043,12 +925,9 @@ async def _embed_and_upsert_chunks(
             embedding property, are written.
         error_policy: RAISE propagates the failure after clearing; any
             other policy returns it instead.
-        vector_store: Optional second write target; None does nothing.
-        vector_collection: The VectorStore collection to write into.
-            Ignored when vector_store is None.
-        pending_job_id: The in-flight job's id, mirrored into vector
-            payloads until that job commits. None writes untagged
-            payloads, for callers outside a job.
+        pending_job_id: The in-flight job's id, written onto each chunk's
+            embedding until that job commits. None writes untagged
+            embeddings, for callers outside a job.
         deferred: Receives the vector writes over committed chunks. None
             outside a job.
         embed_heading_path: Whether the embedder gets each chunk's heading path
@@ -1076,7 +955,7 @@ async def _embed_and_upsert_chunks(
                     "expected_text": ch.text,
                 }
             )
-        matched_rows = await write_or_defer(
+        await write_or_defer(
             graph_store,
             set_chunk_embedding_query("embedding"),
             records,
@@ -1109,50 +988,6 @@ async def _embed_and_upsert_chunks(
                 span_id=span_id,
             )
         ]
-    if vector_store is not None:
-        vector_records = []
-        # A deferred row still matches: the commit applies it, so its vector
-        # belongs in the mirror.
-        matched_ids = {
-            UUID(str(row["id"]))
-            for row in matched_rows
-            if isinstance(row, dict) and row.get("id")
-        }
-        for ch in chunks:
-            if ch.id not in matched_ids:
-                ch.embedding = None
-                continue
-            if ch.id is None or not ch.embedding:
-                continue
-            vector_records.append(
-                _vector_record(
-                    ch.id,
-                    ch.embedding,
-                    label=CHUNK_LABEL,
-                    text=ch.text,
-                    properties={"document_id": str(ch.document_id)},
-                )
-            )
-        try:
-            await _upsert_vectors(
-                vector_store,
-                vector_collection,
-                vector_records,
-                pending_job_id=pending_job_id,
-            )
-        except Exception as exc:  # noqa: BLE001
-            if error_policy is ErrorPolicy.RAISE:
-                raise
-            trace_id, span_id = record_stage_failure(exc)
-            return [
-                StageFailure(
-                    item_id="chunk_vector_store",
-                    error_type=type(exc).__name__,
-                    error_message=str(exc),
-                    trace_id=trace_id,
-                    span_id=span_id,
-                )
-            ]
     return []
 
 
@@ -1162,9 +997,6 @@ async def _embed_and_upsert_survivors(
     embedder: Embedder,
     graph_store: GraphStore,
     error_policy: ErrorPolicy,
-    vector_store: VectorStore | None = None,
-    vector_collection: str = "",
-    labels_by_id: dict[UUID, str] | None = None,
     pending_job_id: UUID | str | None = None,
     deferred: DeferredWrites | None = None,
 ) -> list[StageFailure]:
@@ -1194,14 +1026,6 @@ async def _embed_and_upsert_survivors(
     too few vectors into the same failure path, rather than silently
     leaving the trailing entities' embeddings stale.
 
-    When vector_store is set, each mirrored record also carries the
-    survivor's own properties, since a SearchFilters property filter is
-    compiled into the payload there but into a node-property match on the
-    GraphStore-native path. A failed mirror upsert leaves the collection
-    untouched, for the reason _embed_and_upsert_chunks gives: removing the
-    records this call failed to replace would race a concurrent call that
-    owns them.
-
     Args:
         survivors: The entities to embed, keyed by id.
         embedder: Computes one vector per entity's embedding_text.
@@ -1209,16 +1033,9 @@ async def _embed_and_upsert_survivors(
             embedding property, are written.
         error_policy: RAISE propagates the failure after clearing; any
             other policy returns it instead.
-        vector_store: Optional second write target; None does nothing.
-        vector_collection: The VectorStore collection to write into.
-            Ignored when vector_store is None.
-        labels_by_id: Maps each survivor id to its label for the
-            VectorStore payload. Survivors missing from the map are
-            written with an empty label. Ignored when vector_store is
-            None.
-        pending_job_id: The in-flight job's id, mirrored into vector
-            payloads until that job commits. None writes untagged
-            payloads, for callers outside a job.
+        pending_job_id: The in-flight job's id, written onto each entity's
+            embedding until that job commits. None writes untagged
+            embeddings, for callers outside a job.
         deferred: Receives the vector writes over committed entities. None
             outside a job.
 
@@ -1239,7 +1056,7 @@ async def _embed_and_upsert_survivors(
             records.append(
                 {**_embedding_guard_fields(ent), "pending_job_id": job, "vector": vec}
             )
-        matched_rows = await write_or_defer(
+        await write_or_defer(
             graph_store,
             set_embedding_query("embedding"),
             records,
@@ -1269,44 +1086,4 @@ async def _embed_and_upsert_survivors(
                 span_id=span_id,
             )
         ]
-    if vector_store is not None:
-        label_map = labels_by_id or {}
-        # A deferred row still matches: the commit applies it, so its vector
-        # belongs in the mirror.
-        matched_ids = {
-            UUID(str(row["id"]))
-            for row in matched_rows
-            if isinstance(row, dict) and row.get("id")
-        }
-        vector_records = [
-            _vector_record(
-                ent.id,
-                ent.embedding or [],
-                label=label_map.get(ent.id, ""),
-                text=ent.embedding_text,
-                properties=dict(ent.properties),
-            )
-            for ent in survivors.values()
-            if ent.id in matched_ids
-        ]
-        try:
-            await _upsert_vectors(
-                vector_store,
-                vector_collection,
-                vector_records,
-                pending_job_id=pending_job_id,
-            )
-        except Exception as exc:  # noqa: BLE001
-            if error_policy is ErrorPolicy.RAISE:
-                raise
-            trace_id, span_id = record_stage_failure(exc)
-            return [
-                StageFailure(
-                    item_id="entity_vector_store",
-                    error_type=type(exc).__name__,
-                    error_message=str(exc),
-                    trace_id=trace_id,
-                    span_id=span_id,
-                )
-            ]
     return []

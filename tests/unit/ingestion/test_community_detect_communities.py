@@ -8,11 +8,6 @@ small enough to split the same way on every run.
 from unittest.mock import AsyncMock, MagicMock
 from uuid import UUID, uuid4
 
-import pytest
-
-from agrag.ingestion.community import detect_communities
-from agrag.retrieval.settings import RetrievalSettings
-
 
 def _entity_node(entity_id: UUID, name: str) -> dict[str, object]:
     return {"id": str(entity_id), "merge_key": f"Person:{name}", "name": name}
@@ -52,12 +47,6 @@ def _graph_store(
     return store, transaction
 
 
-def _vector_store() -> AsyncMock:
-    store = AsyncMock()
-    store.scroll.return_value = ([], None)
-    return store
-
-
 def _embedder() -> AsyncMock:
     embedder = AsyncMock()
     embedder.embed.side_effect = lambda texts: [[0.1, 0.2] for _ in texts]
@@ -74,27 +63,3 @@ def _two_triangles() -> tuple[list[UUID], list[tuple[UUID, UUID]]]:
 
 class TestDetectCommunities:
     """detect_communities reads, clusters and writes through the stores."""
-
-    @pytest.mark.parametrize("failing_call", ["scroll", "upsert"])
-    async def test_vector_store_failure_is_reported_not_raised(
-        self, failing_call: str
-    ) -> None:
-        """A vector store error lands in failures; the graph write stays."""
-        ids, edges = _two_triangles()
-        graph_store, transaction = _graph_store(ids, edges)
-        vector_store = _vector_store()
-        getattr(vector_store, failing_call).side_effect = RuntimeError("store down")
-
-        report = await detect_communities(
-            graph_store,
-            vector_store=vector_store,
-            embedder=_embedder(),
-            settings=RetrievalSettings(),
-            apply=True,
-        )
-
-        assert report.applied is True
-        assert len(report.communities) == 2
-        assert [f.item_id for f in report.failures] == ["community_vector_store"]
-        assert report.failures[0].error_type == "RuntimeError"
-        transaction.upsert_nodes.assert_awaited()
