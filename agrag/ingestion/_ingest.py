@@ -7,9 +7,8 @@ definition.
 
 import asyncio
 import contextlib
-import hashlib
 import logging
-from collections.abc import Awaitable, Callable, Iterable, Sequence
+from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
 from functools import partial as bind
 from uuid import UUID
 
@@ -28,6 +27,7 @@ from agrag.common.data_models.extraction import ExtractedEntity, ExtractedRelati
 from agrag.common.data_models.graph_record import DeferredWrites
 from agrag.common.data_models.graph_schema import GraphSchema
 from agrag.common.data_models.stage_failure import StageFailure, cap_failures
+from agrag.common.data_models.structure import version_id
 from agrag.common.data_models.update_decision import UpdateDecision
 from agrag.common.schema_fingerprint import RunRecord
 from agrag.cypher.documents import update_document_dates_query
@@ -35,7 +35,10 @@ from agrag.cypher.relations import entities_in_documents_query
 from agrag.embedding.base import Embedder
 from agrag.graphdb.base import GraphStore, GraphStoreTransaction
 from agrag.ingestion._cutover import InPlaceRefresh, run_cutover_job
-from agrag.ingestion._document_lifecycle import find_document
+from agrag.ingestion._document_lifecycle import (
+    DocumentChange,
+    find_document,
+)
 from agrag.ingestion._ingest_pipeline import (
     ExtractionBatch,
     extract_chunks,
@@ -275,6 +278,16 @@ def _group_by_document(  # noqa: PLR0912,PLR0917
     ]
 
 
+def _sum_chunking(parts: Sequence[ChunkingStats]) -> ChunkingStats:
+    """Add the chunking summaries of several parts of one call."""
+    return ChunkingStats(
+        chunks=sum(part.chunks for part in parts),
+        sections=sum(part.sections for part in parts),
+        tables=sum(part.tables for part in parts),
+        figures=sum(part.figures for part in parts),
+    )
+
+
 def _merge_add_results(
     results: list[AddResult],
     *,
@@ -464,6 +477,7 @@ async def _commit_batch(  # noqa: PLR0913
     max_llm_pairs: int,
     write_candidates: bool,
     cleanup: CleanupStep,
+    previous_hashes: Mapping[str, str | None],
 ) -> list[AddResult]:
     """Write one extracted walk batch as one Cutover Job per document.
 
@@ -486,6 +500,9 @@ async def _commit_batch(  # noqa: PLR0913
         max_llm_pairs: The cap on LLM-judged entity pairs per document.
         write_candidates: Whether candidates are written to the graph.
         cleanup: The post-commit cleanup step of each Cutover Job.
+        previous_hashes: The content hash each key held before this call, for
+            keys that have a stored Document node. Keys missing from the
+            mapping are first adds.
 
     Returns:
         One AddResult per document, in document order.
@@ -581,6 +598,8 @@ async def _commit_batch(  # noqa: PLR0913
             return ingested.add_result
 
         pending_write = bind(_pending, created_ids=created_entity_ids)
+        added = doc_documents[0]
+        document_node_id = Document.node_id_for(document_key=document_key)
         partial, cleanup_failures, _ = await run_cutover_job(
             verb="add",
             document_key=document_key,
@@ -594,7 +613,15 @@ async def _commit_batch(  # noqa: PLR0913
             components=components,
             deferred=deferred,
             created_entity_ids=created_entity_ids,
-            candidate_document_node_id=Document.node_id_for(document_key=document_key),
+            candidate_document_node_id=document_node_id,
+            change=DocumentChange(
+                document_node_id=document_node_id,
+                document_key=document_key,
+                verb="add",
+                content_hash=added.content_hash,
+                previous_content_hash=previous_hashes.get(document_key),
+                version_id=version_id(added),
+            ),
             tracer=tracer,
         )
         partials.append(_with_cleanup_failures(partial, cleanup_failures))
@@ -649,6 +676,13 @@ async def add_documents(  # noqa: PLR0912,PLR0915,PLR0913
         document_keys_seen: set[str] = set()
         escalation_reports: list[EscalationReport] = []
         partials: list[AddResult] = []
+        routed_chunking: list[ChunkingStats] = []
+        unchanged_documents = 0
+
+        def _call_chunking() -> ChunkingStats:
+            return _sum_chunking(
+                [ChunkingStats.from_documents(documents_seen, chunks), *routed_chunking]
+            )
 
         def _record_document_keys(batch: Sequence[Document]) -> None:
             for document in batch:
@@ -669,13 +703,14 @@ async def add_documents(  # noqa: PLR0912,PLR0915,PLR0913
                 documents=final_stats.documents,
                 sources=final_stats.sources,
                 skipped=final_stats.skipped,
+                unchanged=unchanged_documents,
                 quarantined=final_stats.quarantined,
                 quarantined_items=list(final_stats.quarantined_items),
             )
             return _merge_add_results(
                 partials,
                 ingestion=ingest,
-                chunking=ChunkingStats.from_documents(documents_seen, chunks),
+                chunking=_call_chunking(),
                 escalation=EscalationReport.merge(escalation_reports),
             )
 
@@ -689,14 +724,61 @@ async def add_documents(  # noqa: PLR0912,PLR0915,PLR0913
             loader=loader,
             tracer=tracer,
         ):
-            # Stamp before chunking: the schema fingerprint is part of the version id.
-            batch = [run.stamp(document) for document in loaded_batch]
-            _record_document_keys(batch)
+            _record_document_keys(loaded_batch)
             final_stats.documents = stats.documents
             final_stats.sources = stats.sources
             final_stats.skipped = stats.skipped
             final_stats.quarantined = stats.quarantined
             final_stats.quarantined_items = list(stats.quarantined_items)
+            # A key that already has a current version is an update, so the
+            # decision the update path makes decides whether anything is written.
+            previous_hashes: dict[str, str | None] = {}
+            new_documents: list[Document] = []
+            for document in loaded_batch:
+                document_key = document.resolved_document_key
+                found = await find_document(graph_store, document_key=document_key)
+                if found is None:
+                    new_documents.append(document)
+                    continue
+                previous_hashes[document_key] = found.current_content_hash
+                if not found.has_open_chunks:
+                    new_documents.append(document)
+                    continue
+                updated = await update_document(
+                    document_key,
+                    text=None,
+                    source=None,
+                    document=document,
+                    loader=None,
+                    error_policy=error_policy,
+                    read_options=read_options,
+                    force=False,
+                    schema=schema,
+                    run=run,
+                    graph_store=graph_store,
+                    embedder=embedder,
+                    extractor=extractor,
+                    llm_extractor=llm_extractor,
+                    extraction_settings=extraction_settings,
+                    vector_store=vector_store,
+                    retrieval_settings=retrieval_settings,
+                    cutover_settings=cutover_settings,
+                    chunker=chunker,
+                    registry=registry,
+                    embed_heading_path=embed_heading_path,
+                    max_llm_pairs=max_llm_pairs,
+                    write_candidates=write_candidates,
+                    cleanup=cleanup,
+                    tracer=tracer,
+                )
+                if updated.no_op:
+                    unchanged_documents += 1
+                if updated.add_result is not None:
+                    partials.append(updated.add_result)
+                    routed_chunking.append(updated.add_result.chunking)
+                    escalation_reports.append(updated.add_result.escalation)
+            # Stamp before chunking: the schema fingerprint is part of the version id.
+            batch = [run.stamp(document) for document in new_documents]
             chunk_batch = await asyncio.to_thread(
                 chunk_documents, batch, chunker=chunker, tracer=tracer
             )
@@ -739,6 +821,7 @@ async def add_documents(  # noqa: PLR0912,PLR0915,PLR0913
                     max_llm_pairs=max_llm_pairs,
                     write_candidates=write_candidates,
                     cleanup=cleanup,
+                    previous_hashes=previous_hashes,
                 )
             )
             if on_progress is not None:
@@ -750,13 +833,14 @@ async def add_documents(  # noqa: PLR0912,PLR0915,PLR0913
             documents=final_stats.documents,
             sources=final_stats.sources,
             skipped=final_stats.skipped,
+            unchanged=unchanged_documents,
             quarantined=final_stats.quarantined,
             quarantined_items=list(final_stats.quarantined_items),
         )
         result = _merge_add_results(
             partials,
             ingestion=ingestion,
-            chunking=ChunkingStats.from_documents(documents_seen, chunks),
+            chunking=_call_chunking(),
             escalation=EscalationReport.merge(escalation_reports),
         )
 
@@ -812,7 +896,6 @@ async def update_document(  # noqa: PLR0913
                 )
         elif text is not None:
             normalized, normalization = normalize_inline_text(text, opts)
-            content_hash = hashlib.sha256(normalized.encode("utf-8")).hexdigest()
             document = build_prose_document(
                 source=SourceRef(uri=document_key, extension=".txt"),
                 text=normalized,
@@ -822,7 +905,6 @@ async def update_document(  # noqa: PLR0913
                 opts=opts,
                 title="inline",
                 sections=text_sections(normalized),
-                content_hash=content_hash,
             ).model_copy(
                 update={"normalization": normalization, "document_key": document_key}
             )
@@ -840,7 +922,10 @@ async def update_document(  # noqa: PLR0913
             if len(documents_from_source) != 1:
                 raise ValueError("The source must produce exactly one document.")
             document = documents_from_source[0].model_copy(
-                update={"document_key": document_key}
+                update={
+                    "document_key": document_key,
+                    "id": Document.node_id_for(document_key=document_key),
+                }
             )
         document = run.stamp(document)
 
@@ -850,6 +935,7 @@ async def update_document(  # noqa: PLR0913
             if found is None
             else found.decide(
                 content_hash=document.content_hash,
+                version_id=version_id(document),
                 chunker_hash=chunker.fingerprint,
                 run=run,
                 force=force,
@@ -963,6 +1049,20 @@ async def update_document(  # noqa: PLR0913
             keep_node_ids.extend(batch.structure_node_ids)
             return batch.add_result
 
+        change = (
+            None
+            if in_place
+            else DocumentChange(
+                document_node_id=Document.node_id_for(document_key=document_key),
+                document_key=document_key,
+                verb="add" if found is None else "update",
+                content_hash=document.content_hash,
+                previous_content_hash=(
+                    found.current_content_hash if found is not None else None
+                ),
+                version_id=version_id(document),
+            )
+        )
         add_result, cleanup_failures, parts_closed = await run_cutover_job(
             verb="update",
             document_key=document_key,
@@ -1003,6 +1103,7 @@ async def update_document(  # noqa: PLR0913
                 if found is not None
                 else Document.node_id_for(document_key=document_key)
             ),
+            change=change,
         )
         return UpdateResult(
             document_key=document_key,
@@ -1039,6 +1140,18 @@ async def delete_document(  # noqa: PLR0913
             graph_store, found.document_node_id
         )
 
+        change = (
+            DocumentChange(
+                document_node_id=found.document_node_id,
+                document_key=document_key,
+                verb="delete",
+                content_hash=None,
+                previous_content_hash=found.current_content_hash,
+                version_id=None,
+            )
+            if found.has_open_chunks
+            else None
+        )
         _, _, parts_closed = await run_cutover_job(
             verb="delete_document",
             document_key=document_key,
@@ -1052,6 +1165,7 @@ async def delete_document(  # noqa: PLR0913
             deferred=DeferredWrites(),
             close_document_node_id=found.document_node_id,
             candidate_document_node_id=found.document_node_id,
+            change=change,
             tracer=tracer,
         )
         return UpdateResult(

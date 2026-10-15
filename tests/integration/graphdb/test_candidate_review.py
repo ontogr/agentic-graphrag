@@ -153,7 +153,12 @@ class TestCandidateReview:
             )
             assert len(groups) == 1
             assert groups[0].count == 1
-            visible_page = await list_candidates(store, schema=DEFAULT_SCHEMA, limit=1)
+            visible_page = await list_candidates(
+                store,
+                CandidateQuery(kind="entity", label="ReviewNovelEntity"),
+                schema=DEFAULT_SCHEMA,
+                limit=1,
+            )
             assert len(visible_page) == 1
             assert visible_page[0].candidate.label == "ReviewNovelEntity"
             approval = await approve_candidates(

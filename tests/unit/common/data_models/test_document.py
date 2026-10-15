@@ -1,8 +1,12 @@
 """Tests for the Document domain model's graph-node identity and persistence.
 
 Covers ``node_id_for``'s collision resistance, ``document_key`` defaulting to
-``uri``, and ``to_node_record()`` omitting the document body.
+``uri``, ``Document.id`` following the node id of the document key, and
+``to_node_record()`` omitting the document body.
 """
+
+from typing import Any
+from uuid import uuid4
 
 import pytest
 from pydantic import ValidationError
@@ -17,19 +21,19 @@ from agrag.common.data_models.document import (
 )
 
 
-def _doc(*, uri: str = "u", document_key: str | None = None) -> Document:
-    return Document(
-        text="hello world",
-        title="t",
-        uri=uri,
-        source_format=SourceFormat.TXT,
-        family=DocumentFamily.PROSE,
-        content_hash="h",
-        loader_name="text",
-        char_count=11,
-        line_count=1,
-        document_key=document_key,
-    )
+def _doc(**fields: Any) -> Document:
+    values: dict[str, Any] = {
+        "text": "hello world",
+        "title": "t",
+        "uri": "u",
+        "source_format": SourceFormat.TXT,
+        "family": DocumentFamily.PROSE,
+        "content_hash": "h",
+        "loader_name": "text",
+        "char_count": 11,
+        "line_count": 1,
+    }
+    return Document(**(values | fields))
 
 
 class TestNodeIdFor:
@@ -48,6 +52,66 @@ class TestNodeIdFor:
         assert Document.node_id_for(document_key=key_a) != Document.node_id_for(
             document_key=key_b
         )
+
+
+class TestDocumentId:
+    """Document.id is the persisted Document node id of its document key."""
+
+    @pytest.mark.parametrize(
+        "fields",
+        [
+            pytest.param({"uri": "inline://abc"}, id="inline"),
+            pytest.param({"uri": "notes.txt"}, id="file"),
+            pytest.param(
+                {
+                    "uri": "rows.csv",
+                    "family": DocumentFamily.RECORD,
+                    "record_index": 3,
+                },
+                id="record-row",
+            ),
+            pytest.param(
+                {
+                    "uri": "rows.csv",
+                    "family": DocumentFamily.RECORD,
+                    "record_index": 3,
+                    "record_id": "row-3",
+                },
+                id="record-with-id",
+            ),
+        ],
+    )
+    def test_id_is_the_node_id_of_the_document_key(self, fields: dict) -> None:
+        """The id of every kind of document is its node id."""
+        document = _doc(**fields)
+
+        assert document.id == Document.node_id_for(
+            document_key=document.resolved_document_key
+        )
+
+    def test_identical_text_under_different_keys_gets_different_ids(self) -> None:
+        """Two documents with the same text but different keys keep distinct ids."""
+        first = _doc(uri="a.txt")
+        second = _doc(uri="b.txt")
+
+        assert first.content_hash == second.content_hash
+        assert first.id != second.id
+
+    def test_rejects_an_explicit_id_that_is_not_the_node_id(self) -> None:
+        """An explicit id must match the id of the document key."""
+        with pytest.raises(ValidationError, match="does not match"):
+            Document(
+                id=uuid4(),
+                text="hello world",
+                title="t",
+                uri="u",
+                source_format=SourceFormat.TXT,
+                family=DocumentFamily.PROSE,
+                content_hash="h",
+                loader_name="text",
+                char_count=11,
+                line_count=1,
+            )
 
 
 class TestResolvedDocumentKey:

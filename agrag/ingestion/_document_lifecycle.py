@@ -8,8 +8,9 @@ version.
 from __future__ import annotations
 
 from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import date
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 from uuid import UUID
 
 from pydantic import BaseModel
@@ -25,6 +26,36 @@ if TYPE_CHECKING:
     from agrag.graphdb.base import GraphStoreTransaction
 
 
+@dataclass(frozen=True, slots=True)
+class DocumentChange:
+    """A committed change to one document, written as an activation record.
+
+    The cutover job passes it to the commit transaction, which appends one
+    activation to the document's history in the same transaction that flips
+    its edges.
+
+    Attributes:
+        document_node_id: The id of the Document node the change applies to.
+        document_key: The stable key of the document.
+        verb: ``add`` for the first version of a key, ``update`` for a new
+            version that replaces the current one, or ``delete`` for a
+            soft deletion.
+        content_hash: The content hash of the new version, or ``None`` for a
+            delete.
+        previous_content_hash: The content hash of the version the change
+            replaces, or ``None`` when the key had no stored version.
+        version_id: The version id of the new version, or ``None`` for a
+            delete.
+    """
+
+    document_node_id: UUID
+    document_key: str
+    verb: Literal["add", "update", "delete"]
+    content_hash: str | None
+    previous_content_hash: str | None
+    version_id: str | None
+
+
 class DocumentLookup(BaseModel):
     """Persisted identity and the stamps of the newest open chunk of a document.
 
@@ -33,6 +64,8 @@ class DocumentLookup(BaseModel):
         current_content_hash: The content hash of the current version.
         has_open_chunks: Whether the current version has a committed chunk
             behind an open ``HAS_PART`` edge.
+        current_version_id: The version id on that edge, or ``None`` when the
+            document has no open chunk.
         current_chunker_hash: The chunker fingerprint recorded on that chunk,
             or ``None`` when it records none.
         current_schema_fingerprint: The schema fingerprint recorded on that
@@ -46,6 +79,7 @@ class DocumentLookup(BaseModel):
     document_node_id: UUID
     current_content_hash: str
     has_open_chunks: bool = False
+    current_version_id: str | None = None
     current_chunker_hash: str | None = None
     current_schema_fingerprint: str | None = None
     current_extraction_fingerprint: str | None = None
@@ -56,6 +90,7 @@ class DocumentLookup(BaseModel):
         self,
         *,
         content_hash: str,
+        version_id: str,
         chunker_hash: str,
         run: RunRecord,
         force: bool = False,
@@ -65,13 +100,14 @@ class DocumentLookup(BaseModel):
         """Pick the update outcome for a new input against the stored version.
 
         A document without an open chunk is always written as a new version.
-        So is any change to the content, the chunking or the schema. When those
-        match, the chunks are kept and re-extracted if forced or if the
-        extraction stamp differs or is missing. Date-only changes are written
-        without extraction.
+        So is any change to the content, the section structure, the chunking or
+        the schema. When those match, the chunks are kept and re-extracted if
+        forced or if the extraction stamp differs or is missing. Date-only
+        changes are written without extraction.
 
         Args:
             content_hash: The content hash of the new input.
+            version_id: The version id of the new input, from ``version_id``.
             chunker_hash: The chunker fingerprint of the new input.
             run: The run record of the new run.
             force: Whether to re-extract matching chunks.
@@ -84,6 +120,7 @@ class DocumentLookup(BaseModel):
         if (
             not self.has_open_chunks
             or self.current_content_hash != content_hash
+            or self.current_version_id != version_id
             or self.current_chunker_hash != chunker_hash
             or self.current_schema_fingerprint != run.schema_fingerprint
         ):
@@ -143,6 +180,7 @@ async def find_document(
         current_published_at=current_published_at,
         current_content_date=current_content_date,
         has_open_chunks=True,
+        current_version_id=_optional_str(run_row.get("version_id")),
         current_chunker_hash=_optional_str(run_row.get("chunker_hash")),
         current_schema_fingerprint=_optional_str(run_row.get("schema_fingerprint")),
         current_extraction_fingerprint=_optional_str(

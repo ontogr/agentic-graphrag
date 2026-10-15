@@ -35,6 +35,7 @@ from agrag.graphdb import build_graph_store
 from agrag.graphdb.base import GraphStore
 from agrag.ingestion.extract import Extractor
 from agrag.ingestion.graph import Graph
+from agrag.loaders.common import text_sections
 from agrag.loaders.types import ErrorPolicy
 from agrag.retrieval.recipes import ENTITY, Recipe
 from agrag.retrieval.search_engine import SearchEngine
@@ -155,6 +156,7 @@ def _document(key: str, text: str) -> Document:
         encoding="utf-8",
         char_count=len(normalized),
         line_count=normalized.count("\n") + 1,
+        sections=text_sections(normalized),
     )
 
 
@@ -389,8 +391,9 @@ class TestDocumentLifecycleE2E:
         # Step 3: change document a. The old version closes, entities only the
         # old text supported go away, and shared entities stay.
         updated = await env.graph.update(key_a, text=text_a2)
+        # Each version has one chunk edge and one section edge.
         assert updated.no_op is False
-        assert updated.parts_closed == 1
+        assert updated.parts_closed == 2
         assert updated.previous_content_hash == _content_hash(text_a1)
         assert updated.new_content_hash == _content_hash(text_a2)
         assert updated.add_result is not None
@@ -427,7 +430,7 @@ class TestDocumentLifecycleE2E:
         # because the new version of document a still mentions it.
         deleted = await env.graph.delete_document(key_b)
         assert deleted.no_op is False
-        assert deleted.parts_closed == 1
+        assert deleted.parts_closed == 2
         assert deleted.new_content_hash is None
         after_delete = await env.snapshot()
         assert after_delete["entities"] == ["Headache", "Inflammation", "Naproxen"]
@@ -462,7 +465,7 @@ class TestDocumentLifecycleE2E:
         updated = await env.graph.update(key, text=after)
 
         assert updated.no_op is False
-        assert updated.parts_closed == 1
+        assert updated.parts_closed == 2
         state = await env.snapshot()
         assert state["open_topics"] == {
             "a": ["headache+naproxen"],

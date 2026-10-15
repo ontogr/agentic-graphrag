@@ -4,6 +4,7 @@ The PDF download and the Docling conversion are patched, so no network and no
 model is needed.
 """
 
+import hashlib
 from importlib.metadata import PackageNotFoundError
 from pathlib import Path
 
@@ -135,7 +136,11 @@ class TestDocuments:
         assert documents[0].text.startswith("# A_2022_10K.pdf")
         assert documents[0].source_format is SourceFormat.PDF
         assert documents[0].family is DocumentFamily.PROSE
-        assert documents[0].content_hash == f"{0:064d}"
+        assert documents[0].source_hash == f"{0:064d}"
+        assert (
+            documents[0].content_hash
+            == hashlib.sha256(documents[0].text.encode("utf-8")).hexdigest()
+        )
         assert documents[0].loader_name == "docling"
 
     def test_a_second_call_reuses_the_cached_conversion(self, tmp_path, monkeypatch):
