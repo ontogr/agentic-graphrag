@@ -79,6 +79,7 @@ RESERVED_RELATION_TYPES = frozenset(
         "HAS_PART",
         "HAS_CHILD",
         "HAS_DOCUMENT",
+        "HAS_ACTIVATION",
         "NEXT_CHUNK",
         "MENTIONED_IN",
         "MEMBER_OF",

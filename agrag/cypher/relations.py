@@ -10,7 +10,9 @@ from typing import Any, Literal
 from agrag.common.data_models.candidate import CANDIDATE_EDGE_TYPES
 from agrag.common.data_models.graph_record import PENDING_JOB_ID_PROPERTY
 from agrag.common.data_models.structure import (
+    DOCUMENT_ACTIVATION_LABEL,
     FIGURE_LABEL,
+    HAS_ACTIVATION,
     HAS_CHILD,
     HAS_DOCUMENT,
     HAS_PART,
@@ -33,10 +35,15 @@ from agrag.cypher.entities import (
 TraversalDirection = Literal["outgoing", "incoming", "both"]
 
 
-_STRUCTURE_RELATIONS = (HAS_PART, HAS_CHILD, HAS_DOCUMENT)
-# Task memory edges. They never join the entity graph, so readers skip them.
+_STRUCTURE_RELATIONS = (HAS_PART, HAS_CHILD, HAS_DOCUMENT, HAS_ACTIVATION)
 _MEMORY_RELATIONS = (HAS_EVENT, HAS_STEP)
-_STRUCTURE_LABELS = (SECTION_LABEL, TABLE_LABEL, FIGURE_LABEL, SOURCE_LABEL)
+_STRUCTURE_LABELS = (
+    SECTION_LABEL,
+    TABLE_LABEL,
+    FIGURE_LABEL,
+    SOURCE_LABEL,
+    DOCUMENT_ACTIVATION_LABEL,
+)
 
 
 def _cypher_string_list(values: Sequence[str]) -> str:
@@ -191,8 +198,8 @@ def bfs_expand_query(
     cross. Neo4j does not accept a parameter for relationship types
     either, so each type is validated and formatted into the pattern.
     None or empty crosses every type except the structure types
-    (``HAS_PART``, ``HAS_CHILD``, ``HAS_DOCUMENT``); pass those explicitly
-    to opt in to crossing them.
+    (``HAS_PART``, ``HAS_CHILD``, ``HAS_DOCUMENT``, ``HAS_ACTIVATION``); pass
+    those explicitly to opt in to crossing them.
 
     ``direction`` picks which way each hop walks: relationships leaving
     the seed (``"outgoing"``), entering it (``"incoming"``), or either
@@ -209,7 +216,8 @@ def bfs_expand_query(
     Result nodes are restricted to entities that carry the identity label
     (``NODE_IDENTITY_LABEL``) and are **not** ``Chunk`` nodes: chunks are
     intermediate path nodes only, never returned as BFS results. Section,
-    Table, Figure and Source nodes are never returned either. Every path node
+    Table, Figure, Source and DocumentActivation nodes are never returned
+    either. Every path node
     must carry the identity label, so paths cannot cross candidates.
 
     Args:

@@ -110,6 +110,13 @@ class TestIds:
 
         assert version_id(base) != version_id(schema_changed)
 
+    def test_version_id_follows_the_section_structure(self) -> None:
+        """The same content cut into sections is a different version."""
+        flat = sectioned_document([], content_hash="a")
+        sectioned = sectioned_document(_tree(), content_hash="a")
+
+        assert version_id(flat) != version_id(sectioned)
+
     def test_version_id_ignores_the_extraction_fingerprint(self) -> None:
         """A change of extraction setup keeps the version and its chunk ids."""
         base = sectioned_document([], content_hash="a")

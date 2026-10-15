@@ -14,6 +14,7 @@ A graph database backend: schema, writes, and native vector search.
 - [**blocked_candidate_keys**](#agrag-graphdb-base-GraphStore-blocked_candidate_keys) – Return candidate keys with a committed non-pending record.
 - [**close**](#agrag-graphdb-base-GraphStore-close) – Release the backend connection.
 - [**connect**](#agrag-graphdb-base-GraphStore-connect) – Open the backend connection and verify connectivity.
+- [**ensure_fulltext_index**](#agrag-graphdb-base-GraphStore-ensure_fulltext_index) – Create a full-text index over node properties if it does not exist.
 - [**ensure_vector_index**](#agrag-graphdb-base-GraphStore-ensure_vector_index) – Create a native vector index if it does not exist.
 - [**execute_read**](#agrag-graphdb-base-GraphStore-execute_read) – Run a read transaction.
 - [**execute_write**](#agrag-graphdb-base-GraphStore-execute_write) – Run a write transaction.
@@ -51,6 +52,29 @@ connect() -> None
 ```
 
 Open the backend connection and verify connectivity.
+
+## `ensure_fulltext_index` \{#agrag-graphdb-base-GraphStore-ensure_fulltext_index}
+
+```python
+ensure_fulltext_index(*, label:str, properties:Sequence[str]) -> None
+```
+
+Create a full-text index over node properties if it does not exist.
+
+The index is built from the node text of the given properties. Its
+name is derived from the label and the properties, so a repeated call
+with the same arguments does nothing.
+
+**Parameters:**
+
+- **label** (<code>str</code>) – The node label to index.
+- **properties** (<code>Sequence\[str\]</code>) – The property names to index. Each must be a safe
+  identifier.
+
+**Raises:**
+
+- <code>ValueError</code> – `properties` is empty, or a name is not a safe
+  identifier.
 
 ## `ensure_vector_index` \{#agrag-graphdb-base-GraphStore-ensure_vector_index}
 

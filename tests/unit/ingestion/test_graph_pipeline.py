@@ -177,6 +177,10 @@ class MockStore(CutoverJobLeaseFake, GraphStore):
         """No-op vector index creation."""
         pass
 
+    async def ensure_fulltext_index(self, **kw: Any) -> None:
+        """No-op full-text index creation."""
+        pass
+
     async def vector_search(self, **kw: Any) -> list[VectorHit]:
         """Return no hits."""
         return []
@@ -1162,7 +1166,9 @@ class TestGraphAddPipeline:
         eid = uuid4()
         cid = uuid4()
         store = MockStore()
+        # The first read is the add's document lookup, which finds no stored key.
         store.execute_read_responses = [
+            [],
             [
                 {
                     "n": {
@@ -1174,7 +1180,7 @@ class TestGraphAddPipeline:
                         "created_at": "2020-01-01T00:00:00+00:00",
                     }
                 }
-            ]
+            ],
         ]
 
         class AliceExtractor(Extractor):

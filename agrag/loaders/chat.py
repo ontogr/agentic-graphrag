@@ -10,6 +10,7 @@ from agrag.loaders.base import ProseLoader
 from agrag.loaders.common import (
     build_prose_document,
     paragraph_units,
+    raw_source_hash,
     read_within_limit,
     source_title,
 )
@@ -146,6 +147,7 @@ class ChatLoader(ProseLoader):
             opts=opts,
             title=source_title(source),
             sections=sections,
+            source_hash=raw_source_hash(raw),
         )
 
     @staticmethod

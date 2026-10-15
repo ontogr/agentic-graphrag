@@ -45,6 +45,7 @@ from agrag.cypher.schema import (
     candidate_state_index_query,
     cutover_job_document_key_constraint_query,
     cutover_job_status_index_query,
+    fulltext_index_query,
     list_relation_types_query,
     merge_alias_constraint_query,
     merge_key_constraint_name,
@@ -172,20 +173,24 @@ def _serialize_param_value(value: Any) -> str:
     return str(value)
 
 
+# Parameters that carry user search text. They never become span attributes.
+_UNTRACED_PARAMETERS = frozenset({"fulltext_terms"})
+
+
 def _query_parameter_attributes(
     parameters: Mapping[str, Any] | None,
 ) -> dict[str, str]:
     """Build ``db.query.parameter.<key>`` span attributes.
 
-    Skips vector-valued parameters and strips vector-valued fields
-    from nested dictionaries (including nested record dicts) before
-    serializing each value to a string.
+    Skips vector-valued parameters, skips the untraced user-text parameters, and
+    strips vector-valued fields from nested dictionaries (including nested record
+    dicts) before serializing each value to a string.
     """
     if not parameters:
         return {}
     attributes: dict[str, str] = {}
     for key, value in parameters.items():
-        if _is_vector_value(value):
+        if _is_vector_value(value) or key in _UNTRACED_PARAMETERS:
             continue
         attributes[f"{DB_QUERY_PARAMETER_PREFIX}{key}"] = _serialize_param_value(
             _strip_vector_fields(value)
@@ -1091,6 +1096,25 @@ class Neo4jGraphStore(GraphStore):
             raise EmbeddingDimensionMismatchError(
                 expected=rows[0]["dimensions"], actual=dimensions
             )
+
+    async def ensure_fulltext_index(
+        self, *, label: str, properties: Sequence[str]
+    ) -> None:
+        """Create a full-text index over node properties if it does not exist.
+
+        A concurrent creator can commit the same index after this operation
+        starts. Neo4j reports that race as an equivalent-schema error, which
+        means the requested index already exists.
+        """
+        from neo4j.exceptions import ClientError  # noqa: PLC0415
+
+        query = fulltext_index_query(label, properties)
+        self._known_labels.add(label)
+        try:
+            await self.execute_write(query)
+        except ClientError as exc:
+            if exc.code != _EQUIVALENT_SCHEMA_RULE_ERROR:
+                raise
 
     async def vector_search(
         self,
