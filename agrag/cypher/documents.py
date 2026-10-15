@@ -169,10 +169,11 @@ def document_mentioned_entities_query() -> str:
 def purge_relation_evidence_query() -> str:
     """Build Cypher removing every version's chunks from relation evidence.
 
-    Walks the entities the document's chunks mention and strips their chunk ids
-    from each relation's ``source_chunk_ids``. A relation left with no evidence
-    is deleted. Must run before the chunks are deleted, since it reads the
-    ``MENTIONED_IN`` edges.
+    Matches relations by their ``source_chunk_ids`` directly, so a relation is
+    found even when no chunk of the document still mentions its endpoints. Strips
+    the document's chunk ids from each matched relation, and deletes a relation
+    left with no evidence. Must run before the chunks are deleted, since it reads
+    their ids.
 
     Returns:
         Parameterized Cypher expecting ``$document_node_id``. Returns ``deleted``,
@@ -180,12 +181,9 @@ def purge_relation_evidence_query() -> str:
     """
     return (
         f"MATCH (c:{NODE_IDENTITY_LABEL}:{CHUNK_LABEL} "
-        "{document_id: $document_node_id})"
-        f"-[:MENTIONED_IN]->(entity:{NODE_IDENTITY_LABEL}) "
-        "WITH collect(DISTINCT c.id) AS chunk_ids, "
-        "collect(DISTINCT entity) AS entities "
-        "UNWIND entities AS entity "
-        f"MATCH (entity)-[r]-(:{NODE_IDENTITY_LABEL}) "
+        "{document_id: $document_node_id}) "
+        "WITH collect(DISTINCT c.id) AS chunk_ids "
+        "MATCH ()-[r]->() "
         "WHERE r.source_chunk_ids IS NOT NULL "
         "AND any(cid IN r.source_chunk_ids WHERE cid IN chunk_ids) "
         "SET r.source_chunk_ids = "
@@ -194,6 +192,30 @@ def purge_relation_evidence_query() -> str:
         "WITH collect(r) AS doomed "
         "FOREACH (relation IN doomed | DETACH DELETE relation) "
         "RETURN size(doomed) AS deleted"
+    )
+
+
+def document_cited_relation_endpoints_query() -> str:
+    """Build Cypher listing the endpoints of relations that cite the document.
+
+    These are the entities a purge may leave without evidence even when no chunk
+    still mentions them, so they are offered to the pruning pass with the mentioned
+    entities.
+
+    Returns:
+        Parameterized Cypher expecting ``$document_node_id``. Returns ``id``, one
+        row per entity.
+    """
+    return (
+        f"MATCH (c:{NODE_IDENTITY_LABEL}:{CHUNK_LABEL} "
+        "{document_id: $document_node_id}) "
+        "WITH collect(DISTINCT c.id) AS chunk_ids "
+        f"MATCH (a:{NODE_IDENTITY_LABEL})-[r]->(b:{NODE_IDENTITY_LABEL}) "
+        "WHERE r.source_chunk_ids IS NOT NULL "
+        "AND any(cid IN r.source_chunk_ids WHERE cid IN chunk_ids) "
+        "WITH collect(DISTINCT a) + collect(DISTINCT b) AS ends "
+        "UNWIND ends AS entity "
+        "RETURN DISTINCT entity.id AS id"
     )
 
 

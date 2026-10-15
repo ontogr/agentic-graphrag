@@ -311,9 +311,9 @@ async def _purge_document_content(
 ) -> None:
     """Hard-delete every version's content of one document inside the commit.
 
-    The relation evidence is stripped first, because it reads the mention
-    edges that the node delete removes. Pending candidates that cite the chunks
-    go next, then the chunk, section, table and figure nodes.
+    The relation evidence is stripped first, while the chunk ids it cites are
+    still on the chunks. Pending candidates that cite the chunks go next, then
+    the chunk, section, table and figure nodes.
     """
     params = {"document_node_id": str(document_node_id)}
     await txn.execute_write(purge_relation_evidence_query(), params)

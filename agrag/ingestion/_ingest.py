@@ -32,6 +32,7 @@ from agrag.common.data_models.update_decision import UpdateDecision
 from agrag.common.schema_fingerprint import RunRecord
 from agrag.cypher.documents import (
     document_chunk_count_query,
+    document_cited_relation_endpoints_query,
     document_mentioned_entities_query,
     update_document_dates_query,
 )
@@ -1166,7 +1167,12 @@ async def purge_document(  # noqa: PLR0913
         mentioned = await graph_store.execute_read(
             document_mentioned_entities_query(), document_params
         )
-        affected = [UUID(str(row["id"])) for row in mentioned]
+        cited = await graph_store.execute_read(
+            document_cited_relation_endpoints_query(), document_params
+        )
+        affected = list(
+            dict.fromkeys(UUID(str(row["id"])) for row in [*mentioned, *cited])
+        )
         change = DocumentChange(
             document_node_id=found.document_node_id,
             document_key=document_key,

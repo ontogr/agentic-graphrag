@@ -11,6 +11,7 @@ import unicodedata
 from uuid import uuid4
 
 from agrag.chunking import Chunker
+from agrag.common.data_models.candidate import CandidateRecord
 from agrag.common.data_models.chunk import Chunk
 from agrag.common.data_models.default_schema import DEFAULT_SCHEMA
 from agrag.common.data_models.document import (
@@ -38,18 +39,40 @@ from tests.integration.retrieval.evidence._corpus import BagOfWordsEmbedder
 
 
 class _ProbeGraphExtractor(Extractor):
-    """Mention a person and an organization, linked, in chunks with a trigger word."""
+    """Mention a person and an organization, linked, in chunks with a trigger word.
 
-    def __init__(self, name: str, triggers: tuple[str, ...]) -> None:
+    With ``describe`` set, a chunk naming the probe gives its mentions a description
+    and proposes a pending candidate, so the purge must clear that text too.
+    """
+
+    def __init__(
+        self, name: str, triggers: tuple[str, ...], *, describe: bool = False
+    ) -> None:
         """Remember the entity names built from ``name`` and the trigger words."""
+        self._name = name
         self._person = f"Zzxqy {name}"
         self._organization = f"Zzxqy Harbor {name}"
         self._triggers = triggers
+        self._describe = describe
 
     async def extract(self, chunk: Chunk, schema: GraphSchema) -> ExtractionResult:
         """Mention the person, the organization and their link when triggered."""
         if not any(trigger in chunk.text for trigger in self._triggers):
             return ExtractionResult(entities=[], relations=[], extractor_name="probe")
+        properties: dict[str, object] = {}
+        candidates: list[CandidateRecord] = []
+        if self._describe and self._name in chunk.text:
+            properties = {"description": f"{self._name} dredging ledger"}
+            candidates = [
+                CandidateRecord(
+                    kind="entity",
+                    label="Person",
+                    text=f"{self._name} candidate",
+                    confidence=0.5,
+                    reason="entity_band",
+                    chunk_id=chunk.id,  # type: ignore[arg-type]
+                )
+            ]
         entities = [
             ExtractedEntity(
                 chunk_id=chunk.id,  # type: ignore[arg-type]
@@ -57,6 +80,7 @@ class _ProbeGraphExtractor(Extractor):
                 text=self._person,
                 char_start=0,
                 char_end=len(self._person),
+                properties=properties,
             ),
             ExtractedEntity(
                 chunk_id=chunk.id,  # type: ignore[arg-type]
@@ -64,6 +88,7 @@ class _ProbeGraphExtractor(Extractor):
                 text=self._organization,
                 char_start=0,
                 char_end=len(self._organization),
+                properties=properties,
             ),
         ]
         relations = [
@@ -75,7 +100,10 @@ class _ProbeGraphExtractor(Extractor):
             )
         ]
         return ExtractionResult(
-            entities=entities, relations=relations, extractor_name="probe"
+            entities=entities,
+            relations=relations,
+            candidates=candidates,
+            extractor_name="probe",
         )
 
 
@@ -146,29 +174,44 @@ def _structured_document(key: str, probe: str) -> Document:
     )
 
 
-async def _open_graph(store: GraphStore, name: str, triggers: tuple[str, ...]) -> Graph:
+async def _open_graph(
+    store: GraphStore,
+    name: str,
+    triggers: tuple[str, ...],
+    *,
+    describe: bool = False,
+) -> Graph:
     """Open a graph whose extractor links the probe entities in triggered chunks."""
     graph = await Graph.open(
         schema=DEFAULT_SCHEMA,
         graph_store=store,
         embedder=BagOfWordsEmbedder(),
-        extractor=_ProbeGraphExtractor(name, triggers),
+        extractor=_ProbeGraphExtractor(name, triggers, describe=describe),
         chunker=Chunker(size=60),
     )
     await store.execute_read("CALL db.awaitIndexes(60)")
     return graph
 
 
+_HOLDS_NEEDLE = (
+    "any(k IN keys({var}) WHERE "
+    "({var}[k] IS :: STRING AND {var}[k] CONTAINS $needle) OR "
+    "({var}[k] IS :: LIST<STRING> AND any(x IN {var}[k] WHERE x CONTAINS $needle)))"
+)
+
+
 async def _text_hits(store: GraphStore, needle: str) -> int:
-    """Count nodes with a string property, or a list of strings, holding needle."""
-    rows = await store.execute_read(
-        "MATCH (n) WHERE any(k IN keys(n) WHERE "
-        "(n[k] IS :: STRING AND n[k] CONTAINS $needle) OR "
-        "(n[k] IS :: LIST<STRING> AND any(x IN n[k] WHERE x CONTAINS $needle))) "
-        "RETURN count(n) AS hits",
+    """Count nodes and relations with a string property, or a list, holding needle."""
+    nodes = await store.execute_read(
+        f"MATCH (n) WHERE {_HOLDS_NEEDLE.format(var='n')} RETURN count(n) AS hits",
         {"needle": needle},
     )
-    return rows[0]["hits"]
+    relations = await store.execute_read(
+        "MATCH ()-[r]->() "
+        f"WHERE {_HOLDS_NEEDLE.format(var='r')} RETURN count(r) AS hits",
+        {"needle": needle},
+    )
+    return nodes[0]["hits"] + relations[0]["hits"]
 
 
 async def _structure_count(store: GraphStore, key: str) -> int:
@@ -377,6 +420,114 @@ class TestDocumentPurge:
             assert await _discovered_ids(store, other_key, other_probe) == other_ids
             assert await _text_hits(store, other_probe) > 0
             assert await _works_for_sources(store, probe) == [other_chunks]
+        finally:
+            await _cleanup(store, [key, other_key], probe)
+            await store.close()
+
+    async def test_purge_cleans_relation_citing_document_chunks_without_mentions(
+        self,
+    ) -> None:
+        """A relation that cites purged chunks goes even if no chunk mentions its ends.
+
+        The relation's endpoints lost their mention edges from the document, so the
+        purge reaches the relation only through its ``source_chunk_ids``. The
+        relation goes, and its endpoints, which no open evidence still supports,
+        are pruned with it.
+        """
+        store = build_graph_store("neo4j")
+        await store.connect()
+        probe = f"purgeprobe{uuid4().hex[:8]}"
+        key = f"purge://{uuid4().hex}"
+        graph = await _open_graph(store, probe, (probe,))
+        try:
+            await graph.add(documents=[_structured_document(key, probe)])
+            chunk_ids = await _chunk_ids(store, key)
+            assert await _works_for_sources(store, probe)
+            await store.execute_write(
+                "MATCH (c:Chunk {document_id: $document_id})-[m:MENTIONED_IN]->() "
+                "DELETE m",
+                {"document_id": str(Document.node_id_for(document_key=key))},
+            )
+            assert await _works_for_sources(store, probe)
+
+            purged = await graph.purge_document(key)
+
+            assert purged.no_op is False
+            assert await _works_for_sources(store, probe) == []
+            stale = await store.execute_read(
+                "MATCH ()-[r]->() WHERE any(cid IN r.source_chunk_ids "
+                "WHERE cid IN $chunk_ids) RETURN count(r) AS stale",
+                {"chunk_ids": sorted(chunk_ids)},
+            )
+            assert stale[0]["stale"] == 0
+            assert await _text_hits(store, probe) == 0
+        finally:
+            await _cleanup(store, [key], probe)
+            await store.close()
+
+    async def test_purge_leaves_no_document_text_in_any_property(self) -> None:
+        """A search over every node and relation property finds none of the text.
+
+        The document's chunk text, section heading, table cell, entity description
+        and pending candidate all carry the probe or a distinct phrase. After the
+        purge none of them is found on any node or relation.
+        """
+        store = build_graph_store("neo4j")
+        await store.connect()
+        probe = f"purgeprobe{uuid4().hex[:8]}"
+        phrase = f"{probe} dredging ledger"
+        key = f"purge://{uuid4().hex}"
+        graph = await _open_graph(store, probe, (probe,), describe=True)
+        try:
+            await graph.add(documents=[_structured_document(key, probe)])
+            assert await _text_hits(store, probe) > 0
+            assert await _text_hits(store, phrase) > 0
+            pending = await store.execute_read(
+                "MATCH (n:Candidate) WHERE n.text CONTAINS $probe RETURN count(n) AS n",
+                {"probe": probe},
+            )
+            assert pending[0]["n"] > 0
+
+            await graph.purge_document(key)
+
+            assert await _text_hits(store, probe) == 0
+            assert await _text_hits(store, phrase) == 0
+            assert await _text_hits(store, f"{probe} heading") == 0
+            assert await _text_hits(store, f"{probe} pier") == 0
+        finally:
+            await _cleanup(store, [key], probe)
+            await store.close()
+
+    async def test_purge_clears_description_of_entity_another_document_shares(
+        self,
+    ) -> None:
+        """An entity another document still cites loses the purged description.
+
+        Both documents mention the same person and organization. Only the purged
+        document describes them, so the shared entities must keep their evidence
+        and drop the description it contributed.
+        """
+        store = build_graph_store("neo4j")
+        await store.connect()
+        probe = f"purgeprobe{uuid4().hex[:8]}"
+        other_probe = f"keepprobe{uuid4().hex[:8]}"
+        phrase = f"{probe} dredging ledger"
+        key = f"purge://{uuid4().hex}"
+        other_key = f"purge://{uuid4().hex}"
+        graph = await _open_graph(store, probe, (probe, other_probe), describe=True)
+        try:
+            await graph.add(documents=[_structured_document(key, probe)])
+            await graph.add(
+                documents=[_prose_document(other_key, f"{other_probe} harbor log.")]
+            )
+            assert await _text_hits(store, phrase) > 0
+            assert await _works_for_sources(store, probe)
+
+            await graph.purge_document(key)
+
+            assert await _works_for_sources(store, probe)
+            assert await _text_hits(store, phrase) == 0
+            assert await _text_hits(store, probe) > 0
         finally:
             await _cleanup(store, [key, other_key], probe)
             await store.close()
