@@ -17,7 +17,7 @@ from math import ceil
 from pathlib import Path
 from typing import Any, Literal
 from unittest import mock
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 from uuid import UUID, uuid4
 
 import pytest
@@ -67,10 +67,6 @@ from agrag.common.schema_fingerprint import RunRecord, run_record
 from agrag.embedding.base import Embedder
 from agrag.graphdb.base import GraphStore
 from agrag.ingestion import Graph
-from agrag.ingestion._ingest_pipeline import (
-    _embed_and_upsert_chunks,
-    _embed_and_upsert_survivors,
-)
 from agrag.ingestion.extract import (
     BAMLExtractor,
     ExtractionLLMSettings,
@@ -1364,53 +1360,6 @@ class TestGraphSchemaSources:
                 embedder=_MockEmbedder(),
                 extractor=_MockExtractor(),
             )
-
-
-class TestGraphVectorStore:
-    """Test Graph's vector-store synchronization safeguards."""
-
-    async def test_vector_upsert_failures_leave_chunk_and_entity_vectors(self) -> None:
-        """Failed vector writes leave the collection untouched.
-
-        The mirror has no conditional write, so a delete issued after
-        checking the graph would race a concurrent call that owns the
-        record. The stored record keeps its previous text until the next
-        successful ingest replaces it.
-        """
-        chunk_id = uuid4()
-        chunk = MagicMock(id=chunk_id, text="Chunk", embedding=None)
-        entity = Entity(id=uuid4(), label="Person", name="Ada", properties={})
-        graph_store = AsyncMock()
-        graph_store.execute_write.side_effect = [
-            [{"id": str(chunk_id)}],
-            [{"id": str(entity.id)}],
-        ]
-        chunk_store = AsyncMock()
-        entity_store = AsyncMock()
-        chunk_store.upsert.side_effect = RuntimeError("chunk upsert failed")
-        entity_store.upsert.side_effect = RuntimeError("entity upsert failed")
-
-        chunk_failures = await _embed_and_upsert_chunks(
-            [chunk],
-            embedder=_MockEmbedder(),
-            graph_store=graph_store,
-            error_policy=ErrorPolicy.SKIP,
-            vector_store=chunk_store,
-            vector_collection="chunks",
-        )
-        entity_failures = await _embed_and_upsert_survivors(
-            {entity.id: entity},
-            embedder=_MockEmbedder(),
-            graph_store=graph_store,
-            error_policy=ErrorPolicy.SKIP,
-            vector_store=entity_store,
-            vector_collection="entities",
-        )
-
-        assert chunk_failures[0].item_id == "chunk_vector_store"
-        assert entity_failures[0].item_id == "entity_vector_store"
-        chunk_store.delete.assert_not_awaited()
-        entity_store.delete.assert_not_awaited()
 
 
 class TestGraphChunking:

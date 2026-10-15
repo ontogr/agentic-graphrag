@@ -1,16 +1,14 @@
 """Integration proof that embedders load the model once per instance.
 
-Runs a real ``SentenceTransformerEmbedder`` and a real
-``FastEmbedBM25Embedder`` through a real SDK ``TracerProvider`` with an
-in-memory exporter. The first ``embed`` against an instance exports one
-``agrag.embedding.model_load`` span; a second ``embed`` against the same
-instance exports none. The captured span tree goes to a JSON artifact for
-hand inspection.
+Runs a real ``SentenceTransformerEmbedder`` through a real SDK
+``TracerProvider`` with an in-memory exporter. The first ``embed`` against an
+instance exports one ``agrag.embedding.model_load`` span; a second ``embed``
+against the same instance exports none. The captured span tree goes to a JSON
+artifact for hand inspection.
 
 These tests download real models from the network on first use. They
-require the ``embed-local`` extra for the sentence-transformers case and
-the ``qdrant`` extra for the BM25 case, plus network access. Each case
-skips when its extra is not installed.
+require the ``embed-local`` extra and network access. The case skips when
+the extra is not installed.
 """
 
 import importlib.util
@@ -26,7 +24,6 @@ from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
     InMemorySpanExporter,
 )
 
-from agrag.embedding.fastembed_bm25 import FastEmbedBM25Embedder
 from agrag.embedding.sentence_transformers import SentenceTransformerEmbedder
 
 
@@ -120,22 +117,3 @@ class TestEmbedderTracing:
         assert len(_named(spans, "agrag.embedding.encode")) == 2
 
         _write_span_tree(_span_tree_path("sentence_transformer_tracing.json"), spans)
-
-    async def test_fastembed_bm25_loads_model_once(self) -> None:
-        """First embed exports model_load; second embed exports none."""
-        provider, exporter = _tracing_provider()
-        embedder = FastEmbedBM25Embedder(tracer=provider.get_tracer("agrag-test"))
-        first = await embedder.embed(["first passage", "second passage"])
-        before_second = len(exporter.get_finished_spans())
-        second = await embedder.embed(["third passage"])
-        assert len(first) == 2
-        assert len(second) == 1
-        for vector in (*first, *second):
-            assert len(vector.indices) == len(vector.values)
-            assert len(vector.indices) > 0
-
-        spans = list(exporter.get_finished_spans())
-        _assert_loads_once(spans, embedder.model, before_second=before_second)
-        assert len(_named(spans, "agrag.embedding.encode")) == 2
-
-        _write_span_tree(_span_tree_path("fastembed_bm25_tracing.json"), spans)

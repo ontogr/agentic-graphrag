@@ -17,33 +17,13 @@ class SearchFilters(BaseModel):
         document_ids: Restrict results to entities and chunks from these
             source documents.
         properties: Exact-match property filters, applied
-            identically to vector-store payload filters and Cypher
-            WHERE clauses.
+            identically to Cypher WHERE clauses.
     """
 
     labels: list[str] = Field(default_factory=list)
     relation_types: list[str] = Field(default_factory=list)
     document_ids: list[str] = Field(default_factory=list)
     properties: dict[str, Any] = Field(default_factory=dict)
-
-    def to_payload_filter(self) -> dict[str, Any]:
-        """Return a flat-dict filter for VectorStore search calls.
-
-        Labels become a ``label`` payload key, which is how a
-        VectorStore records the graph label a record came from. A
-        GraphStore holds labels on the node itself, not as a property,
-        so the native path uses ``to_property_filter`` instead and
-        selects labels by the index it searches.
-
-        Returns:
-            A dict suitable for VectorStore.search/hybrid_search
-            filters parameter.
-        """
-        result: dict[str, Any] = {}
-        if self.labels:
-            result["label"] = self.labels
-        result.update(self.to_property_filter())
-        return result
 
     def to_property_filter(self) -> dict[str, Any]:
         """Return a flat-dict filter over node properties only.

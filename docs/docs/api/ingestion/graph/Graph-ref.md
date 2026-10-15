@@ -6,23 +6,17 @@ sidebar_label: Graph
 # `agrag.ingestion.graph.Graph` \{#agrag-ingestion-graph-Graph}
 
 ```python
-Graph(*, schema:SchemaSource, graph_store:GraphStore, embedder:Embedder, extractor:Extractor | None = None, tracer:Tracer | None = None, vector_store:VectorStore | None = None, retrieval_settings:RetrievalSettings | None = None, cutover_settings:CutoverJobSettings | None = None, extraction_settings:ExtractionSettings | None = None, llm_extractor:LLMExtractor | None = None, chunker:Chunker | None = None, embed_heading_path:bool = True, max_llm_pairs:int = MAX_LLM_PAIRS) -> None
+Graph(*, schema:SchemaSource, graph_store:GraphStore, embedder:Embedder, extractor:Extractor | None = None, tracer:Tracer | None = None, cutover_settings:CutoverJobSettings | None = None, extraction_settings:ExtractionSettings | None = None, llm_extractor:LLMExtractor | None = None, chunker:Chunker | None = None, embed_heading_path:bool = True, max_llm_pairs:int = MAX_LLM_PAIRS) -> None
 ```
 
 A knowledge graph that a caller can open and add content to.
-
-When an optional VectorStore is configured, every embedding this
-graph writes to graph_store is also upserted there, so SearchEngine's
-VectorStore path finds the same vectors the GraphStore-native path
-does. Collections follow RetrievalSettings' names and are provisioned
-by `open()` when missing.
 
 **Functions:**
 
 - [**add**](#agrag-ingestion-graph-Graph-add) – Add content to the graph.
 - [**consolidate**](#agrag-ingestion-graph-Graph-consolidate) – Run non-destructive resolution against every persisted raw entity.
 - [**convert_candidates**](#agrag-ingestion-graph-Graph-convert_candidates) – Turn approved candidates into graph data after applying their patch.
-- [**deactivate_match**](#agrag-ingestion-graph-Graph-deactivate_match) – Deactivate a semantic match and synchronize replacement retrieval vectors.
+- [**deactivate_match**](#agrag-ingestion-graph-Graph-deactivate_match) – Deactivate a semantic match and embed the replacement resolved entities.
 - [**delete_document**](#agrag-ingestion-graph-Graph-delete_document) – Soft-delete a document by closing its current HAS_PART edges.
 - [**detect_communities**](#agrag-ingestion-graph-Graph-detect_communities) – Detect entity communities via hierarchical Leiden.
 - [**open**](#agrag-ingestion-graph-Graph-open) – Open a graph, connecting and fully provisioning graph_store.
@@ -51,15 +45,6 @@ by `open()` when missing.
 - **extractor** (<code>[Extractor](../extract/Extractor.md) | None</code>) – The local extraction slot, used in `gliner` and
   `hybrid` modes.
 - **tracer** (<code>Tracer | None</code>) – A tracer to record spans for every step. Pass None for none.
-- **vector_store** (<code>[VectorStore](../../vectordb/base/VectorStore.md) | None</code>) – Optional second write target for embeddings. When
-  set, every embedding the pipeline writes to graph_store is
-  also upserted here, so SearchEngine's VectorStore path finds
-  the same vectors the GraphStore-native path does. Also gets
-  old community vectors removed on each
-  detect_communities(apply=True) cycle.
-- **retrieval_settings** (<code>[RetrievalSettings](../../retrieval/settings/RetrievalSettings.md) | None</code>) – Collection names for the VectorStore writes.
-  None uses RetrievalSettings defaults. Ignored when
-  vector_store is None.
 - **cutover_settings** (<code>[CutoverJobSettings](../settings/CutoverJobSettings.md) | None</code>) – Lease configuration for the Cutover Jobs
   add/update/delete_document run through. None uses
   CutoverJobSettings defaults.
@@ -214,8 +199,8 @@ skip candidates already converted.
 **Parameters:**
 
 - **patch** (<code>[SchemaPatch](../../common/data_models/candidate_review/SchemaPatch.md) | Path</code>) – The schema patch, or its JSON file path.
-- **error_policy** (<code>[ErrorPolicy](../../loaders/types/ErrorPolicy.md)</code>) – How to report vector mirror and description embedding
-  failures that occur after the graph transaction commits.
+- **error_policy** (<code>[ErrorPolicy](../../loaders/types/ErrorPolicy.md)</code>) – How to report description embedding failures that
+  occur after the graph transaction commits.
 
 **Returns:**
 
@@ -231,7 +216,7 @@ skip candidates already converted.
 deactivate_match(match_id:UUID) -> list[ResolvedEntity]
 ```
 
-Deactivate a semantic match and synchronize replacement retrieval vectors.
+Deactivate a semantic match and embed the replacement resolved entities.
 
 **Raises:**
 
@@ -344,7 +329,7 @@ The model name of the LLM slot, or None when it is unset.
 ## `open` \{#agrag-ingestion-graph-Graph-open}
 
 ```python
-open(*, schema:SchemaSource, graph_store:GraphStore, embedder:Embedder, extractor:Extractor | None = None, tracer:Tracer | None = None, vector_store:VectorStore | None = None, retrieval_settings:RetrievalSettings | None = None, cutover_settings:CutoverJobSettings | None = None, extraction_settings:ExtractionSettings | None = None, llm_extractor:LLMExtractor | None = None, chunker:Chunker | None = None, embed_heading_path:bool = True, max_llm_pairs:int = MAX_LLM_PAIRS) -> Graph
+open(*, schema:SchemaSource, graph_store:GraphStore, embedder:Embedder, extractor:Extractor | None = None, tracer:Tracer | None = None, cutover_settings:CutoverJobSettings | None = None, extraction_settings:ExtractionSettings | None = None, llm_extractor:LLMExtractor | None = None, chunker:Chunker | None = None, embed_heading_path:bool = True, max_llm_pairs:int = MAX_LLM_PAIRS) -> Graph
 ```
 
 Open a graph, connecting and fully provisioning graph_store.
@@ -358,10 +343,7 @@ text. A brand-new database is fully ready,
 including the merge_key uniqueness constraints the global exact-match
 tier relies on, the embedding vector indexes native search needs, the
 entity name indexes that entity discovery reads, and the chunk full-text
-index that evidence discovery reads, before this call returns. When
-vector_store is set, the entity, chunk, and community collections are
-provisioned there too (created when missing) so the dual writes never hit
-an absent collection.
+index that evidence discovery reads, before this call returns.
 
 **Parameters:**
 
@@ -377,10 +359,6 @@ an absent collection.
 - **extractor** (<code>[Extractor](../extract/Extractor.md) | None</code>) – The local extraction slot, used in `gliner` and
   `hybrid` modes.
 - **tracer** (<code>Tracer | None</code>) – A tracer to record spans for every step. Pass None for none.
-- **vector_store** (<code>[VectorStore](../../vectordb/base/VectorStore.md) | None</code>) – Optional second write target for embeddings. See
-  __init__.
-- **retrieval_settings** (<code>[RetrievalSettings](../../retrieval/settings/RetrievalSettings.md) | None</code>) – Collection names for the VectorStore writes.
-  None uses RetrievalSettings defaults.
 - **cutover_settings** (<code>[CutoverJobSettings](../settings/CutoverJobSettings.md) | None</code>) – Lease configuration for the Cutover Jobs
   add/update/delete_document run through. None uses
   CutoverJobSettings defaults.
@@ -400,9 +378,6 @@ an absent collection.
 **Raises:**
 
 - <code>EmbeddingDimensionMismatchError</code> – A vector index in graph_store
-  already exists with a different dimension than the embedder
-  produces.
-- <code>CollectionDimensionMismatchError</code> – A vector_store collection
   already exists with a different dimension than the embedder
   produces.
 - <code>Exception</code> – Whatever connect(), registration, constraint/index

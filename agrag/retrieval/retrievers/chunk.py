@@ -17,7 +17,6 @@ from agrag.retrieval.methods.vector import vector_search
 from agrag.retrieval.retrievers.base import Retriever
 from agrag.retrieval.settings import RetrievalSettings
 from agrag.retrieval.tracing import record_results, retrieval_span
-from agrag.vectordb.base import VectorStore
 
 
 logger = logging.getLogger(__name__)
@@ -26,10 +25,8 @@ logger = logging.getLogger(__name__)
 class ChunkRetriever(Retriever):
     """Dense chunk search via vector similarity.
 
-    Embeds the query, searches via the GraphStore-native or VectorStore
-    path, then loads each hit into a Chunk. The native
-    path searches the ``Chunk`` vector index ingestion provisions; the
-    VectorStore path searches ``chunk_collection``.
+    Embeds the query, searches the ``Chunk`` vector index that ingestion
+    provisions, then loads each hit into a Chunk.
     """
 
     name = "chunk"
@@ -39,17 +36,14 @@ class ChunkRetriever(Retriever):
         *,
         graph_store: GraphStore,
         embedder: Embedder,
-        vector_store: VectorStore | None = None,
         settings: RetrievalSettings | None = None,
         tracer: Tracer | None = None,
     ) -> None:
         """Construct a ChunkRetriever.
 
         Args:
-            graph_store: Backs chunk search when vector_store is
-                absent.
+            graph_store: Backs chunk search and the chunk reads.
             embedder: Produces query vectors.
-            vector_store: Optional VectorStore for hybrid search.
             settings: Retrieval configuration. Defaults from
                 environment.
             tracer: Opens spans for the retriever and its children. None
@@ -57,7 +51,6 @@ class ChunkRetriever(Retriever):
         """
         self._graph_store = graph_store
         self._embedder = embedder
-        self._vector_store = vector_store
         self._settings = settings or RetrievalSettings()
         self._tracer = tracer
 
@@ -101,12 +94,9 @@ class ChunkRetriever(Retriever):
                 query,
                 embedder=self._embedder,
                 graph_store=self._graph_store,
-                vector_store=self._vector_store,
-                collection=self._settings.chunk_collection,
                 labels=[CHUNK_LABEL],
                 limit=effective_limit,
                 filters=filters,
-                settings=self._settings,
                 tracer=self._tracer,
             )
             if not hits:

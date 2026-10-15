@@ -9,9 +9,7 @@ Bases: <code>BaseModel</code>
 
 One search result: a matched id, its score, and its stored payload.
 
-Returned by both `VectorStore.search`/`hybrid_search` and
-`GraphStore.vector_search`, so a caller cannot tell which store produced
-a given hit.
+Returned by `GraphStore.vector_search`.
 
 **Attributes:**
 

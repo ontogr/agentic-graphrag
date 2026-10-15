@@ -20,6 +20,7 @@ from agrag.common.data_models.structure import (
     SOURCE_LABEL,
     TABLE_LABEL,
 )
+from agrag.common.data_models.task import HAS_EVENT, HAS_STEP
 from agrag.cypher._pending_filter import (
     pending_filter_clause,
     pending_path_filter_clause,
@@ -35,6 +36,7 @@ TraversalDirection = Literal["outgoing", "incoming", "both"]
 
 
 _STRUCTURE_RELATIONS = (HAS_PART, HAS_CHILD, HAS_DOCUMENT, HAS_ACTIVATION)
+_MEMORY_RELATIONS = (HAS_EVENT, HAS_STEP)
 _STRUCTURE_LABELS = (
     SECTION_LABEL,
     TABLE_LABEL,
@@ -50,10 +52,18 @@ def _cypher_string_list(values: Sequence[str]) -> str:
 
 
 _NON_ENTITY_RELATIONS = _cypher_string_list(
-    ("MENTIONED_IN", "MEMBER_OF", *_STRUCTURE_RELATIONS, *sorted(CANDIDATE_EDGE_TYPES))
+    (
+        "MENTIONED_IN",
+        "MEMBER_OF",
+        *_STRUCTURE_RELATIONS,
+        *_MEMORY_RELATIONS,
+        *sorted(CANDIDATE_EDGE_TYPES),
+    )
 )
 
-_DEFAULT_TRAVERSAL_EXCLUSIONS = _cypher_string_list(_STRUCTURE_RELATIONS)
+_DEFAULT_TRAVERSAL_EXCLUSIONS = _cypher_string_list(
+    (*_STRUCTURE_RELATIONS, *_MEMORY_RELATIONS)
+)
 _STRUCTURE_LABEL_EXCLUSIONS = " AND ".join(
     f"NOT neighbor:{validate_identifier(label)}" for label in _STRUCTURE_LABELS
 )

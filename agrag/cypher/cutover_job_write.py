@@ -48,7 +48,7 @@ def steal_terminal_job_query() -> str:
     ``rolled_back``, meaning a previous run left the node behind, and
     resets it to pending under the caller's identity and token. A pending
     or rolling_back job with an expired lease never matches: its worker
-    died while its tagged rows and staged vectors still exist, so the
+    died while its tagged rows still exist, so the
     caller rolls it back first (see ``_acquire_lease``). Committed and
     cleaning jobs never match either: they are mid-roll-forward under the
     resume hook, and stealing one would fork the cleanup phase.
@@ -117,7 +117,7 @@ def claim_pending_job_query() -> str:
     """Claim an expired pending or rolling-back job before rollback.
 
     The recovery scan can become stale before it starts deleting pending
-    graph or vector writes. This compare-and-swap claim rechecks the
+    graph writes. This compare-and-swap claim rechecks the
     pending or rolling-back status, original token, and expiry while holding
     the job lock,
     then gives recovery a fresh lease for the destructive phase.
@@ -207,10 +207,8 @@ def clear_pending_node_tags_query(label: str) -> str:
     Runs once per label in ``PENDING_TAGGED_NODE_LABELS``, inside the same
     transaction as ``commit_job_query``: the commit flip and the tag removal
     land atomically, so a crash between them is impossible. The label in the
-    ``MATCH`` lets the per-label pending index serve the lookup. External
-    vector-store payloads carry the mirrored ``_pending`` boolean and are
-    cleared through the VectorStore API by the caller, not here; the native
-    vector-index path reads node properties, so it sees this same removal.
+    ``MATCH`` lets the per-label pending index serve the lookup. The vector
+    indexes read node properties, so they see this same removal.
 
     Args:
         label: The node label. Must be a well-formed identifier; the

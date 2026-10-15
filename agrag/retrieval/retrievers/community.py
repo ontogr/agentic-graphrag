@@ -14,7 +14,6 @@ from agrag.retrieval.methods.vector import vector_search
 from agrag.retrieval.retrievers.base import Retriever
 from agrag.retrieval.settings import RetrievalSettings
 from agrag.retrieval.tracing import record_results, retrieval_span
-from agrag.vectordb.base import VectorStore
 
 
 class CommunityRetriever(Retriever):
@@ -27,7 +26,6 @@ class CommunityRetriever(Retriever):
         *,
         graph_store: GraphStore,
         embedder: Embedder,
-        vector_store: VectorStore | None = None,
         settings: RetrievalSettings | None = None,
         tracer: Tracer | None = None,
     ) -> None:
@@ -36,14 +34,12 @@ class CommunityRetriever(Retriever):
         Args:
             graph_store: Where community nodes live.
             embedder: Produces query vectors.
-            vector_store: Optional VectorStore for hybrid search.
             settings: Retrieval configuration. Defaults from environment.
             tracer: Opens spans for the retriever and its children. None
                 opens no recorded span.
         """
         self._graph_store = graph_store
         self._embedder = embedder
-        self._vector_store = vector_store
         self._settings = settings or RetrievalSettings()
         self._tracer = tracer
 
@@ -87,12 +83,9 @@ class CommunityRetriever(Retriever):
                 query,
                 embedder=self._embedder,
                 graph_store=self._graph_store,
-                vector_store=self._vector_store,
-                collection=self._settings.community_collection,
                 labels=[COMMUNITY_LABEL],
                 limit=effective_limit,
                 filters=filters,
-                settings=self._settings,
                 tracer=self._tracer,
             )
             if not hits:

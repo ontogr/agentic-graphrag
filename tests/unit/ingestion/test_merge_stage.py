@@ -81,7 +81,6 @@ async def _merge(
     ctx = StageContext(
         graph_store=store,
         embedder=AsyncMock(),
-        vector_store=None,
         error_policy=error_policy,
         tracer=get_tracer(None),
         job_id=job_id,
@@ -93,7 +92,6 @@ async def _merge(
         batch,
         ctx,
         graph_schema=DEFAULT_SCHEMA,
-        resolved_entity_collection="resolved_entities",
         rebuilt_components=None,
     )
 
