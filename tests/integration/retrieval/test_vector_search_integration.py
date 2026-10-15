@@ -1,7 +1,7 @@
 """Integration tests for the shared vector_search helper.
 
-Tests that vector_search correctly selects the GraphStore-native
-path and applies filters.
+Tests that vector_search runs the GraphStore-native search and applies
+filters.
 """
 
 import importlib.util
@@ -107,12 +107,9 @@ class TestVectorSearchGraphStorePath:
             "Alice",
             embedder=self.embedder,
             graph_store=self.store,
-            vector_store=None,
-            collection="agrag_entities",
             labels=[self.label],
             limit=5,
             filters=None,
-            settings=self.settings,
         )
 
         assert len(hits) >= 1
@@ -126,12 +123,9 @@ class TestVectorSearchGraphStorePath:
             "Alice",
             embedder=self.embedder,
             graph_store=self.store,
-            vector_store=None,
-            collection="agrag_entities",
             labels=[self.label],
             limit=5,
             filters=None,
-            settings=self.settings,
         )
 
         scores = [h.score for h in hits]
@@ -158,12 +152,9 @@ class TestVectorSearchGraphStorePath:
             "test",
             embedder=self.embedder,
             graph_store=self.store,
-            vector_store=None,
-            collection="agrag_entities",
             labels=[self.label],
             limit=3,
             filters=None,
-            settings=self.settings,
         )
 
         assert len(hits) <= 3
@@ -177,35 +168,13 @@ class TestVectorSearchGraphStorePath:
             "Alice",
             embedder=self.embedder,
             graph_store=self.store,
-            vector_store=None,
-            collection="agrag_entities",
             labels=[self.label],
             limit=5,
             filters=filters,
-            settings=self.settings,
         )
 
         # With a non-matching filter, results may be empty.
         assert isinstance(hits, list)
-
-    async def test_never_calls_vector_store(self) -> None:
-        """When vector_store is None, graph_store.vector_search is called."""
-        await self._seed_entities(["Alice"])
-
-        # The function should work without a VectorStore.
-        hits = await vector_search(
-            "Alice",
-            embedder=self.embedder,
-            graph_store=self.store,
-            vector_store=None,
-            collection="agrag_entities",
-            labels=[self.label],
-            limit=5,
-            filters=None,
-            settings=self.settings,
-        )
-
-        assert len(hits) >= 1
 
     async def test_hit_carries_id_and_payload(self) -> None:
         """Each VectorHit carries an id and payload dict."""
@@ -215,12 +184,9 @@ class TestVectorSearchGraphStorePath:
             "Alice",
             embedder=self.embedder,
             graph_store=self.store,
-            vector_store=None,
-            collection="agrag_entities",
             labels=[self.label],
             limit=5,
             filters=None,
-            settings=self.settings,
         )
 
         assert len(hits) >= 1

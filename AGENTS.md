@@ -113,7 +113,7 @@ Run focused tests while iterating:
 
 ```bash
 uv run pytest tests/unit/db/graph/test_client.py::TestNeo4jClient -v
-uv run pytest tests/unit/db/vector/test_qdrant.py -k "test_search" -v
+uv run pytest tests/unit/retrieval/methods/test_vector.py -v
 ```
 
 Environment setup details are in @CONTRIBUTING.md. If a tool such as `uv`,
@@ -191,7 +191,7 @@ Ask: would this break code that used the package last week?
   parameters.
 - Settings classes subclass `pydantic_settings.BaseSettings`, load from the
   repo-root `.env`, and use clear environment prefixes such as `NEO4J_`,
-  `QDRANT_`, `WEAVIATE_`, `EMBEDDING_`, `RETRIEVAL_`, and `AGENT_`.
+  `EMBEDDING_`, `RETRIEVAL_`, and `AGENT_`.
 - Wrap databases, external services, network I/O, and message queues when a
   project-native boundary is useful. Do not wrap stable utility or ML libraries
   merely to hide imports.
@@ -257,7 +257,7 @@ Unit tests are the exception. Write one only for isolated logic with real branch
 
 - Location: `tests/unit/...`.
 - No network access. Sockets are disabled by default.
-- Mock Neo4j, Qdrant, Weaviate, Hugging Face, LLM APIs, and other external
+- Mock Neo4j, Hugging Face, LLM APIs, and other external
   services at the driver/API boundary.
 - If a unit test raises `SocketBlockedError`, fix the mock; do not enable
   network access.

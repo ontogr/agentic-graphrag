@@ -1,4 +1,4 @@
-"""E2E entity resolution and merge as a user runs them, on real Neo4j and Qdrant.
+"""E2E entity resolution and merge as a user runs them, on real Neo4j.
 
 Three documents mention the same organization and person under different
 surface names, with conflicting property values and descriptions. A fake
@@ -8,16 +8,16 @@ the band that needs LLM review. The tests prove that:
 
 - raw entities survive resolution, each linked by ``RESOLVED_AS`` to one
   resolved entity that carries the merged properties;
-- the resolved vector in Qdrant is refreshed when a cluster grows, and the
-  vector of the replaced cluster is removed;
+- the resolved embedding is refreshed when a cluster grows, and the node of
+  the replaced cluster is removed;
 - a search by any alias returns the resolved entity, never its raw members,
   and a similar but different organization stays separate;
 - ``consolidate()`` dry-run writes nothing and ``consolidate(apply=True)``
   writes exactly the matches the dry-run reported;
 - user-chosen ``PropertyRules`` give the documented merge results;
-- a failed vector write leaves the cluster hidden from search until a retry.
+- a failed embedding write leaves the cluster hidden from search until a retry.
 
-Every label, collection, and document key carries a per-run suffix, and the
+Every label and document key carries a per-run suffix, and the
 fixture removes only what this run created. Each test also writes a JSON
 artifact under ``reports/e2e/`` with names and counts only.
 """
@@ -26,7 +26,6 @@ import contextlib
 import hashlib
 import importlib.util
 import itertools
-import os
 from collections.abc import AsyncGenerator, Sequence
 from dataclasses import dataclass
 from typing import Any
@@ -41,7 +40,6 @@ from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.extraction import ExtractedEntity, ExtractionResult
 from agrag.common.data_models.graph_schema import EntityType, GraphSchema, PropertySpec
 from agrag.common.data_models.resolved_entity import ResolvedEntity
-from agrag.common.data_models.vector_record import VectorRecord
 from agrag.cypher.entities import validate_identifier
 from agrag.embedding.base import Embedder
 from agrag.graphdb import build_graph_store
@@ -56,8 +54,6 @@ from agrag.ingestion.merge import (
 from agrag.retrieval.recipes import ENTITY
 from agrag.retrieval.search_engine import SearchEngine
 from agrag.retrieval.settings import RetrievalSettings
-from agrag.vectordb.qdrant import QdrantVectorStore
-from agrag.vectordb.settings import QdrantSettings
 from tests.integration._schema_cleanup import drop_schema_for
 from tests.integration.e2e._artifact import write_artifact
 
@@ -66,13 +62,11 @@ pytestmark = [
     pytest.mark.skipif(
         importlib.util.find_spec("neo4j") is None, reason="neo4j extra not installed"
     ),
-    pytest.mark.skipif(
-        not os.environ.get("QDRANT_URL"), reason="QDRANT_URL is not configured"
-    ),
 ]
 
 ORG_SURFACES = ["Northwind Trading Company", "NWT Holdings", "Northwind Ltd"]
 ORG_SEEDED_SURFACE = "Northwind Group"
+SEEDED_DESCRIPTION = "Parent group of the grain trader."
 ORG_OTHER = "Northwind Traders Union"
 PERSON_SURFACES = ["Dr. Elena Vasquez", "Vasquez, Elena", "E. Vasquez"]
 
@@ -109,13 +103,27 @@ class _ConceptEmbedder(Embedder):
     """
 
     model = "concept"
+    fail_containing: str | None = None
+
+    def __init__(self) -> None:
+        self.embedded_texts: list[str] = []
 
     async def dimensions(self) -> int:
         """Return 4, the size of the shared instance's vector indexes."""
         return 4
 
     async def embed(self, texts: Sequence[str]) -> list[list[float]]:
-        """Return the vector for each text's leading name."""
+        """Return the vector for each text's leading name.
+
+        Raises:
+            RuntimeError: A text contains ``fail_containing``, which a test sets
+                to make one resolved entity's embedding write fail.
+        """
+        if self.fail_containing is not None and any(
+            self.fail_containing in text for text in texts
+        ):
+            raise RuntimeError("embedding service unavailable")
+        self.embedded_texts.extend(texts)
         return [
             list(_VECTOR_BY_NAME.get(text.split(":", 1)[0].strip(), _UNKNOWN_VECTOR))
             for text in texts
@@ -149,39 +157,11 @@ class _DocumentExtractor(Extractor):
         )
 
 
-class _FlakyVectorStore(QdrantVectorStore):
-    """Qdrant store whose writes to one collection fail on demand."""
-
-    def __init__(self) -> None:
-        """Connect with the environment's Qdrant settings."""
-        super().__init__(settings=QdrantSettings())
-        self.failing_collection: str | None = None
-
-    async def upsert(
-        self,
-        collection: str,
-        records: Sequence[VectorRecord],
-        *,
-        batch_size: int = 256,
-        pending_job_id: UUID | None = None,
-    ) -> None:
-        """Write records, or raise when this collection is set to fail."""
-        if collection == self.failing_collection:
-            raise RuntimeError("vector store unavailable")
-        await super().upsert(
-            collection,
-            records,
-            batch_size=batch_size,
-            pending_job_id=pending_job_id,
-        )
-
-
 @dataclass
 class _World:
     """Handles to one run's isolated graph, stores, and names."""
 
     store: GraphStore
-    vector_store: _FlakyVectorStore
     graph: Graph
     engine: SearchEngine
     settings: RetrievalSettings
@@ -245,16 +225,26 @@ async def _active_matches(w: _World, label: str) -> dict[frozenset[str], str | N
 
 
 async def _resolved_vectors(w: _World) -> dict[str, dict[str, Any]]:
-    """Return every record in this run's resolved-entity collection by id."""
-    records: dict[str, dict[str, Any]] = {}
-    offset: str | None = None
-    while True:
-        page, offset = await w.vector_store.scroll(
-            w.settings.resolved_entity_collection, limit=100, page_offset=offset
-        )
-        records.update({str(record.id): record.payload for record in page})
-        if offset is None:
-            return records
+    """Return this run's resolved-entity nodes that hold an embedding, by id.
+
+    The database is shared with other runs, so only this run's labels count.
+    """
+    rows = await _rows(
+        w.store,
+        "MATCH (r:ResolvedEntity) WHERE r.embedding IS NOT NULL "
+        "AND r.label IN $labels "
+        "RETURN r.id AS id, r.name AS name, r.member_ids AS member_ids, "
+        "properties(r) AS props",
+        labels=[w.org_label, w.person_label],
+    )
+    return {
+        str(row["id"]): {
+            "name": row["name"],
+            "description": row["props"].get("description"),
+            "member_ids": row["member_ids"],
+        }
+        for row in rows
+    }
 
 
 async def _snapshot(w: _World) -> dict[str, Any]:
@@ -269,12 +259,15 @@ async def _snapshot(w: _World) -> dict[str, Any]:
                 for members, row in (await _clusters(w, label)).items()
             },
         }
-    state["entity_vectors"] = await w.vector_store.count(w.settings.entity_collection)
     return state
 
 
 async def _search_names(w: _World, query: str) -> list[dict[str, Any]]:
-    """Search entities and describe each result by kind and name."""
+    """Search this run's entities and describe each result by kind and name.
+
+    Results of other labels come from other runs sharing the database and are
+    left out.
+    """
     results = await w.engine.search(query, ENTITY)
     return [
         {
@@ -285,6 +278,7 @@ async def _search_names(w: _World, query: str) -> list[dict[str, Any]]:
         }
         for result in results
         if isinstance(result.item, (Entity, ResolvedEntity))
+        and result.item.label in (w.org_label, w.person_label)
     ]
 
 
@@ -297,7 +291,7 @@ async def _seed_unresolved_surface(w: _World) -> Entity:
         properties={
             "hq": "Stavanger",
             "revenue": 9,
-            "description": "Parent group of the grain trader.",
+            "description": SEEDED_DESCRIPTION,
         },
         embedding=list(_ORG_VECTOR),
     )
@@ -307,11 +301,9 @@ async def _seed_unresolved_surface(w: _World) -> Entity:
 
 async def _cleanup(
     store: GraphStore,
-    vector_store: _FlakyVectorStore,
     *,
     labels: list[str],
     document_keys: list[str],
-    collections: list[str],
 ) -> None:
     """Remove only what this run created, ignoring individual failures."""
     steps: list[tuple[str, dict[str, Any]]] = [
@@ -337,38 +329,23 @@ async def _cleanup(
             "WHERE a.merge_key STARTS WITH l + ':') DETACH DELETE a",
             {"labels": labels},
         ),
-        (
-            "MATCH (p:ResolvedEntityVectorDeletion) WHERE p.collection IN $collections "
-            "DETACH DELETE p",
-            {"collections": collections},
-        ),
     ]
     for query, params in steps:
         with contextlib.suppress(Exception):
             await store.execute_write(query, params)
     with contextlib.suppress(Exception):
         await drop_schema_for(store, *labels)
-    for collection in collections:
-        with contextlib.suppress(Exception):
-            await vector_store.delete_collection(collection)
-    with contextlib.suppress(Exception):
-        await vector_store.close()
     with contextlib.suppress(Exception):
         await store.close()
 
 
 @pytest.fixture
 async def world() -> AsyncGenerator[_World, None]:
-    """Ingest three documents into an isolated graph and vector collections."""
+    """Ingest three documents into an isolated graph."""
     suffix = uuid4().hex[:8]
     org_label = validate_identifier(f"Org_{suffix}")
     person_label = validate_identifier(f"Person_{suffix}")
-    settings = RetrievalSettings(
-        entity_collection=f"rm_entities_{suffix}",
-        chunk_collection=f"rm_chunks_{suffix}",
-        community_collection=f"rm_communities_{suffix}",
-        resolved_entity_collection=f"rm_resolved_{suffix}",
-    )
+    settings = RetrievalSettings()
     schema = GraphSchema(
         name="resolution_merge",
         version="1",
@@ -435,34 +412,23 @@ async def world() -> AsyncGenerator[_World, None]:
         ],
     }
     store = build_graph_store("neo4j")
-    vector_store = _FlakyVectorStore()
     embedder = _ConceptEmbedder()
     keys = [f"resolution-merge://{suffix}/{n}" for n in ("one", "two", "three")]
-    collections = [
-        settings.entity_collection,
-        settings.chunk_collection,
-        settings.community_collection,
-        settings.resolved_entity_collection,
-    ]
     try:
         graph = await Graph.open(
             schema=schema,
             graph_store=store,
             embedder=embedder,
             extractor=_DocumentExtractor(org_mentions),
-            vector_store=vector_store,
-            retrieval_settings=settings,
         )
         engine = SearchEngine(
             graph_store=store,
             embedder=embedder,
-            vector_store=vector_store,
             settings=settings,
             graph_schema=schema,
         )
         partial = _World(
             store=store,
-            vector_store=vector_store,
             graph=graph,
             engine=engine,
             settings=settings,
@@ -483,10 +449,8 @@ async def world() -> AsyncGenerator[_World, None]:
     finally:
         await _cleanup(
             store,
-            vector_store,
             labels=[org_label, person_label],
             document_keys=keys,
-            collections=collections,
         )
 
 
@@ -509,8 +473,8 @@ class TestResolutionMerge:
         Failure modes covered: raw members deleted or left unlinked; a
         similar-named organization pulled into the cluster; merged properties
         that drop a non-conflicting value or keep a value no member has; a
-        stale resolved vector left in Qdrant after the cluster grew; a
-        refreshed vector built from the old cluster text; search returning a
+        stale resolved node left in the graph after the cluster grew; a
+        refreshed embedding built from the old cluster text; search returning a
         raw member of an active cluster, or the cluster under an alias it
         should not answer; unstable citation keys; a dry run that writes; an
         apply that writes matches the dry run did not report.
@@ -574,8 +538,11 @@ class TestResolutionMerge:
         assert set(vectors) == {org_cluster["id"], person_cluster["id"]}
         assert w.org_cluster_after_second_document not in vectors
         org_payload = vectors[org_cluster["id"]]
-        assert org_payload["text"] == f"{org_cluster['name']}: {props['description']}"
-        assert org_payload["resolved"] is True
+        assert org_payload["description"] == props["description"]
+        assert (
+            f"{org_cluster['name']}: {props['description']}"
+            in w.embedder.embedded_texts
+        )
         assert set(org_payload["member_ids"]) == {org_ids[n] for n in ORG_SURFACES}
         stale_rows = await _rows(
             w.store,
@@ -671,7 +638,8 @@ class TestResolutionMerge:
         final_vectors = await _resolved_vectors(w)
         assert set(final_vectors) == {grown["id"], person_cluster["id"]}
         assert seeded.properties["description"] in grown["props"]["description"]
-        assert seeded.properties["description"] in final_vectors[grown["id"]]["text"]
+        grown_description = final_vectors[grown["id"]]["description"]
+        assert seeded.properties["description"] in grown_description
 
         # The grown cluster answers alias searches; the old survivor is gone.
         after_hits = await _search_names(w, "NWT Holdings")
@@ -822,21 +790,21 @@ class TestResolutionMerge:
         assert artifact["keep_first"] == ["Northwind Trading Company", "Oslo"]
         assert artifact["merge_all_revenue"] == [5, 7]
 
-    async def test_failed_vector_sync_hides_cluster_until_retry(
+    async def test_failed_embedding_hides_cluster_until_retry(
         self, resolved_world: _World
     ) -> None:
-        """A failed resolved-vector write is reported, hidden, and retried.
+        """A failed resolved-entity embedding is reported, hidden, and retried.
 
-        Failure modes covered: a vector-store outage that raises out of
-        ``consolidate`` under the skip policy; a cluster whose failed status
-        or embedding is not recorded, so it looks searchable; raw members
-        that disappear from search while the cluster has no vector; a retry
-        that does not restore the vector, status, and search result.
+        Failure modes covered: an embedding failure that is not reported
+        under the skip policy; a cluster whose failed status or embedding is
+        not recorded, so it looks searchable; raw members that disappear from
+        search while the cluster has no embedding; a retry that does not
+        restore the embedding, status, and search result.
         """
         w = resolved_world
         seeded = await _seed_unresolved_surface(w)
         old_cluster = (await _clusters(w, w.org_label))[frozenset(ORG_SURFACES)]
-        w.vector_store.failing_collection = w.settings.resolved_entity_collection
+        w.embedder.fail_containing = SEEDED_DESCRIPTION
 
         failed = await w.graph.consolidate(apply=True)
 
@@ -853,7 +821,7 @@ class TestResolutionMerge:
         assert "ResolvedEntity" not in {hit["kind"] for hit in hidden}
         assert "NWT Holdings" in {hit["name"] for hit in hidden}
 
-        w.vector_store.failing_collection = None
+        w.embedder.fail_containing = None
         retried = await w.graph.consolidate(apply=True)
 
         assert retried.failures == []
@@ -869,7 +837,7 @@ class TestResolutionMerge:
         assert seeded.name in recovered["members"]
 
         artifact = write_artifact(
-            "resolution_merge_vector_failure",
+            "resolution_merge_embedding_failure",
             {
                 "failed_pass_failures": [f.item_id for f in failed.failures],
                 "status_after_failure": cluster["status"],
@@ -886,6 +854,44 @@ class TestResolutionMerge:
         assert artifact["status_after_failure"] == "failed"
         assert artifact["status_after_retry"] == "synced"
 
+    async def test_leftover_resolved_entities_stay_out_of_this_run(
+        self, resolved_world: _World
+    ) -> None:
+        """A resolved entity another run left in the database is not reported.
+
+        The e2e database is shared by every suite, and a run removes only its
+        own nodes. A resolved entity left under another label, with this run's
+        embedding, must not change the resolved entities this run reports or
+        the ones a search returns.
+        """
+        w = resolved_world
+        expected = {
+            row["id"]
+            for label in (w.org_label, w.person_label)
+            for row in (await _clusters(w, label)).values()
+        }
+        leftover_id = str(uuid4())
+        await w.store.execute_write(
+            "CREATE (r:ResolvedEntity {id: $id, label: $label, name: 'NWT Holdings', "
+            "member_ids: [], vector_sync_status: 'synced', embedding: $vector})",
+            {
+                "id": leftover_id,
+                "label": f"Leftover_{uuid4().hex[:8]}",
+                "vector": list(_ORG_VECTOR),
+            },
+        )
+        try:
+            vectors = await _resolved_vectors(w)
+            hits = await _search_names(w, "NWT Holdings")
+        finally:
+            await w.store.execute_write(
+                "MATCH (r:ResolvedEntity {id: $id}) DETACH DELETE r",
+                {"id": leftover_id},
+            )
+
+        assert set(vectors) == expected
+        assert leftover_id not in {hit["id"] for hit in hits}
+
 
 class TestKnownDefects:
     """Defects the scenario exposed; each test flips to pass when fixed."""
@@ -897,15 +903,6 @@ class TestKnownDefects:
         clusters = await _clusters(world, world.org_label)
 
         assert set(clusters) == {frozenset(ORG_SURFACES)}
-
-    async def test_add_mirrors_resolved_vector_to_vector_store(
-        self, world: _World
-    ) -> None:
-        """A committed resolved entity has a vector in the vector store."""
-        clusters = await _clusters(world, world.org_label)
-        vectors = await _resolved_vectors(world)
-
-        assert {row["id"] for row in clusters.values()} <= set(vectors)
 
     async def test_merge_all_default_keeps_name_a_string(self, world: _World) -> None:
         """A user who picks MERGE_ALL for every property still gets a named entity."""

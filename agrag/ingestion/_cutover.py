@@ -53,7 +53,6 @@ from agrag.ingestion._pending_rows import (
 from agrag.ingestion.resolved_entities import MatchComponent
 from agrag.ingestion.settings import CutoverJobSettings
 from agrag.observability import get_tracer
-from agrag.vectordb.base import VectorStore
 
 
 class CutoverJobLeaseError(Exception):
@@ -93,14 +92,12 @@ async def _acquire_lease(
     verb: Literal["add", "update", "delete_document"],
     affected_entity_ids: list[UUID],
     graph_store: GraphStore,
-    vector_store: VectorStore | None,
-    vector_collections: Sequence[str],
     settings: CutoverJobSettings,
 ) -> tuple[UUID, UUID]:
     """Acquire the lease for one document, rolling back a dead run first.
 
-    An expired pending or rolling-back job still owns tagged rows and
-    staged vectors, so it is rolled back before the document is taken over.
+    An expired pending or rolling-back job still owns tagged rows, so it is
+    rolled back before the document is taken over.
     A finished job (done or rolled_back) is taken over in place.
 
     Returns:
@@ -150,53 +147,15 @@ async def _acquire_lease(
         )
         if claimed:
             rollback_job_id = UUID(str(rows[0]["id"]))
-            stop_renewal = asyncio.Event()
-            renewal_stopped = asyncio.Event()
-            renewal = asyncio.create_task(
-                _renew_periodically(
-                    graph_store=graph_store,
-                    job_id=rollback_job_id,
-                    token=rollback_token,
-                    ttl_seconds=settings.lease_ttl_seconds,
-                    stop_event=stop_renewal,
-                    stopped_event=renewal_stopped,
-                )
+            rolled_back = await rollback_job_rows(
+                graph_store, job_id=rollback_job_id, token=rollback_token
             )
-            deletion = asyncio.create_task(
-                delete_pending_vectors(
-                    vector_store=vector_store,
-                    collections=vector_collections,
-                    job_id=rollback_job_id,
-                )
-            )
-            try:
-                done, _ = await asyncio.wait(
-                    (deletion, renewal), return_when=asyncio.FIRST_COMPLETED
-                )
-                if renewal in done:
-                    await renewal
-                    raise RuntimeError("Lease renewal stopped unexpectedly.")
-                await deletion
-                stop_renewal.set()
-                await renewal
-                rolled_back = await rollback_job_rows(
-                    graph_store, job_id=rollback_job_id, token=rollback_token
-                )
-            finally:
-                stop_renewal.set()
-                if not deletion.done():
-                    deletion.cancel()
-                if not renewal.done():
-                    renewal.cancel()
-                await asyncio.gather(deletion, renewal, return_exceptions=True)
             if rolled_back:
                 return await _acquire_lease(
                     document_key=document_key,
                     verb=verb,
                     affected_entity_ids=affected_entity_ids,
                     graph_store=graph_store,
-                    vector_store=vector_store,
-                    vector_collections=vector_collections,
                     settings=settings,
                 )
     token = uuid4()
@@ -263,53 +222,9 @@ async def _renew_periodically(
         stopped_event.set()
 
 
-async def clear_pending_vectors(
-    *,
-    vector_store: VectorStore | None,
-    collections: Sequence[str],
-    job_id: UUID,
-) -> None:
-    """Make one committed job's staged vectors searchable.
-
-    Idempotent: re-running finds nothing still staged and writes nothing.
-
-    Args:
-        vector_store: The store to commit in, or None to do nothing.
-        collections: The collections this job may have written to.
-        job_id: The committed job whose vectors become visible.
-    """
-    if vector_store is None:
-        return
-    for collection in collections:
-        await vector_store.commit_pending(collection, job_id=job_id)
-
-
-async def delete_pending_vectors(
-    *,
-    vector_store: VectorStore | None,
-    collections: Sequence[str],
-    job_id: UUID,
-) -> None:
-    """Delete one job's staged vectors, for rollback.
-
-    A committed record that shares an id with a staged one is not touched.
-
-    Args:
-        vector_store: The store to delete from, or None to do nothing.
-        collections: The collections this job may have written to.
-        job_id: The rolled-back job whose vectors are deleted.
-    """
-    if vector_store is None:
-        return
-    for collection in collections:
-        await vector_store.delete_pending(collection, job_id=job_id)
-
-
 async def _rollback(
     *,
     graph_store: GraphStore,
-    vector_store: VectorStore | None,
-    vector_collections: Sequence[str],
     job_id: UUID,
     token: UUID,
 ) -> bool:
@@ -329,9 +244,6 @@ async def _rollback(
     if not begun:
         return False
     try:
-        await delete_pending_vectors(
-            vector_store=vector_store, collections=vector_collections, job_id=job_id
-        )
         return await rollback_job_rows(graph_store, job_id=job_id, token=token)
     except Exception:  # noqa: BLE001
         return False
@@ -361,15 +273,13 @@ async def _commit_applied(
 async def _settle_failed_commit(
     *,
     graph_store: GraphStore,
-    vector_store: VectorStore | None,
-    vector_collections: Sequence[str],
     job_id: UUID,
     token: UUID,
 ) -> int | None:
     """Keep committed work or safely roll back a failed pending commit.
 
-    An unreadable status is left for recovery; no vectors or graph rows are
-    deleted because the commit outcome is unknown.
+    An unreadable status is left for recovery; no graph rows are deleted
+    because the commit outcome is unknown.
     """
     try:
         applied = await _commit_applied(
@@ -379,13 +289,7 @@ async def _settle_failed_commit(
         return None
     if applied is not None:
         return applied
-    await _rollback(
-        graph_store=graph_store,
-        vector_store=vector_store,
-        vector_collections=vector_collections,
-        job_id=job_id,
-        token=token,
-    )
+    await _rollback(graph_store=graph_store, job_id=job_id, token=token)
     return None
 
 
@@ -536,8 +440,6 @@ async def run_cutover_job(
     document_key: str,
     affected_entity_ids: list[UUID],
     graph_store: GraphStore,
-    vector_store: VectorStore | None,
-    vector_collections: Sequence[str],
     settings: CutoverJobSettings,
     pending_write: Callable[[UUID], Awaitable[T]],
     cleanup: Callable[[list[UUID], list[UUID], list[UUID]], Awaitable[S]],
@@ -558,8 +460,6 @@ async def run_cutover_job(
         document_key: The key of the document the job holds the lease for.
         affected_entity_ids: The entities the job touches, for cleanup.
         graph_store: The store the job commits to.
-        vector_store: Optional vector index whose pending rows are cleared.
-        vector_collections: The vector collections the job may have written.
         settings: Lease and renewal timing for the job.
         pending_write: Writes the job's pending rows. Receives the job id.
         cleanup: Removes superseded rows. Receives the affected entity ids, the
@@ -600,8 +500,6 @@ async def run_cutover_job(
             verb=verb,
             affected_entity_ids=affected_entity_ids,
             graph_store=graph_store,
-            vector_store=vector_store,
-            vector_collections=vector_collections,
             settings=settings,
         )
         span.set_attribute("agrag.job_id", str(job_id))
@@ -622,8 +520,6 @@ async def run_cutover_job(
                 job_id=job_id,
                 token=token,
                 graph_store=graph_store,
-                vector_store=vector_store,
-                vector_collections=vector_collections,
                 pending_write=pending_write,
                 cleanup=cleanup,
                 affected_entity_ids=affected_entity_ids,
@@ -664,8 +560,6 @@ async def _run_leased(
     job_id: UUID,
     token: UUID,
     graph_store: GraphStore,
-    vector_store: VectorStore | None,
-    vector_collections: Sequence[str],
     pending_write: Callable[[UUID], Awaitable[T]],
     cleanup: Callable[[list[UUID], list[UUID], list[UUID]], Awaitable[S]],
     affected_entity_ids: list[UUID],
@@ -684,13 +578,7 @@ async def _run_leased(
     try:
         pending_result = await pending_write(job_id)
     except (asyncio.CancelledError, Exception):
-        await _rollback(
-            graph_store=graph_store,
-            vector_store=vector_store,
-            vector_collections=vector_collections,
-            job_id=job_id,
-            token=token,
-        )
+        await _rollback(graph_store=graph_store, job_id=job_id, token=token)
         raise
     component_seed_ids = _component_seed_ids(components)
     created = list(created_entity_ids)
@@ -716,20 +604,12 @@ async def _run_leased(
             await asyncio.shield(commit_task)
         except Exception:  # noqa: BLE001
             await _settle_failed_commit(
-                graph_store=graph_store,
-                vector_store=vector_store,
-                vector_collections=vector_collections,
-                job_id=job_id,
-                token=token,
+                graph_store=graph_store, job_id=job_id, token=token
             )
         raise
     except Exception:
         applied = await _settle_failed_commit(
-            graph_store=graph_store,
-            vector_store=vector_store,
-            vector_collections=vector_collections,
-            job_id=job_id,
-            token=token,
+            graph_store=graph_store, job_id=job_id, token=token
         )
         if applied is None:
             raise
@@ -742,9 +622,6 @@ async def _run_leased(
     if not started:
         raise CutoverJobLeaseError(f"Job {job_arg} lost its lease before cleanup.")
     cleanup_result = await cleanup(affected_entity_ids, component_seed_ids, created)
-    await clear_pending_vectors(
-        vector_store=vector_store, collections=vector_collections, job_id=job_id
-    )
     stop_renewal.set()
     await renewal_stopped.wait()
     finished = await graph_store.execute_write(

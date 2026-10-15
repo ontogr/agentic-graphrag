@@ -13,7 +13,6 @@ import pytest
 
 from agrag.common.data_models.vector_record import VectorHit
 from agrag.retrieval.methods.vector import vector_search
-from agrag.retrieval.settings import RetrievalSettings
 
 
 class MockEmbedder:
@@ -38,12 +37,9 @@ class TestVectorSearch:
             "q",
             embedder=MockEmbedder(),
             graph_store=gs,
-            vector_store=None,
-            collection="agrag_entities",
             labels=["Person", "Drug"],
             limit=10,
             filters=None,
-            settings=RetrievalSettings(),
         )
 
         searched = [call.kwargs["label"] for call in gs.vector_search.call_args_list]
@@ -59,10 +55,7 @@ class TestVectorSearch:
                 "q",
                 embedder=MockEmbedder(),
                 graph_store=gs,
-                vector_store=None,
-                collection="agrag_entities",
                 labels=[],
                 limit=10,
                 filters=None,
-                settings=RetrievalSettings(),
             )

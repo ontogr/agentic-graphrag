@@ -231,12 +231,9 @@ Set environment variables with the `RETRIEVAL_` prefix:
 RETRIEVAL_ENTITY_LABELS='["Drug","Condition"]'
 RETRIEVAL_ENTITY_TOP_K=10
 RETRIEVAL_CHUNK_TOP_K=10
-RETRIEVAL_HYBRID_ALPHA=0.5
 RETRIEVAL_TRAVERSAL_DEPTH=2
 ```
 
 `RETRIEVAL_ENTITY_LABELS` (or the `entity_labels` argument) names the schema
 entity labels that entity search runs against. Ingestion creates one native
-vector index per label, so search needs the labels themselves. The
-`RETRIEVAL_ENTITY_COLLECTION` name does not apply here. It applies only when
-you configure a separate `VectorStore`.
+vector index per label, so search needs the labels themselves.

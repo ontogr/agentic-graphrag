@@ -5,22 +5,19 @@ title: Configure storage backends
 
 # Configure storage backends
 
-Every graph needs an embedder and a graph store. Add a separate vector store only when you want to mirror embeddings outside the graph store. Choose an embedder model first, then use the same model and vector dimensions when you create the index or collection.
+Every graph needs an embedder and a graph store. The graph store is Neo4j, which also holds the native vector indexes. Choose an embedder model first. The vector dimensions must match the embedder.
 
 ## Before you start
 
-Each code block on this page is complete. It opens and closes its own connections. Blocks that use a vector store read the `QDRANT_*` variables, and blocks that use the graph store read the `NEO4J_*` variables. See the [Quickstart](../get-started/quickstart.mdx) for a Neo4j database.
+Each code block on this page is complete. It opens and closes its own connections. The blocks read the `NEO4J_*` variables. See the [Quickstart](../get-started/quickstart.mdx) for a Neo4j database.
 
 ## Install
 
-Install the core package and the extras for the backends you chose. You need `neo4j` for the graph store; you need one vector-store extra only when using a separate `VectorStore`.
+Install the core package and the extras for the features you use. You need `neo4j` for the graph store.
 
 ```bash
 uv pip install agentic-graphrag
 uv pip install "agentic-graphrag[embed-local]"   # sentence-transformers embedding models
-uv pip install "agentic-graphrag[qdrant]"        # Qdrant vector store
-uv pip install "agentic-graphrag[weaviate]"      # Weaviate vector store
-uv pip install "agentic-graphrag[milvus]"        # Milvus vector store
 uv pip install "agentic-graphrag[neo4j]"         # Neo4j graph store
 ```
 
@@ -72,146 +69,6 @@ Set these variables instead of passing `EmbeddingSettings` fields in code.
 | `EMBEDDING_DEVICE` | The device to load the model on. Only `SentenceTransformerEmbedder` uses it. |
 | `EMBEDDING_NORMALIZE` | Whether to normalize output vectors. |
 | `EMBEDDING_BATCH_SIZE` | The number of texts per encode call. |
-
-## Set up a vector store
-
-`build_vector_store` takes a backend name. It reads connection configuration from
-environment variables.
-
-```python
-import asyncio
-
-from agrag.common.data_models.vector_record import Distance
-from agrag.embedding import build_embedder
-from agrag.vectordb import build_vector_store
-
-
-async def main() -> None:
-    embedder = build_embedder("ibm-granite/granite-embedding-small-english-r2")
-    store = build_vector_store("qdrant")
-    await store.initialize()
-    await store.ensure_collection(
-        "guide_example",
-        dimensions=await embedder.dimensions(),
-        distance=Distance.COSINE,
-        hybrid=True,
-    )
-
-
-asyncio.run(main())
-```
-
-Set `dimensions` to the value your embedder produces. `ensure_collection`
-raises an error if a collection with that name already exists with a
-different dimension. Pass `hybrid=True` to search the collection with
-`hybrid_search` later. If you only need `search`, leave it out.
-
-For full control, build a backend class yourself with its own configuration.
-
-{/* pmd-metadata: notest */}
-
-```python
-from agrag.vectordb.qdrant import QdrantVectorStore
-from agrag.vectordb.settings import QdrantSettings
-
-store = QdrantVectorStore(
-    settings=QdrantSettings(url="https://xyz.cloud.qdrant.io", api_key="...")
-)
-```
-
-### Set vector store credentials with environment variables
-
-Set the variables for the one backend you use.
-
-| Backend | Variables |
-| --- | --- |
-| Qdrant | `QDRANT_URL`, `QDRANT_API_KEY`, `QDRANT_REQUIRE_TLS` |
-| Weaviate | `WEAVIATE_URL`, `WEAVIATE_API_KEY`, `WEAVIATE_REQUIRE_TLS` |
-| Milvus | `MILVUS_URI`, `MILVUS_TOKEN`, `MILVUS_REQUIRE_TLS` |
-
-The default URLs point at plaintext `localhost`, for the Docker Compose services `make dev-services-up` starts. If a URL uses a plaintext scheme (`http`), points at a non-local host, and carries an API key or token, the configuration check raises an error. Use `https://` for any remote deployment.
-
-An unauthenticated backend on a private network (a VPC, a cluster-internal
-service) is not flagged by default, since the configuration cannot tell a private
-host from a public one from the URL alone. If your deployment needs every remote connection encrypted, set `*_REQUIRE_TLS=true`. It rejects plaintext to any non-local host, with or without a credential.
-
-### Write and search vectors
-
-Write vectors with `upsert`. Each record needs an id, a vector, and a payload.
-
-```python
-import asyncio
-
-from uuid import uuid4
-
-from agrag.common.data_models.vector_record import Distance, VectorRecord
-from agrag.embedding import build_embedder
-from agrag.vectordb import build_vector_store
-
-
-async def main() -> None:
-    embedder = build_embedder("ibm-granite/granite-embedding-small-english-r2")
-    vectors = await embedder.embed(["first passage", "second passage"])
-    store = build_vector_store("qdrant")
-    await store.initialize()
-    await store.ensure_collection(
-        "guide_example",
-        dimensions=await embedder.dimensions(),
-        distance=Distance.COSINE,
-        hybrid=True,
-    )
-
-    record = VectorRecord(
-        id=uuid4(), vector=vectors[0], payload={"text": "first passage"}
-    )
-    await store.upsert("guide_example", [record])
-
-
-asyncio.run(main())
-```
-
-Search by vector alone with `search`. Search by vector and keyword together
-with `hybrid_search`.
-
-```python
-import asyncio
-
-from uuid import uuid4
-
-from agrag.common.data_models.vector_record import Distance, VectorRecord
-from agrag.embedding import build_embedder
-from agrag.vectordb import build_vector_store
-
-
-async def main() -> None:
-    embedder = build_embedder("ibm-granite/granite-embedding-small-english-r2")
-    vectors = await embedder.embed(["sepsis management protocol"])
-    store = build_vector_store("qdrant")
-    await store.initialize()
-    await store.ensure_collection(
-        "guide_example",
-        dimensions=await embedder.dimensions(),
-        distance=Distance.COSINE,
-        hybrid=True,
-    )
-    await store.upsert(
-        "guide_example",
-        [VectorRecord(id=uuid4(), vector=vectors[0], payload={"text": "sepsis"})],
-    )
-
-    hits = await store.search("guide_example", query_vector=vectors[0], limit=5)
-    hits = await store.hybrid_search(
-        "guide_example",
-        query_vector=vectors[0],
-        query_text="sepsis management",
-        limit=5,
-    )
-    for hit in hits:
-        print(hit.id, hit.score, hit.payload)
-
-
-asyncio.run(main())
-```
 
 ## Set up a graph store
 
@@ -398,56 +255,6 @@ async def main() -> None:
 
 asyncio.run(main())
 ```
-
-`vector_search` returns the same hit type `VectorStore.search` returns. Code
-that reads hits does not need to know which store produced them.
-
-## Mirror ingestion into a vector store
-
-`Graph.open` accepts an optional `vector_store`. Pass one. Every embedding
-ingestion writes to the graph store is also upserted to the vector store. Entity, chunk, and community vectors all land in the collections
-`RetrievalSettings` names (`agrag_entities`, `agrag_chunks`,
-`agrag_communities` by default). `open()` creates a missing collection with
-your embedder's dimensions. After entity merges, the absorbed entities'
-vectors are deleted there. Each `detect_communities(apply=True)` run replaces
-the community vectors after stale-vector cleanup succeeds. That cleanup clears
-every `Community` vector in the collection, the way the graph-side recompute
-clears every `Community` node in the database. Give each graph its own
-Neo4j database (`NEO4J_DATABASE`) and its own collections. A cleanup
-failure can leave old community vectors in the collection. Agentic GraphRAG reports
-it to the caller.
-
-```python
-import asyncio
-
-from agrag.common.data_models import DEFAULT_SCHEMA
-from agrag.embedding import build_embedder
-from agrag.graphdb import build_graph_store
-from agrag.ingestion import Graph
-from agrag.ingestion.extract import GlinerExtractor
-from agrag.vectordb import build_vector_store
-
-
-async def main() -> None:
-    graph_store = build_graph_store("neo4j")
-    vector_store = build_vector_store("qdrant")
-    graph = await Graph.open(
-        schema=DEFAULT_SCHEMA,
-        graph_store=graph_store,
-        embedder=build_embedder("ibm-granite/granite-embedding-small-english-r2"),
-        extractor=GlinerExtractor(),
-        vector_store=vector_store,
-    )
-    await graph_store.close()
-
-
-asyncio.run(main())
-```
-
-A `SearchEngine` pointed at the same `vector_store` then searches the same
-data the graph-native path serves. Ingestion reports failed vector-store writes
-in each stage's failures. Under `ErrorPolicy.SKIP`/`QUARANTINE`, Agentic GraphRAG records a failed mirror as a `StageFailure` such
-as `chunk_vector_store`. Under the default `ErrorPolicy.RAISE`, it propagates.
 
 ## Next steps
 
