@@ -16,8 +16,9 @@ One retrieval-sized piece of a Document.
   content versions of the same logical document. Per-version
   identity lives in `Chunk.id` instead.
 - [**content_hash**](#agrag-common-data_models-chunk-Chunk-content_hash) (<code>str</code>) – The content hash of the document version this chunk was
-  cut from. It stays on the chunk after the document changes, so a
-  superseded chunk still names the text it came from.
+  cut from, as a 64-character lowercase hexadecimal SHA-256 digest. It
+  stays on the chunk after the document changes, so a superseded chunk
+  still names the text it came from.
 - [**index**](#agrag-common-data_models-chunk-Chunk-index) (<code>int</code>) – The position of the chunk within its document, from 0.
 - [**text**](#agrag-common-data_models-chunk-Chunk-text) (<code>str</code>) – The chunk text.
 - [**provenance**](#agrag-common-data_models-chunk-Chunk-provenance) (<code>[TextProvenance](../provenance/TextProvenance.md) | [PageProvenance](../provenance/PageProvenance.md)</code>) – The location of this chunk in its source. A text source gives
@@ -59,7 +60,7 @@ chunker_hash: str | None = None
 ## `content_hash` \{#agrag-common-data_models-chunk-Chunk-content_hash}
 
 ```python
-content_hash: str
+content_hash: str = Field(min_length=64, max_length=64, pattern='^[0-9a-f]{64}$')
 ```
 
 ## `content_kind` \{#agrag-common-data_models-chunk-Chunk-content_kind}

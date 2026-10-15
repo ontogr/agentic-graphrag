@@ -1,5 +1,7 @@
 """Helpers shared by the section chunker tests."""
 
+import hashlib
+
 from agrag.common.data_models.document import (
     Document,
     DocumentFamily,
@@ -27,7 +29,7 @@ def page_unit(text: str, page_no: int) -> Unit:
 
 
 def text_document(
-    paragraphs: list[str], *, content_hash: str = "h", key: str = "doc.txt"
+    paragraphs: list[str], *, content_hash: str | None = None, key: str = "doc.txt"
 ) -> Document:
     """Build a one-section text document whose units point into its text."""
     text = "\n\n".join(paragraphs)
@@ -49,7 +51,7 @@ def text_document(
         uri=key,
         source_format=SourceFormat.TXT,
         family=DocumentFamily.PROSE,
-        content_hash=content_hash,
+        content_hash=content_hash or hashlib.sha256(text.encode("utf-8")).hexdigest(),
         loader_name="text",
         char_count=len(text),
         sections=[DocumentSection(heading="", depth=0, units=units)],
@@ -57,7 +59,7 @@ def text_document(
 
 
 def sectioned_document(
-    sections: list[DocumentSection], *, content_hash: str = "h"
+    sections: list[DocumentSection], *, content_hash: str | None = None
 ) -> Document:
     """Build a document with no text offsets around the given sections."""
     return Document(
@@ -66,7 +68,8 @@ def sectioned_document(
         uri="doc.pdf",
         source_format=SourceFormat.PDF,
         family=DocumentFamily.PROSE,
-        content_hash=content_hash,
+        content_hash=content_hash
+        or hashlib.sha256(repr(sections).encode("utf-8")).hexdigest(),
         loader_name="docling",
         char_count=0,
         sections=sections,
@@ -81,7 +84,7 @@ def record_document(text: str) -> Document:
         uri="rows.csv",
         source_format=SourceFormat.CSV,
         family=DocumentFamily.RECORD,
-        content_hash="h",
+        content_hash=hashlib.sha256(text.encode("utf-8")).hexdigest(),
         loader_name="csv",
         char_count=len(text),
         record_index=0,
