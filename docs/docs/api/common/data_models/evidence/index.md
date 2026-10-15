@@ -26,6 +26,9 @@ here are the values that the evidence operations exchange with callers.
 - [**FetchStatus**](FetchStatus.md) – The outcome of fetching one evidence id.
 - [**IndexState**](IndexState.md) – Whether the search indexes a mode needs are ready.
 - [**LegFailure**](LegFailure.md) – A search leg that failed during discovery.
+- [**SourceIndexStatus**](SourceIndexStatus.md) – The state and population progress of one search index.
+- [**SourceState**](SourceState.md) – The lifecycle state of one document source.
+- [**SourceStatus**](SourceStatus.md) – The committed version, active job and index state for one source.
 - [**VersionStatus**](VersionStatus.md) – Whether the fetched text is the current version of its document.
 
 **Attributes:**
