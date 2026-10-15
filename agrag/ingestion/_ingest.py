@@ -1,4 +1,4 @@
-"""The bodies of ``Graph.add``, ``Graph.update``, and ``Graph.delete_document``.
+"""The bodies of the ``Graph`` document operations.
 
 Each call runs one Cutover Job per document. The job's post-commit work
 arrives as ``cleanup``, so the live calls and crash recovery run the same
@@ -30,7 +30,12 @@ from agrag.common.data_models.stage_failure import StageFailure, cap_failures
 from agrag.common.data_models.structure import version_id
 from agrag.common.data_models.update_decision import UpdateDecision
 from agrag.common.schema_fingerprint import RunRecord
-from agrag.cypher.documents import update_document_dates_query
+from agrag.cypher.documents import (
+    document_chunk_count_query,
+    document_cited_relation_endpoints_query,
+    document_mentioned_entities_query,
+    update_document_dates_query,
+)
 from agrag.cypher.relations import entities_in_documents_query
 from agrag.embedding.base import Embedder
 from agrag.graphdb.base import GraphStore, GraphStoreTransaction
@@ -1122,6 +1127,64 @@ async def delete_document(  # noqa: PLR0913
             verb="delete_document",
             document_key=document_key,
             affected_entity_ids=candidates,
+            graph_store=graph_store,
+            settings=cutover_settings,
+            pending_write=_no_pending_write,
+            cleanup=cleanup,
+            deferred=DeferredWrites(),
+            close_document_node_id=found.document_node_id,
+            candidate_document_node_id=found.document_node_id,
+            change=change,
+            tracer=tracer,
+        )
+        return UpdateResult(
+            document_key=document_key,
+            no_op=False,
+            previous_content_hash=found.current_content_hash,
+            parts_closed=parts_closed,
+        )
+
+
+async def purge_document(  # noqa: PLR0913
+    document_key: str,
+    *,
+    graph_store: GraphStore,
+    cutover_settings: CutoverJobSettings,
+    cleanup: CleanupStep,
+    tracer: Tracer,
+) -> UpdateResult:
+    """Hard-delete one document. ``Graph.purge_document`` documents the arguments."""
+    with tracer.start_as_current_span("agrag.ingestion.purge_document"):
+        found = await find_document(graph_store, document_key=document_key)
+        if found is None:
+            return UpdateResult(document_key=document_key, no_op=True)
+        document_params = {"document_node_id": str(found.document_node_id)}
+        counted = await graph_store.execute_read(
+            document_chunk_count_query(), document_params
+        )
+        if not counted or not counted[0]["chunks"]:
+            return UpdateResult(document_key=document_key, no_op=True)
+        mentioned = await graph_store.execute_read(
+            document_mentioned_entities_query(), document_params
+        )
+        cited = await graph_store.execute_read(
+            document_cited_relation_endpoints_query(), document_params
+        )
+        affected = list(
+            dict.fromkeys(UUID(str(row["id"])) for row in [*mentioned, *cited])
+        )
+        change = DocumentChange(
+            document_node_id=found.document_node_id,
+            document_key=document_key,
+            verb="purge",
+            content_hash=None,
+            previous_content_hash=found.current_content_hash,
+            version_id=None,
+        )
+        _, _, parts_closed = await run_cutover_job(
+            verb="purge_document",
+            document_key=document_key,
+            affected_entity_ids=affected,
             graph_store=graph_store,
             settings=cutover_settings,
             pending_write=_no_pending_write,

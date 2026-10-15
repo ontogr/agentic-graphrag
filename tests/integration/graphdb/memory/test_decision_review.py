@@ -80,6 +80,41 @@ async def test_activation_flags_decisions_supported_by_changed_document(
     assert peer.decision.review_state is ReviewState.CLEAR
 
 
+async def test_purge_flags_decisions_supported_by_removed_document(
+    store, project, documents
+):
+    """Purging a document flags its supported decisions and their dependents."""
+    memory, decision = await _record_document_decision(
+        store, project, documents, "purged-source"
+    )
+    tasks = TaskMemory(store, project_id=project, agent_id="agent")
+    await tasks.create_task("purged-consumer", "depends on the source decision")
+    event = await tasks.record_event(
+        "purged-consumer", EventKind.NOTE, payload="decision fixture"
+    )
+    dependent = await memory.record_decision(
+        "purged-consumer",
+        "choice-purged-consumer",
+        "follow the source",
+        "explicit dependency",
+        supports=[
+            DecisionSupportInput(decision_id=str(decision.id)),
+            EventSupportInput(task_name="purged-consumer", seq=event.event.seq),
+        ],
+    )
+    assert dependent.recorded and dependent.decision is not None
+
+    await documents.graph.purge_document(documents.harbor)
+    await memory.continue_review_propagation(limit=10)
+
+    direct = await memory.get_decision(decision.id)
+    child = await memory.get_decision(dependent.decision.id)
+    assert direct.decision.review_state is ReviewState.NEEDS_REVIEW
+    assert direct.decision.review_reason.value == "source_removed"
+    assert child.decision.review_state is ReviewState.NEEDS_REVIEW
+    assert child.decision.review_reason.value == "dependency_review"
+
+
 async def test_review_propagates_to_explicitly_dependent_decisions(
     store, project, documents
 ):
