@@ -99,9 +99,18 @@ def _digest(operation: str, arguments: dict[str, Any]) -> str:
 
 
 def _decision_from_row(row: dict[str, Any]) -> Decision:
-    """Validate a decision row and its typed supports."""
+    """Validate a decision row and its typed supports.
+
+    While a project's review propagation is pending, clear decisions read as
+    unknown unless they were reaffirmed.
+    """
     raw = dict(row["decision"])
-    if row.get("review_incomplete") and raw.get("review_state", "clear") == "clear":
+    reaffirmed = bool(raw.get("review_reaffirmed"))
+    if (
+        row.get("review_incomplete")
+        and raw.get("review_state", "clear") == "clear"
+        and not reaffirmed
+    ):
         raw["review_state"] = ReviewState.UNKNOWN.value
     raw["task_name"] = row["task_name"]
     raw["supports"] = [dict(support) for support in row["supports"] if support]
@@ -261,7 +270,8 @@ class DecisionMemory:
         version, and ``evidence`` must cite exactly those documents. A cited
         document that is removed, or whose current version was not fetched
         with status ``ok``, fails with ``cannot_revalidate`` and the decision
-        stays flagged.
+        stays flagged. So does a decision that depends on another decision
+        still needing review.
 
         Args:
             decision_id: The id of the active decision to reaffirm.
@@ -354,7 +364,8 @@ class DecisionMemory:
             f"MATCH (t:{TASK_LABEL} {{project_id: $project_id}})-[:{MADE}]->"
             f"(d:{DECISION_LABEL} {{status: 'active'}}) "
             "MATCH (p:MemoryProject {project_id: $project_id}) "
-            "WHERE (d.review_state = 'needs_review' OR p.review_incomplete) "
+            "WHERE (d.review_state = 'needs_review' OR "
+            "(p.review_incomplete AND NOT coalesce(d.review_reaffirmed, false))) "
             "AND ($task_name IS NULL OR t.name = $task_name) "
             f"OPTIONAL MATCH (d)-[:{HAS_SUPPORT}]->(s:{SUPPORT_LABEL}) "
             "WITH t, d, p, s ORDER BY s.ordinal "
@@ -372,7 +383,8 @@ class DecisionMemory:
             f"MATCH (t:{TASK_LABEL} {{project_id: $project_id}})-[:{MADE}]->"
             f"(d:{DECISION_LABEL} {{status: 'active'}}) "
             "MATCH (p:MemoryProject {project_id: $project_id}) "
-            "WHERE (d.review_state = 'needs_review' OR p.review_incomplete) "
+            "WHERE (d.review_state = 'needs_review' OR "
+            "(p.review_incomplete AND NOT coalesce(d.review_reaffirmed, false))) "
             "AND ($task_name IS NULL OR t.name = $task_name) "
             "RETURN count(d) AS count",
             {"project_id": self._project_id, "task_name": task_name},
@@ -697,6 +709,12 @@ class DecisionMemory:
         }
         for document_id in cited:
             if not await self._is_revalidated(tx, document_id, fetched):
+                raise _DecisionRefusedError(MemoryErrorCode.CANNOT_REVALIDATE)
+        for support in lookup.supports:
+            if not isinstance(support, DecisionSupport):
+                continue
+            parent = await self._get_decision_tx(tx, str(support.decision_id))
+            if parent is not None and parent.review_state is ReviewState.NEEDS_REVIEW:
                 raise _DecisionRefusedError(MemoryErrorCode.CANNOT_REVALIDATE)
         try:
             support_props, changed = await self._validated_supports(

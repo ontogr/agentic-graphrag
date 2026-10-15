@@ -196,8 +196,10 @@ async def test_review_propagation_is_bounded_restartable_and_cycle_safe(
         ).decision.review_state is ReviewState.NEEDS_REVIEW
 
 
-async def test_review_lists_are_project_scoped_and_bounded(store, project, documents):
-    """Review listing reports only the configured project's changed support."""
+async def test_review_lists_are_project_scoped_and_bounded(
+    store, project, other_project, documents
+):
+    """Review listing reports flagged decisions of this project only, within limit."""
     memory, decision = await _record_document_decision(
         store, project, documents, "review-list"
     )
@@ -205,6 +207,29 @@ async def test_review_lists_are_project_scoped_and_bounded(store, project, docum
     result = await memory.list_review(limit=1)
     assert result.count == 0
     assert result.decisions == []
+
+    _, second = await _record_document_decision(
+        store, project, documents, "review-list-second"
+    )
+    other_memory, other = await _record_document_decision(
+        store, other_project, documents, "review-list-other"
+    )
+    await documents.graph.add(
+        documents=[
+            make_document(documents.harbor, "Harbor lighthouse replacement record.")
+        ]
+    )
+    page = await memory.list_review(limit=1)
+    assert page.count == 2
+    assert page.truncated is True
+    assert len(page.decisions) == 1
+    assert page.decisions[0].id in {decision.id, second.id}
+    full = await memory.list_review(limit=5)
+    assert full.count == 2
+    assert full.truncated is False
+    assert {listed.id for listed in full.decisions} == {decision.id, second.id}
+    other_list = await other_memory.list_review(limit=5)
+    assert [listed.id for listed in other_list.decisions] == [other.id]
 
 
 async def _current_harbor_support(store, documents, query: str = "harbor"):
@@ -356,6 +381,106 @@ async def test_reaffirming_parent_leaves_dependent_child_flagged(
     current_child = await memory.get_decision(child.decision.id)
     assert current_child.decision.review_state is ReviewState.NEEDS_REVIEW
     assert current_child.decision.review_reason.value == "dependency_review"
+
+
+async def test_reaffirm_is_refused_while_a_dependency_needs_review(
+    store, project, documents
+):
+    """A dependent cannot be reaffirmed until the decision it depends on is resolved."""
+    memory, parent = await _record_document_decision(
+        store, project, documents, "parent-blocked"
+    )
+    tasks = TaskMemory(store, project_id=project, agent_id="agent")
+    await tasks.create_task("child-blocked", "depend on a decision")
+    event = await tasks.record_event("child-blocked", EventKind.NOTE, payload="fixture")
+    child = await memory.record_decision(
+        "child-blocked",
+        "child-blocked-choice",
+        "follow parent",
+        "explicit dependency",
+        supports=[
+            DecisionSupportInput(decision_id=str(parent.id)),
+            EventSupportInput(task_name="child-blocked", seq=event.event.seq),
+        ],
+    )
+    assert child.recorded
+    await documents.graph.add(
+        documents=[
+            make_document(documents.harbor, "Harbor lighthouse replacement record.")
+        ]
+    )
+    await memory.continue_review_propagation(limit=10)
+    blocked = await memory.reaffirm_decision(child.decision.id, [], fetched_evidence=[])
+    assert blocked.recorded is False
+    assert blocked.error is MemoryErrorCode.CANNOT_REVALIDATE
+    current = await memory.get_decision(child.decision.id)
+    assert current.decision.review_state is ReviewState.NEEDS_REVIEW
+
+    evidence_id, fetched = await _current_harbor_support(store, documents)
+    parent_result = await memory.reaffirm_decision(
+        parent.id,
+        [DocumentSupportInput(evidence_id=evidence_id)],
+        fetched_evidence=fetched,
+    )
+    assert parent_result.recorded
+    child_result = await memory.reaffirm_decision(
+        child.decision.id, [], fetched_evidence=[]
+    )
+    assert child_result.recorded
+    assert child_result.decision.review_state is ReviewState.CLEAR
+
+
+async def test_propagation_reaches_clear_dependents_of_flagged_decisions(
+    store, project, documents
+):
+    """Propagation reaches the dependents of a dependent that is already flagged."""
+    memory, parent = await _record_document_decision(
+        store, project, documents, "queue-parent"
+    )
+    tasks = TaskMemory(store, project_id=project, agent_id="agent")
+    chain = [parent]
+    for name in ("queue-child", "queue-grandchild"):
+        await tasks.create_task(name, "depend on previous decision")
+        event = await tasks.record_event(name, EventKind.NOTE, payload="fixture")
+        result = await memory.record_decision(
+            name,
+            f"{name}-choice",
+            "follow previous",
+            "explicit dependency",
+            supports=[
+                DecisionSupportInput(decision_id=str(chain[-1].id)),
+                EventSupportInput(task_name=name, seq=event.event.seq),
+            ],
+        )
+        assert result.recorded and result.decision is not None
+        chain.append(result.decision)
+    child, grandchild = chain[1], chain[2]
+    await documents.graph.add(
+        documents=[make_document(documents.harbor, "Harbor queue replacement.")]
+    )
+    await memory.continue_review_propagation(limit=10)
+    assert (
+        await memory.get_decision(grandchild.id)
+    ).decision.review_state is ReviewState.NEEDS_REVIEW
+
+    await store.execute_write(
+        "MATCH (d:MemoryDecision {id: $id}) "
+        "SET d.review_state = 'clear', d.review_reason = null",
+        {"id": str(grandchild.id)},
+    )
+    await store.execute_write(
+        "MATCH (p:MemoryProject {project_id: $project_id}) "
+        "MATCH (d:MemoryDecision {id: $id}) "
+        "SET d.review_pending = true, p.review_incomplete = true",
+        {"project_id": project, "id": str(parent.id)},
+    )
+    assert (
+        await memory.get_decision(child.id)
+    ).decision.review_state is ReviewState.NEEDS_REVIEW
+    assert await memory.continue_review_propagation(limit=10) >= 1
+    assert (
+        await memory.get_decision(grandchild.id)
+    ).decision.review_state is ReviewState.NEEDS_REVIEW
 
 
 async def test_revert_to_recorded_content_keeps_flag(store, project, documents):

@@ -95,7 +95,8 @@ Every document the decision cites must be fetched in its current
 version, and `evidence` must cite exactly those documents. A cited
 document that is removed, or whose current version was not fetched
 with status `ok`, fails with `cannot_revalidate` and the decision
-stays flagged.
+stays flagged. So does a decision that depends on another decision
+still needing review.
 
 **Parameters:**
 

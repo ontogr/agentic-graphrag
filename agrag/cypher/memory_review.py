@@ -43,15 +43,21 @@ def claim_review_unit_query() -> str:
 
 
 def expand_review_unit_query() -> str:
-    """Flag and enqueue the active one-hop dependents of a claimed decision."""
+    """Flag and enqueue every active one-hop dependent of a claimed decision.
+
+    A dependent already flagged keeps its state and reason, but is queued
+    again so its own dependents are reached even if they were reaffirmed
+    since the dependent was last expanded.
+    """
     return (
         f"MATCH (t:{TASK_LABEL} {{project_id: $project_id}})-[:{MADE}]->"
         f"(parent:{DECISION_LABEL} {{id: $decision_id}}) "
         f"MATCH (child:{DECISION_LABEL} {{status: 'active'}})"
         f"-[:{DEPENDS_ON}]->(parent) "
-        "WHERE coalesce(child.review_state, 'clear') <> 'needs_review' "
-        "SET child.review_state = 'needs_review', "
-        "child.review_reason = 'dependency_review', "
+        "WITH child, coalesce(child.review_state, 'clear') = 'needs_review' AS flagged "
+        "SET child.review_reason = CASE WHEN flagged THEN child.review_reason "
+        "ELSE 'dependency_review' END, "
+        "child.review_state = 'needs_review', "
         "child.review_pending = true "
         "RETURN count(DISTINCT child) AS queued"
     )
@@ -103,10 +109,15 @@ def replace_document_supports_query() -> str:
 
 
 def clear_decision_review_query() -> str:
-    """Set a decision's review state to clear without touching its queue marker."""
+    """Clear a reaffirmed decision's review state and mark it as reaffirmed.
+
+    The project queue marker is left alone. ``review_reaffirmed`` keeps the
+    decision clear in review reads while that marker is set.
+    """
     return (
         f"MATCH (:{TASK_LABEL} {{project_id: $project_id}})-[:{MADE}]->"
         f"(d:{DECISION_LABEL} {{id: $decision_id}}) "
-        "SET d.review_state = 'clear', d.review_reason = null "
+        "SET d.review_state = 'clear', d.review_reason = null, "
+        "d.review_reaffirmed = true "
         "RETURN d.id AS id"
     )
