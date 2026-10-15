@@ -22,6 +22,7 @@ from agrag.common.data_models.decision import (
     DecisionLookup,
     DecisionPage,
     DecisionPageLookup,
+    DecisionReviewList,
     DecisionStatus,
     DecisionSupport,
     DecisionSupportInput,
@@ -232,6 +233,39 @@ class DecisionMemory:
             found=bool(rows), decision=_decision_from_row(rows[0]) if rows else None
         )
 
+    async def list_review(
+        self, *, task_name: str | None = None, limit: int = 20
+    ) -> DecisionReviewList:
+        """List active decisions needing review, within this project's bounds."""
+        size = max(1, min(limit, DECISION_PAGE_LIMIT))
+        rows = await self._store.execute_read(
+            f"MATCH (t:{TASK_LABEL} {{project_id: $project_id}})-[:{MADE}]->"
+            f"(d:{DECISION_LABEL} {{status: 'active'}}) "
+            "WHERE d.review_state = 'needs_review' "
+            "AND ($task_name IS NULL OR t.name = $task_name) "
+            f"OPTIONAL MATCH (d)-[:{HAS_SUPPORT}]->(s:{SUPPORT_LABEL}) "
+            "WITH t, d, s ORDER BY s.ordinal "
+            "WITH t, d, collect(s) AS supports "
+            "RETURN d AS decision, supports, t.name AS task_name "
+            "ORDER BY d.created_at DESC LIMIT $limit",
+            {
+                "project_id": self._project_id,
+                "task_name": task_name,
+                "limit": size + 1,
+            },
+        )
+        count_rows = await self._store.execute_read(
+            f"MATCH (t:{TASK_LABEL} {{project_id: $project_id}})-[:{MADE}]->"
+            f"(d:{DECISION_LABEL} {{status: 'active', review_state: 'needs_review'}}) "
+            "WHERE $task_name IS NULL OR t.name = $task_name RETURN count(d) AS count",
+            {"project_id": self._project_id, "task_name": task_name},
+        )
+        count = int(count_rows[0]["count"])
+        decisions = [_decision_from_row(row) for row in rows[:size]]
+        return DecisionReviewList(
+            decisions=decisions, count=count, truncated=count > size
+        )
+
     async def list_decisions(
         self, task_name: str, *, include_history: bool = True
     ) -> DecisionPageLookup:
@@ -406,19 +440,6 @@ class DecisionMemory:
             raise _DecisionRefusedError(MemoryErrorCode.SUPERSEDE_TARGET_INVALID)
         if not supports:
             raise _DecisionRefusedError(MemoryErrorCode.SUPPORT_REQUIRED)
-        decision_support_ids = sorted(
-            {
-                support.decision_id
-                for support in supports
-                if isinstance(support, DecisionSupportInput)
-            }
-        )
-        for support_id in decision_support_ids:
-            await tx.execute_write(
-                f"MATCH (d:{DECISION_LABEL} {{id: $id, project_id: $project_id}}) "
-                "SET d.id = d.id RETURN d.id AS id",
-                {"id": support_id, "project_id": self._project_id},
-            )
         support_props, currency_changed = await self._validated_supports(
             tx, supports, fetched
         )
@@ -533,19 +554,6 @@ class DecisionMemory:
         """Resolve and validate supports in caller order inside the write."""
         support_props: list[dict[str, Any]] = []
         currency_changed = False
-        decision_ids = sorted(
-            {
-                support.decision_id
-                for support in supports
-                if isinstance(support, DecisionSupportInput)
-            }
-        )
-        for decision_id in decision_ids:
-            await tx.execute_write(
-                f"MATCH (d:{DECISION_LABEL} {{id: $id, project_id: $project_id}}) "
-                "SET d.id = d.id RETURN d.id AS id",
-                {"id": decision_id, "project_id": self._project_id},
-            )
         try:
             document_ids = sorted(
                 {
@@ -561,6 +569,19 @@ class DecisionMemory:
                 "MATCH (doc:Document {id: $id}) SET doc.activation_seq = "
                 "coalesce(doc.activation_seq, 0) RETURN doc.id AS id",
                 {"id": document_id},
+            )
+        decision_ids = sorted(
+            {
+                support.decision_id
+                for support in supports
+                if isinstance(support, DecisionSupportInput)
+            }
+        )
+        for decision_id in decision_ids:
+            await tx.execute_write(
+                f"MATCH (d:{DECISION_LABEL} {{id: $id, project_id: $project_id}}) "
+                "SET d.id = d.id RETURN d.id AS id",
+                {"id": decision_id, "project_id": self._project_id},
             )
         for source in supports:
             if isinstance(source, DocumentSupportInput):
