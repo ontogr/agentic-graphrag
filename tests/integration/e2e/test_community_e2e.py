@@ -10,7 +10,6 @@ import pytest
 from dotenv import load_dotenv
 
 from agrag.agents.ledger import Ledger
-from agrag.agents.tools import make_tools
 from agrag.common.data_models.chunk import CHUNK_LABEL, Chunk
 from agrag.common.data_models.community import COMMUNITY_LABEL, Community
 from agrag.common.data_models.entity import Entity
@@ -378,9 +377,6 @@ async def test_community_via_store_e2e() -> None:  # noqa: PLR0915
             g1 = ledger.resolve("G1")
             assert g1 is not None
             assert isinstance(g1.item, Community)
-            # make_tools reuses same engine/ledger.
-            tools = make_tools(engine, ledger)
-            assert len(tools) == 10
             artifact = write_artifact(
                 "community_store_seeded",
                 {
@@ -392,7 +388,6 @@ async def test_community_via_store_e2e() -> None:  # noqa: PLR0915
                     "hybrid_has_entity": True,
                     "hybrid_finds_own_community": True,
                     "thematic_finds_own_community": True,
-                    "tool_count": len(tools),
                 },
             )
         assert artifact["communities"] == [

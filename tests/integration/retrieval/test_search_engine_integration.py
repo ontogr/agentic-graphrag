@@ -609,32 +609,8 @@ class TestTraversalIntegration:
         assert backwards == []
         assert forwards == []
 
-    async def test_wide_fanout_falls_back_to_relationship_types(self) -> None:
-        """A high-degree entity is reported as its types, not its neighbours."""
-        from agrag.agents.ledger import Ledger  # noqa: PLC0415
-        from agrag.agents.tools import make_tools  # noqa: PLC0415
-
-        hub = await self._write_entity(self.person_label, "Hub")
-        for index in range(13):
-            neighbour = await self._write_entity(self.person_label, f"Knows {index}")
-            await self._write_relation("KNOWS", hub.id, neighbour.id)
-        for index in range(12):
-            neighbour = await self._write_entity(self.org_label, f"Employer {index}")
-            await self._write_relation("WORKS_FOR", hub.id, neighbour.id)
-
-        tools = make_tools(self.engine, Ledger())
-        tool = next(tool for tool in tools if tool.name == "traverse_from_entity")
-
-        rendered = await tool.ainvoke({"entity": "Hub"})
-
-        assert "KNOWS, WORKS_FOR" in rendered
-        assert "Knows 0" not in rendered
-
     async def test_narrowed_traversal_returns_real_neighbours(self) -> None:
-        """Naming a relationship type from that list returns the neighbours."""
-        from agrag.agents.ledger import Ledger  # noqa: PLC0415
-        from agrag.agents.tools import make_tools  # noqa: PLC0415
-
+        """Naming a relationship type returns only that type's neighbours."""
         hub = await self._write_entity(self.person_label, "Hub")
         for index in range(21):
             neighbour = await self._write_entity(self.person_label, f"Knows {index}")
@@ -643,13 +619,13 @@ class TestTraversalIntegration:
             neighbour = await self._write_entity(self.org_label, f"Employer {index}")
             await self._write_relation("WORKS_FOR", hub.id, neighbour.id)
 
-        tools = make_tools(self.engine, Ledger())
-        tool = next(tool for tool in tools if tool.name == "traverse_from_entity")
+        neighbours = await self.engine.traverse(
+            await self._resolved_seed("Hub"), relation_type="WORKS_FOR"
+        )
 
-        rendered = await tool.ainvoke({"entity": "Hub", "relation_type": "WORKS_FOR"})
-
-        assert "Employer 0" in rendered
-        assert "Knows 0" not in rendered
+        names = {result.item.name for result in neighbours}  # type: ignore[union-attr]
+        assert "Employer 0" in names
+        assert not any(name.startswith("Knows") for name in names)
 
     async def test_list_relationship_types_reports_real_types(self) -> None:
         """The types query reads the real attached relationship types."""

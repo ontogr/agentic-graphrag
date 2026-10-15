@@ -21,6 +21,7 @@ returns `request_id_reused`.
 - [**create_task**](#agrag-memory-tasks-TaskMemory-create_task) – Create a task, or return the existing task of that name.
 - [**get_task**](#agrag-memory-tasks-TaskMemory-get_task) – Read the bounded resume view of a task.
 - [**list_events**](#agrag-memory-tasks-TaskMemory-list_events) – Read events of a task in sequence order, one page at a time.
+- [**list_steps**](#agrag-memory-tasks-TaskMemory-list_steps) – Read every step of a task in one state, in name order.
 - [**record_event**](#agrag-memory-tasks-TaskMemory-record_event) – Append one raw event to a task.
 - [**set_step**](#agrag-memory-tasks-TaskMemory-set_step) – Create or update a step of a task.
 
@@ -90,6 +91,24 @@ Read events of a task in sequence order, one page at a time.
 
 - <code>[EventPage](../../common/data_models/task/EventPage.md)</code> – The page. When the task does not exist, `found` is false and the
 - <code>[EventPage](../../common/data_models/task/EventPage.md)</code> – page is empty.
+
+## `list_steps` \{#agrag-memory-tasks-TaskMemory-list_steps}
+
+```python
+list_steps(task_name:str, state:StepState) -> list[StepSummary]
+```
+
+Read every step of a task in one state, in name order.
+
+**Parameters:**
+
+- **task_name** (<code>str</code>) – Task whose steps to read.
+- **state** (<code>[StepState](../../common/data_models/task/StepState.md)</code>) – State to select.
+
+**Returns:**
+
+- <code>list\[[StepSummary](../../common/data_models/task/StepSummary.md)\]</code> – All matching steps, or an empty list if the task does not exist.
+- <code>list\[[StepSummary](../../common/data_models/task/StepSummary.md)\]</code> – Unlike the task view, this list is not capped at 50 steps.
 
 ## `record_event` \{#agrag-memory-tasks-TaskMemory-record_event}
 

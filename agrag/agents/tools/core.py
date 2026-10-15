@@ -2,10 +2,10 @@
 
 import json
 from collections.abc import Sequence
-from dataclasses import dataclass, field
 from typing import Any
 from uuid import UUID
 
+from agrag.agents.middleware import RunState, record_event_or_flag
 from agrag.agents.tracing import tool_span_context
 from agrag.common.data_models.decision import DocumentSupportInput
 from agrag.common.data_models.evidence import (
@@ -30,19 +30,6 @@ from agrag.graphdb.base import GraphStore
 from agrag.memory import DecisionMemory, TaskMemory
 
 
-@dataclass
-class RunState:
-    """Mutable facts accumulated by tools during one agent run."""
-
-    max_tool_calls: int
-    tool_calls: int = 0
-    budget_exhausted: bool = False
-    recording_failed: bool = False
-    retrieval_failed: bool = False
-    fetched_ids: list[str] = field(default_factory=list)
-    fetches: dict[str, Any] = field(default_factory=dict)
-
-
 def make_core_tools(  # noqa: PLR0915
     *,
     graph_store: GraphStore,
@@ -65,29 +52,6 @@ def make_core_tools(  # noqa: PLR0915
         fetches={item.evidence_id: item for item in fetched_outcomes},
     )
 
-    async def begin(name: str, arguments: dict[str, Any]) -> bool:
-        state.tool_calls += 1
-        call = await memory.record_event(
-            task_name,
-            EventKind.TOOL_CALL,
-            name=name,
-            payload=json.dumps(arguments, default=str),
-        )
-        state.recording_failed |= not call.recorded
-        allowed = state.tool_calls <= state.max_tool_calls
-        state.budget_exhausted |= state.tool_calls >= state.max_tool_calls
-        return allowed
-
-    async def end(name: str, result: str) -> str:
-        recorded = await memory.record_event(
-            task_name,
-            EventKind.TOOL_RESULT,
-            name=name,
-            payload=result,
-        )
-        state.recording_failed |= not recorded.recorded
-        return result
-
     @tool
     async def discover_evidence(
         query: str,
@@ -97,11 +61,8 @@ def make_core_tools(  # noqa: PLR0915
     ) -> str:
         """Find in-scope source passages and return their evidence ids."""
         with tool_span_context(callbacks):
-            args = {"query": query, "mode": mode, "limit": limit}
-            if not await begin("discover_evidence", args):
-                return await end("discover_evidence", "Tool budget exhausted.")
             if not 1 <= limit <= 50:
-                return await end("discover_evidence", "Limit must be between 1 and 50.")
+                return "Limit must be between 1 and 50."
             try:
                 found = await discover(
                     graph_store,
@@ -119,7 +80,7 @@ def make_core_tools(  # noqa: PLR0915
                     or found.truncated
                 )
                 result = found.model_dump_json()
-            return await end("discover_evidence", result)
+            return result
 
     @tool
     async def fetch_evidence(
@@ -128,13 +89,8 @@ def make_core_tools(  # noqa: PLR0915
     ) -> str:
         """Fetch exact passage text for evidence ids returned by discovery."""
         with tool_span_context(callbacks):
-            args = {"evidence_ids": evidence_ids}
-            if not await begin("fetch_evidence", args):
-                return await end("fetch_evidence", "Tool budget exhausted.")
             if len(evidence_ids) > 20:
-                return await end(
-                    "fetch_evidence", "Fetch at most 20 evidence ids per call."
-                )
+                return "Fetch at most 20 evidence ids per call."
             outcomes = await fetch(
                 graph_store, evidence_ids, scope=scope, max_chars=max_chars
             )
@@ -150,17 +106,15 @@ def make_core_tools(  # noqa: PLR0915
                     state.retrieval_failed = True
             valid_ids = [o.evidence_id for o in outcomes if o.status is FetchStatus.OK]
             if valid_ids:
-                stored = await memory.record_event(
+                await record_event_or_flag(
+                    memory,
                     task_name,
+                    state,
                     EventKind.NOTE,
                     name="fetched_evidence",
                     payload=json.dumps(valid_ids),
                 )
-                state.recording_failed |= not stored.recorded
-            return await end(
-                "fetch_evidence",
-                json.dumps([o.model_dump(mode="json") for o in outcomes]),
-            )
+            return json.dumps([o.model_dump(mode="json") for o in outcomes])
 
     @tool("navigate")
     async def navigate_evidence(
@@ -172,14 +126,6 @@ def make_core_tools(  # noqa: PLR0915
     ) -> str:
         """Read nearby passages in the same document version."""
         with tool_span_context(callbacks):
-            args = {
-                "evidence_id": evidence_id,
-                "relation": relation,
-                "limit": limit,
-                "max_chars": max_chars,
-            }
-            if not await begin("navigate", args):
-                return await end("navigate", "Tool budget exhausted.")
             try:
                 result = await navigate(
                     graph_store,
@@ -196,7 +142,7 @@ def make_core_tools(  # noqa: PLR0915
                     result.status.value == "failed" or result.truncated
                 )
                 output = result.model_dump_json()
-            return await end("navigate", output)
+            return output
 
     @tool("find_entities")
     async def search_entities(
@@ -208,11 +154,8 @@ def make_core_tools(  # noqa: PLR0915
     ) -> str:
         """Find entities whose names match the query and show source support."""
         with tool_span_context(callbacks):
-            args = {"query": query, "labels": labels, "mode": mode, "limit": limit}
-            if not await begin("find_entities", args):
-                return await end("find_entities", "Tool budget exhausted.")
             if not 1 <= limit <= 50:
-                return await end("find_entities", "Limit must be between 1 and 50.")
+                return "Limit must be between 1 and 50."
             try:
                 result = await find_entities(
                     graph_store,
@@ -231,7 +174,7 @@ def make_core_tools(  # noqa: PLR0915
                     or result.truncated
                 )
                 output = result.model_dump_json()
-            return await end("find_entities", output)
+            return output
 
     @tool
     async def explore(
@@ -245,15 +188,6 @@ def make_core_tools(  # noqa: PLR0915
     ) -> str:
         """Explore supported relations around an entity within fixed bounds."""
         with tool_span_context(callbacks):
-            args = {
-                "entity_id": entity_id,
-                "depth": depth,
-                "relation_types": relation_types,
-                "max_nodes": max_nodes,
-                "max_edges": max_edges,
-            }
-            if not await begin("explore", args):
-                return await end("explore", "Tool budget exhausted.")
             try:
                 result = await explore_evidence(
                     graph_store,
@@ -271,7 +205,7 @@ def make_core_tools(  # noqa: PLR0915
                     result.truncated_by
                 )
                 output = result.model_dump_json()
-            return await end("explore", output)
+            return output
 
     @tool("check_citations")
     async def check_citations_tool(
@@ -280,43 +214,65 @@ def make_core_tools(  # noqa: PLR0915
     ) -> str:
         """Check that evidence ids were fetched in the permitted scope."""
         with tool_span_context(callbacks):
-            args = {"evidence_ids": evidence_ids}
-            if not await begin("check_citations", args):
-                return await end("check_citations", "Tool budget exhausted.")
             checked = await check_citations(
                 evidence_ids, state.fetched_ids, scope=scope
             )
-            return await end(
-                "check_citations",
-                json.dumps([c.model_dump(mode="json") for c in checked]),
-            )
+            return json.dumps([c.model_dump(mode="json") for c in checked])
 
     @tool
     async def get_task() -> str:
         """Read this task's bounded resume view."""
-        if not await begin("get_task", {}):
-            return await end("get_task", "Tool budget exhausted.")
         lookup = await memory.get_task(task_name)
-        return await end("get_task", lookup.model_dump_json())
+        return lookup.model_dump_json()
 
     @tool
-    async def set_step(name: str, state_name: str, kind: str = "other") -> str:
-        """Record progress for a named task step."""
-        args = {"name": name, "state": state_name, "kind": kind}
-        if not await begin("set_step", args):
-            return await end("set_step", "Tool budget exhausted.")
+    async def set_step(
+        name: str, state_name: str, kind: str = "other", result: str | None = None
+    ) -> str:
+        """Record task-step progress and the text for a completed step.
+
+        A completed step requires result text that fits the event payload limit.
+        Later runs reuse that result instead of repeating the completed work.
+        """
         try:
-            result = await memory.set_step(
-                task_name,
-                name,
-                StepState(state_name),
-                kind=StepKind(kind),
-            )
+            step_state = StepState(state_name)
+            step_kind = StepKind(kind)
         except ValueError as exc:
-            output = f"Invalid step state: {exc}"
+            return f"Invalid step state: {exc}"
+        result_seq = None
+        if step_state is StepState.COMPLETED:
+            if not result:
+                return "A completed step needs its result text."
+            event = await record_event_or_flag(
+                memory,
+                task_name,
+                state,
+                EventKind.NOTE,
+                name=f"step:{name}",
+                payload=result,
+            )
+            if event is None:
+                raise RuntimeError(
+                    "Step result could not be recorded; step is unresolved."
+                )
+            if event.truncated:
+                raise RuntimeError("Step result was truncated; step is unresolved.")
+            result_seq = event.seq
+        try:
+            outcome = await memory.set_step(
+                task_name, name, step_state, kind=step_kind, result_event_seq=result_seq
+            )
+        except Exception as exc:
+            state.fail_recording(f"set_step {name}: {exc!r}")
+            raise RuntimeError(f"Step {name!r} could not be recorded.") from exc
+        if not outcome.recorded:
+            state.fail_recording(f"set_step {name}: {outcome.error}")
+            raise RuntimeError(f"Step {name!r} could not be recorded: {outcome.error}.")
+        if step_state is StepState.IN_PROGRESS:
+            state.open_steps[name] = step_kind
         else:
-            output = result.model_dump_json()
-        return await end("set_step", output)
+            state.open_steps.pop(name, None)
+        return outcome.model_dump_json()
 
     @tool
     async def record_decision(
@@ -326,9 +282,6 @@ def make_core_tools(  # noqa: PLR0915
         evidence_ids: list[str],
     ) -> str:
         """Record a decision supported by evidence fetched in this run."""
-        args = locals().copy()
-        if not await begin("record_decision", args):
-            return await end("record_decision", "Tool budget exhausted.")
         supports = [DocumentSupportInput(evidence_id=item) for item in evidence_ids]
         fetched = [
             state.fetches[item]
@@ -343,8 +296,9 @@ def make_core_tools(  # noqa: PLR0915
             supports=supports,
             fetched_evidence=fetched,
         )
-        state.recording_failed |= not result.recorded
-        return await end("record_decision", result.model_dump_json())
+        if not result.recorded:
+            state.fail_recording(f"record_decision: {result.error}")
+        return result.model_dump_json()
 
     @tool
     async def supersede_decision(
@@ -355,38 +309,35 @@ def make_core_tools(  # noqa: PLR0915
         evidence_ids: list[str],
     ) -> str:
         """Replace a decision with a supported conclusion."""
-        args = locals().copy()
-        if not await begin("supersede_decision", args):
-            return await end("supersede_decision", "Tool budget exhausted.")
         supports = [DocumentSupportInput(evidence_id=item) for item in evidence_ids]
         fetched = [
             state.fetches[item]
             for item in evidence_ids
             if item in state.fetches and state.fetches[item].status is FetchStatus.OK
         ]
+        try:
+            old_id = UUID(decision_id)
+        except ValueError:
+            return "decision_id must be the id of an existing decision."
         result = await decisions.supersede_decision(
-            UUID(decision_id),
+            old_id,
             conclusion,
             rationale,
             explanation=explanation,
             supports=supports,
             fetched_evidence=fetched,
         )
-        state.recording_failed |= not result.recorded
-        return await end("supersede_decision", result.model_dump_json())
+        if not result.recorded:
+            state.fail_recording(f"supersede_decision: {result.error}")
+        return result.model_dump_json()
 
     @tool
     async def search_decisions(query: str, limit: int = 20) -> str:
         """Find decisions in this project that may be useful as precedents."""
-        if not await begin("search_decisions", {"query": query, "limit": limit}):
-            return await end("search_decisions", "Tool budget exhausted.")
         if not 1 <= limit <= 20:
-            return await end("search_decisions", "Limit must be between 1 and 20.")
+            return "Limit must be between 1 and 20."
         found = await decisions.search_decisions(query, limit=limit)
-        return await end(
-            "search_decisions",
-            json.dumps([item.model_dump(mode="json") for item in found]),
-        )
+        return json.dumps([item.model_dump(mode="json") for item in found])
 
     return [
         discover_evidence,
