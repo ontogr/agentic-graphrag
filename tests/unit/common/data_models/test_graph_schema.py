@@ -67,9 +67,9 @@ _SYSTEM_PROPERTY_NAMES = [
 
 
 class TestEntityTypeReservedPropertyNames:
-    """EntityType rejects property names that the graph or vector store writes."""
+    """EntityType rejects property names that the graph writes itself."""
 
-    @pytest.mark.parametrize("reserved", ["label", "text", *_SYSTEM_PROPERTY_NAMES])
+    @pytest.mark.parametrize("reserved", _SYSTEM_PROPERTY_NAMES)
     def test_rejects_reserved_name(self, reserved: str) -> None:
         """A property with a reserved name raises, naming the fix."""
         with pytest.raises(ValidationError) as excinfo:
@@ -88,13 +88,13 @@ class TestEntityTypeReservedPropertyNames:
 
     def test_rejects_reserved_name_among_valid_ones(self) -> None:
         """One reserved name alongside valid properties still rejects the type."""
-        with pytest.raises(ValidationError, match="label"):
+        with pytest.raises(ValidationError, match="name"):
             EntityType(
                 label="Person",
                 description="A named individual.",
                 properties={
                     "role": PropertySpec(type="string"),
-                    "label": PropertySpec(type="string"),
+                    "name": PropertySpec(type="string"),
                 },
             )
 

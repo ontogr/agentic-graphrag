@@ -13,7 +13,6 @@ from agrag.ingestion._stage_context import StageContext
 from agrag.ingestion.resolve import resolve_batch
 from agrag.ingestion.resolve.resolution import BatchResolution
 from agrag.ingestion.stats import ResolutionStats
-from agrag.retrieval.settings import RetrievalSettings
 
 
 @dataclass(frozen=True)
@@ -36,7 +35,6 @@ async def resolve_stage(
     ctx: StageContext,
     *,
     graph_schema: GraphSchema,
-    retrieval_settings: RetrievalSettings,
     max_llm_pairs: int,
 ) -> ResolveStageResult:
     """Resolve the batch's mentions and count what the resolver decided.
@@ -46,9 +44,8 @@ async def resolve_stage(
         relations: The relations extracted from this batch's chunks.
         chunks: The chunks of this batch, used as context for the resolver.
         ctx: The store that holds persisted candidates, the embedder, the
-            optional vector index, the error policy, the job and the tracer.
+            error policy, the job and the tracer.
         graph_schema: The schema whose entity labels scope the resolver.
-        retrieval_settings: Names the entity collection to search.
         max_llm_pairs: The cap on LLM verifications for this batch.
 
     Returns:
@@ -61,8 +58,6 @@ async def resolve_stage(
         chunks_by_id,
         graph_store=ctx.graph_store,
         embedder=ctx.embedder,
-        vector_store=ctx.vector_store,
-        vector_collection=retrieval_settings.entity_collection,
         entity_labels=[entity.label for entity in graph_schema.entities],
         tracer=ctx.tracer,
         max_llm_pairs=max_llm_pairs,

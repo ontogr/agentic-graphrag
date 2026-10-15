@@ -11,7 +11,6 @@ constraint behavior under concurrency by the integration test instead.
 
 import asyncio
 import copy
-from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID, uuid4
@@ -20,7 +19,6 @@ import pytest
 
 from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.graph_record import DeferredWrites
-from agrag.common.data_models.vector_record import VectorRecord
 from agrag.cypher.cutover_job_write import (
     acquire_lease_query,
     begin_rollback_query,
@@ -45,8 +43,6 @@ from agrag.ingestion._cutover import (
     run_cutover_job,
 )
 from agrag.ingestion.settings import CutoverJobSettings
-from agrag.vectordb.base import VectorStore
-from agrag.vectordb.pending import stage_records
 
 
 class _FakeCutoverStore:
@@ -373,102 +369,6 @@ class _ReplayConflictStore(_FakeCutoverStore):
         return await super().execute_write(query, parameters)
 
 
-class _FakeVectorStore(VectorStore):
-    """In-memory VectorStore that keeps staged and committed records apart."""
-
-    def __init__(self) -> None:
-        """Create the fake with empty collections."""
-        self.records: dict[str, dict[str, VectorRecord]] = {}
-        self.upsert_calls = 0
-        self.fail_delete_pending = False
-
-    async def delete_pending(self, collection: str, *, job_id: UUID) -> None:
-        """Delete one job's staged records, unless failure is injected."""
-        if self.fail_delete_pending:
-            raise RuntimeError("injected pending-vector deletion failure")
-        bucket = self.records.get(collection, {})
-        self.records[collection] = {
-            record_id: record
-            for record_id, record in bucket.items()
-            if record.payload.get("_pending_job_id") != str(job_id)
-        }
-
-    async def initialize(self) -> None:
-        """No-op init."""
-
-    async def ensure_collection(self, name: str, **kwargs: Any) -> None:
-        """No-op collection creation."""
-
-    async def collection_exists(self, name: str) -> bool:
-        """Every collection exists."""
-        return True
-
-    async def delete_collection(self, name: str) -> None:
-        """Drop the collection."""
-        self.records.pop(name, None)
-
-    async def upsert(
-        self,
-        collection: str,
-        records: Sequence[VectorRecord],
-        *,
-        batch_size: int = 256,
-        pending_job_id: UUID | None = None,
-    ) -> None:
-        """Store the records by id, staged when a job id is given."""
-        self.upsert_calls += 1
-        bucket = self.records.setdefault(collection, {})
-        for record in stage_records(records, pending_job_id):
-            bucket[str(record.id)] = record
-
-    async def search(self, *args: Any, **kwargs: Any) -> list[Any]:
-        """Return no hits."""
-        return []
-
-    async def hybrid_search(self, *args: Any, **kwargs: Any) -> list[Any]:
-        """Return no hits."""
-        return []
-
-    async def scroll(
-        self,
-        collection: str,
-        *,
-        limit: int = 100,
-        page_offset: str | None = None,
-        filters: dict[str, Any] | None = None,
-        with_vectors: bool = False,
-        pending_job_id: UUID | None = None,
-    ) -> tuple[list[VectorRecord], str | None]:
-        """Return the committed records, or one job's staged ones, in one page."""
-        matches = [
-            record
-            for record in self.records.get(collection, {}).values()
-            if (
-                record.payload.get("_pending_job_id") == str(pending_job_id)
-                if pending_job_id is not None
-                else not record.payload.get("_pending")
-            )
-        ]
-        return matches, None
-
-    async def retrieve(self, collection: str, ids: Sequence[UUID]) -> list[Any]:
-        """Return no records."""
-        return []
-
-    async def count(self, collection: str, **kwargs: Any) -> int:
-        """Return zero."""
-        return 0
-
-    async def delete(self, collection: str, ids: Sequence[UUID]) -> None:
-        """Drop the ids from the collection."""
-        bucket = self.records.get(collection, {})
-        for record_id in ids:
-            bucket.pop(str(record_id), None)
-
-    async def close(self) -> None:
-        """No-op close."""
-
-
 async def _noop_cleanup(
     affected_entity_ids: list[UUID],
     component_seed_ids: list[UUID],
@@ -484,8 +384,6 @@ def _write_job(pending_write, cleanup=_noop_cleanup, **kwargs) -> dict[str, Any]
         "document_key": "doc-1",
         "affected_entity_ids": [],
         "graph_store": kwargs.pop("graph_store"),
-        "vector_store": kwargs.pop("vector_store", None),
-        "vector_collections": kwargs.pop("vector_collections", ("col-a",)),
         "settings": kwargs.pop("settings", CutoverJobSettings()),
         "pending_write": pending_write,
         "cleanup": cleanup,
@@ -707,84 +605,10 @@ class TestRunCutoverJobLeaseRenewal:
 class TestRunCutoverJobRollback:
     """A pending_write failure rolls everything back."""
 
-    async def test_new_write_recovers_expired_rollback_first(self) -> None:
-        """A later write finishes expired rollback before acquiring the key."""
-        store = _FakeCutoverStore()
-        vector_store = _FakeVectorStore()
-        delete_started = asyncio.Event()
-        allow_delete = asyncio.Event()
-        first_delete = True
-        old_job_id = uuid4()
-        vector_id = uuid4()
-        original_delete = vector_store.delete_pending
-
-        async def slow_delete(collection: str, *, job_id: UUID) -> None:
-            nonlocal first_delete
-            if first_delete:
-                first_delete = False
-                delete_started.set()
-                await allow_delete.wait()
-            await original_delete(collection, job_id=job_id)
-
-        vector_store.delete_pending = slow_delete  # type: ignore[method-assign]
-        store.jobs["doc-1"] = {
-            "id": str(old_job_id),
-            "status": "rolling_back",
-            "lease_token": str(uuid4()),
-            "lease_expires_at": datetime.now(UTC) - timedelta(seconds=1),
-        }
-        store.nodes.append(_tag_node(old_job_id))
-        await vector_store.upsert(
-            "col-a",
-            [VectorRecord(id=vector_id, vector=[0.0], payload={})],
-            pending_job_id=old_job_id,
-        )
-
-        async def pending(job_id: UUID) -> None:
-            store.nodes.append(_tag_node(job_id))
-
-        recovery = asyncio.create_task(
-            run_cutover_job(
-                **_write_job(
-                    pending,
-                    graph_store=store,
-                    vector_store=vector_store,
-                    settings=CutoverJobSettings(lease_ttl_seconds=1),
-                )
-            )
-        )
-        await asyncio.wait_for(delete_started.wait(), timeout=1)
-        await asyncio.sleep(1.1)
-
-        async def competing_pending(job_id: UUID) -> None:
-            raise AssertionError("competing write must not reach its pending stage")
-
-        with pytest.raises(CutoverJobLeaseError):
-            await run_cutover_job(
-                **_write_job(
-                    competing_pending,
-                    graph_store=store,
-                    vector_store=vector_store,
-                    settings=CutoverJobSettings(lease_ttl_seconds=1),
-                )
-            )
-
-        allow_delete.set()
-        await recovery
-
-        assert old_job_id != UUID(store.jobs["doc-1"]["id"])
-        assert all(
-            node["properties"].get("_pending_job_id") != str(old_job_id)
-            for node in store.nodes
-        )
-        assert str(vector_id) not in vector_store.records["col-a"]
-
     async def test_new_write_recovers_expired_pending_job_first(self) -> None:
         """A later write rolls back an expired pending job before its own write."""
         store = _FakeCutoverStore()
-        vector_store = _FakeVectorStore()
         old_job_id = uuid4()
-        vector_id = uuid4()
         store.jobs["doc-1"] = {
             "id": str(old_job_id),
             "status": "pending",
@@ -792,11 +616,6 @@ class TestRunCutoverJobRollback:
             "lease_expires_at": datetime.now(UTC) - timedelta(seconds=1),
         }
         store.nodes.append(_tag_node(old_job_id))
-        await vector_store.upsert(
-            "col-a",
-            [VectorRecord(id=vector_id, vector=[0.0], payload={})],
-            pending_job_id=old_job_id,
-        )
         old_rows_seen_by_pending_write: list[bool] = []
 
         async def pending(job_id: UUID) -> None:
@@ -805,13 +624,10 @@ class TestRunCutoverJobRollback:
                     node["properties"].get("_pending_job_id") == str(old_job_id)
                     for node in store.nodes
                 )
-                or str(vector_id) in vector_store.records["col-a"]
             )
             store.nodes.append(_tag_node(job_id))
 
-        await run_cutover_job(
-            **_write_job(pending, graph_store=store, vector_store=vector_store)
-        )
+        await run_cutover_job(**_write_job(pending, graph_store=store))
 
         assert old_rows_seen_by_pending_write == [False]
         assert old_job_id != UUID(store.jobs["doc-1"]["id"])
@@ -819,90 +635,6 @@ class TestRunCutoverJobRollback:
             node["properties"].get("_pending_job_id") != str(old_job_id)
             for node in store.nodes
         )
-
-    async def test_cancelled_expired_rollback_stops_vector_deletion(self) -> None:
-        """Cancellation stops cleanup and leaves the claimed graph job intact."""
-        store = _FakeCutoverStore()
-        vector_store = _FakeVectorStore()
-        delete_started = asyncio.Event()
-        delete_cancelled = False
-        old_job_id = uuid4()
-
-        async def blocked_delete(collection: str, *, job_id: UUID) -> None:
-            nonlocal delete_cancelled
-            delete_started.set()
-            try:
-                await asyncio.Event().wait()
-            finally:
-                delete_cancelled = True
-
-        vector_store.delete_pending = blocked_delete  # type: ignore[method-assign]
-        store.jobs["doc-1"] = {
-            "id": str(old_job_id),
-            "status": "rolling_back",
-            "lease_token": str(uuid4()),
-            "lease_expires_at": datetime.now(UTC) - timedelta(seconds=1),
-        }
-
-        async def pending(job_id: UUID) -> None:
-            raise AssertionError("pending write must not start before recovery")
-
-        recovery = asyncio.create_task(
-            run_cutover_job(
-                **_write_job(pending, graph_store=store, vector_store=vector_store)
-            )
-        )
-        await asyncio.wait_for(delete_started.wait(), timeout=1)
-        recovery.cancel()
-        with pytest.raises(asyncio.CancelledError):
-            await recovery
-
-        assert delete_cancelled
-        assert store.jobs["doc-1"]["id"] == str(old_job_id)
-        assert rollback_job_query() not in store.executed
-
-    async def test_lost_expired_rollback_lease_cancels_vector_deletion(self) -> None:
-        """A failed renewal cancels deletion and preserves the graph job."""
-        store = _FakeCutoverStore()
-        store._renew = lambda params: []  # type: ignore[method-assign]
-        vector_store = _FakeVectorStore()
-        delete_cancelled = False
-        old_job_id = uuid4()
-
-        async def blocked_delete(collection: str, *, job_id: UUID) -> None:
-            nonlocal delete_cancelled
-            try:
-                await asyncio.Event().wait()
-            finally:
-                delete_cancelled = True
-
-        vector_store.delete_pending = blocked_delete  # type: ignore[method-assign]
-        store.jobs["doc-1"] = {
-            "id": str(old_job_id),
-            "status": "rolling_back",
-            "lease_token": str(uuid4()),
-            "lease_expires_at": datetime.now(UTC) - timedelta(seconds=1),
-        }
-
-        async def pending(job_id: UUID) -> None:
-            raise AssertionError("pending write must not start before recovery")
-
-        with pytest.raises(CutoverJobLeaseError, match="lost its lease"):
-            await asyncio.wait_for(
-                run_cutover_job(
-                    **_write_job(
-                        pending,
-                        graph_store=store,
-                        vector_store=vector_store,
-                        settings=CutoverJobSettings(lease_ttl_seconds=1),
-                    )
-                ),
-                timeout=2,
-            )
-
-        assert delete_cancelled
-        assert store.jobs["doc-1"]["id"] == str(old_job_id)
-        assert rollback_job_query() not in store.executed
 
     async def test_pending_write_failure_deletes_tagged_writes(self) -> None:
         """A pending-write failure deletes tagged nodes and the job record."""
@@ -919,58 +651,6 @@ class TestRunCutoverJobRollback:
         assert "doc-1" not in store.jobs
         # Cleanup never ran: the job never committed.
         assert commit_job_query() not in store.executed
-
-    async def test_failed_vector_delete_leaves_job_rolling_back(self) -> None:
-        """A failed vector cleanup leaves graph rows for recovery."""
-        store = _FakeCutoverStore()
-        vector_store = _FakeVectorStore()
-        vector_store.fail_delete_pending = True
-
-        async def pending(job_id: UUID) -> None:
-            store.nodes.append(_tag_node(job_id))
-            raise RuntimeError("pending failed")
-
-        with pytest.raises(RuntimeError, match="pending failed"):
-            await run_cutover_job(
-                **_write_job(pending, graph_store=store, vector_store=vector_store)
-            )
-
-        assert store.jobs["doc-1"]["status"] == "rolling_back"
-        assert store.nodes
-
-    async def test_renews_lease_during_long_rollback(self) -> None:
-        """A rollback that outlasts a renewal interval keeps its lease."""
-        store = _FakeCutoverStore()
-        vector_store = _FakeVectorStore()
-        original_delete = vector_store.delete_pending
-
-        async def slow_delete(collection: str, *, job_id: UUID) -> None:
-            await asyncio.sleep(0.4)
-            await original_delete(collection, job_id=job_id)
-
-        vector_store.delete_pending = slow_delete  # type: ignore[method-assign]
-
-        async def pending(job_id: UUID) -> None:
-            store.nodes.append(_tag_node(job_id))
-            await vector_store.upsert(
-                "col-a",
-                [VectorRecord(id=uuid4(), vector=[0.0], payload={})],
-                pending_job_id=job_id,
-            )
-            raise RuntimeError("pending failed")
-
-        with pytest.raises(RuntimeError, match="pending failed"):
-            await run_cutover_job(
-                **_write_job(
-                    pending,
-                    graph_store=store,
-                    vector_store=vector_store,
-                    settings=CutoverJobSettings(lease_ttl_seconds=1),
-                )
-            )
-
-        assert "doc-1" not in store.jobs
-        assert any(query == renew_lease_query() for query in store.executed)
 
     async def test_commit_transaction_failure_rolls_back(self) -> None:
         """A failure inside the commit transaction rolls the pending writes back too."""
@@ -997,31 +677,6 @@ class TestRunCutoverJobRollback:
 
         with pytest.raises(RuntimeError, match="original failure"):
             await run_cutover_job(**_write_job(pending, graph_store=store))
-
-    async def test_pending_write_failure_deletes_pending_vectors(self) -> None:
-        """Rollback deletes the job's pending vectors, not just graph rows.
-
-        A rolled-back job's writes were never committed; leaving its
-        pending-tagged vectors behind would orphan them permanently, since
-        nothing else ever revisits a rolled-back job's id.
-        """
-        store = _FakeCutoverStore()
-        vector_store = _FakeVectorStore()
-
-        async def pending(job_id: UUID) -> None:
-            await vector_store.upsert(
-                "col-a",
-                [VectorRecord(id=uuid4(), vector=[0.0], payload={})],
-                pending_job_id=job_id,
-            )
-            raise RuntimeError("extraction blew up")
-
-        with pytest.raises(RuntimeError, match="extraction blew up"):
-            await run_cutover_job(
-                **_write_job(pending, graph_store=store, vector_store=vector_store)
-            )
-
-        assert vector_store.records["col-a"] == {}
 
 
 class TestRunCutoverJobReplay:
@@ -1055,21 +710,12 @@ class TestRunCutoverJobRollForward:
     async def test_cancellation_after_commit_preserves_recovery_record(self) -> None:
         """Cancellation after a commit keeps its data and job for recovery."""
         store = _CommitBlockingStore()
-        vector_store = _FakeVectorStore()
-        vector_id = uuid4()
 
         async def pending(job_id: UUID) -> None:
             store.nodes.append(_tag_node(job_id))
-            await vector_store.upsert(
-                "col-a",
-                [VectorRecord(id=vector_id, vector=[0.0], payload={})],
-                pending_job_id=job_id,
-            )
 
         task = asyncio.create_task(
-            run_cutover_job(
-                **_write_job(pending, graph_store=store, vector_store=vector_store)
-            )
+            run_cutover_job(**_write_job(pending, graph_store=store))
         )
         await asyncio.wait_for(store.commit_started.wait(), timeout=1)
         task.cancel()
@@ -1081,10 +727,6 @@ class TestRunCutoverJobRollForward:
         assert store.nodes
         assert all("_pending_job_id" not in node["properties"] for node in store.nodes)
         assert store.jobs["doc-1"]["status"] == "committed"
-        assert any(
-            record.payload.get("_target_id") == str(vector_id)
-            for record in vector_store.records["col-a"].values()
-        )
 
     async def test_finish_cleaning_fence_failure_after_cleanup(self) -> None:
         """Losing the lease before the done flip parks the job in cleaning."""
@@ -1122,33 +764,20 @@ class TestRunCutoverJobRollForward:
 class TestAmbiguousCommit:
     """An applied commit that raises on the client remains committed."""
 
-    async def test_unreadable_status_leaves_job_and_vectors_for_recovery(self) -> None:
-        """An unreadable write-routed status never triggers deletion."""
+    async def test_unreadable_status_leaves_job_for_recovery(self) -> None:
+        """An unreadable write-routed status never triggers rollback."""
         store = _FakeCutoverStore()
         store.raise_after_applying = commit_job_query()
         store.fail_on.add(job_status_query())
-        vector_store = _FakeVectorStore()
-        vector_id = uuid4()
 
         async def pending(job_id: UUID) -> None:
             store.nodes.append(_tag_node(job_id))
-            await vector_store.upsert(
-                "col-a",
-                [VectorRecord(id=vector_id, vector=[0.0], payload={})],
-                pending_job_id=job_id,
-            )
 
         with pytest.raises(RuntimeError, match="after applying"):
-            await run_cutover_job(
-                **_write_job(pending, graph_store=store, vector_store=vector_store)
-            )
+            await run_cutover_job(**_write_job(pending, graph_store=store))
 
         assert rollback_job_query() not in store.executed
         assert store.jobs["doc-1"]["status"] == "committed"
-        assert any(
-            record.payload.get("_target_id") == str(vector_id)
-            for record in vector_store.records["col-a"].values()
-        )
         assert store.nodes
 
     async def test_applied_commit_continues_cleanup_and_returns_recorded_count(

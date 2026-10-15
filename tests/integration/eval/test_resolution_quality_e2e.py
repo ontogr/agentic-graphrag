@@ -226,7 +226,6 @@ async def test_full_resolver_meets_threshold_on_company_names(
         candidate_source=GraphCandidateSource(
             graph_store=None,
             embedder=embedder,
-            vector_store=None,
         ),
         embedder=embedder,
     )

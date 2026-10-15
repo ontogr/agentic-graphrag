@@ -21,19 +21,18 @@ from agrag.retrieval.resolved_entities import load_resolved_entities
 from agrag.retrieval.retrievers.base import Retriever
 from agrag.retrieval.settings import RetrievalSettings
 from agrag.retrieval.tracing import record_results, retrieval_span
-from agrag.vectordb.base import VectorStore
 
 
 class EntityRetriever(Retriever):
     """Dense entity search via vector similarity.
 
-    Embeds the query, searches via the GraphStore-native or
-    VectorStore path, then loads every hit from the graph. A hit that
-    no longer exists in the graph is dropped.
+    Embeds the query, searches the graph's native vector indexes, then
+    loads every hit from the graph. A hit that no longer exists in the
+    graph is dropped.
 
-    The native path searches one vector index per entity label, so it
-    needs the labels ingestion provisioned indexes for: the label
-    filter when the caller sets one, otherwise ``entity_labels``.
+    One vector index exists per entity label, so the search needs the
+    labels ingestion provisioned indexes for: the label filter when the
+    caller sets one, otherwise ``entity_labels``.
     """
 
     name = "entity"
@@ -43,7 +42,6 @@ class EntityRetriever(Retriever):
         *,
         graph_store: GraphStore,
         embedder: Embedder,
-        vector_store: VectorStore | None = None,
         settings: RetrievalSettings | None = None,
         entity_labels: Sequence[str] | None = None,
         tracer: Tracer | None = None,
@@ -51,10 +49,8 @@ class EntityRetriever(Retriever):
         """Construct an EntityRetriever.
 
         Args:
-            graph_store: Backs entity search when vector_store is
-                absent.
+            graph_store: Backs entity search and the entity reads.
             embedder: Produces query vectors.
-            vector_store: Optional VectorStore for hybrid search.
             settings: Retrieval configuration. Defaults from
                 environment.
             entity_labels: The schema entity labels native search runs
@@ -64,7 +60,6 @@ class EntityRetriever(Retriever):
         """
         self._graph_store = graph_store
         self._embedder = embedder
-        self._vector_store = vector_store
         self._settings = settings or RetrievalSettings()
         self._entity_labels = (
             list(entity_labels)
@@ -140,12 +135,9 @@ class EntityRetriever(Retriever):
                         query,
                         embedder=self._embedder,
                         graph_store=self._graph_store,
-                        vector_store=self._vector_store,
-                        collection=self._settings.entity_collection,
                         labels=labels,
                         limit=raw_candidate_limit,
                         filters=search_filters,
-                        settings=self._settings,
                         query_vector=query_vector,
                         tracer=self._tracer,
                     )
@@ -232,12 +224,9 @@ class EntityRetriever(Retriever):
                         query,
                         embedder=self._embedder,
                         graph_store=self._graph_store,
-                        vector_store=self._vector_store,
-                        collection=self._settings.resolved_entity_collection,
                         labels=("ResolvedEntity",),
                         limit=resolved_candidate_limit,
                         filters=resolved_filters,
-                        settings=self._settings,
                         query_vector=query_vector,
                         tracer=self._tracer,
                     )

@@ -5,7 +5,6 @@ from agrag.common.data_models.resolved_entity import (
     MATCHES_RELATION,
     RESOLVED_AS_RELATION,
     RESOLVED_ENTITY_LABEL,
-    RESOLVED_ENTITY_VECTOR_DELETION_LABEL,
 )
 from agrag.common.data_models.structure import HAS_PART
 from agrag.cypher._pending_filter import pending_filter_clause
@@ -139,31 +138,4 @@ def delete_merge_aliases_for_entities_query() -> str:
         "WITH alias, alias.entity_id AS entity_id "
         "DETACH DELETE alias "
         "RETURN entity_id"
-    )
-
-
-def enqueue_resolved_entity_vector_deletions_query() -> str:
-    """Build Cypher persisting vector ids whose deletion needs a retry."""
-    return (
-        "UNWIND $records AS record "
-        f"MERGE (pending:{RESOLVED_ENTITY_VECTOR_DELETION_LABEL} {{id: record.id}}) "
-        "SET pending.collection = record.collection, "
-        "pending.error = record.error, pending.updated_at = datetime()"
-    )
-
-
-def clear_resolved_entity_vector_deletions_query() -> str:
-    """Build Cypher removing successfully retried vector deletions."""
-    return (
-        "UNWIND $ids AS pending_id "
-        f"MATCH (pending:{RESOLVED_ENTITY_VECTOR_DELETION_LABEL} {{id: pending_id}}) "
-        "DETACH DELETE pending"
-    )
-
-
-def fetch_resolved_entity_vector_deletions_query() -> str:
-    """Build Cypher reading vector deletions that still need a retry."""
-    return (
-        f"MATCH (pending:{RESOLVED_ENTITY_VECTOR_DELETION_LABEL}) "
-        "RETURN pending.id AS id, pending.collection AS collection"
     )

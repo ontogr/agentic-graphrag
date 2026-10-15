@@ -30,7 +30,6 @@ from agrag.retrieval.tracing import (
     result_text,
     retrieval_span,
 )
-from agrag.vectordb.base import VectorStore
 
 
 logger = logging.getLogger(__name__)
@@ -74,7 +73,6 @@ async def find_entity(
     *,
     graph_store: GraphStore,
     embedder: Embedder,
-    vector_store: VectorStore | None,
     settings: RetrievalSettings,
     entity_labels: Sequence[str],
     filters: SearchFilters | None = None,
@@ -89,9 +87,8 @@ async def find_entity(
 
     Args:
         name: The entity name (or description) to resolve.
-        graph_store: Backs entity search when vector_store is absent.
+        graph_store: Backs entity search.
         embedder: Produces the query vector.
-        vector_store: Optional vector store for hybrid search.
         settings: Retrieval configuration.
         entity_labels: The labels native entity search runs against by
             default, one vector index each.
@@ -125,7 +122,6 @@ async def find_entity(
         retriever = EntityRetriever(
             graph_store=graph_store,
             embedder=embedder,
-            vector_store=vector_store,
             settings=settings,
             entity_labels=entity_labels,
             tracer=tracer,

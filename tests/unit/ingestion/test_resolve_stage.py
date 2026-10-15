@@ -13,7 +13,6 @@ from agrag.ingestion.resolve.resolution import BatchResolution
 from agrag.ingestion.resolve.resolver import ResolutionGroup, ResolutionResult
 from agrag.loaders.types import ErrorPolicy
 from agrag.observability import get_tracer
-from agrag.retrieval.settings import RetrievalSettings
 
 
 def _mention(text: str) -> ExtractedEntity:
@@ -55,7 +54,6 @@ class TestResolveStage:
             ctx = StageContext(
                 graph_store=AsyncMock(),
                 embedder=AsyncMock(),
-                vector_store=None,
                 error_policy=ErrorPolicy.RAISE,
                 tracer=get_tracer(None),
                 job_id=None,
@@ -67,7 +65,6 @@ class TestResolveStage:
                 [],
                 ctx,
                 graph_schema=DEFAULT_SCHEMA,
-                retrieval_settings=RetrievalSettings(),
                 max_llm_pairs=10,
             )
 

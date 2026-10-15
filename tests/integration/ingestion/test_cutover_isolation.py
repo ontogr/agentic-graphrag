@@ -175,8 +175,6 @@ def _job_args(
         "document_key": key,
         "affected_entity_ids": [],
         "graph_store": store,
-        "vector_store": None,
-        "vector_collections": [],
         "settings": CutoverJobSettings(),
         "pending_write": pending_write,
         "cleanup": cleanup,

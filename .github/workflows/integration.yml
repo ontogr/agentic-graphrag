@@ -42,9 +42,6 @@ jobs:
       matrix:
         # Each suite runs as its own job on its own runner with its own
         # ephemeral backend stack, and starts only the services its tests use.
-        # Only tests/integration/vectordb talks to Qdrant, Weaviate, and Milvus.
-        # Every other suite needs Neo4j alone, so those jobs skip the slow
-        # Milvus stack.
         # dist picks the xdist scheduler per suite. loadgroup is only needed by
         # graph: its cypher and retrieval community tests write and delete
         # Community nodes against the same shared label and are tagged
@@ -75,11 +72,6 @@ jobs:
             dist: loadscope
             services: neo4j
             timeout: 20
-          - name: vectordb
-            paths: "tests/integration/vectordb"
-            dist: loadscope
-            services: qdrant weaviate milvus
-            timeout: 15
     env:
       UV_PYTHON: "3.12"
       # Backend credentials below are fixed, throwaway values scoped to this ephemeral job's
@@ -88,14 +80,6 @@ jobs:
       NEO4J_USERNAME: neo4j
       NEO4J_PASSWORD: ci-test-password
       NEO4J_DATABASE: neo4j
-      QDRANT_URL: http://localhost:6333
-      QDRANT_API_KEY: ci-test-qdrant-key
-      WEAVIATE_URL: http://localhost:8080
-      WEAVIATE_API_KEY: ci-test-weaviate-key
-      WEAVIATE_GRPC_PORT: "50051"
-      WEAVIATE_MODE: custom
-      MILVUS_URI: http://localhost:19530
-      MILVUS_TOKEN: ""
       COVERAGE_FILE: coverage-data-${{ matrix.suite.name }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -181,11 +165,9 @@ jobs:
         # tests never share a database with the integration suites or with each
         # other. Tests inside a shard run serially: the tests/conftest.py hook
         # skips E2E tests on xdist workers, so do not pass -n here. The shards
-        # cover every test in tests/integration/e2e exactly once, except the
-        # parity test, which the e2e-parity job runs after all shards finish.
+        # cover every test in tests/integration/e2e exactly once.
         # Test time is now a few minutes at most, so runner start-up and service
-        # boot dominate. The shards group tests by the services they need: Milvus
-        # has its own shard because its stack is the slowest to start.
+        # boot dominate.
         # The llm shard holds the tests that call a real LLM endpoint. They are
         # slow and can fail on a network error, so they run apart from the rest.
         # allow_skips is false where a skip means the shard lost a backend. The
@@ -209,19 +191,12 @@ jobs:
             services: neo4j
             timeout: 20
             allow_skips: true
-          - name: ingest-vector
+          - name: ingest
             args: >-
               tests/integration/e2e/test_corpus_ingestion_e2e.py
               tests/integration/e2e/test_document_lifecycle_e2e.py
               tests/integration/e2e/test_resolution_merge_e2e.py
-              tests/integration/e2e/test_vector_backends_e2e.py
-              -k "not milvus"
-            services: neo4j qdrant weaviate
-            timeout: 20
-            allow_skips: false
-          - name: vector-milvus
-            args: tests/integration/e2e/test_vector_backends_e2e.py -k milvus
-            services: neo4j milvus
+            services: neo4j
             timeout: 20
             allow_skips: false
     env:
@@ -232,14 +207,6 @@ jobs:
       NEO4J_USERNAME: neo4j
       NEO4J_PASSWORD: ci-test-password
       NEO4J_DATABASE: neo4j
-      QDRANT_URL: http://localhost:6333
-      QDRANT_API_KEY: ci-test-qdrant-key
-      WEAVIATE_URL: http://localhost:8080
-      WEAVIATE_API_KEY: ci-test-weaviate-key
-      WEAVIATE_GRPC_PORT: "50051"
-      WEAVIATE_MODE: custom
-      MILVUS_URI: http://localhost:19530
-      MILVUS_TOKEN: ""
       COVERAGE_FILE: coverage-data-e2e-${{ matrix.shard.name }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -248,8 +215,7 @@ jobs:
           persist-credentials: false
 
       # Started without --wait so image pulls overlap with the uv and Python
-      # setup below. Only this shard's services start; Compose starts the etcd
-      # and minio containers Milvus depends on.
+      # setup below.
       - name: Start backend services
         run: docker compose -f docker/docker-compose.ci.yml up -d ${{ matrix.shard.services }}
 
@@ -316,17 +282,6 @@ jobs:
             coverage-data-e2e-${{ matrix.shard.name }}
           retention-days: 30
 
-      # The parity job reads these per-test artifacts, so they get their own
-      # upload, which the parity job downloads by name pattern.
-      - name: Upload e2e artifacts
-        if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: e2e-artifacts-${{ matrix.shard.name }}
-          path: reports/e2e
-          if-no-files-found: ignore
-          retention-days: 30
-
       - name: Collect backend service logs
         if: failure()
         run: docker compose -f docker/docker-compose.ci.yml logs
@@ -335,51 +290,12 @@ jobs:
         if: always()
         run: docker compose -f docker/docker-compose.ci.yml down -v
 
-  # Compares the search rankings each vector store backend produced. The
-  # backends run in different shards, so their artifacts meet here.
-  e2e-parity:
-    name: E2E vector backend parity
-    needs: [changes, e2e]
-    if: needs.changes.outputs.backend_tests == 'true' && needs.e2e.result == 'success'
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    env:
-      UV_PYTHON: "3.12"
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 1
-          persist-credentials: false
-
-      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
-        with:
-          enable-cache: true
-          cache-dependency-glob: "uv.lock"
-
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
-        with:
-          python-version: "3.12"
-
-      - run: make sync
-
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          pattern: e2e-artifacts-*
-          merge-multiple: true
-          path: reports/e2e
-
-      - name: Compare backend rankings
-        run: >-
-          uv run pytest tests/integration/e2e/test_vector_backends_parity.py
-          -v
-          -o "addopts=--strict-markers --strict-config --disable-socket --allow-unix-socket -ra"
-
   # One required check for branch protection; skipped workloads are valid only
   # when the shared selector explicitly excluded backend tests.
   integration-gate:
     name: Integration gate
     if: always()
-    needs: [changes, integration, e2e, e2e-parity]
+    needs: [changes, integration, e2e]
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:
@@ -387,7 +303,7 @@ jobs:
         env:
           SELECTOR_RESULT: ${{ needs.changes.result }}
           SELECTED: ${{ needs.changes.outputs.backend_tests }}
-          RESULTS: ${{ needs.integration.result }} ${{ needs.e2e.result }} ${{ needs.e2e-parity.result }}
+          RESULTS: ${{ needs.integration.result }} ${{ needs.e2e.result }}
         run: |
           test "$SELECTOR_RESULT" = success
           if [ "$SELECTED" = true ]; then
