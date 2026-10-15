@@ -323,19 +323,10 @@ class TestToolsIntegration:
         )
 
     @pytest.mark.skipif(neo4j_missing, reason="neo4j extra not installed")
-    async def test_tool_count_grows_to_eleven_with_cypher_tool(self) -> None:
-        """Five discovery, four traversal, calculator, and generated Cypher."""
+    async def test_tool_count_is_ten(self) -> None:
+        """Five discovery, four traversal, and the aggregate calculator."""
         tools = make_tools(self.engine, Ledger())
-        assert len(tools) == 11
-
-    @pytest.mark.skipif(neo4j_missing, reason="neo4j extra not installed")
-    async def test_scoped_tool_set_omits_query_graph_directly(self) -> None:
-        """A caller scope removes the unscoped-only generated-Cypher tool."""
-        scoped = make_tools(
-            self.engine, Ledger(), filters=SearchFilters(labels=[self.label])
-        )
-        assert len(scoped) == 10
-        assert "query_graph_directly" not in {tool.name for tool in scoped}
+        assert len(tools) == 10
 
     @pytest.mark.skipif(neo4j_missing, reason="neo4j extra not installed")
     async def test_tool_names(self) -> None:

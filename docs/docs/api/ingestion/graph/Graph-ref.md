@@ -76,7 +76,8 @@ by `open()` when missing.
   `update()`.
 - **max_llm_pairs** (<code>int</code>) – The most ambiguous entity pairs that resolution sends
   to the LLM for each label. A lower value bounds the number of
-  verification calls and leaves more pairs undecided.
+  verification calls and leaves more pairs undecided. Zero sends
+  no pairs to the LLM.
 
 ## `add` \{#agrag-ingestion-graph-Graph-add}
 
