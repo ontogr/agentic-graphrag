@@ -142,7 +142,7 @@ A change of the schema name or the schema version alone does not start a new ver
 
 If the document was deleted, no chunk is open. `Graph.update` then writes a new version with the same text.
 
-`Graph.add` does not compare anything. If you add a key that already exists, the graph keeps the old version open next to the new one. Use `Graph.update` to replace a document.
+`Graph.add` makes the same decision as `Graph.update` for a key that already has a current version. If the content matches the stored version, `Graph.add` skips the document and writes nothing. If the content changed, `Graph.add` replaces the current version, as `Graph.update` does. A key with no current version, such as a new key or a deleted document, is added as a new document. Calling `Graph.add` again with the same documents therefore writes only what changed since the last call.
 
 ## Delete a document
 
