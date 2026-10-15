@@ -25,6 +25,7 @@ from agrag.embedding.base import Embedder
 from agrag.graphdb import build_graph_store
 from agrag.ingestion.extract import Extractor
 from agrag.ingestion.graph import Graph
+from tests.conftest import FAKE_EMBEDDING_DIMENSIONS
 
 
 neo4j_missing = importlib.util.find_spec("neo4j") is None
@@ -42,11 +43,11 @@ class _ZeroEmbedder(Embedder):
 
     async def dimensions(self) -> int:
         """Return a small fixed dimension."""
-        return 4
+        return FAKE_EMBEDDING_DIMENSIONS
 
     async def embed(self, texts: Sequence[str]) -> list[list[float]]:
         """Return a zero vector for every text."""
-        return [[0.0] * 4 for _ in texts]
+        return [[0.0] * FAKE_EMBEDDING_DIMENSIONS for _ in texts]
 
 
 class _SuffixEmbedder(Embedder):
@@ -67,7 +68,7 @@ class _SuffixEmbedder(Embedder):
 
     async def dimensions(self) -> int:
         """Return a small fixed dimension."""
-        return 4
+        return FAKE_EMBEDDING_DIMENSIONS
 
     async def embed(self, texts: Sequence[str]) -> list[list[float]]:
         """Return the run vector for own texts, the foreign one otherwise."""
