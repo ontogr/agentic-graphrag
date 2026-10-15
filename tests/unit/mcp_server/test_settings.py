@@ -13,6 +13,14 @@ from agrag.mcp_server.settings import McpServerSettings
 class TestMcpServerSettingsScope:
     """The scope of the settings is the set of keys that the server may read."""
 
+    def test_settings_default_to_read_only(self) -> None:
+        """Do not enable project writes unless the operator opts in."""
+        settings = McpServerSettings(
+            scope_document_keys="a/document.txt", _env_file=None
+        )
+
+        assert settings.read_only is True
+
     @pytest.mark.parametrize(
         ("raw", "expected"),
         [
@@ -41,3 +49,12 @@ class TestMcpServerSettingsScope:
 
         with pytest.raises(ValidationError, match="at least one document key"):
             McpServerSettings(_env_file=None)
+
+    def test_requires_project_and_agent_identity_for_writes(self) -> None:
+        """Require trusted project and author ids before enabling writes."""
+        with pytest.raises(ValidationError, match="project_id and agent_id"):
+            McpServerSettings(
+                scope_document_keys="a/document.txt",
+                read_only=False,
+                _env_file=None,
+            )

@@ -46,8 +46,8 @@ async def fetch(
     outcome. A chunk reference returns the stored text of that chunk.
 
     The status of a version is ``current`` when the id's content hash matches the
-    document's current content hash, and ``superseded`` otherwise. Superseded text
-    is still returned.
+    document's current content hash. Updated and deleted versions are
+    ``superseded``; their text is still returned.
 
     Args:
         store: The graph store to read.
