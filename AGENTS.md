@@ -10,7 +10,6 @@ The repo is hosted at `ontogr/agentic-graphrag`.
 (tests, examples, benchmarks, docker, docs) is not part of the distribution.
 
 - Python package: `agrag`.
-- Current repo: staging/development repo `test-agentic-graphrag`.
 - Public repo: `https://github.com/ontogr/agentic-graphrag`.
 - License: Apache-2.0.
 - Python: `>=3.11`.
@@ -186,9 +185,10 @@ Ask: would this break code that used the package last week?
   are explicitly in a database adapter package.
 - Validate interpolated Neo4j labels and relationship types before formatting
   Cypher.
-- Do not put multi-line Cypher string literals in Python. Queries live in
-  `.cypher` files under `agrag/common/cypher/` and are loaded by the thin
-  loader.
+- Do not write multi-line Cypher inline in other modules. Each query is a
+  builder function in an `agrag/cypher/` module, grouped by area (for example
+  `documents.py` or `entities.py`). Callers import the builder and pass the
+  parameters.
 - Settings classes subclass `pydantic_settings.BaseSettings`, load from the
   repo-root `.env`, and use clear environment prefixes such as `NEO4J_`,
   `QDRANT_`, `WEAVIATE_`, `EMBEDDING_`, `RETRIEVAL_`, and `AGENT_`.
