@@ -1,4 +1,4 @@
-"""The verifier subagent's structured verdict."""
+"""The structured verdict of the fixed-input verifier."""
 
 from collections.abc import Sequence
 from typing import Any, Literal
@@ -20,11 +20,10 @@ _MAX_STEPS = 6
 
 
 class VerificationResult(BaseModel):
-    """The verifier's structured verdict on the researcher's findings.
+    """The verifier's structured verdict on the agent's findings.
 
     The verifier returns this through its ``response_format``, so the
-    planner reads a typed verdict out of the task tool's result instead
-    of parsing free-form prose.
+    caller reads a typed verdict instead of parsing free-form prose.
 
     Attributes:
         reasoning: What the independent per-sub-question checks found,
@@ -59,7 +58,7 @@ async def verify_findings(
         model: A LangChain chat model.
         question: The original question.
         sub_questions: The sub-questions the question was split into.
-        findings: The researcher's findings with citation keys such as ``E1``,
+        findings: The findings with citation keys such as ``E1``,
             and the evidence text for each key.
 
     Returns:

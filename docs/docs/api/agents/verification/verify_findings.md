@@ -19,7 +19,7 @@ task agent does not use this helper or a verifier subagent.
 - **model** (<code>Any</code>) – A LangChain chat model.
 - **question** (<code>str</code>) – The original question.
 - **sub_questions** (<code>Sequence\[str\]</code>) – The sub-questions the question was split into.
-- **findings** (<code>str</code>) – The researcher's findings with citation keys such as `E1`,
+- **findings** (<code>str</code>) – The findings with citation keys such as `E1`,
   and the evidence text for each key.
 
 **Returns:**

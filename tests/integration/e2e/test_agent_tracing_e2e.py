@@ -34,10 +34,10 @@ def _llm_configured() -> bool:
 )
 @pytest.mark.skipif(not _llm_configured(), reason="LLM endpoint not configured")
 class TestAgentTracingE2E:
-    """A traced agent run exports planner, researcher and tool spans."""
+    """A traced agent run exports tool spans nested under its own spans."""
 
-    async def test_researcher_tool_spans_nest_under_the_task_span(self) -> None:
-        """The researcher's tool calls are descendants of the ``task`` span."""
+    async def test_tool_spans_have_a_parent_span(self) -> None:
+        """Tool calls are descendants of a span from the agent run."""
         exporter = InMemorySpanExporter()
         provider = TracerProvider()
         provider.add_span_processor(SimpleSpanProcessor(exporter))
@@ -54,9 +54,7 @@ class TestAgentTracingE2E:
             tracer=provider.get_tracer("agrag-e2e"),
         )
 
-        await agent.ainvoke(
-            {"task_name": "alice", "question": "Who is Alice?"}
-        )
+        await agent.ainvoke({"task_name": "alice", "question": "Who is Alice?"})
         await graph_store.close()
 
         spans = exporter.get_finished_spans()

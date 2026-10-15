@@ -1,12 +1,11 @@
 """End-to-end agent tracing against a real Neo4j and a real LLM.
 
-One tracer is given to the graph store, the engine and ``build_agent``. Two
-independent lookups are delegated to parallel ``task`` calls, and each
-retrieval span must nest under the ``TOOL`` span of the call that made it,
-which in turn sits under a ``task`` span. The span tree is written to the test
-output directory as JSON. The test seeds its own four-dimension corpus, like
-the other agent integration tests, so it shares the database-wide ``Chunk``
-vector index with them. It skips when no agent LLM endpoint is configured.
+One tracer is given to the graph store, the engine and ``build_agent``. The
+agent answers two independent lookups, and each retrieval span must nest under
+the ``TOOL`` span of the evidence call that made it. The span tree is written
+to the test output directory as JSON. The test seeds its own four-dimension
+corpus, like the other agent integration tests, so it shares the database-wide
+``Chunk`` vector index with them. It skips when no agent LLM endpoint is configured.
 """
 
 import hashlib
@@ -39,10 +38,9 @@ from tests.conftest import FAKE_EMBEDDING_DIMENSIONS
 _OUTPUT_DIR = Path(os.environ.get("AGRAG_TRACING_OUTPUT_DIR", "test-output"))
 
 _PROMPT = (
-    "I need two independent facts. Delegate each to its own researcher "
-    "subagent with the task tool, and issue both task calls in the same "
-    "turn so they run in parallel. Fact 1: who founded Zephyra Robotics? "
-    "Fact 2: how much weight can the Lumen-9 robot lift? Then answer both."
+    "I need two independent facts. Fact 1: who founded Zephyra Robotics? "
+    "Fact 2: how much weight can the Lumen-9 robot lift? Find evidence for "
+    "each fact, then answer both."
 )
 
 _FOUNDER_CHUNK = "Zephyra Robotics was founded by Mira Okafor in a garage workshop."
@@ -238,8 +236,8 @@ class TestAgentTracing:
             distance=Distance.COSINE,
         )
 
-    async def test_retrieval_spans_nest_under_their_task_tool_span(self) -> None:
-        """Each retrieval span sits under its own TOOL span under a task span."""
+    async def test_retrieval_spans_nest_under_their_tool_span(self) -> None:
+        """Each retrieval span sits under a TOOL span of the agent run."""
         settings = AgentLLMSettings.from_openai_compatible_env()
         if not settings.clients[0].api_key:
             pytest.skip("Agent LLM API key not configured")
@@ -270,37 +268,22 @@ class TestAgentTracing:
         )
         by_id = {span.context.span_id: span for span in spans}
 
-        tasks = [span for span in spans if _tool_name(span) == "task"]
-        assert tasks, "the agent made no task call"
-        task_ids = {task.context.span_id for task in tasks}
+        tools = [span for span in spans if _is_tool(span)]
+        assert tools, "the agent made no tool calls"
         assert any(span.name == "agrag.retrieval.search" for span in spans)
 
-        # Each retrieval span's nearest TOOL ancestor is the search tool call
-        # that made it, and that call sits under exactly one task span.
-        owners: dict[int, set[int]] = {}
+        # Each retrieval span's nearest TOOL ancestor is the call that made it.
+        owners: set[int] = set()
         for span in spans:
             if not span.name.startswith("agrag.retrieval."):
                 continue
             ancestors = _ancestors(span, by_id)
             tool = next((a for a in ancestors if _is_tool(a)), None)
             assert tool is not None, f"{span.name} has no TOOL ancestor"
-            assert _tool_name(tool) != "task", f"{span.name} skips its tool call"
-            task = next(
-                a for a in _ancestors(tool, by_id) if a.context.span_id in task_ids
-            )
-            owners.setdefault(task.context.span_id, set()).add(tool.context.span_id)
-        assert len(owners) >= 2, "fewer than two task calls ran retrieval"
-
-        # Tool calls of different tasks are different spans.
-        tool_sets = list(owners.values())
-        for i, first in enumerate(tool_sets):
-            for second in tool_sets[i + 1 :]:
-                assert first.isdisjoint(second)
+            owners.add(tool.context.span_id)
+        assert len(owners) >= 2, "fewer than two tool calls ran retrieval"
 
         searches = [
-            step
-            for step in read_trajectory(spans).steps
-            if step.kind == "tool" and step.name != "task"
+            step for step in read_trajectory(spans).steps if step.kind == "tool"
         ]
         assert searches
-        assert {step.subagent for step in searches} == {"researcher"}

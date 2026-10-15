@@ -15,8 +15,6 @@ from opentelemetry.trace import SpanContext, get_tracer_provider
 from agrag.eval.trajectory import (
     SpanCapture,
     read_trajectory,
-    trajectory_case,
-    verifier_before_answer_metric,
 )
 
 
@@ -235,72 +233,3 @@ class TestNonAgentSpansAreExcluded:
         )
 
         assert read_trajectory([judge, judge_llm]).steps == []
-
-    def test_a_judge_llm_span_does_not_outdate_the_answer(self) -> None:
-        """A late judge call does not make a correct trajectory look wrong."""
-        verifier = _task("verifier", start=10, end=20)
-        answer = _span("ChatOpenAI", "LLM", start=60, end=70)
-        judge = _span("agrag.eval.judge", start=80, end=100)
-        judge_llm = _span("ChatOpenAI", "LLM", parent=judge, start=85, end=95)
-
-        trajectory = read_trajectory([verifier, answer, judge, judge_llm])
-
-        assert [step.name for step in trajectory.steps] == ["task", "ChatOpenAI"]
-        case = trajectory_case("q", "a", trajectory)
-        score = verifier_before_answer_metric().measure(case)
-        assert score == 1.0
-
-    def test_a_baml_request_span_does_not_outdate_the_answer(self) -> None:
-        """A late BAML call does not make a correct trajectory look wrong."""
-        verifier = _task("verifier", start=10, end=20)
-        answer = _span("ChatOpenAI", "LLM", start=60, end=70)
-        request = _span("agrag.llm.request", "LLM", input_value="{}", start=85, end=95)
-
-        trajectory = read_trajectory([verifier, answer, request])
-
-        case = trajectory_case("q", "a", trajectory)
-        score = verifier_before_answer_metric().measure(case)
-        assert score == 1.0
-
-    def test_a_late_planner_answer_still_fails(self) -> None:
-        """The exclusion does not weaken the rule it protects."""
-        verifier = _task("verifier", start=65, end=80)
-        answer = _span("ChatOpenAI", "LLM", start=60, end=70)
-
-        trajectory = read_trajectory([verifier, answer])
-        case = trajectory_case("q", "a", trajectory)
-
-        assert verifier_before_answer_metric().measure(case) == 0.0
-
-    def test_a_judge_llm_span_cannot_rescue_a_late_verifier(self) -> None:
-        """A judge call that starts last must not flip the score to 1.0.
-
-        The judge ``LLM`` span is the latest ``LLM`` step in the raw span list.
-        Admitting it would make the verifier look early; excluding it leaves
-        the planner's own answer as the last step, so the verifier really did
-        finish after the answer started and the score is 0.0.
-        """
-        verifier = _task("verifier", start=65, end=80)
-        answer = _span("ChatOpenAI", "LLM", start=60, end=70)
-        judge = _span("agrag.eval.judge", start=80, end=100)
-        judge_llm = _span("ChatOpenAI", "LLM", parent=judge, start=85, end=95)
-
-        trajectory = read_trajectory([verifier, answer, judge, judge_llm])
-        case = trajectory_case("q", "a", trajectory)
-
-        assert verifier_before_answer_metric().measure(case) == 0.0
-
-    def test_a_baml_request_span_cannot_rescue_a_late_verifier(self) -> None:
-        """A late BAML request must not flip the score to 1.0 either.
-
-        The request span carries the LLM kind and starts after the verifier
-        ended, so counting it as a planner step would hide the real ordering.
-        """
-        verifier = _task("verifier", start=65, end=80)
-        answer = _span("ChatOpenAI", "LLM", start=60, end=70)
-        request = _span("agrag.llm.request", "LLM", input_value="{}", start=85, end=95)
-
-        trajectory = read_trajectory([verifier, answer, request])
-        case = trajectory_case("q", "a", trajectory)
-
-        assert verifier_before_answer_metric().measure(case) == 0.0

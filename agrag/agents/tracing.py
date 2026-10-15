@@ -2,9 +2,8 @@
 
 ``build_agent`` takes an optional OpenTelemetry ``Tracer``. Each ``ainvoke``
 passes a fresh OpenInference callback built from it, so no global tracer
-provider or instrumentation is installed. deepagents forwards the parent's
-callbacks to the researcher and verifier subagents, so their tool and model
-calls appear in the same trace.
+provider or instrumentation is installed. The run's tool and model calls
+appear in one trace under the run.
 """
 
 import inspect

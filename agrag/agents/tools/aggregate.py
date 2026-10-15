@@ -1,6 +1,6 @@
 """Deterministic arithmetic over numbers the agent has already gathered.
 
-The researcher reads counts and totals off prior tool results into its own
+The agent reads counts and totals off prior tool results into its own
 reasoning; this tool exists so the arithmetic on them is exact rather than
 recalled from a language model's head. It queries nothing.
 """

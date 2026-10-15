@@ -88,7 +88,7 @@ The `tracer` argument is keyword-only. The default is `None`, which turns tracin
 
 Each run produces these spans:
 
-- `TOOL` spans for the `task` tool and for each researcher tool. The researcher's inner tool calls, such as `search_source_text` and `traverse_from_entity`, are descendants of the `task` span. Their parents are `tools` spans, which sit under a `researcher` span, which sits under the `task` span.
+- `TOOL` spans for each evidence tool the agent calls, such as `discover_evidence` and `fetch_evidence`. Retrieval spans are descendants of these `TOOL` spans.
 - `LLM` spans with the `llm.model_name` attribute and token counts.
 - `CHAIN` spans for graph nodes. Filter on `openinference.span.kind` to skip them.
 
@@ -156,6 +156,6 @@ judge = ChatModelJudge(chat_model, "gpt-4o-mini", tracer=tracer)
 
 `Graph` passes its own tracer down to the resolution and merge steps it runs, and community report generation reads the same tracer. A `Graph.open(...)` or `Graph.add(...)` built with a tracer needs nothing extra.
 
-Inside an agent run, every retrieval span nests under the `TOOL` span of the tool call that made it, and through the `task` span under the researcher or verifier that delegated it. A trace answers which tool call and which subagent produced a given graph query or embedding call. Retrieval spans hold the full result text. The arrays `agrag.result_texts` and `agrag.result_ids` record every result, uncapped.
+Inside an agent run, every retrieval span nests under the `TOOL` span of the tool call that made it. A trace answers which tool call produced a given graph query or embedding call. Retrieval spans hold the full result text. The arrays `agrag.result_texts` and `agrag.result_ids` record every result, uncapped.
 
 The span names and attributes these components emit are listed in [Trace Spans](../reference/trace-spans.mdx).

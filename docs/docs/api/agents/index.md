@@ -6,7 +6,7 @@ sidebar_position: 2
 
 # `agrag.agents` \{#agrag-agents}
 
-Agentic layer: planner/researcher/verifier over SearchEngine.
+Agentic layer: one task-scoped evidence agent over the graph.
 
 `build_agent` is imported lazily because it needs the optional `agents`
 extra. Importing this package does not require that extra.
@@ -24,7 +24,7 @@ extra. Importing this package does not require that extra.
 - [**settings**](settings/index.md) – Env-backed LLM and loop config for the agent layer.
 - [**tools**](tools/index.md) – Agent tools: thin wrappers calling SearchEngine with fixed Recipes.
 - [**tracing**](tracing/index.md) – Per-run OpenInference tracing for agent runs.
-- [**verification**](verification/index.md) – The verifier subagent's structured verdict.
+- [**verification**](verification/index.md) – The structured verdict of the fixed-input verifier.
 
 **Classes:**
 

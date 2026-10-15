@@ -43,8 +43,8 @@ flowchart LR
 
 1. You add documents. Agentic GraphRAG loads them, splits them into chunks, and extracts entities and relations.
 2. Agentic GraphRAG resolves duplicate mentions, then writes the graph and its vector indexes.
-3. You ask a question. The agent plans sub-questions and searches the stores.
-4. A verifier reviews the evidence. The agent then writes an answer with citations.
+3. You ask a question. The agent discovers and fetches evidence from the stores.
+4. The agent checks its citations against the fetched evidence, then writes an answer with citations.
 
 ## Who it is for
 

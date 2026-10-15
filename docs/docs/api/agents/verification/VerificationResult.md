@@ -7,11 +7,10 @@ sidebar_label: VerificationResult
 
 Bases: <code>BaseModel</code>
 
-The verifier's structured verdict on the researcher's findings.
+The verifier's structured verdict on the agent's findings.
 
 The verifier returns this through its `response_format`, so the
-planner reads a typed verdict out of the task tool's result instead
-of parsing free-form prose.
+caller reads a typed verdict instead of parsing free-form prose.
 
 **Attributes:**
 

@@ -21,8 +21,6 @@ it are deterministic; task completion and trajectory quality use an LLM judge.
 
 - [**expected_tools_metric**](expected_tools_metric.md) – Build the metric that the run called every expected tool.
 - [**read_trajectory**](read_trajectory.md) – Read the tool and model steps from finished spans.
-- [**retry_budget_metric**](retry_budget_metric.md) – Build the metric that retries stay within budget.
 - [**task_completion**](task_completion.md) – Build the judged metric for task completion.
 - [**trajectory_case**](trajectory_case.md) – Build the test case every trajectory metric scores.
 - [**trajectory_quality**](trajectory_quality.md) – Build the judged metric for trajectory quality.
-- [**verifier_before_answer_metric**](verifier_before_answer_metric.md) – Build the metric that the verifier ran before the answer.
