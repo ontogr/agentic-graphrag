@@ -1,10 +1,10 @@
 """End-to-end agent trajectory evaluation on the tiny corpus.
 
 Runs the real agent on 5 handpicked questions about the invented company
-corpus, traces each run with ``SpanCapture``, and scores every run with the
-five trajectory metrics: the three structural rules and the two judged
-metrics. The gate is the pass rate of each rule over the 5 runs and the mean
-of each judged score.
+corpus, traces each run with ``SpanCapture``, and scores every run with three
+trajectory metrics: the expected-tools rule and the two judged metrics. The
+gate is the pass rate of the rule over the 5 runs and the mean of each judged
+score.
 
 It runs after merges and weekly through ``make test-eval-trajectory``, not on
 pull requests. The report goes to ``reports/eval/agent_trajectory.json``, or
@@ -12,25 +12,11 @@ to the directory in ``E2E_ARTIFACT_DIR``. It holds the pass rates, the judged
 means, and the per-question scores with the rule reasons on failure.
 
 Retrieval here uses hashed word overlap, not a real embedder, so the tool the
-agent picks follows lexical match. Entity-named questions resolve through
-``look_up_entity``; the designer question resolves through
-``explore_related``. The scores guard against regression. They do not compare
-with scores from a real embedder.
+agent picks follows lexical match. The scores guard against regression. They
+do not compare with scores from a real embedder.
 
-Each threshold is the lowest of three single-call baseline runs minus 0.15,
-rounded down to 0.05. The wider margin absorbs single-judge-call flakiness
-instead of a median of repeated calls. Baseline pass rates (rules) and means
-(judged):
-
-    verifier_before_answer   1.0  1.0  1.0
-    retry_budget              1.0  1.0  1.0
-    expected_tools            1.0  1.0  1.0
-    task_completion           1.0  1.0  1.0
-    trajectory_quality        1.0  1.0  1.0
-
-Each run made 6 to 10 LLM calls in these runs. The judged metrics add 3 judge
-calls per run: 2 for task completion (outcome plus verdict) and 1 for
-trajectory quality.
+The thresholds are not yet baselined against the single task agent. Re-run
+this test with the real LLM and set them from the measured runs.
 """
 
 import asyncio
@@ -50,11 +36,9 @@ from agrag.eval import (
     SpanCapture,
     expected_tools_metric,
     final_answer,
-    retry_budget_metric,
     task_completion,
     trajectory_case,
     trajectory_quality,
-    verifier_before_answer_metric,
 )
 from tests.integration.e2e._artifact import write_artifact
 
@@ -63,40 +47,38 @@ QUESTIONS = (
     {
         "id": "founder",
         "question": "Who founded Zephyra Robotics in Halvorn?",
-        "expected_tools": ["task", "look_up_entity"],
+        "expected_tools": ["discover_evidence", "fetch_evidence"],
     },
     {
         "id": "joined",
         "question": "When did Tobias Renn join Zephyra Robotics as chief engineer?",
-        "expected_tools": ["task", "look_up_entity"],
+        "expected_tools": ["discover_evidence", "fetch_evidence"],
     },
     {
         "id": "designer",
         "question": "Who designed the Lumen-9 lifting arm?",
-        "expected_tools": ["task", "explore_related"],
+        "expected_tools": ["discover_evidence", "fetch_evidence"],
     },
     {
         "id": "lift",
         "question": "How much weight can the Lumen-9 warehouse robot lift?",
-        "expected_tools": ["task", "look_up_entity"],
+        "expected_tools": ["discover_evidence", "fetch_evidence"],
     },
     {
         "id": "released",
         "question": "When did Zephyra Robotics release the Lumen-9?",
-        "expected_tools": ["task", "look_up_entity"],
+        "expected_tools": ["discover_evidence", "fetch_evidence"],
     },
 )
 
 THRESHOLDS = {
-    "verifier_before_answer": 0.85,
-    "retry_budget": 0.85,
     "expected_tools": 0.85,
     "task_completion": 0.85,
     "trajectory_quality": 0.85,
 }
 
 _REPORT_DIR = Path(__file__).resolve().parents[3] / "reports" / "eval"
-_RULES = ("verifier_before_answer", "retry_budget", "expected_tools")
+_RULES = ("expected_tools",)
 _JUDGED = ("task_completion", "trajectory_quality")
 
 
@@ -105,8 +87,6 @@ async def _score(
 ) -> dict[str, dict[str, Any]]:
     """Score one run with every trajectory metric, at once."""
     metrics: dict[str, BaseMetric] = {
-        "verifier_before_answer": verifier_before_answer_metric(),
-        "retry_budget": retry_budget_metric(3),
         "expected_tools": expected_tools_metric(expected_tools),
         "task_completion": task_completion(judge),
         "trajectory_quality": trajectory_quality(judge),
@@ -135,7 +115,7 @@ async def test_agent_trajectory_meets_thresholds(
         with SpanCapture() as capture:
             agent = agent_factory(capture.tracer)
             result = await agent.ainvoke(
-                {"messages": [{"role": "user", "content": item["question"]}]}
+                {"task_name": item["id"], "question": item["question"]}
             )
         trajectory = capture.trajectory()
         answer = final_answer(result)

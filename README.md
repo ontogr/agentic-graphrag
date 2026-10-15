@@ -24,7 +24,7 @@ Agentic GraphRAG builds schema-defined knowledge graphs from documents and struc
 A plain vector search finds passages that look like your question. It cannot join a fact in one document to a fact in another. "Who founded the company that Satya Nadella works at?" needs two facts from two places. A graph joins them.
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/ontogr/agentic-graphrag/main/docs/static/img/readme/pipeline.png" alt="Agentic GraphRAG pipeline. Sources are loaded, chunked, extracted, and resolved into a Neo4j graph and vector indexes. Retrieval feeds a planner, researcher, and verifier agent that returns a cited answer. OpenTelemetry traces every layer." width="900">
+  <img src="https://raw.githubusercontent.com/ontogr/agentic-graphrag/main/docs/static/img/readme/pipeline.png" alt="Agentic GraphRAG pipeline. Sources are loaded, chunked, extracted, and resolved into a Neo4j graph and vector indexes. A task-scoped agent retrieves evidence and returns a cited answer. OpenTelemetry traces every layer." width="900">
 </p>
 
 - One ingestion API for raw text, files, directories, globs, and prebuilt documents.
@@ -36,7 +36,7 @@ A plain vector search finds passages that look like your question. It cannot joi
 - Neo4j as the single store for graph data and native vector search.
 - Layered retrieval across entities, chunks, community reports, and graph neighborhoods, with rank fusion and reranking.
 - Evidence discovery and fetch across active document sources, with citation checks.
-- Agentic plan-research-verify loop that decomposes questions, gathers evidence, checks it, and produces cited answers.
+- Task-scoped agent that reads only authorized document keys, records task events and decisions, and returns citation-checked answers.
 - OpenTelemetry-native observability across loading, chunking, extraction, resolution, storage, retrieval, and agent turns.
 
 The system uses:
@@ -217,25 +217,13 @@ engine = SearchEngine(graph_store=graph_store, embedder=embedder, graph_schema=s
 results = await engine.search("What treats headaches?", HYBRID)
 ```
 
-## Agentic RAG Loop
+## Task-scoped Agent
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/ontogr/agentic-graphrag/main/docs/static/img/readme/agent-loop.png" alt="Agent loop. A planner splits the question into sub-questions. A researcher searches the graph. A verifier returns PASS, INSUFFICIENT, or CONTRADICTORY. INSUFFICIENT sends the gaps back to the researcher. The answer carries citation keys." width="900">
+  <img src="https://raw.githubusercontent.com/ontogr/agentic-graphrag/main/docs/static/img/readme/agent-loop.png" alt="A task-scoped agent reads authorized evidence, records task events, and returns an answer with validated evidence references." width="900">
 </p>
 
-The agent coordinates three roles around the retrieval layer:
-
-- Planner: splits a question into two to four focused sub-questions and writes the final answer.
-- Researcher: searches the graph with entity, chunk, community, and graph tools. Every evidence item keeps its citation key.
-- Verifier: has no tools. It checks each sub-question against the cited evidence and returns one verdict.
-
-| Verdict | Meaning | Next step |
-| --- | --- | --- |
-| `PASS` | Every sub-question has supporting evidence. Nothing conflicts. | The planner writes the answer. |
-| `INSUFFICIENT` | A sub-question lacks evidence, or a claim does not match its evidence. | The planner sends the gaps back to the researcher, up to three times. |
-| `CONTRADICTORY` | Two cited pieces of evidence conflict. | The planner states the conflict in the answer. |
-
-When the retry limit is reached, the planner answers from the evidence it has and names the sub-questions it did not answer. Each run keeps a ledger. The ledger maps every citation key to stored evidence. `E` means an entity, `R` means a relation, `C` means a chunk, `G` means a community report, and `V` means a query value. You can limit every search to one document or tenant.
+Build an agent with a graph store, embedder, explicit document scope, project identity, and agent identity. Invoke it with a task name and question. The result includes the answer, fetched evidence, invalid citations, and the latest task event sequence. Task events and decisions persist under the project and task names.
 
 ## Structured LLM Output
 
@@ -390,7 +378,6 @@ import asyncio
 from agrag.agents import AgentLLMSettings, build_agent
 from agrag.embedding import build_embedder
 from agrag.graphdb import build_graph_store
-from agrag.retrieval import SearchEngine
 
 from build_graph import schema
 
@@ -400,22 +387,20 @@ async def main() -> None:
     graph_store = build_graph_store("neo4j")
     await graph_store.connect()
     try:
-        engine = SearchEngine(
-            graph_store=graph_store,
-            embedder=build_embedder("ibm-granite/granite-embedding-small-english-r2"),
-            graph_schema=schema,
-        )
+        embedder = build_embedder("ibm-granite/granite-embedding-small-english-r2")
         agent = build_agent(
-            engine=engine,
+            graph_store=graph_store,
+            embedder=embedder,
+            scope=frozenset({"company-notes.md"}),
+            project_id="quickstart",
+            agent_id="quickstart-agent",
             llm_settings=AgentLLMSettings.from_openai_compatible_env(),
-            graph_schema=schema,
         )
         result = await agent.ainvoke(
-            {"messages": [{"role": "user", "content": QUESTION}]}
+            {"task_name": "company-founder", "question": QUESTION}
         )
-        answer = result["messages"][-1]
-        print(answer["content"] if isinstance(answer, dict) else answer.content)
-        print("evidence keys:", ", ".join(result["ledger"].keys))
+        print(result["answer"])
+        print("evidence ids:", ", ".join(item.evidence_id for item in result["citations"]))
     finally:
         await graph_store.close()
 
@@ -429,8 +414,8 @@ BAML_LOG=off uv run python ask.py
 The answer varies with your model. This is an example:
 
 ```text
-Satya Nadella works at Microsoft (E1, E3), which was founded by Bill Gates (E2, E3, C1).
-evidence keys: E1, E2, E3, E4, C1, V1
+Satya Nadella works at Microsoft, which was founded by Bill Gates.
+evidence ids: ev_...
 ```
 
 The agent needed two facts from two sentences. It joined them through the `Microsoft` node. Each key points to stored evidence.
@@ -506,7 +491,7 @@ agrag/
 ├── graphdb/              # graph-store interface and Neo4j backend
 ├── cypher/               # validated Cypher builders
 ├── retrieval/            # search methods, retrievers, recipes and rerankers
-├── agents/               # planner, researcher, verifier and citation ledger
+├── agents/               # task-scoped agent, tools, and task event handling
 ├── eval/                 # metrics for answers, retrieval, extraction, resolution and agent runs
 ├── llm/                  # BAML sources, generated client and provider routing
 └── observability.py      # OpenTelemetry helpers

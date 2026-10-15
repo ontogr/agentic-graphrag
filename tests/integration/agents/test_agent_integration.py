@@ -21,6 +21,7 @@ from agrag.agents.build import build_agent
 from agrag.agents.ledger import Ledger
 from agrag.agents.settings import AgentLLMSettings, AgentSettings
 from agrag.agents.tools import make_tools
+from agrag.chunking import Chunker
 from agrag.common.data_models.chunk import CHUNK_LABEL, Chunk
 from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.graph_record import NodeRecord, RelationRecord
@@ -35,10 +36,15 @@ from agrag.common.data_models.vector_record import Distance
 from agrag.cypher.entities import validate_identifier
 from agrag.embedding.base import Embedder
 from agrag.graphdb import build_graph_store
+from agrag.ingestion.graph import Graph
 from agrag.retrieval.filters import SearchFilters
 from agrag.retrieval.search_engine import SearchEngine
 from agrag.retrieval.settings import RetrievalSettings
 from tests.conftest import FAKE_EMBEDDING_DIMENSIONS
+from tests.integration.retrieval.evidence._corpus import (
+    NoEntityExtractor,
+    make_document,
+)
 
 
 neo4j_missing = importlib.util.find_spec("neo4j") is None
@@ -201,6 +207,16 @@ class TestToolsIntegration:
         yield
         for label in (self.label, self.other_label):
             await self.store.execute_write(f"MATCH (n:{label}) DETACH DELETE n")
+        keys = [self.document_one, self.document_two]
+        await self.store.execute_write(
+            "MATCH (d:Document) WHERE d.document_key IN $keys "
+            "OPTIONAL MATCH (d)-[:HAS_PART]->(c:Chunk) DETACH DELETE c, d",
+            {"keys": keys},
+        )
+        await self.store.execute_write(
+            "MATCH (j:CutoverJob) WHERE j.document_key IN $keys DETACH DELETE j",
+            {"keys": keys},
+        )
         if self.chunk_ids:
             # Chunk nodes are shared by every suite, and the native index
             # cannot be dropped per test, so teardown deletes only the ids
@@ -537,7 +553,8 @@ class TestAgentBuildIntegration:
             graph_schema=self.schema,
         )
         self.chunk_ids: list = []
-        self.document_id = str(uuid4())
+        self.document_one = f"agent-integration-one-{uuid4().hex[:8]}"
+        self.document_two = f"agent-integration-two-{uuid4().hex[:8]}"
         yield
         for label in (self.label, self.other_label):
             await self.store.execute_write(f"MATCH (n:{label}) DETACH DELETE n")
@@ -591,45 +608,18 @@ class TestAgentBuildIntegration:
         )
 
     async def _seed_chunk(self, text: str) -> None:
-        """Write one chunk in this test's document partition."""
-        chunk = Chunk(
-            id=uuid4(),
-            document_id=uuid4(),
-            index=0,
-            text=text,
-            content_hash=hashlib.sha256(text.encode("utf-8")).hexdigest(),
-            provenance=TextProvenance(char_start=0, char_end=len(text)),
+        """Add a document holding the text, as ingestion would write it."""
+        graph = await Graph.open(
+            schema=GraphSchema(
+                name="agent_seed", version="1", entities=[], relations=[]
+            ),
+            graph_store=self.store,
+            embedder=self.embedder,
+            extractor=NoEntityExtractor(),
+            chunker=Chunker(size=2000),
         )
-        chunk.embedding = await self.embedder.embed_one(text)
-        self.chunk_ids.append(chunk.id)
-        await self.store.upsert_nodes(
-            CHUNK_LABEL,
-            [
-                NodeRecord(
-                    id=chunk.id,
-                    labels=[CHUNK_LABEL],
-                    properties={
-                        "document_id": self.document_id,
-                        "index": 0,
-                        "text": text,
-                        "content_hash": hashlib.sha256(
-                            text.encode("utf-8")
-                        ).hexdigest(),
-                        "provenance": '{"kind":"text","char_start":0,'
-                        f'"char_end":{len(text)}}}',
-                        "heading_path": [],
-                        "embedding": chunk.embedding,
-                        "created_at": "2024-01-01T00:00:00",
-                    },
-                )
-            ],
-        )
-        await self.store.ensure_vector_index(
-            label=CHUNK_LABEL,
-            vector_property="embedding",
-            dimensions=4,
-            distance=Distance.COSINE,
-        )
+        await graph.add(documents=[make_document(self.document_one, text)])
+        await self.store.execute_read("CALL db.awaitIndexes(60)")
 
     @staticmethod
     def _message_text(result: dict) -> str:
@@ -644,9 +634,16 @@ class TestAgentBuildIntegration:
 
     @pytest.mark.skipif(neo4j_missing, reason="neo4j extra not installed")
     def test_build_agent_returns_compiled_graph(self) -> None:
-        """build_agent returns a compiled graph or _SimpleAgent."""
+        """build_agent returns an agent that exposes ainvoke."""
         settings = AgentLLMSettings.from_openai_compatible_env()
-        agent = build_agent(engine=self.engine, llm_settings=settings)
+        agent = build_agent(
+            graph_store=self.store,
+            embedder=self.embedder,
+            scope=frozenset({self.document_one, self.document_two}),
+            project_id="agent-integration",
+            agent_id="integration-agent",
+            llm_settings=settings,
+        )
         assert agent is not None
         assert hasattr(agent, "ainvoke")
 
@@ -654,15 +651,28 @@ class TestAgentBuildIntegration:
     @pytest.mark.skipif(
         not _agent_llm_configured(), reason="LLM endpoint not configured"
     )
-    async def test_simple_agent_ainvoke(self) -> None:
-        """The agent graph returns a response via the configured LLM."""
+    async def test_agent_ainvoke_returns_a_run_result(self) -> None:
+        """A run returns the typed result through the configured LLM."""
         settings = AgentLLMSettings.from_openai_compatible_env()
-        agent = build_agent(engine=self.engine, llm_settings=settings)
-        result = await agent.ainvoke(
-            {"messages": [{"role": "user", "content": "test"}]}
+        agent = build_agent(
+            graph_store=self.store,
+            embedder=self.embedder,
+            scope=frozenset({self.document_one, self.document_two}),
+            project_id="agent-integration",
+            agent_id="integration-agent",
+            llm_settings=settings,
         )
-        assert "messages" in result
-        assert len(result["messages"]) >= 1
+        task_name = f"run-result-{uuid4().hex[:8]}"
+        result = await agent.ainvoke({"task_name": task_name, "question": "test"})
+        assert result["task"]["name"] == task_name
+        assert result["status"] in {
+            "answered",
+            "insufficient_evidence",
+            "partial_retrieval",
+            "partial",
+            "recording_failed",
+            "budget_exhausted",
+        }
 
     @pytest.mark.skipif(neo4j_missing, reason="neo4j extra not installed")
     @pytest.mark.skipif(
@@ -678,18 +688,21 @@ class TestAgentBuildIntegration:
         )
 
         settings = AgentLLMSettings.from_openai_compatible_env()
-        agent = build_agent(engine=self.engine, llm_settings=settings)
+        agent = build_agent(
+            graph_store=self.store,
+            embedder=self.embedder,
+            scope=frozenset({self.document_one, self.document_two}),
+            project_id="agent-integration",
+            agent_id="integration-agent",
+            llm_settings=settings,
+        )
         result = await agent.ainvoke(
             {
-                "messages": [
-                    {
-                        "role": "user",
-                        "content": (
-                            "Where does Alice work, and what does the source "
-                            "text say about her time there?"
-                        ),
-                    }
-                ]
+                "task_name": f"multi-hop-question-{uuid4().hex[:8]}",
+                "question": (
+                    "Where does Alice work, and what does the source "
+                    "text say about her time there?"
+                ),
             }
         )
 
@@ -703,7 +716,7 @@ class TestAgentBuildIntegration:
             self._message_text({"messages": [message]})
             for message in result.get("messages", [])[:-1]
         )
-        citation_pattern = r"\b[EGRCVX]\d+\b"
+        citation_pattern = r"ev1:[sc]:[0-9a-f-]+:[0-9a-f-]+:[0-9a-f-]+"
         transcript_keys = set(re.findall(citation_pattern, transcript))
         assert transcript_keys, "research findings contain no citation keys"
         answer = self._message_text(result)
@@ -719,15 +732,18 @@ class TestAgentBuildIntegration:
         await self._seed_entity(self.label, "Alice")
 
         settings = AgentLLMSettings.from_openai_compatible_env()
-        agent = build_agent(engine=self.engine, llm_settings=settings)
+        agent = build_agent(
+            graph_store=self.store,
+            embedder=self.embedder,
+            scope=frozenset({self.document_one, self.document_two}),
+            project_id="agent-integration",
+            agent_id="integration-agent",
+            llm_settings=settings,
+        )
         result = await agent.ainvoke(
             {
-                "messages": [
-                    {
-                        "role": "user",
-                        "content": "What year did Alice found the engines team?",
-                    }
-                ]
+                "task_name": f"under-evidenced-question-{uuid4().hex[:8]}",
+                "question": "What year did Alice found the engines team?",
             }
         )
 
@@ -738,10 +754,10 @@ class TestAgentBuildIntegration:
     @pytest.mark.skipif(
         not _agent_llm_configured(), reason="LLM endpoint not configured"
     )
-    async def test_attempt_cap_allows_initial_decomposition(
+    async def test_tool_budget_ends_the_run_as_budget_exhausted(
         self,
     ) -> None:
-        """A retry limit still permits the planner's initial decomposition."""
+        """A one-call tool budget ends the run with the budget_exhausted status."""
         alice = await self._seed_entity(self.label, "Alice")
         acme = await self._seed_entity(self.other_label, "Acme")
         await self._seed_relation("WORKS_FOR", alice, acme)
@@ -751,35 +767,28 @@ class TestAgentBuildIntegration:
 
         settings = AgentLLMSettings.from_openai_compatible_env()
         agent = build_agent(
-            engine=self.engine,
+            graph_store=self.store,
+            embedder=self.embedder,
+            scope=frozenset({self.document_one, self.document_two}),
+            project_id="agent-integration",
+            agent_id="integration-agent",
             llm_settings=settings,
-            agent_settings=AgentSettings(max_research_attempts=1),
+            agent_settings=AgentSettings(max_tool_calls=1),
         )
         result = await agent.ainvoke(
             {
-                "messages": [
-                    {
-                        "role": "user",
-                        "content": (
-                            "Where does Alice work, and what does the source "
-                            "text say about her time there?"
-                        ),
-                    }
-                ]
+                "task_name": f"tool-budget-question-{uuid4().hex[:8]}",
+                "question": (
+                    "Where does Alice work, and what does the source "
+                    "text say about her time there?"
+                ),
             }
         )
 
-        # The run terminated with a synthesized, citation-grounded answer
-        # rather than a GraphRecursionError, and the verifier's structured
-        # verdict -- the consultation the retry cap counts from -- appeared
-        # in the transcript.
-        answer = self._message_text(result)
-        assert "Alice" in answer
-        transcript = "\n".join(
-            self._message_text({"messages": [message]})
-            for message in result.get("messages", [])
-        )
-        assert any(
-            f'"status":"{verdict}"' in transcript.replace(" ", "")
-            for verdict in ("PASS", "INSUFFICIENT", "CONTRADICTORY")
-        )
+        # The run ends with an answer and the events recorded so far, not a
+        # GraphRecursionError. One call is enough to discover but not to fetch,
+        # so the answer must not cite evidence that was never checked.
+        assert result["status"] == "budget_exhausted"
+        assert result["answer"]
+        assert result["citations"] == []
+        assert result["task"]["last_event_seq"] > 0

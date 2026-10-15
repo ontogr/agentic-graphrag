@@ -133,6 +133,8 @@ class TinyCorpus:
 
     engine: SearchEngine
     store: GraphStore
+    embedder: Embedder
+    scope: frozenset[str]
     labels: tuple[str, ...]
     token: str
 
@@ -146,6 +148,9 @@ class AnswerQualityGraph:
     """
 
     engine: SearchEngine
+    store: GraphStore
+    embedder: Embedder
+    scope: frozenset[str]
 
 
 class _ThrottledJudge(ChatModelJudge):
@@ -237,15 +242,27 @@ async def tiny_corpus() -> AsyncGenerator[TinyCorpus, None]:
             embedder=embedder,
             extractor=_FactExtractor(name_labels),
         )
-        for template in DOCUMENTS:
-            await graph.add(text=template.format(token=token))
+        texts = [template.format(token=token) for template in DOCUMENTS]
+        for text in texts:
+            await graph.add(text=text)
         engine = SearchEngine(
             graph_store=store,
             embedder=embedder,
             settings=RetrievalSettings(entity_top_k=10, chunk_top_k=10),
             graph_schema=schema,
         )
-        yield TinyCorpus(engine=engine, store=store, labels=labels, token=token)
+        scope = frozenset(
+            f"inline://{hashlib.sha256(text.encode()).hexdigest()[:16]}"
+            for text in texts
+        )
+        yield TinyCorpus(
+            engine=engine,
+            store=store,
+            embedder=embedder,
+            scope=scope,
+            labels=labels,
+            token=token,
+        )
     finally:
         if connected:
             try:
@@ -278,7 +295,13 @@ def agent_factory(request: pytest.FixtureRequest) -> Callable[..., Any]:
     def build(tracer: Any = None) -> Any:
         """Build a new agent, so each test gets its own run state."""
         return build_agent(
-            engine=tiny_corpus.engine, llm_settings=settings, tracer=tracer
+            graph_store=tiny_corpus.store,
+            embedder=tiny_corpus.embedder,
+            scope=tiny_corpus.scope,
+            project_id="eval-corpus",
+            agent_id="eval-agent",
+            llm_settings=settings,
+            tracer=tracer,
         )
 
     return build
@@ -349,7 +372,14 @@ async def answer_quality_graph(
             settings=RetrievalSettings(entity_top_k=10, chunk_top_k=10),
             graph_schema=schema,
         )
-        yield AnswerQualityGraph(engine=engine)
+        yield AnswerQualityGraph(
+            engine=engine,
+            store=store,
+            embedder=embedder,
+            scope=frozenset(
+                str(path) for path in documents.rglob("*") if path.is_file()
+            ),
+        )
     finally:
         if connected:
             try:
@@ -385,6 +415,14 @@ def answer_quality_agent_factory(
 
     def build(tracer: Any = None) -> Any:
         """Build a new agent, so each question gets its own run state."""
-        return build_agent(engine=graph.engine, llm_settings=settings, tracer=tracer)
+        return build_agent(
+            graph_store=graph.store,
+            embedder=graph.embedder,
+            scope=graph.scope,
+            project_id="answer-quality",
+            agent_id="eval-agent",
+            llm_settings=settings,
+            tracer=tracer,
+        )
 
     return build

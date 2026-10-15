@@ -4,22 +4,19 @@ The agent is replaced at the ``build_agent`` boundary with one that returns a
 canned run and a real ledger. Nothing calls a model or a database.
 """
 
-import hashlib
-import json
 from unittest.mock import AsyncMock, MagicMock
-from uuid import uuid4
 
 import pytest
-from langchain_core.messages import AIMessage, HumanMessage
 from langgraph.errors import GraphRecursionError
 
-from agrag.agents.ledger import Ledger
 from agrag.chunking import Chunker
-from agrag.common.data_models.chunk import Chunk
 from agrag.common.data_models.document import Document
-from agrag.common.data_models.entity import Entity
-from agrag.common.data_models.provenance import TextProvenance
-from agrag.common.data_models.search_result import SearchResult
+from agrag.common.data_models.evidence import (
+    EvidenceKind,
+    EvidenceReference,
+    FetchOutcome,
+    FetchStatus,
+)
 from benchmarks.datasets.base import text_document
 from benchmarks.models import BenchmarkQuestion
 from benchmarks.systems import agrag as agrag_system
@@ -58,10 +55,6 @@ def _agent_returning(run):
     class Agent:
         async def ainvoke(self, payload):
             seen["payload"] = payload
-            # The real agent rewrites the list it gets, dicts to message objects.
-            payload["messages"][:] = [
-                HumanMessage(content=m["content"]) for m in payload["messages"]
-            ]
             if isinstance(run, Exception):
                 raise run
             return run
@@ -77,54 +70,27 @@ class TestAgragSystem:
         document = text_document("hello " * 50, uri="corpus/doc.txt")
         system = _system(document)
         document_id = Document.node_id_for(document_key=document.resolved_document_key)
-        source = uuid4()
-        system._store.execute_read.return_value = [
-            {
-                "n": {
-                    "id": str(source),
-                    "document_id": str(document_id),
-                    "provenance": json.dumps(
-                        {"kind": "text", "char_start": 20, "char_end": 40}
-                    ),
-                }
-            }
-        ]
-        ledger = Ledger()
-        cited = ledger.cite(
-            SearchResult(
-                item=Chunk(
-                    id=uuid4(),
-                    document_id=document_id,
-                    text="hello",
-                    content_hash=hashlib.sha256("hello".encode("utf-8")).hexdigest(),
-                    provenance=TextProvenance(char_start=6, char_end=11),
-                ),
-                score=1.0,
-                method="chunk",
-            )
-        )
-        entity = ledger.cite(
-            SearchResult(
-                item=Entity(
-                    id=uuid4(), label="Thing", name="a", source_chunk_ids=[source]
-                ),
-                score=1.0,
-                method="entity",
-            )
-        )
-        ledger.cite(
-            SearchResult(
-                item=Entity(
-                    id=uuid4(), label="Thing", name="b", source_chunk_ids=[source]
-                ),
-                score=1.0,
-                method="entity",
-            )
-        )
-        uncited = ledger.keys[-1]
+        evidence_id = f"ev1:s:{document_id}:0123456789abcdef:6-11"
         run = {
-            "messages": [AIMessage(content=f"It says hello [{cited}] and [{entity}].")],
-            "ledger": ledger,
+            "answer": f"It says hello [{evidence_id}].",
+            "status": "answered",
+            "citations": [
+                FetchOutcome(
+                    evidence_id=evidence_id,
+                    status=FetchStatus.OK,
+                    text="hello",
+                    reference=EvidenceReference(
+                        kind=EvidenceKind.SPAN,
+                        document_node_id=document_id,
+                        content_hash_prefix="0123456789abcdef",
+                        char_start=6,
+                        char_end=11,
+                    ),
+                )
+            ],
+            "invalid_citations": [],
+            "task": {"name": "q", "last_event_seq": 0},
+            "messages": [],
         }
         agent, seen = _agent_returning(run)
         monkeypatch.setattr(agrag_system, "build_agent", lambda **_: agent)
@@ -136,14 +102,10 @@ class TestAgragSystem:
             6,
             11,
         )
-        assert answer.non_chunk_citations == 1
-        assert [(c.uri, c.char_start, c.char_end) for c in answer.source_chunks] == [
-            ("corpus/doc.txt", 20, 40)
-        ]
-        assert uncited not in answer.text
-        assert [m.content for m in seen["payload"]["messages"]] == [
-            m["content"] for m in QUESTION.messages
-        ]
+        assert answer.non_chunk_citations == 0
+        assert answer.source_chunks == []
+        assert evidence_id in answer.text
+        assert seen["payload"] == {"task_name": "q", "question": "second"}
         assert QUESTION.query == "second"
         assert all(isinstance(m, dict) for m in QUESTION.messages)
 
@@ -155,8 +117,22 @@ class TestAgragSystem:
 
         for run in (
             GraphRecursionError("limit"),
-            {"messages": [AIMessage(content="  ")], "ledger": Ledger()},
-            {"messages": [], "ledger": Ledger()},
+            {
+                "answer": "  ",
+                "status": "answered",
+                "citations": [],
+                "invalid_citations": [],
+                "task": {"name": "q", "last_event_seq": 0},
+                "messages": [],
+            },
+            {
+                "answer": "Incomplete",
+                "status": "budget_exhausted",
+                "citations": [],
+                "invalid_citations": [],
+                "task": {"name": "q", "last_event_seq": 0},
+                "messages": [],
+            },
         ):
             agent, _ = _agent_returning(run)
             monkeypatch.setattr(
