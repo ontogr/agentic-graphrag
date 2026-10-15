@@ -32,7 +32,6 @@ from agrag.common.data_models.chunk import CHUNK_LABEL, Chunk
 from agrag.common.data_models.document import DOCUMENT_LABEL
 from agrag.common.data_models.extraction import ExtractedEntity, ExtractionResult
 from agrag.common.data_models.graph_schema import EntityType, GraphSchema
-from agrag.common.data_models.vector_record import Distance
 from agrag.cypher.entities import validate_identifier
 from agrag.embedding.base import Embedder
 from agrag.eval.judge import ChatModelJudge
@@ -224,19 +223,12 @@ async def tiny_corpus() -> AsyncGenerator[TinyCorpus, None]:
     try:
         await store.connect()
         connected = True
-        for label in (*labels, CHUNK_LABEL):
-            await store.ensure_vector_index(
-                label=label,
-                vector_property="embedding",
-                dimensions=_DIMENSIONS,
-                distance=Distance.COSINE,
-            )
         name_labels = {
             **dict.fromkeys(_PEOPLE, person),
             **dict.fromkeys(_ORGANIZATIONS, organization),
             **dict.fromkeys(_PRODUCTS, product),
         }
-        graph = Graph(
+        graph = await Graph.open(
             schema=schema,
             graph_store=store,
             embedder=embedder,
@@ -352,21 +344,13 @@ async def answer_quality_graph(
     try:
         await store.connect()
         connected = True
-        for label in (*labels, CHUNK_LABEL):
-            await store.ensure_vector_index(
-                label=label,
-                vector_property="embedding",
-                dimensions=_DIMENSIONS,
-                distance=Distance.COSINE,
-            )
-        graph = Graph(
+        graph = await Graph.open(
             schema=schema,
             graph_store=store,
             embedder=embedder,
             extractor=_FactExtractor(names),
         )
         await graph.add(source=documents)
-        await store.execute_read("CALL db.awaitIndexes(60)")
         engine = SearchEngine(
             graph_store=store,
             embedder=embedder,
