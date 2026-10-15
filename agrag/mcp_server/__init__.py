@@ -1,8 +1,11 @@
 """Local MCP server for the evidence operations, served over stdio.
 
-The server exposes three read-only tools: ``search_evidence``,
-``fetch_evidence`` and ``check_citations``. The document scope comes only from
-the server configuration, so a tool call cannot widen it. The server needs the
+The server exposes three read-only evidence tools: ``search_evidence``,
+``fetch_evidence`` and ``check_citations``. With ``AGRAG_MCP_PROJECT_ID`` and
+``AGRAG_MCP_AGENT_ID`` set it also exposes project-scoped task and decision
+reads. Writes need ``AGRAG_MCP_READ_ONLY=false`` and both ids; the server starts
+read-only by default. The document scope comes only from the server
+configuration, so a tool call cannot widen it. The server needs the
 ``mcp`` and ``neo4j`` extras. Install them with ``uv sync --extra mcp --extra
 neo4j``.
 
