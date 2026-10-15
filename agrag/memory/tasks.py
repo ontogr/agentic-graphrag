@@ -15,7 +15,7 @@ from datetime import UTC, datetime
 from typing import Any, NamedTuple, TypeVar
 from uuid import NAMESPACE_OID, UUID, uuid5
 
-from agrag.common.data_models.decision import Decision
+from agrag.common.data_models.decision import ConflictGroup, Decision
 from agrag.common.data_models.task import (
     EVENT_LABEL,
     HAS_EVENT,
@@ -54,6 +54,9 @@ from agrag.cypher.memory import (
     step_page_query,
     step_state_counts_query,
     store_request_result_query,
+    task_conflict_decisions_query,
+    task_conflict_keys_query,
+    task_review_decisions_query,
     upsert_step_query,
 )
 from agrag.graphdb.base import GraphStore, GraphStoreTransaction
@@ -123,6 +126,9 @@ def build_task_view(
     steps: Sequence[StepSummary],
     decisions: Sequence[Decision] = (),
     decision_count: int | None = None,
+    review_decisions: Sequence[Decision] = (),
+    conflicts: Sequence[ConflictGroup] = (),
+    conflicts_truncated: bool = False,
 ) -> TaskView:
     """Assemble a resume view from a task's counts and step summaries.
 
@@ -141,6 +147,9 @@ def build_task_view(
             cap, or cover only part of the task.
         decisions: Active decisions to include in the bounded resume view.
         decision_count: Total active decisions before applying the view cap.
+        review_decisions: Active decisions that need review.
+        conflicts: Cross-task conflicts touching this task.
+        conflicts_truncated: Whether more than ten conflicts match.
 
     Returns:
         The view. ``steps_truncated`` is true when the counts exceed the
@@ -166,6 +175,9 @@ def build_task_view(
         decisions=list(decisions[:20]),
         decision_count=decision_count if decision_count is not None else len(decisions),
         decisions_truncated=(decision_count or len(decisions)) > 20,
+        review_decisions=list(review_decisions[:20]),
+        conflicts=list(conflicts[:10]),
+        conflicts_truncated=conflicts_truncated or len(conflicts) > 10,
     )
 
 
@@ -381,6 +393,36 @@ class TaskMemory:
             "RETURN count(d) AS count",
             params,
         )
+        review_rows = await self._store.execute_read(
+            task_review_decisions_query(), {**params, "limit": 21}
+        )
+        review_decisions = [
+            _decision_from_row(row) for row in review_rows[:20]
+        ]
+        conflict_keys = await self._store.execute_read(
+            task_conflict_keys_query(), {**params, "limit": 11}
+        )
+        keys = [row["choice_key"] for row in conflict_keys[:10]]
+        conflict_rows = (
+            await self._store.execute_read(
+                task_conflict_decisions_query(),
+                {"project_id": self._project_id, "choice_keys": keys, "limit": 101},
+            )
+            if keys
+            else []
+        )
+        decisions_by_key: dict[str, list[Decision]] = {}
+        for row in conflict_rows[:100]:
+            decision = _decision_from_row(row)
+            decisions_by_key.setdefault(decision.choice_key, []).append(decision)
+        conflicts = [
+            ConflictGroup(
+                choice_key=key,
+                decisions=decisions_by_key.get(key, [])[:10],
+                truncated=len(decisions_by_key.get(key, [])) > 10,
+            )
+            for key in keys
+        ]
         view = build_task_view(
             task_name=task.name,
             goal=task.goal,
@@ -390,6 +432,9 @@ class TaskMemory:
             steps=steps,
             decisions=decisions,
             decision_count=int(decision_count[0]["count"]),
+            review_decisions=review_decisions,
+            conflicts=conflicts,
+            conflicts_truncated=len(conflict_keys) > 10,
         )
         return TaskLookup(found=True, view=view)
 

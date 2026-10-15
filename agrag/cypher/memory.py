@@ -129,6 +129,47 @@ def decision_page_query() -> str:
     )
 
 
+def task_review_decisions_query() -> str:
+    """Build a bounded read of active decisions that need review for a task."""
+    return (
+        f"MATCH (t:{_TASK} {{project_id: $project_id, id: $task_id}})"
+        f"-[:{_MADE}]->(d:{_DECISION} {{status: 'active'}}) "
+        "WHERE d.review_state = 'needs_review' "
+        f"OPTIONAL MATCH (d)-[:{_HAS_SUPPORT}]->(s:{_SUPPORT}) "
+        "WITH t, d, s ORDER BY s.ordinal "
+        "WITH t, d, collect(s) AS supports "
+        "RETURN d AS decision, supports, t.name AS task_name "
+        "ORDER BY d.created_at DESC LIMIT $limit"
+    )
+
+
+def task_conflict_keys_query() -> str:
+    """Build a bounded read of choice keys conflicting with one task."""
+    return (
+        f"MATCH (t:{_TASK} {{project_id: $project_id, id: $task_id}})"
+        f"-[:{_MADE}]->(d:{_DECISION} {{status: 'active'}}) "
+        f"MATCH (other:{_TASK} {{project_id: $project_id}})-[:{_MADE}]->"
+        f"(candidate:{_DECISION} {{status: 'active', choice_key: d.choice_key}}) "
+        "WHERE other.id <> t.id AND candidate.conclusion <> d.conclusion "
+        "RETURN DISTINCT d.choice_key AS choice_key "
+        "ORDER BY choice_key LIMIT $limit"
+    )
+
+
+def task_conflict_decisions_query() -> str:
+    """Build a read of active decisions for the requested conflicting choices."""
+    return (
+        f"MATCH (t:{_TASK} {{project_id: $project_id}})-[:{_MADE}]->"
+        f"(d:{_DECISION} {{status: 'active'}}) "
+        "WHERE d.choice_key IN $choice_keys "
+        f"OPTIONAL MATCH (d)-[:{_HAS_SUPPORT}]->(s:{_SUPPORT}) "
+        "WITH t, d, s ORDER BY s.ordinal "
+        "WITH t, d, collect(s) AS supports "
+        "RETURN d AS decision, supports, t.name AS task_name "
+        "ORDER BY d.choice_key, t.name, d.created_at DESC LIMIT $limit"
+    )
+
+
 def find_task_query() -> str:
     """Build Cypher reading one task by its project and name.
 

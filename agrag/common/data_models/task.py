@@ -6,7 +6,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from agrag.common.data_models.decision import Decision
+from agrag.common.data_models.decision import ConflictGroup, Decision
 
 
 TASK_LABEL = "MemoryTask"
@@ -176,6 +176,8 @@ class TaskView(BaseModel):
             cap hides. Every state is a key.
         steps_truncated: Whether some steps are hidden by the cap.
         decisions: Active decisions, newest first, capped at 20.
+        review_decisions: Active decisions needing review, capped at 20.
+        conflicts: Conflicting choices that include this task, capped at 10.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -189,6 +191,9 @@ class TaskView(BaseModel):
     decisions: list[Decision] = Field(default_factory=list)
     decision_count: int = 0
     decisions_truncated: bool = False
+    review_decisions: list[Decision] = Field(default_factory=list)
+    conflicts: list[ConflictGroup] = Field(default_factory=list)
+    conflicts_truncated: bool = False
 
 
 class TaskLookup(BaseModel):
