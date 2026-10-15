@@ -62,7 +62,6 @@ def _context(
     return StageContext(
         graph_store=store,
         embedder=AsyncMock(),
-        vector_store=None,
         error_policy=error_policy,
         tracer=get_tracer(None),
         job_id=job_id,

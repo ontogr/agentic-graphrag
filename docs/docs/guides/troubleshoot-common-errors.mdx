@@ -65,8 +65,6 @@ Agentic GraphRAG does not send a password over an unencrypted connection to a re
 export NEO4J_URI="neo4j+s://<your-instance>.databases.neo4j.io"
 ```
 
-The same rule applies to Qdrant, Weaviate, and Milvus when an API key or token is set. Use an `https` address for a remote server.
-
 ## A later add fails after you deleted data by hand
 
 You see:
@@ -89,7 +87,6 @@ The message names the extra to install. The command in the message is correct.
 | `EmbeddingMissingExtraError: needs the 'embed-local' extra` | `embed-local` |
 | `ExtractorMissingExtraError: 'GlinerExtractor' needs the 'extract' extra` | `extract` |
 | `ExtractorMissingExtraError: 'BAMLExtractor' needs the 'llm' extra` | `llm` |
-| `VectorStoreMissingExtraError: needs the 'qdrant' extra` | `qdrant`, `weaviate`, or `milvus` |
 | `AgentMissingExtraError: needs the 'observability' extra` | `observability` |
 | `MissingExtraError: '.pdf' needs the 'docling' extra` | `docling` |
 
@@ -131,7 +128,7 @@ Value error, Relation 'TREATS' pattern target 'Condition' is not a declared enti
 ```
 
 ```text
-Value error, Entity type 'Drug' declares reserved property name(s) ['text']; ['_pending_job_id', 'created_at', 'embedding', 'id', 'label', 'merge_count', 'merge_key', 'name', 'source_chunk_ids', 'text'] are keys that the graph or the vector store writes itself. Rename or remove those property names in the schema.
+Value error, Entity type 'Drug' declares reserved property name(s) ['name']; ['_pending_job_id', 'created_at', 'embedding', 'id', 'merge_count', 'merge_key', 'name', 'source_chunk_ids'] are keys that the graph writes itself. Rename or remove those property names in the schema.
 ```
 
 ```text
@@ -216,31 +213,22 @@ A filter matches nothing. `SearchFilters(document_ids=[...])` keeps only results
 
 The vector index does not exist. A search in the Neo4j vector indexes returns no hits when the index is missing. Before you search, open the graph once. `Graph.open` creates the indexes.
 
-The vector store has no collections for this graph. With a vector store on the engine, you can see:
-
-```text
-AllRetrievalMethodsFailedError: every retrieval method failed: entity: UnexpectedResponse(); chunk: UnexpectedResponse()
-```
-
-Only `Graph.open(vector_store=...)` creates the collections. Open the graph with the same vector store and ingest your documents.
-
 The engine uses another embedder than the graph. A query vector of another size makes each Neo4j vector search fail, so `search` raises `AllRetrievalMethodsFailedError` instead of returning results. Pass `SearchEngine` the embedder that you pass to `Graph.open`. To change the model of the graph, see the next section.
 
 The simple agent answers `No relevant evidence found.` when a search returns nothing.
 
 ## The embedding dimension does not match
 
-`Graph.open` compares the dimension of your embedder with the vector indexes and collections that already exist. When they differ, it raises one of these errors:
+`Graph.open` compares the dimension of your embedder with the vector indexes that already exist. When they differ, it raises one of these errors:
 
 ```text
 EmbeddingDimensionMismatchError: expected dimension 384, embedder produces 4
-CollectionDimensionMismatchError: collection expects dimension 384, but 4 was requested
 ```
 
-The first error comes from a Neo4j vector index. The second error comes from a vector store collection. Both errors mean that the stored vectors come from a model that makes 384 values, and your embedder makes 4.
+The error comes from a Neo4j vector index. It means that the stored vectors come from a model that makes 384 values, and your embedder makes 4.
 
 1. To keep your data, open the graph with the original embedder.
-2. To change models, start with an empty database and empty collections. This deletes all data in the database. Then open the graph with the new embedder and ingest your documents again.
+2. To change models, start with an empty database. This deletes all data in the database. Then open the graph with the new embedder and ingest your documents again.
 
 ```python notest
 await graph_store.execute_write("MATCH (n) DETACH DELETE n")

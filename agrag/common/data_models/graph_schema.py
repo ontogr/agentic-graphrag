@@ -14,10 +14,7 @@ from agrag.common.data_models.community import COMMUNITY_LABEL
 from agrag.common.data_models.cutover_job import CUTOVER_JOB_LABEL
 from agrag.common.data_models.document import DOCUMENT_LABEL
 from agrag.common.data_models.graph_record import PENDING_JOB_ID_PROPERTY
-from agrag.common.data_models.resolved_entity import (
-    RESOLVED_ENTITY_LABEL,
-    RESOLVED_ENTITY_VECTOR_DELETION_LABEL,
-)
+from agrag.common.data_models.resolved_entity import RESOLVED_ENTITY_LABEL
 from agrag.common.data_models.structure import (
     FIGURE_LABEL,
     SECTION_LABEL,
@@ -26,19 +23,14 @@ from agrag.common.data_models.structure import (
 )
 
 
-# Property names an entity type may not declare. "label" and "text" are payload
-# keys every mirrored entity embedding carries: the graph label a SearchFilters
-# label filter matches on, and the embedding text the backends keyword-index.
-# A property with one of these names would overwrite that key in the
-# VectorStore payload while the GraphStore-native path keeps it as an ordinary
-# node property, so the two retrieval paths would disagree. The rest are keys
-# that Entity.to_node_record and the merge write set themselves, so a schema
+# Property names an entity type may not declare. These are keys that
+# Entity.to_node_record and the merge write set themselves, so a schema
 # property with the same name would be replaced or dropped when the node is
-# stored.
+# stored. "label" is the graph label that candidate search matches on, so a
+# property with that name would be mistaken for the entity type.
 _RESERVED_ENTITY_PROPERTY_NAMES = frozenset(
     {
         "label",
-        "text",
         "id",
         "name",
         "merge_key",
@@ -61,7 +53,6 @@ RESERVED_ENTITY_LABELS = frozenset(
         COMMUNITY_LABEL,
         RESOLVED_ENTITY_LABEL,
         CUTOVER_JOB_LABEL,
-        RESOLVED_ENTITY_VECTOR_DELETION_LABEL,
         "Candidate",
         # These repeat NODE_IDENTITY_LABEL and MERGE_ALIAS_LABEL. They are
         # not imported because agrag.cypher.entities loads this package, so
@@ -286,12 +277,10 @@ class EntityType(BaseModel):
 
     @model_validator(mode="after")
     def _reject_reserved_property_names(self) -> "EntityType":
-        """Reject property names that collide with vector payload keys.
+        """Reject property names that the graph writes itself.
 
         Enforced on every construction, including ``model_validate()`` of a
-        schema dumped before this check existed: a schema that declares one
-        of these names must be migrated rather than quietly accepted. The
-        message names the fix so that migration is unambiguous.
+        schema dumped before this check existed. The message names the fix.
         """
         reserved = sorted(_RESERVED_ENTITY_PROPERTY_NAMES & self.properties.keys())
         if reserved:
@@ -299,7 +288,7 @@ class EntityType(BaseModel):
                 f"Entity type '{self.label}' declares reserved property "
                 f"name(s) {reserved}; "
                 f"{sorted(_RESERVED_ENTITY_PROPERTY_NAMES)} are keys that the "
-                f"graph or the vector store writes itself. "
+                f"graph writes itself. "
                 f"Rename or remove those property names in the schema."
             )
         return self
@@ -399,8 +388,8 @@ class GraphSchema(BaseModel):
     Every extraction call is validated against a GraphSchema. There is no
     schema-free extraction path. Round-trip with
     ``model_dump(mode="json")`` and ``model_validate()``. A schema declaring
-    an entity property name that the vector payload reserves fails that
-    validation. See ``EntityType.properties``.
+    an entity property name that the graph reserves fails that validation.
+    See ``EntityType.properties``.
 
     Construct a new schema to change its types. Ancestor access revalidates the
     hierarchy so direct parent edits cannot cause an invalid traversal.

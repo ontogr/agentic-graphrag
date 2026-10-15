@@ -37,7 +37,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # The Makefile assigns pages to shards. Each shard has its own Neo4j and Qdrant.
+        # The Makefile assigns pages to shards. Each shard has its own Neo4j.
         shard: [1, 2, 3]
     env:
       DOCS_SHARD: ${{ matrix.shard }}
@@ -49,8 +49,6 @@ jobs:
       NEO4J_USERNAME: neo4j
       NEO4J_PASSWORD: ci-test-password
       NEO4J_DATABASE: neo4j
-      QDRANT_URL: http://localhost:6333
-      QDRANT_API_KEY: ci-test-qdrant-key
       BAML_LOG: "off"
       # This job owns its Neo4j service, so the docs fixtures can empty it.
       DOCS_TEST_ALLOW_NEO4J_RESET: "1"
@@ -65,8 +63,8 @@ jobs:
           persist-credentials: false
 
       # Started without --wait so the image pull overlaps with the setup below.
-      - name: Start Neo4j and Qdrant
-        run: docker compose -f docker/docker-compose.ci.yml up -d neo4j qdrant
+      - name: Start Neo4j
+        run: docker compose -f docker/docker-compose.ci.yml up -d neo4j
 
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
@@ -79,8 +77,8 @@ jobs:
 
       - run: make sync
 
-      - name: Wait for Neo4j and Qdrant
-        run: docker compose -f docker/docker-compose.ci.yml up -d --wait --wait-timeout 420 neo4j qdrant
+      - name: Wait for Neo4j
+        run: docker compose -f docker/docker-compose.ci.yml up -d --wait --wait-timeout 420 neo4j
 
       - name: Run docs code blocks
         run: |
@@ -93,7 +91,7 @@ jobs:
 
       - name: Collect service logs
         if: failure()
-        run: docker compose -f docker/docker-compose.ci.yml logs neo4j qdrant
+        run: docker compose -f docker/docker-compose.ci.yml logs neo4j
 
       - name: Stop services
         if: always()
