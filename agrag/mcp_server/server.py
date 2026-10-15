@@ -39,7 +39,9 @@ from agrag.embedding.base import Embedder
 from agrag.evidence import check_citations as verify_citations
 from agrag.evidence import discover, fetch
 from agrag.graphdb.base import GraphStore
+from agrag.mcp_server.read_tools import register_memory_read_tools
 from agrag.mcp_server.settings import McpServerSettings
+from agrag.mcp_server.write_tools import register_write_tools
 
 
 _LOGGER = logging.getLogger(__name__)
@@ -71,6 +73,7 @@ class _Session:
     """
 
     fetched_ids: set[str] = field(default_factory=set)
+    fetched_evidence: dict[str, Any] = field(default_factory=dict)
 
 
 def _store_lifespan(
@@ -98,10 +101,27 @@ def _store_lifespan(
     return lifespan
 
 
-def build_server(
+def _register_memory_tools(
+    server: MCPServer, store: GraphStore, settings: McpServerSettings
+) -> None:
+    """Register the read surface and the operator-enabled write surface."""
+    if not settings.project_id.strip() or not settings.agent_id.strip():
+        return
+    register_memory_read_tools(server, store, settings)
+    if settings.read_only:
+        return
+    register_write_tools(
+        server,
+        store,
+        settings,
+        fetched_evidence_for=lambda ctx: list(_session(ctx).fetched_evidence.values()),
+    )
+
+
+def build_server(  # noqa: PLR0915
     store: GraphStore, embedder: Embedder, settings: McpServerSettings
 ) -> MCPServer:
-    """Return the evidence MCP server with its three read-only tools.
+    """Return the evidence MCP server with its read tools and, when enabled, writes.
 
     The lifespan connects the store once, when the server starts. It does not
     close the store, because the caller owns the store and its connection pool.
@@ -129,6 +149,8 @@ def build_server(
         ),
         lifespan=_store_lifespan(store),
     )
+
+    _register_memory_tools(server, store, settings)
 
     @server.tool(
         annotations=_READ_ONLY,
@@ -267,6 +289,13 @@ def build_server(
             settings.max_response_chars,
         )
         session = _session(ctx)
+        session.fetched_evidence.update(
+            {
+                outcome.evidence_id: outcome
+                for outcome in kept
+                if outcome.status is FetchStatus.OK and not outcome.partial
+            }
+        )
         session.fetched_ids.update(
             outcome.evidence_id
             for outcome in kept
