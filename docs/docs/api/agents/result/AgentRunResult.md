@@ -11,12 +11,7 @@ Outcome, answer, evidence references and conversation for one run.
 
 **Attributes:**
 
-- [**answer**](#agrag-agents-result-AgentRunResult-answer) (<code>str</code>) –
-- [**citations**](#agrag-agents-result-AgentRunResult-citations) (<code>list\[[FetchOutcome](../../common/data_models/evidence/FetchOutcome.md)\]</code>) –
-- [**invalid_citations**](#agrag-agents-result-AgentRunResult-invalid_citations) (<code>list\[str\]</code>) –
-- [**messages**](#agrag-agents-result-AgentRunResult-messages) (<code>list\[Any\]</code>) –
-- [**status**](#agrag-agents-result-AgentRunResult-status) (<code>Literal['answered', 'insufficient_evidence', 'partial_retrieval', 'partial', 'recording_failed', 'budget_exhausted']</code>) –
-- [**task**](#agrag-agents-result-AgentRunResult-task) (<code>[AgentTaskRef](AgentTaskRef.md)</code>) –
+- [**recording_failures**](#agrag-agents-result-AgentRunResult-recording_failures) (<code>list\[str\]</code>) – Descriptions of task writes that did not complete.
 
 ## `answer` \{#agrag-agents-result-AgentRunResult-answer}
 
@@ -40,6 +35,12 @@ invalid_citations: list[str]
 
 ```python
 messages: list[Any]
+```
+
+## `recording_failures` \{#agrag-agents-result-AgentRunResult-recording_failures}
+
+```python
+recording_failures: list[str]
 ```
 
 ## `status` \{#agrag-agents-result-AgentRunResult-status}

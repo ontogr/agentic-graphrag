@@ -1,38 +1,39 @@
-"""E2E test of the agent tool layer over a real seeded graph, with no LLM.
+"""E2E test of the default agent's tools over a real seeded graph, with no LLM.
 
 Seeds a small connected graph through ``Graph.add`` and a second, disconnected
-graph in another document. It then calls the tools ``make_tools`` returns the
-way the agent does (``tool.ainvoke``) and checks what the agent would read:
+graph in another document. It then calls the tools ``make_core_tools`` returns
+the way the agent does (``tool.ainvoke``) and checks what the agent would read:
 
-- search and look-up tools name the expected entities and passages;
-- a caller scope (labels, documents, relation types, properties) hides
-  out-of-scope data, and a tool argument cannot widen the scope;
-- traversal follows direction and depth and never reaches the disconnected
-  component;
-- the node-distance reranker puts closer entities first.
-
-The run writes ``reports/e2e/agent_tools.json``. The test reads it back and
-asserts on the content. Labels, document keys and ids carry a random suffix in
-the database, but the artifact holds stable names only.
+- discovery and entity search name the expected passages and entities;
+- a document scope hides the other document's passages and entities, and a
+  fetch cannot read an id from outside the scope;
+- exploration follows relations within the connected component only;
+- a tool-call budget ends further calls with a fixed message.
 """
 
 import hashlib
 import importlib.util
+import json
 import re
 from collections.abc import AsyncGenerator, Sequence
 from contextlib import asynccontextmanager
+from typing import Any
 from uuid import uuid4
 
 import pytest
 
-from agrag.agents.ledger import Ledger
-from agrag.agents.tools import make_tools
-from agrag.agents.tools.search import SCOPE_DENIED
+from agrag.agents.tools.core import make_core_tools
 from agrag.common.data_models.chunk import Chunk
 from agrag.common.data_models.document import (
     Document,
     DocumentFamily,
     SourceFormat,
+)
+from agrag.common.data_models.entity_search import EntityResult, ExplorationResult
+from agrag.common.data_models.evidence import (
+    DiscoveryResult,
+    FetchOutcome,
+    FetchStatus,
 )
 from agrag.common.data_models.extraction import (
     ExtractedEntity,
@@ -46,15 +47,13 @@ from agrag.graphdb import build_graph_store
 from agrag.graphdb.base import GraphStore
 from agrag.ingestion.extract import Extractor
 from agrag.ingestion.graph import Graph
-from agrag.retrieval.filters import SearchFilters
+from agrag.memory import DecisionMemory, TaskMemory
 from agrag.retrieval.methods.traversal import extract_entity_ids
-from agrag.retrieval.recipes import Recipe
 from agrag.retrieval.rerank.node_distance import node_distance_rerank
 from agrag.retrieval.search_engine import SearchEngine
 from agrag.retrieval.settings import RetrievalSettings
 from tests.conftest import FAKE_EMBEDDING_DIMENSIONS
 from tests.integration._schema_cleanup import drop_schema_for
-from tests.integration.e2e._artifact import write_artifact
 
 
 neo4j_missing = importlib.util.find_spec("neo4j") is None
@@ -68,7 +67,6 @@ _KEYWORD_VECTORS = {
     "zeta": [1.0, 1.0, -4.0, 1.0],
     "paris": [1.0, -2.0, 0.0, 2.0],
 }
-_ENTITY_LINE = re.compile(r"^\[E\d+\] Entity: (.+) \((\w+)\)$", re.MULTILINE)
 
 _DOC_MAIN = (
     "Alice founded Acme. Bob works at Acme. Acme acquired Globex. "
@@ -186,17 +184,53 @@ def _document(uri: str, text: str) -> Document:
     )
 
 
-def _names(rendered: str, suffix: str) -> list[str]:
-    """Return the names of this test's entities a tool rendered, in order.
+def _names(found: EntityResult, suffix: str) -> list[str]:
+    """Return the names of this test's entities in a search result, in order.
 
     Entities that other suites left in the shared indexes can appear in an
     unscoped search. Only labels ending in this test's suffix are kept.
     """
-    return [
-        name
-        for name, label in _ENTITY_LINE.findall(rendered)
-        if label.endswith(f"_{suffix}")
-    ]
+    return [hit.name for hit in found.hits if hit.label.endswith(f"_{suffix}")]
+
+
+async def _core_tools(
+    env: dict, scope_keys: list[str], task: str, *, max_tool_calls: int = 50
+) -> list[Any]:
+    """Build the default agent's tools over the seeded graph for one scope."""
+    store: GraphStore = env["store"]
+    memory = TaskMemory(store, project_id=env["project_id"], agent_id="e2e")
+    await memory.create_task(task, "Read the seeded graph.")
+    decisions = DecisionMemory(store, project_id=env["project_id"], agent_id="e2e")
+    tools, _ = make_core_tools(
+        graph_store=store,
+        embedder=env["embedder"],
+        scope=frozenset(scope_keys),
+        task_name=task,
+        memory=memory,
+        decisions=decisions,
+        fetched_ids=[],
+        fetched_outcomes=[],
+        max_chars=12_000,
+        max_tool_calls=max_tool_calls,
+    )
+    return tools
+
+
+async def _cleanup_task_memory(store: GraphStore, project_id: str) -> None:
+    """Delete the tasks, events and steps that the seeded tools wrote."""
+    params = {"project_id": project_id}
+    await store.execute_write(
+        "MATCH (t:MemoryTask {project_id: $project_id}) "
+        "OPTIONAL MATCH (t)-[:HAS_EVENT|HAS_STEP]->(child) "
+        "DETACH DELETE child, t",
+        params,
+    )
+    await store.execute_write(
+        "MATCH (r:MemoryRequest {project_id: $project_id}) DETACH DELETE r", params
+    )
+    await store.execute_write(
+        "MATCH (p:MemoryProject {project_id: $project_id}) DETACH DELETE p", params
+    )
 
 
 def _tool(tools: list, name: str):  # type: ignore[no-untyped-def]
@@ -307,6 +341,7 @@ async def _seed_graph(*, one_add_call: bool) -> AsyncGenerator[dict, None]:
         extractor=_TripleExtractor(labels),
     )
     all_labels = list(labels.values())
+    project_id = f"e2e-{suffix}"
     try:
         if one_add_call:
             await graph.add(documents=[main, other], error_policy="skip")
@@ -322,9 +357,13 @@ async def _seed_graph(*, one_add_call: bool) -> AsyncGenerator[dict, None]:
             "all_labels": all_labels,
             "main_id": document_ids[0],
             "other_id": document_ids[1],
+            "main_key": main.resolved_document_key,
+            "other_key": other.resolved_document_key,
+            "project_id": project_id,
             "document_ids": document_ids,
         }
     finally:
+        await _cleanup_task_memory(store, project_id)
         await _cleanup(store, all_labels, document_ids)
         await drop_schema_for(store, *all_labels)
         await store.close()
@@ -348,254 +387,79 @@ def _engine(env: dict, **settings: object) -> SearchEngine:
 
 
 @pytest.mark.skipif(neo4j_missing, reason="neo4j extra not installed")
-async def test_agent_tools_over_seeded_graph(  # noqa: PLR0915
-    seeded: dict,
-) -> None:
-    """Tools read, scope, traverse, rerank and query the graph correctly."""
+async def test_core_tools_read_and_scope_the_seeded_graph(seeded: dict) -> None:
+    """Search, fetch and explore honour the document scope and the tool budget."""
     env = seeded
-    labels = env["labels"]
     suffix = env["suffix"]
+    labels = env["labels"]
+    full = await _core_tools(env, [env["main_key"], env["other_key"]], "full-scope")
+    main = await _core_tools(env, [env["main_key"]], "main-scope")
 
-    def names(rendered: str) -> list[str]:
-        return _names(rendered, suffix)
-
-    store: GraphStore = env["store"]
-    engine = _engine(env)
-    tools = make_tools(engine, Ledger())
-    record: dict[str, object] = {}
-
-    async def call(name: str, **args: object) -> str:
-        return await _tool(tools, name).ainvoke(args)
-
-    # Search and look-up: the tool names the entity the query is about.
-    lookup = await call("look_up_entity", query="Acme")
-    assert names(lookup)[0] == "Acme"
-    orgs_only = await call("look_up_entity", query="Acme", labels=[labels["org"]])
-    assert sorted(names(orgs_only)) == ["Acme", "Globex", "Zeta"]
-    record["look_up_entity"] = {
-        "first": names(lookup)[0],
-        "org_labelled": sorted(names(orgs_only)),
-    }
-
-    # Relationship listing.
-    listed = await call("list_relationship_types", entity="Acme")
-    assert listed.splitlines()[-1] == "Relationship types: ACQUIRED, FOUNDED, WORKS_AT"
-    only_founded = await call(
-        "list_relationship_types", entity="Acme", relation_type_filter="FOUNDED"
+    alice = DiscoveryResult.model_validate_json(
+        await _tool(main, "discover_evidence").ainvoke({"query": "Alice"})
     )
-    assert only_founded.splitlines()[-1] == "Relationship types: FOUNDED"
-    absent = await call(
-        "list_relationship_types", entity="Acme", relation_type_filter="LOCATED_IN"
+    fetched = FetchOutcome.model_validate(
+        json.loads(
+            await _tool(main, "fetch_evidence").ainvoke(
+                {"evidence_ids": [alice.hits[0].evidence_id]}
+            )
+        )[0]
     )
-    assert absent.splitlines()[-1] == "No relationships found."
-    record["relationship_types_of_acme"] = ["ACQUIRED", "FOUNDED", "WORKS_AT"]
+    assert fetched.status is FetchStatus.OK
+    assert "Alice founded Acme" in (fetched.text or "")
 
-    # One relationship type, with direction.
-    directions: dict[str, list[str]] = {}
-    for entity, relation, direction, expected in (
-        ("Acme", "WORKS_AT", "incoming", ["Bob"]),
-        ("Acme", "WORKS_AT", "outgoing", []),
-        ("Acme", "ACQUIRED", "outgoing", ["Globex"]),
-        ("Acme", "ACQUIRED", "incoming", []),
-        ("Acme", "FOUNDED", "both", ["Alice"]),
-    ):
-        rendered = await call(
-            "find_related_entities",
-            entity=entity,
-            relation_type=relation,
-            direction=direction,
+    zed_in_full = DiscoveryResult.model_validate_json(
+        await _tool(full, "discover_evidence").ainvoke({"query": "Zed"})
+    )
+    zed_hit = next(hit for hit in zed_in_full.hits if "Zed" in hit.snippet)
+    zed_from_main = FetchOutcome.model_validate(
+        json.loads(
+            await _tool(main, "fetch_evidence").ainvoke(
+                {"evidence_ids": [zed_hit.evidence_id]}
+            )
+        )[0]
+    )
+    assert zed_from_main.status is not FetchStatus.OK
+    assert zed_from_main.text is None
+
+    orgs = EntityResult.model_validate_json(
+        await _tool(full, "find_entities").ainvoke(
+            {"query": "Acme", "labels": [labels["org"]]}
         )
-        assert names(rendered) == expected, (entity, relation, direction)
-        if not expected:
-            assert rendered == "No results found."
-        directions[f"{entity}:{relation}:{direction}"] = names(rendered)
-    record["find_related_entities"] = directions
-
-    # Multi-hop traversal reaches the second hop, and only the connected one.
-    hops: dict[str, list[str]] = {}
-    for entity, direction, depth, expected in (
-        ("Alice", "both", 1, ["Acme"]),
-        ("Alice", "both", 2, ["Acme", "Bob", "Globex", "Paris"]),
-        ("Alice", "both", 3, ["Acme", "Bob", "Globex", "Paris"]),
-        ("Alice", "outgoing", 2, ["Acme", "Globex"]),
-        ("Alice", "incoming", 3, []),
-        ("Globex", "incoming", 2, ["Acme", "Alice", "Bob"]),
-        ("Zed", "both", 5, ["Zeta"]),
-    ):
-        rendered = await call(
-            "traverse_from_entity", entity=entity, direction=direction, depth=depth
+    )
+    assert sorted(_names(orgs, suffix)) == ["Acme", "Globex", "Zeta"]
+    scoped = EntityResult.model_validate_json(
+        await _tool(main, "find_entities").ainvoke(
+            {"query": "Zed", "labels": list(labels.values())}
         )
-        assert sorted(names(rendered)) == expected, (entity, direction, depth)
-        hops[f"{entity}:{direction}:{depth}"] = sorted(names(rendered))
-    for key, reached in hops.items():
-        if not key.startswith("Zed"):
-            assert not {"Zed", "Zeta"} & set(reached), key
-    typed = await call(
-        "traverse_from_entity",
-        entity="Alice",
-        relation_type="FOUNDED",
-        direction="outgoing",
-        depth=3,
     )
-    assert names(typed) == ["Acme"]
-    record["traverse_from_entity"] = hops
+    assert not {"Zed", "Zeta"} & set(_names(scoped, suffix))
 
-    described = await call("describe_entity", entity="Acme")
-    assert described.splitlines()[0].startswith("[E") and "Acme" in described
-    assert labels["org"] in described
+    alice_entity = next(
+        hit
+        for hit in EntityResult.model_validate_json(
+            await _tool(full, "find_entities").ainvoke(
+                {"query": "Alice", "labels": [labels["person"]]}
+            )
+        ).hits
+        if hit.name == "Alice"
+    )
+    explored = ExplorationResult.model_validate_json(
+        await _tool(full, "explore").ainvoke(
+            {"entity_id": alice_entity.entity_id, "depth": 2}
+        )
+    )
+    reached = {node.name for node in explored.nodes}
+    assert {"Acme", "Bob", "Globex"} <= reached
+    assert not {"Zed", "Zeta"} & reached
 
-    # Scope: a label scope hides other types, even on the path to a neighbour.
-    person_tools = make_tools(
-        engine, Ledger(), filters=SearchFilters(labels=[labels["person"]])
+    limited = await _core_tools(env, [env["main_key"]], "budget", max_tool_calls=2)
+    for _ in range(2):
+        await _tool(limited, "discover_evidence").ainvoke({"query": "Alice"})
+    assert (
+        await _tool(limited, "discover_evidence").ainvoke({"query": "Alice"})
+        == "Tool budget exhausted."
     )
-    scoped_lookup = await _tool(person_tools, "look_up_entity").ainvoke(
-        {"query": "Acme"}
-    )
-    assert sorted(names(scoped_lookup)) == ["Alice", "Bob", "Zed"]
-    widened = await _tool(person_tools, "look_up_entity").ainvoke(
-        {"query": "Acme", "labels": [labels["org"]]}
-    )
-    assert widened == SCOPE_DENIED
-    scoped_hops = await _tool(person_tools, "traverse_from_entity").ainvoke(
-        {"entity": "Bob", "depth": 2}
-    )
-    assert names(scoped_hops) == ["Alice"]
-
-    # Scope: a document scope hides the other document's passages and
-    # neighbours, and a tool argument cannot select the other document.
-    doc_tools = make_tools(
-        engine, Ledger(), filters=SearchFilters(document_ids=[env["main_id"]])
-    )
-    scoped_passages = await _tool(doc_tools, "search_source_text").ainvoke(
-        {"query": "Zed"}
-    )
-    assert "Zed" not in scoped_passages
-    main_passages = await _tool(doc_tools, "search_source_text").ainvoke(
-        {"query": "Alice"}
-    )
-    assert "Alice founded Acme" in main_passages
-    doc_widened = await _tool(doc_tools, "search_source_text").ainvoke(
-        {"query": "Zed", "document_ids": [env["other_id"]]}
-    )
-    assert doc_widened == SCOPE_DENIED
-    other_tools = make_tools(
-        engine, Ledger(), filters=SearchFilters(document_ids=[env["other_id"]])
-    )
-    other_passages = await _tool(other_tools, "search_source_text").ainvoke(
-        {"query": "Alice"}
-    )
-    assert "Alice" not in other_passages
-    own_passages = await _tool(other_tools, "search_source_text").ainvoke(
-        {"query": "Zed"}
-    )
-    assert "Zed founded Zeta" in own_passages
-    other_hops = await _tool(other_tools, "traverse_from_entity").ainvoke(
-        {"entity": "Zed", "depth": 3}
-    )
-    assert names(other_hops) == ["Zeta"]
-
-    # Scope: a relation type allowlist refuses a call outside it.
-    founded_tools = make_tools(
-        engine, Ledger(), filters=SearchFilters(relation_types=["FOUNDED"])
-    )
-    refused = await _tool(founded_tools, "find_related_entities").ainvoke(
-        {"entity": "Acme", "relation_type": "ACQUIRED"}
-    )
-    assert refused == SCOPE_DENIED
-    allowed_types = await _tool(founded_tools, "list_relationship_types").ainvoke(
-        {"entity": "Acme"}
-    )
-    assert allowed_types.splitlines()[-1] == "Relationship types: FOUNDED"
-    allowed_hops = await _tool(founded_tools, "traverse_from_entity").ainvoke(
-        {"entity": "Alice", "depth": 3}
-    )
-    assert names(allowed_hops) == ["Acme"]
-
-    # Scope: a property scope makes name resolution pick an in-scope entity, so
-    # a name outside the scope never becomes a traversal start.
-    alice_tools = make_tools(
-        engine,
-        Ledger(),
-        filters=SearchFilters(
-            labels=list(labels.values()), properties={"name": "Alice"}
-        ),
-    )
-    resolved_in_scope = await _tool(alice_tools, "describe_entity").ainvoke(
-        {"entity": "Acme"}
-    )
-    assert f"Alice ({labels['person']})" in resolved_in_scope
-    assert "Acme" not in resolved_in_scope
-    found = await _tool(alice_tools, "describe_entity").ainvoke({"entity": "Alice"})
-    assert f"Alice ({labels['person']})" in found
-    record["scope"] = {
-        "label_scope_lookup": sorted(names(scoped_lookup)),
-        "label_scope_widen": "refused",
-        "label_scope_traverse_bob_depth2": names(scoped_hops),
-        "document_scope_excludes_other_document": True,
-        "document_scope_widen": "refused",
-        "relation_scope_widen": "refused",
-        "property_scope_resolves_only_in_scope": True,
-    }
-
-    # Node-distance rerank: closer to the seed ranks higher.
-    seed = await engine.find_entity("Alice")
-    zed = await engine.find_entity("Zed")
-    globex = await engine.find_entity("Globex")
-    acme = await engine.find_entity("Acme")
-    assert seed and zed and globex and acme
-    candidates = [zed, globex, acme]
-    reranked = await node_distance_rerank(
-        candidates, graph_store=store, seed_ids=extract_entity_ids([seed])
-    )
-    assert [r.item.name for r in reranked] == ["Acme", "Globex", "Zed"]  # type: ignore[union-attr]
-    unchanged = await node_distance_rerank(candidates, graph_store=store, seed_ids=[])
-    assert [r.item.name for r in unchanged] == ["Zed", "Globex", "Acme"]  # type: ignore[union-attr]
-    rerank_engine = _engine(env, node_distance_seed_top_k=1)
-    ranked = await rerank_engine.search(
-        "Alice",
-        Recipe(methods=["entity"], reranker="node_distance", limit=10),
-        filters=SearchFilters(labels=list(labels.values())),
-    )
-    order = [
-        r.item.name  # type: ignore[union-attr]
-        for r in ranked
-        if r.item.name != "Alice"  # type: ignore[union-attr]
-    ]
-    assert order[0] == "Acme"
-    # Chunk nodes join every entity of a document, so the rest of the
-    # connected document is at distance 2 and the other document is unreachable.
-    assert sorted(order[1:4]) == ["Bob", "Globex", "Paris"]
-    assert sorted(order[4:]) == ["Zed", "Zeta"]
-    record["node_distance"] = {
-        "direct_rerank": [r.item.name for r in reranked],  # type: ignore[union-attr]
-        "engine_rerank_tiers_without_seed": [
-            [order[0]],
-            sorted(order[1:4]),
-            sorted(order[4:]),
-        ],
-    }
-
-    artifact = write_artifact("agent_tools", record)
-    assert artifact == record
-
-
-@pytest.mark.skipif(neo4j_missing, reason="neo4j extra not installed")
-async def test_document_scope_hides_entities_of_other_documents(
-    seeded: dict,
-) -> None:
-    """A document-scoped agent must not see entities found only elsewhere."""
-    env = seeded
-    tools = make_tools(
-        _engine(env),
-        Ledger(),
-        filters=SearchFilters(
-            document_ids=[env["main_id"]], labels=list(env["labels"].values())
-        ),
-    )
-    for name in ("look_up_entity", "explore_related"):
-        rendered = await _tool(tools, name).ainvoke({"query": "Zed"})
-        seen = _names(rendered, env["suffix"])
-        assert not {"Zed", "Zeta"} & set(seen), (name, seen)
 
 
 @pytest.mark.skipif(neo4j_missing, reason="neo4j extra not installed")

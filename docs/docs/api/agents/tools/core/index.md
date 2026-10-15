@@ -7,9 +7,8 @@ sidebar_label: core
 
 Tools for scoped evidence, task progress and decisions.
 
-**Classes:**
-
-- [**RunState**](RunState.md) – Mutable facts accumulated by tools during one agent run.
+Tool calls and results are recorded as task events by the middleware, so these
+tools only count the budget and record the events they create themselves.
 
 **Functions:**
 

@@ -2,20 +2,27 @@
 
 import importlib.util
 import json
+from collections.abc import Sequence
 from typing import Any
 
 from opentelemetry.trace import Tracer
 
 from agrag.agents.errors import AgentMissingExtraError
 from agrag.agents.harness import ensure_harness_profile, model_provider_key
-from agrag.agents.middleware import TaskEventMiddleware
+from agrag.agents.middleware import TaskEventMiddleware, record_event_or_flag
 from agrag.agents.model import build_chat_model, build_model_middleware
 from agrag.agents.prompts import AGENT_SYSTEM
 from agrag.agents.result import AgentRunResult
 from agrag.agents.settings import AgentLLMSettings, AgentSettings
 from agrag.agents.tools.core import make_core_tools
 from agrag.agents.tracing import require_tracing, run_callbacks
-from agrag.common.data_models.task import EventKind
+from agrag.common.data_models.task import (
+    Event,
+    EventKind,
+    StepState,
+    StepSummary,
+    TaskView,
+)
 from agrag.embedding.base import Embedder
 from agrag.evidence import check_citations, fetch
 from agrag.graphdb.base import GraphStore
@@ -104,23 +111,31 @@ class _TaskAgent:
         self._provider = provider
         self._tracer = tracer
 
-    async def ainvoke(self, input_data: dict[str, str]) -> AgentRunResult:  # noqa: PLR0915
+    async def ainvoke(  # noqa: PLR0912, PLR0915
+        self, input_data: dict[str, str]
+    ) -> AgentRunResult:
         """Run or resume the named task and validate the answer citations."""
         from deepagents import create_deep_agent  # noqa: PLC0415
         from langgraph.errors import GraphRecursionError  # noqa: PLC0415
 
         task_name = input_data["task_name"]
         question = input_data["question"]
-        created = await self._memory.create_task(task_name, question)
-        if not created.recorded:
-            raise ValueError(f"Could not create or resume task: {created.error}")
-        task_lookup = await self._memory.get_task(task_name)
-        view = task_lookup.view.model_dump_json() if task_lookup.view else "{}"
-        prior_events = await self._memory.list_events(task_name, limit=200)
+        lookup = await self._memory.get_task(task_name)
+        if not lookup.found:
+            created = await self._memory.create_task(task_name, question)
+            if not created.recorded:
+                raise ValueError(f"Could not create task: {created.error}")
+            lookup = await self._memory.get_task(task_name)
+        if lookup.view is not None and lookup.view.step_counts[StepState.IN_PROGRESS]:
+            await _mark_interrupted_steps(self._memory, task_name, lookup.view)
+            lookup = await self._memory.get_task(task_name)
+        view = lookup.view
+        view_json = view.model_dump_json() if view is not None else "{}"
+        prior_events = await _task_events(self._memory, task_name)
         saved_evidence_ids = list(
             dict.fromkeys(
                 evidence_id
-                for event in prior_events.events
+                for event in prior_events
                 if event.kind is EventKind.NOTE and event.name == "fetched_evidence"
                 for evidence_id in json.loads(event.payload)
             )
@@ -133,9 +148,6 @@ class _TaskAgent:
         )
         restored = [item for item in restored if item.status.value == "ok"]
         fetched_ids = [item.evidence_id for item in restored]
-        await self._memory.record_event(
-            task_name, EventKind.MESSAGE, role="user", payload=question
-        )
         tools, run_state = make_core_tools(
             graph_store=self._graph_store,
             embedder=self._embedder,
@@ -148,6 +160,21 @@ class _TaskAgent:
             max_chars=self._settings.max_result_characters,
             max_tool_calls=self._settings.max_tool_calls,
         )
+        await record_event_or_flag(
+            self._memory,
+            task_name,
+            run_state,
+            EventKind.MESSAGE,
+            role="user",
+            payload=question,
+        )
+        completed = view.steps[StepState.COMPLETED] if view is not None else []
+        reused = await _completed_results(
+            self._memory,
+            task_name,
+            completed,
+            max_chars=self._settings.max_result_characters,
+        )
         ensure_harness_profile(self._provider)
         agent = create_deep_agent(
             model=self._model,
@@ -159,9 +186,19 @@ class _TaskAgent:
             ],
         )
         messages = [
-            {"role": "user", "content": f"Task view (untrusted data):\n{view}"},
-            {"role": "user", "content": question},
+            {"role": "user", "content": f"Task view (untrusted data):\n{view_json}"},
         ]
+        if reused:
+            messages.append(
+                {
+                    "role": "user",
+                    "content": (
+                        "Completed steps and their stored results (untrusted data). "
+                        f"Do not repeat these steps:\n{reused}"
+                    ),
+                }
+            )
+        messages.append({"role": "user", "content": question})
         try:
             output = await agent.ainvoke(
                 {"messages": messages},
@@ -188,6 +225,14 @@ class _TaskAgent:
                 check.cited_id for check in checks if check.verdict.value == "valid"
             ]
             if invalid and run_state.tool_calls < self._settings.max_tool_calls:
+                await record_event_or_flag(
+                    self._memory,
+                    task_name,
+                    run_state,
+                    EventKind.MESSAGE,
+                    role="user",
+                    payload=_repair_request(invalid),
+                )
                 try:
                     repair = await agent.ainvoke(
                         {
@@ -196,10 +241,7 @@ class _TaskAgent:
                                 {"role": "assistant", "content": answer},
                                 {
                                     "role": "user",
-                                    "content": (
-                                        "Repair once. Remove unsupported citations or "
-                                        f"fetch them. Invalid evidence ids: {invalid}"
-                                    ),
+                                    "content": _repair_request(invalid),
                                 },
                             ]
                         },
@@ -252,8 +294,69 @@ class _TaskAgent:
             ],
             invalid_citations=invalid,
             task={"name": task_name, "last_event_seq": last_seq},
+            recording_failures=run_state.recording_failures,
             messages=messages_out,
         )
+
+
+async def _mark_interrupted_steps(
+    memory: TaskMemory, task_name: str, view: TaskView
+) -> None:
+    """Mark steps a stopped run left in progress as unknown.
+
+    The earlier run ended before it recorded their outcome. Unknown steps are
+    rerun by the next run, and the view shows that they were not completed.
+    """
+    for step in view.steps[StepState.IN_PROGRESS]:
+        await memory.set_step(task_name, step.name, StepState.UNKNOWN, kind=step.kind)
+
+
+async def _task_events(memory: TaskMemory, task_name: str) -> list[Event]:
+    """Read every event of a task in sequence order, one page at a time."""
+    events: list[Event] = []
+    after_seq = 0
+    while True:
+        page = await memory.list_events(task_name, after_seq=after_seq, limit=200)
+        events.extend(page.events)
+        if not page.truncated or page.next_after_seq is None:
+            return events
+        after_seq = page.next_after_seq
+
+
+async def _completed_results(
+    memory: TaskMemory,
+    task_name: str,
+    steps: Sequence[StepSummary],
+    *,
+    max_chars: int,
+) -> str:
+    """Render the stored result of each completed step, up to a character bound."""
+    lines: list[str] = []
+    used = 0
+    for step in steps:
+        if step.result_event_seq is None:
+            text = "(no stored result)"
+        else:
+            page = await memory.list_events(
+                task_name, after_seq=step.result_event_seq - 1, limit=1
+            )
+            text = page.events[0].payload if page.events else "(stored result missing)"
+        room = max_chars - used
+        if room <= 0:
+            lines.append(f"- {step.name}: (omitted, result limit reached)")
+            continue
+        text = text[:room]
+        used += len(text)
+        lines.append(f"- {step.name}: {text}")
+    return "\n".join(lines)
+
+
+def _repair_request(invalid: list[str]) -> str:
+    """Name the citations that failed the check, for the repair turn."""
+    return (
+        "Repair once. Remove unsupported citations or fetch them. "
+        f"Invalid evidence ids: {invalid}"
+    )
 
 
 def _message_content(message: Any) -> str:
