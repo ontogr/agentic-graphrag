@@ -396,9 +396,7 @@ class TaskMemory:
         review_rows = await self._store.execute_read(
             task_review_decisions_query(), {**params, "limit": 21}
         )
-        review_decisions = [
-            _decision_from_row(row) for row in review_rows[:20]
-        ]
+        review_decisions = [_decision_from_row(row) for row in review_rows[:20]]
         conflict_keys = await self._store.execute_read(
             task_conflict_keys_query(), {**params, "limit": 11}
         )
