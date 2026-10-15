@@ -96,14 +96,11 @@ class TestGraphCandidateSourceInBatch:
 class TestGraphCandidateSourceGlobalCandidatesFor:
     """global_candidates_for resolves vector hits into persisted entities."""
 
-    async def test_native_path_validates_payload_directly(self) -> None:
-        """The native payload already has the real name.
-
-        The native path must not be touched by the load-by-id fix, and
-        must not issue a graph read to get the name.
-        """
+    async def test_discards_hits_for_entities_deleted_before_reload(self) -> None:
+        """A vector hit deleted before reload cannot remain a resolution candidate."""
         entity_id = uuid4()
         graph_store = AsyncMock()
+        graph_store.execute_read.return_value = []
         source = GraphCandidateSource(graph_store=graph_store, embedder=MockEmbedder())
 
         with patch(
@@ -113,7 +110,7 @@ class TestGraphCandidateSourceGlobalCandidatesFor:
                 VectorHit(
                     id=entity_id,
                     score=0.9,
-                    payload={"name": "Star Trek: Voyager"},
+                    payload={"name": "stale vector payload"},
                 )
             ],
         ):
@@ -121,31 +118,46 @@ class TestGraphCandidateSourceGlobalCandidatesFor:
                 _mention("Star Trek: Voyager")
             )
 
-        graph_store.execute_read.assert_not_called()
-        assert len(candidates) == 1
-        assert candidates[0][0].name == "Star Trek: Voyager"
-        assert candidates[0][1] == 0.9
+        assert candidates == []
 
-    async def test_native_payload_mismatch_keeps_each_score_with_its_entity(
+    async def test_reloaded_entities_keep_their_hit_scores(
         self,
     ) -> None:
-        """A label-mismatched native hit's score is not shifted onto the next."""
-        source = GraphCandidateSource(graph_store=AsyncMock(), embedder=MockEmbedder())
+        """Filtered reloaded entities retain scores from their own vector hits."""
+        graph_store = AsyncMock()
         kept_id = uuid4()
+        missing_id = uuid4()
+        graph_store.execute_read.return_value = [
+            {
+                "n": {
+                    "id": str(kept_id),
+                    "merge_key": "Show:Voyager",
+                    "name": "Voyager",
+                }
+            },
+            {
+                "n": {
+                    "id": str(uuid4()),
+                    "merge_key": "Place:Paris",
+                    "name": "Paris",
+                }
+            },
+        ]
+        source = GraphCandidateSource(graph_store=graph_store, embedder=MockEmbedder())
 
         with patch(
             "agrag.ingestion.resolve.candidate_source.vector_search",
             new_callable=AsyncMock,
             return_value=[
                 VectorHit(
-                    id=uuid4(),
+                    id=missing_id,
                     score=0.1,
-                    payload={"label": "Place", "name": "Paris"},
+                    payload={},
                 ),
                 VectorHit(
                     id=kept_id,
                     score=0.88,
-                    payload={"label": "Show", "name": "Voyager"},
+                    payload={},
                 ),
             ],
         ):

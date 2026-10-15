@@ -10,6 +10,7 @@ from agrag.common.data_models.stage_failure import StageFailure
 from agrag.cypher.entities import fetch_entity_neighbors_query
 from agrag.embedding.base import Embedder
 from agrag.graphdb.base import GraphStore
+from agrag.graphdb.entities import load_entities
 from agrag.loaders.types import ErrorPolicy
 from agrag.observability import record_stage_failure
 from agrag.retrieval.filters import SearchFilters
@@ -190,17 +191,13 @@ class GraphCandidateSource(CandidateSource):
         if not hits:
             return []
         hit_scores = {hit.id: hit.score for hit in hits}
-        entities: list[Entity] = []
-        for hit in hits:
-            payload = dict(hit.payload)
-            payload.setdefault("id", hit.id)
-            payload.setdefault("label", mention.label)
-            if payload.get("label") != mention.label:
-                continue
-            try:
-                entities.append(Entity.model_validate(payload))
-            except Exception:  # malformed payloads are not candidates
-                continue
+        live_entities = await load_entities(self.graph_store, [hit.id for hit in hits])
+        entities = [
+            entity
+            for hit in hits
+            if (entity := live_entities.get(hit.id)) is not None
+            and entity.label == mention.label
+        ]
         return [(entity, hit_scores.get(entity.id, 0.0)) for entity in entities]
 
 

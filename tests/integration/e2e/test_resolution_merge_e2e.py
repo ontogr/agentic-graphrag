@@ -104,6 +104,9 @@ class _ConceptEmbedder(Embedder):
     model = "concept"
     fail_containing: str | None = None
 
+    def __init__(self) -> None:
+        self.embedded_texts: list[str] = []
+
     async def dimensions(self) -> int:
         """Return 4, the size of the shared instance's vector indexes."""
         return 4
@@ -119,6 +122,7 @@ class _ConceptEmbedder(Embedder):
             self.fail_containing in text for text in texts
         ):
             raise RuntimeError("embedding service unavailable")
+        self.embedded_texts.extend(texts)
         return [
             list(_VECTOR_BY_NAME.get(text.split(":", 1)[0].strip(), _UNKNOWN_VECTOR))
             for text in texts
@@ -534,6 +538,10 @@ class TestResolutionMerge:
         assert w.org_cluster_after_second_document not in vectors
         org_payload = vectors[org_cluster["id"]]
         assert org_payload["description"] == props["description"]
+        assert (
+            f"{org_cluster['name']}: {props['description']}"
+            in w.embedder.embedded_texts
+        )
         assert set(org_payload["member_ids"]) == {org_ids[n] for n in ORG_SURFACES}
         stale_rows = await _rows(
             w.store,
