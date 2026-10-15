@@ -219,8 +219,9 @@ def _anchor(
 def _version_status(anchor: StoredChunk) -> VersionStatus:
     """Return whether the version of the starting chunk is the current one."""
     if (
-        anchor.current_content_hash[:CONTENT_HASH_PREFIX_LENGTH]
-        == (anchor.chunk.content_hash[:CONTENT_HASH_PREFIX_LENGTH])
+        anchor.current_content_hash is not None
+        and anchor.current_content_hash[:CONTENT_HASH_PREFIX_LENGTH]
+        == anchor.chunk.content_hash[:CONTENT_HASH_PREFIX_LENGTH]
     ):
         return VersionStatus.CURRENT
     return VersionStatus.SUPERSEDED
