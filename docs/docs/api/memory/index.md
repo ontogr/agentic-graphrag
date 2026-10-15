@@ -11,6 +11,7 @@ Durable task and decision memory for one project.
 **Modules:**
 
 - [**decisions**](decisions/index.md) – Evidence-linked decisions scoped to one project.
+- [**retention**](retention/index.md) – Project-scoped redaction and task deletion operations.
 - [**tasks**](tasks/index.md) – Durable task state with raw events and steps, scoped to one project.
 
 **Classes:**
