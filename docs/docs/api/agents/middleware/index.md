@@ -5,12 +5,14 @@ sidebar_label: middleware
 
 # `agrag.agents.middleware` \{#agrag-agents-middleware}
 
-Agent middleware for composing models and bounding the research loop.
+Middleware for composing configured chat models and capturing task events.
 
 **Classes:**
 
-- [**HideToolsMiddleware**](HideToolsMiddleware.md) – Remove tools by name from every model request.
-- [**RequireVerdictMiddleware**](RequireVerdictMiddleware.md) – Ask again when the verifier answers in prose instead of with its verdict.
-- [**ResearchAttemptLimiter**](ResearchAttemptLimiter.md) – Cap how many times the planner may re-delegate after verification.
-- [**RoundRobinModelMiddleware**](RoundRobinModelMiddleware.md) – Rotate across the configured chat models, one model per call.
-- [**VerifierEvidenceMiddleware**](VerifierEvidenceMiddleware.md) – Give the verifier the evidence text behind each key a task cites.
+- [**RoundRobinModelMiddleware**](RoundRobinModelMiddleware.md) – Rotate model requests across configured clients.
+- [**RunState**](RunState.md) – Mutable facts accumulated by tools and middleware during one run.
+- [**TaskEventMiddleware**](TaskEventMiddleware.md) – Persist assistant messages, tool calls and tool results as task events.
+
+**Functions:**
+
+- [**record_event_or_flag**](record_event_or_flag.md) – Append one event, retry it once, and flag the run if it still fails.

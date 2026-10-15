@@ -20,8 +20,18 @@ so captures never share spans and the global provider is unchanged.
 
 ```python
 with SpanCapture() as capture:
-    agent = build_agent(engine, settings, tracer=capture.tracer)
-    result = await agent.ainvoke({"messages": [...]})
+    agent = build_agent(
+        graph_store=graph_store,
+        embedder=embedder,
+        scope=document_keys,
+        project_id="research",
+        agent_id="analyst",
+        llm_settings=settings,
+        tracer=capture.tracer,
+    )
+    result = await agent.ainvoke(
+        {"task_name": "question", "question": "What happened?"}
+    )
 trajectory = capture.trajectory()
 ```
 

@@ -159,19 +159,22 @@ print("entities extracted:",
               </div>
               <div className={styles.exampleCol}>
                 <CodeBlock language="python" title="ask.py">{`agent = build_agent(
-    engine=engine,
-    llm_settings=llm_settings,
-    graph_schema=schema,
+    graph_store=build_graph_store("neo4j"),
+    embedder=build_embedder(
+        "ibm-granite/granite-embedding-small-english-r2"),
+    scope=frozenset({"company-notes"}),
+    project_id="ask",
+    agent_id="ask-agent",
+    llm_settings=AgentLLMSettings.from_openai_compatible_env(),
 )
 question = (
     "Who founded the company "
     "that Satya Nadella works at?"
 )
 result = await agent.ainvoke(
-    {"messages": [{"role": "user",
-                   "content": question}]}
+    {"task_name": "founder", "question": question}
 )
-print(answer.content)`}</CodeBlock>
+print(result["answer"])`}</CodeBlock>
                 <pre className={styles.output} aria-label="ask.py example output">
                   {'Satya Nadella works at Microsoft (E1, E3), which was\nfounded by Bill Gates (E2, E3, C1).\nevidence keys: E1, E2, E3, E4, C1, V1'}
                 </pre>

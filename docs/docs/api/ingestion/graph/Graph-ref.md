@@ -20,6 +20,7 @@ A knowledge graph that a caller can open and add content to.
 - [**delete_document**](#agrag-ingestion-graph-Graph-delete_document) – Soft-delete a document by closing its current HAS_PART edges.
 - [**detect_communities**](#agrag-ingestion-graph-Graph-detect_communities) – Detect entity communities via hierarchical Leiden.
 - [**open**](#agrag-ingestion-graph-Graph-open) – Open a graph, connecting and fully provisioning graph_store.
+- [**purge_document**](#agrag-ingestion-graph-Graph-purge_document) – Hard-delete every stored version of a document and its evidence.
 - [**reevaluate**](#agrag-ingestion-graph-Graph-reevaluate) – Reevaluate matches among the given entities.
 - [**source_status**](#agrag-ingestion-graph-Graph-source_status) – Read a source's version, job lease and discovery index state.
 - [**update**](#agrag-ingestion-graph-Graph-update) – Replace one document version, or re-extract it in place.
@@ -384,6 +385,49 @@ index that evidence discovery reads, before this call returns.
 - <code>Exception</code> – Whatever connect(), registration, constraint/index
   setup, or vector-index provisioning raises. graph_store is
   closed first, so a failed open() never leaks a connection.
+
+## `purge_document` \{#agrag-ingestion-graph-Graph-purge_document}
+
+```python
+purge_document(document_key:str) -> UpdateResult
+```
+
+Hard-delete every stored version of a document and its evidence.
+
+The commit removes the chunk, section, table and figure nodes of every
+version. Each relation that cites those chunks in `source_chunk_ids`
+drops them, and a relation left with no evidence is deleted, whether or
+not a chunk still mentions its endpoints. Pending candidates that cite
+the chunks are deleted too. Entities that lose their last evidence, the
+ones mentioned by the chunks and the endpoints of the relations they
+cited, are pruned after the commit, as for a delete. The Document node
+and its activation records stay, and each dependent decision is flagged
+`source_removed`. Purging a key that has no stored content is a no-op.
+
+This lives on `Graph` rather than `RetentionMemory`: a purge needs
+the graph schema, embedder and cutover settings to clean up, and
+`RetentionMemory` covers only project-scoped memory records.
+
+Approved and rejected candidates remain without their removed evidence
+links. Community summaries remain until community detection runs again.
+Purge scans relationships for chunk citations and deletes content in one
+transaction. Preflight rejects more than 10,000 content nodes, cited
+relations, pending candidates, or combined mention and citation endpoint
+records before starting the cutover job.
+
+**Parameters:**
+
+- **document_key** (<code>str</code>) – The stable key of the document to purge.
+
+**Returns:**
+
+- <code>[UpdateResult](../reports/update_result/UpdateResult.md)</code> – The purge summary: `no_op=True` when no content was stored under the
+  key, otherwise `parts_closed` with `new_content_hash=None`
+  and no `add_result`.
+
+**Raises:**
+
+- <code>ValueError</code> – The document exceeds a purge preflight record limit.
 
 ## `reevaluate` \{#agrag-ingestion-graph-Graph-reevaluate}
 

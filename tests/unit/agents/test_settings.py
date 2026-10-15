@@ -17,16 +17,14 @@ from agrag.agents.settings import AgentLLMSettings, AgentSettings
 
 
 class TestAgentSettings:
-    """AgentSettings keeps candidate search off unless enabled in the environment."""
+    """Agent loop limits come from explicit settings or the environment."""
 
-    def test_candidate_search_reads_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Candidate search defaults off and AGENT_SEARCH_CANDIDATES enables it."""
-        monkeypatch.delenv("AGENT_SEARCH_CANDIDATES", raising=False)
-        assert AgentSettings(_env_file=None).search_candidates is False
+    def test_run_budgets_have_safe_defaults(self) -> None:
+        """The default agent has finite tool and result budgets."""
+        settings = AgentSettings(_env_file=None)
 
-        monkeypatch.setenv("AGENT_SEARCH_CANDIDATES", "true")
-
-        assert AgentSettings(_env_file=None).search_candidates is True
+        assert settings.max_tool_calls == 20
+        assert settings.max_result_characters == 12_000
 
 
 class TestAgentLLMSettings:

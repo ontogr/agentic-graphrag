@@ -1,8 +1,6 @@
 """agrag as a system under test."""
 
 import importlib.util
-import json
-import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 from uuid import UUID
@@ -13,27 +11,18 @@ from opentelemetry.trace import Tracer
 from agrag.agents.build import build_agent
 from agrag.agents.settings import AgentLLMSettings, AgentSettings
 from agrag.chunking import Chunker
-from agrag.common.data_models.chunk import Chunk
 from agrag.common.data_models.document import Document
-from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.graph_schema import GraphSchema
-from agrag.common.data_models.provenance import TextProvenance
-from agrag.common.data_models.relation import Relation
-from agrag.cypher.entities import load_chunks_by_id_query
 from agrag.embedding.sentence_transformers import SentenceTransformerEmbedder
 from agrag.embedding.settings import EmbeddingSettings
-from agrag.eval import ChatModelJudge, EvalJudgeSettings, final_answer
+from agrag.eval import ChatModelJudge, EvalJudgeSettings
 from agrag.graphdb import GraphStore
 from agrag.ingestion import ExtractionSettings, Graph
 from agrag.ingestion.extract import BAMLExtractor, ExtractionLLMSettings
 from agrag.ingestion.resolve.zone_classifier import MAX_LLM_PAIRS
-from agrag.retrieval.search_engine import SearchEngine
 from benchmarks.harness.config import RunLimits
 from benchmarks.models import BenchmarkQuestion
 from benchmarks.systems.base import AgentFailureError, CitedChunk, SystemAnswer
-
-
-_CITATION_KEY = re.compile(r"\b[EGRCVX]\d+\b")
 
 
 @dataclass(frozen=True)
@@ -72,7 +61,6 @@ class AgragSettings:
             extra = {"max_llm_pairs": limits.max_llm_pairs}
             loop = AgentSettings(
                 recursion_limit=limits.recursion_limit,
-                max_research_attempts=limits.max_research_attempts,
             )
         return cls(
             extraction=ExtractionLLMSettings.from_openai_compatible_env(),
@@ -136,12 +124,6 @@ class AgragSystem:
         self._settings = settings
         self._tracer = tracer
         self._embedder = embedder or SentenceTransformerEmbedder(tracer=tracer)
-        self._engine = SearchEngine(
-            graph_store=store,
-            embedder=self._embedder,
-            graph_schema=schema,
-            tracer=tracer,
-        )
         self._documents = list(documents)
         self._uri_by_document_id: dict[UUID, str] = {
             Document.node_id_for(document_key=d.resolved_document_key): d.uri
@@ -176,88 +158,50 @@ class AgragSystem:
             AgentFailureError: The agent hit its recursion limit or gave no answer.
         """
         agent = build_agent(
-            engine=self._engine,
+            graph_store=self._store,
+            embedder=self._embedder,
+            scope=frozenset(d.resolved_document_key for d in self._documents),
+            project_id=question.corpus_id,
+            agent_id="benchmark-agent",
             llm_settings=self._settings.agent,
             agent_settings=self._settings.agent_loop,
-            graph_schema=self._schema,
             tracer=self._tracer,
         )
         try:
-            # LangGraph rewrites the list it gets in place, which would replace the
-            # question's own message dicts with message objects.
             result = await agent.ainvoke(
-                {"messages": [dict(message) for message in question.messages]}
+                {"task_name": question.id, "question": question.query}
             )
-            text = final_answer(result)
+            text = result["answer"]
         except (GraphRecursionError, ValueError) as error:
             raise AgentFailureError(str(error)) from error
+        if result["status"] in {"budget_exhausted", "recording_failed"}:
+            raise AgentFailureError(result["status"])
         if not text.strip():
             raise AgentFailureError("empty answer")
-        return await self._with_citations(text, result)
+        return self._with_citations(text, result)
 
-    async def _with_citations(self, text: str, result: dict) -> SystemAnswer:
-        """Resolve the citation keys in the answer through the run's ledger."""
-        ledger = result["ledger"]
+    def _with_citations(self, text: str, result: dict) -> SystemAnswer:
+        """Map validated evidence spans to benchmark source locations."""
         chunks: list[CitedChunk] = []
-        other = 0
-        source_ids: list[str] = []
-        for key in dict.fromkeys(_CITATION_KEY.findall(text)):
-            found = ledger.resolve(key)
-            if found is None:
+        for citation in result["citations"]:
+            reference = citation.reference
+            if reference is None:
                 continue
-            item = found.item
-            if isinstance(item, Chunk):
-                provenance = item.provenance
-                has_offsets = isinstance(provenance, TextProvenance)
-                chunks.append(
-                    CitedChunk(
-                        uri=self._uri_by_document_id.get(
-                            item.document_id, str(item.document_id)
-                        ),
-                        char_start=provenance.char_start if has_offsets else None,
-                        char_end=provenance.char_end if has_offsets else None,
-                    )
+            document_id = reference.document_node_id
+            chunks.append(
+                CitedChunk(
+                    uri=self._uri_by_document_id.get(document_id, str(document_id)),
+                    char_start=reference.char_start,
+                    char_end=reference.char_end,
                 )
-                continue
-            other += 1
-            if isinstance(item, (Entity, Relation)):
-                source_ids.extend(str(i) for i in item.source_chunk_ids)
+            )
         return SystemAnswer(
             text=text,
             cited_chunks=chunks,
-            non_chunk_citations=other,
-            source_chunks=await self._chunks_by_id(source_ids),
+            non_chunk_citations=0,
+            source_chunks=[],
             raw=result,
         )
-
-    async def _chunks_by_id(self, ids: Sequence[str]) -> list[CitedChunk]:
-        """Read the document and offsets of stored chunks. A missing id is skipped."""
-        if not ids:
-            return []
-        rows = await self._store.execute_read(
-            load_chunks_by_id_query(),
-            {"ids": list(dict.fromkeys(ids)), "job_id": None},
-        )
-        chunks = []
-        for row in rows:
-            props = row.get("n", row)
-            provenance = props.get("provenance")
-            if isinstance(provenance, str):
-                provenance = json.loads(provenance)
-            has_offsets = isinstance(provenance, dict) and provenance.get("kind") == (
-                "text"
-            )
-            uri = self._uri_by_document_id.get(
-                UUID(props["document_id"]), props["document_id"]
-            )
-            chunks.append(
-                CitedChunk(
-                    uri=uri,
-                    char_start=provenance["char_start"] if has_offsets else None,
-                    char_end=provenance["char_end"] if has_offsets else None,
-                )
-            )
-        return chunks
 
     async def teardown(self) -> None:
         """Close the graph store."""

@@ -1,8 +1,10 @@
 """The public Graph API for ingestion."""
 
+import asyncio
 import contextlib
 import functools
 import logging
+import time
 from collections.abc import Callable, Sequence
 from importlib.util import find_spec
 from pathlib import Path
@@ -36,7 +38,7 @@ from agrag.common.schema_fingerprint import (
     RunRecord,
     run_record,
 )
-from agrag.cypher.documents import await_indexes_query, indexes_not_ready_query
+from agrag.cypher.documents import indexes_not_ready_query
 from agrag.embedding.base import Embedder
 from agrag.evidence.source_status import source_status as read_source_status
 from agrag.graphdb.base import GraphStore
@@ -46,6 +48,7 @@ from agrag.ingestion._ingest import (
     CleanupStep,
     add_documents,
     delete_document,
+    purge_document,
     update_document,
 )
 from agrag.ingestion._job_cleanup import finish_job
@@ -194,6 +197,34 @@ def _default_llm_extractor(tracer: Tracer | None) -> BAMLExtractor | None:
         except RuntimeError:
             return None
     return BAMLExtractor(settings=settings, tracer=tracer)
+
+
+async def _await_indexes_online(graph_store: GraphStore, timeout: float = 60.0) -> None:
+    """Wait until no index in the database is outside the ONLINE state.
+
+    An index that another client creates or drops while this runs is only a
+    transient blocker: it comes online or disappears from the listing, so the
+    wait polls the listing instead of failing on the first index it cannot
+    guarantee.
+
+    Args:
+        graph_store: The store whose database is checked.
+        timeout: Seconds to wait before giving up.
+
+    Raises:
+        RuntimeError: Indexes were still not ONLINE when the timeout passed.
+    """
+    deadline = time.monotonic() + timeout
+    while True:
+        pending = await graph_store.execute_read(indexes_not_ready_query())
+        if not pending:
+            return
+        if time.monotonic() >= deadline:
+            raise RuntimeError(
+                f"Graph indexes did not become ready within {timeout:.0f} seconds: "
+                f"{pending}"
+            )
+        await asyncio.sleep(0.25)
 
 
 class Graph:
@@ -411,22 +442,7 @@ class Graph:
                     dimensions=dimensions,
                     distance=distance,
                 )
-                try:
-                    await graph_store.execute_read(
-                        await_indexes_query(), {"timeout_seconds": 60}
-                    )
-                    unavailable_indexes = await graph_store.execute_read(
-                        indexes_not_ready_query()
-                    )
-                except Exception as error:
-                    raise RuntimeError(
-                        "Graph indexes did not become ready within 60 seconds"
-                    ) from error
-                if unavailable_indexes:
-                    raise RuntimeError(
-                        "Graph indexes did not become ready within 60 seconds: "
-                        f"{unavailable_indexes}"
-                    )
+                await _await_indexes_online(graph_store)
                 graph = cls(
                     schema=schema,
                     graph_store=graph_store,
@@ -737,6 +753,49 @@ class Graph:
     async def source_status(self, document_key: str) -> SourceStatus:
         """Read a source's version, job lease and discovery index state."""
         return await read_source_status(self._graph_store, document_key)
+
+    async def purge_document(self, document_key: str) -> UpdateResult:
+        """Hard-delete every stored version of a document and its evidence.
+
+        The commit removes the chunk, section, table and figure nodes of every
+        version. Each relation that cites those chunks in ``source_chunk_ids``
+        drops them, and a relation left with no evidence is deleted, whether or
+        not a chunk still mentions its endpoints. Pending candidates that cite
+        the chunks are deleted too. Entities that lose their last evidence, the
+        ones mentioned by the chunks and the endpoints of the relations they
+        cited, are pruned after the commit, as for a delete. The Document node
+        and its activation records stay, and each dependent decision is flagged
+        ``source_removed``. Purging a key that has no stored content is a no-op.
+
+        This lives on ``Graph`` rather than ``RetentionMemory``: a purge needs
+        the graph schema, embedder and cutover settings to clean up, and
+        ``RetentionMemory`` covers only project-scoped memory records.
+
+        Approved and rejected candidates remain without their removed evidence
+        links. Community summaries remain until community detection runs again.
+        Purge scans relationships for chunk citations and deletes content in one
+        transaction. Preflight rejects more than 10,000 content nodes, cited
+        relations, pending candidates, or combined mention and citation endpoint
+        records before starting the cutover job.
+
+        Args:
+            document_key: The stable key of the document to purge.
+
+        Returns:
+            The purge summary: ``no_op=True`` when no content was stored under the
+                key, otherwise ``parts_closed`` with ``new_content_hash=None``
+                and no ``add_result``.
+
+        Raises:
+            ValueError: The document exceeds a purge preflight record limit.
+        """
+        return await purge_document(
+            document_key,
+            graph_store=self._graph_store,
+            cutover_settings=self._cutover_settings,
+            cleanup=self._cleanup(),
+            tracer=self._tracer,
+        )
 
     def _run_record(self) -> RunRecord:
         """Describe the current extraction setup for stamping a document."""

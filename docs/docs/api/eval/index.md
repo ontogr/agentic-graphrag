@@ -56,7 +56,6 @@ Needs the `eval` extra: `pip install 'agentic-graphrag[eval]'`.
 - [**read_trajectory**](trajectory/read_trajectory.md) – Read the tool and model steps from finished spans.
 - [**relation_quality_metric**](extraction/relation_quality_metric.md) – Build a metric for relation triple F1 on one test case.
 - [**resolution_case**](resolution/resolution_case.md) – Build a test case that holds predicted and gold clusters.
-- [**retry_budget_metric**](trajectory/retry_budget_metric.md) – Build the metric that retries stay within budget.
 - [**run_extractor**](extraction/run_extractor.md) – Run an extractor over gold items and build one test case per item.
 - [**run_resolver**](resolution/run_resolver.md) – Resolve mention strings and return the clusters the resolver forms.
 - [**run_resolver_detailed**](resolution/run_resolver_detailed.md) – Resolve mention strings and return the clusters plus raw evidence.
@@ -68,4 +67,3 @@ Needs the `eval` extra: `pip install 'agentic-graphrag[eval]'`.
 - [**verdict_case**](verifier/verdict_case.md) – Build a test case with the predicted and the gold verdict.
 - [**verdict_match_metric**](verifier/verdict_match_metric.md) – Build a metric that scores 1.0 when the verdict equals the gold verdict.
 - [**verdict_report**](verifier/verdict_report.md) – Score predicted verdicts against gold verdicts.
-- [**verifier_before_answer_metric**](trajectory/verifier_before_answer_metric.md) – Build the metric that the verifier ran before the answer.

@@ -19,9 +19,7 @@ from agrag.eval.trajectory import (
     Trajectory,
     expected_tools_metric,
     read_trajectory,
-    retry_budget_metric,
     trajectory_case,
-    verifier_before_answer_metric,
 )
 from tests.unit.eval.conftest import _answer, _research_tool, _step, _task
 
@@ -108,138 +106,7 @@ class TestTrajectoryCase:
         case = LLMTestCase(input="q", actual_output="a")
 
         with pytest.raises(ValueError, match="trajectory_case"):
-            verifier_before_answer_metric().measure(case)
-
-
-class TestVerifierBeforeAnswer:
-    """The verifier must run before the planner finalizes the answer."""
-
-    def test_no_verifier_span_fails(self) -> None:
-        """Without a verifier span the rule fails with that reason."""
-        metric = verifier_before_answer_metric()
-
-        score = metric.measure(_case(_task("researcher", 10, 50), _answer(60, 70)))
-
-        assert score == 0.0
-        assert "No verifier" in _reason(metric)
-        assert not metric.success
-
-    def test_verifier_ending_after_the_answer_fails(self) -> None:
-        """A verifier that ends after the answer starts fails."""
-        metric = verifier_before_answer_metric()
-
-        score = metric.measure(_case(_answer(60, 70), _task("verifier", 65, 80)))
-
-        assert score == 0.0
-        assert "after the answer" in _reason(metric)
-
-    def test_first_of_two_verifiers_before_the_answer_passes(self) -> None:
-        """One verifier finished before the answer is enough."""
-        metric = verifier_before_answer_metric()
-
-        score = metric.measure(
-            _case(
-                _task("verifier", 10, 20),
-                _answer(60, 70),
-                _task("verifier", 65, 80),
-            )
-        )
-
-        assert score == 1.0
-        assert metric.success
-
-    def test_no_planner_answer_fails(self) -> None:
-        """A verifier with no planner answer fails with that reason."""
-        metric = verifier_before_answer_metric()
-
-        score = metric.measure(_case(_task("verifier", 10, 20)))
-
-        assert score == 0.0
-        assert "No planner" in _reason(metric)
-
-
-class TestRetryBudget:
-    """Retries are researcher delegations after the first verifier run."""
-
-    def test_three_retries_with_a_budget_of_three_pass(self) -> None:
-        """At most max_attempts researcher tasks after verification pass."""
-        metric = retry_budget_metric(3)
-
-        score = metric.measure(
-            _case(
-                _task("researcher", 10, 20),
-                _task("verifier", 30, 100),
-                _task("researcher", 110, 120),
-                _task("researcher", 130, 140),
-                _task("researcher", 150, 160),
-                _answer(170, 180),
-            )
-        )
-
-        assert score == 1.0
-
-    def test_four_retries_with_a_budget_of_three_fail(self) -> None:
-        """One delegation over budget fails and names the count."""
-        metric = retry_budget_metric(3)
-
-        score = metric.measure(
-            _case(
-                _task("verifier", 30, 100),
-                _task("researcher", 110, 120),
-                _task("researcher", 130, 140),
-                _task("researcher", 150, 160),
-                _task("researcher", 170, 180),
-                _answer(190, 200),
-            )
-        )
-
-        assert score == 0.0
-        assert "4 researcher retries" in _reason(metric)
-        assert "budget of 3" in _reason(metric)
-
-    def test_researcher_spans_before_verification_are_not_counted(self) -> None:
-        """Initial research before the first verdict is not a retry."""
-        metric = retry_budget_metric(1)
-
-        score = metric.measure(
-            _case(
-                _task("researcher", 10, 20),
-                _task("researcher", 25, 28),
-                _task("verifier", 30, 100),
-                _task("researcher", 110, 120),
-                _answer(130, 140),
-            )
-        )
-
-        assert score == 1.0
-
-    def test_no_verifier_span_counts_no_retry(self) -> None:
-        """Without verification there is nothing to retry after."""
-        metric = retry_budget_metric(0)
-
-        score = metric.measure(_case(_task("researcher", 10, 20), _answer(30, 40)))
-
-        assert score == 1.0
-
-    def test_model_step_named_task_is_not_a_delegation(self) -> None:
-        """Only tool steps count as delegations."""
-        metric = retry_budget_metric(0)
-
-        score = metric.measure(
-            _case(
-                _task("verifier", 30, 100),
-                _step(
-                    "llm",
-                    "task",
-                    start=110,
-                    end=120,
-                    args={"subagent_type": "researcher"},
-                ),
-                _answer(130, 140),
-            )
-        )
-
-        assert score == 1.0
+            expected_tools_metric(["task"]).measure(case)
 
 
 class TestExpectedTools:

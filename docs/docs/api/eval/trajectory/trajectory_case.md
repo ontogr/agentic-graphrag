@@ -11,7 +11,7 @@ trajectory_case(question:str, answer:str, trajectory:Trajectory) -> LLMTestCase
 
 Build the test case every trajectory metric scores.
 
-`tools_called` holds every `TOOL` step, planner and researcher, as a
+`tools_called` holds every `TOOL` step, as a
 `ToolCall`. `metadata["trajectory"]` holds the serialized trajectory
 the deterministic metrics read.
 
