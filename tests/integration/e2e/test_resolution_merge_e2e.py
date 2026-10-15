@@ -23,6 +23,7 @@ artifact under ``reports/e2e/`` with names and counts only.
 """
 
 import contextlib
+import hashlib
 import importlib.util
 import itertools
 import os
@@ -200,7 +201,7 @@ def _document(key: str, text: str) -> Document:
         document_key=key,
         source_format=SourceFormat.TXT,
         family=DocumentFamily.PROSE,
-        content_hash=key,
+        content_hash=hashlib.sha256(text.encode("utf-8")).hexdigest(),
         loader_name="inline",
         encoding="utf-8",
         char_count=len(text),

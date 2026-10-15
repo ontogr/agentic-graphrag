@@ -19,6 +19,7 @@ suffix, and the test removes only what it created.
 """
 
 import contextlib
+import hashlib
 import importlib.util
 import re
 import zlib
@@ -271,7 +272,7 @@ async def _open_run(backend: str) -> _Run:
             uri=keys[title],
             source_format=SourceFormat.TXT,
             family=DocumentFamily.PROSE,
-            content_hash=f"hash_{title}_{suffix}",
+            content_hash=hashlib.sha256(body.encode("utf-8")).hexdigest(),
             loader_name="text",
             char_count=len(body),
             line_count=1,
