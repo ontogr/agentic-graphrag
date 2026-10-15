@@ -21,6 +21,7 @@ The top-level `agrag` package exports nothing. Import each name from the package
 | Extractors | `from agrag.ingestion import GlinerExtractor, BAMLExtractor` | Read one chunk and return entities and relations. GLiNER runs locally. BAML calls an LLM. `Graph` selects extractors by mode and can build an LLM extractor from environment settings. See [Choose an extraction mode](../guides/choose-an-extraction-mode.mdx). |
 | `ErrorPolicy` | `from agrag.loaders import ErrorPolicy` | The action for a source that fails: `RAISE`, `SKIP`, or `QUARANTINE`. See [agrag.loaders](loaders/index.md). |
 | `SearchEngine`, `RetrievalSettings` | `from agrag.retrieval import SearchEngine, RetrievalSettings` | Runs retrieval recipes over the graph. See [agrag.retrieval](retrieval/index.md). |
+| `source_status` | `from agrag.evidence import source_status` | Reports a document's current, pending, failed, deleted, or unknown state, its activation and version, active job lease, and discovery index population. |
 | `build_agent` | `from agrag.agents import build_agent` | Builds the planner, researcher, and verifier agent. Accessing it needs the `agents` extra. See [agrag.agents](agents/index.md). |
 | `get_tracer` | `from agrag.observability import get_tracer` | Returns the tracer you pass, or a no-op tracer. See [agrag.observability](observability/index.md). |
 

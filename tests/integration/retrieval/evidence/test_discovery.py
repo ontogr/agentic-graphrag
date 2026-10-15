@@ -620,3 +620,49 @@ class TestTelemetry:
         ]
         assert values
         assert not any("lighthouse" in value for value in values)
+
+
+class TestStaleHitsFillTheWindow:
+    """Hidden full-text hits never stop paging while live hits remain below them."""
+
+    async def test_live_hits_below_out_of_scope_deleted_and_superseded_hits(
+        self, evidence_env: EvidenceEnv, embedder: BagOfWordsEmbedder
+    ) -> None:
+        """The live passage is found even though many higher-ranked hits are hidden."""
+        decoy_text = "keep upload activity database " * 2
+        out_of_scope = [evidence_env.key(f"out-{i}") for i in range(30)]
+        deleted = [evidence_env.key(f"deleted-{i}") for i in range(30)]
+        superseded = [evidence_env.key(f"superseded-{i}") for i in range(30)]
+        live = evidence_env.key("live")
+        await evidence_env.graph.add(
+            documents=[
+                make_document(key, decoy_text)
+                for key in [*out_of_scope, *deleted, *superseded]
+            ]
+            + [
+                make_document(
+                    live,
+                    "We keep and upload your activity to our database. The "
+                    "lighthouse crew logs the weather in a long ledger of quiet "
+                    "nights for the harbor keeper.",
+                )
+            ]
+        )
+        for key in deleted:
+            await evidence_env.graph.delete_document(key)
+        for key in superseded:
+            await evidence_env.graph.update(key, text="lighthouse harbor gasket")
+
+        result = await discover(
+            evidence_env.store,
+            embedder,
+            _QUERY,
+            mode=DiscoveryMode.LEXICAL,
+            limit=3,
+            scope=frozenset({live, *superseded}),
+        )
+
+        assert result.status is DiscoveryStatus.OK
+        assert result.truncated is False
+        assert result.hits
+        assert {hit.document_key for hit in result.hits} == {live}

@@ -19,6 +19,7 @@ import pytest
 from agrag.common.data_models.chunk import Chunk
 from agrag.common.data_models.default_schema import DEFAULT_SCHEMA
 from agrag.common.data_models.document import Document, DocumentFamily, SourceFormat
+from agrag.common.data_models.evidence import SourceState
 from agrag.common.data_models.extraction import ExtractionResult
 from agrag.common.data_models.graph_schema import GraphSchema
 from agrag.common.data_models.update_decision import UpdateDecision
@@ -325,6 +326,30 @@ class TestDocumentActivation:
         assert metadata.decision is UpdateDecision.METADATA_ONLY
         assert len(await env.activations("doc")) == 1
         assert await env.activation_seq("doc") == 1
+
+    async def test_source_status_tracks_current_deleted_and_unknown_sources(
+        self, env: _Env
+    ) -> None:
+        """Status follows committed activation state and includes index readiness."""
+        key = env.key("status")
+        text = env.text("A source status probe has one current version.")
+
+        unknown = await env.graph.source_status(env.key("missing"))
+        assert unknown.state is SourceState.UNKNOWN
+
+        await env.graph.add(documents=[_document(key, text)])
+        current = await env.graph.source_status(key)
+        assert current.state is SourceState.CURRENT
+        assert current.content_hash == _content_hash(text)
+        assert current.activation_seq == 1
+        assert current.version_id is not None
+        assert {index.state for index in current.indexes} == {"ONLINE"}
+
+        await env.graph.delete_document(key)
+        deleted = await env.graph.source_status(key)
+        assert deleted.state is SourceState.DELETED
+        assert deleted.activation_seq == 2
+        assert deleted.content_hash is None
 
     async def test_relation_listing_skips_activation_edges(self, env: _Env) -> None:
         """A relation listing from the document never returns its activation edges."""
