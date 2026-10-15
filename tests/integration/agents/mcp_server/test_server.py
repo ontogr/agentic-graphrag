@@ -131,6 +131,9 @@ def _settings(env: EvidenceEnv, **overrides: int | float) -> McpServerSettings:
     """Return settings whose scope holds the Keep and Harbor documents."""
     return McpServerSettings(
         scope_document_keys=f"{env.keep},{env.harbor}",
+        project_id="mcp-server-read-tests",
+        agent_id="mcp-server-read-tests",
+        read_only=True,
         _env_file=None,
         **overrides,
     )
@@ -194,17 +197,27 @@ def _gold_span_id(env: EvidenceEnv) -> str:
 
 
 class TestToolListing:
-    """The server lists exactly the three read-only tools, with schemas."""
+    """The read-only server lists evidence and memory reads with schemas."""
 
-    async def test_lists_three_read_only_tools_without_a_scope_argument(
+    async def test_lists_read_tools_without_a_scope_argument(
         self, evidence_env: EvidenceEnv
     ) -> None:
-        """List three tools with read-only annotations and no scope parameter."""
+        """List scoped read tools without exposing write or scope arguments."""
         async with Client(_server(evidence_env.store, evidence_env)) as client:
             listing = await client.list_tools()
 
         names = sorted(tool.name for tool in listing.tools)
-        assert names == ["check_citations", "fetch_evidence", "search_evidence"]
+        assert names == [
+            "check_citations",
+            "fetch_event",
+            "fetch_evidence",
+            "get_decision",
+            "get_task",
+            "list_conflicts",
+            "list_events",
+            "search_decisions",
+            "search_evidence",
+        ]
         for tool in listing.tools:
             assert tool.input_schema is not None
             assert tool.output_schema is not None

@@ -11,7 +11,8 @@ class McpServerSettings(BaseSettings):
     """Scope and output limits of the MCP server.
 
     The server refuses to start with an empty scope, because an empty scope
-    would otherwise read as no restriction in the caller's mind.
+    would otherwise read as no restriction in the caller's mind. It starts
+    read-only; write access also requires a project id and agent id.
 
     Attributes:
         scope_document_keys: Comma-separated keys of the documents the server
@@ -29,9 +30,18 @@ class McpServerSettings(BaseSettings):
             ``AGRAG_MCP_MAX_RESPONSE_CHARS``.
         request_deadline_seconds: The server-side timeout of each store read.
             Env: ``AGRAG_MCP_REQUEST_DEADLINE_SECONDS``.
+        project_id: Trusted project scope for task and decision operations. Env:
+            ``AGRAG_MCP_PROJECT_ID``.
+        agent_id: Trusted author for task and decision writes. Env:
+            ``AGRAG_MCP_AGENT_ID``.
+        read_only: Whether the server omits and blocks all write tools. Env:
+            ``AGRAG_MCP_READ_ONLY``.
+        allow_reject: Whether ``reject_decision`` is registered. Env:
+            ``AGRAG_MCP_ALLOW_REJECT``.
 
     Raises:
-        ValueError: ``scope_document_keys`` names no document key.
+        ValueError: The document scope is empty, or write access lacks either
+            trusted identity.
     """
 
     model_config = SettingsConfigDict(
@@ -46,14 +56,22 @@ class McpServerSettings(BaseSettings):
     max_snippet_chars: int = Field(default=240, ge=1)
     max_fetch_chars: int = Field(default=4000, ge=1)
     max_fetch_ids: int = Field(default=20, ge=1)
-    max_response_chars: int = Field(default=60000, ge=1)
+    max_response_chars: int = Field(default=100000, ge=1)
     request_deadline_seconds: float = Field(default=30.0, gt=0)
+    project_id: str = ""
+    agent_id: str = ""
+    read_only: bool = True
+    allow_reject: bool = False
 
     @model_validator(mode="after")
     def _require_scope(self) -> "McpServerSettings":
         """Reject a scope that names no document key."""
         if not self.scope:
             raise ValueError("scope_document_keys must list at least one document key")
+        if not self.read_only and (
+            not self.project_id.strip() or not self.agent_id.strip()
+        ):
+            raise ValueError("project_id and agent_id must not be blank")
         return self
 
     @property
