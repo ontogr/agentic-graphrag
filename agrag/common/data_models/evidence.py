@@ -298,3 +298,30 @@ class CitationCheck(BaseModel):
 
     cited_id: str
     verdict: CitationVerdict
+
+
+class FetchResult(BaseModel):
+    """The outcomes of one fetch call.
+
+    Attributes:
+        outcomes: One outcome for each fetched id, in the order given. A serving
+            layer may drop trailing outcomes to stay within a size limit.
+        truncated: True when the serving layer dropped outcomes to stay within
+            a size limit.
+    """
+
+    outcomes: list[FetchOutcome] = Field(default_factory=list)
+    truncated: bool = False
+
+
+class CitationResult(BaseModel):
+    """The verdicts of one citation check call.
+
+    Attributes:
+        checks: One verdict for each cited id, in the order given.
+        truncated: True when trailing checks were dropped to stay within a
+            serving layer's response-size limit.
+    """
+
+    checks: list[CitationCheck] = Field(default_factory=list)
+    truncated: bool = False
