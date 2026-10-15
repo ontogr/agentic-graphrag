@@ -3,6 +3,7 @@
 The functions are pure: plain data in, NodeRecord and RelationRecord out.
 """
 
+import hashlib
 from collections import Counter
 from uuid import UUID
 
@@ -179,7 +180,9 @@ class TestBuildStructure:
     def test_a_new_version_gives_new_node_ids_and_the_same_keys(self) -> None:
         """Node ids carry the version. The section key does not."""
         first = build_structure(_document(), [], {})
-        edited = _document().model_copy(update={"content_hash": "other"})
+        edited = _document().model_copy(
+            update={"content_hash": hashlib.sha256(b"other").hexdigest()}
+        )
         second = build_structure(edited, [], {})
 
         assert [s.id for s in first.sections] != [s.id for s in second.sections]
@@ -193,7 +196,9 @@ class TestBuildStructure:
         chunks, placements = _placed(document, size=50, min_size=2)
         first = build_structure(document, chunks, placements)
 
-        edited = _document().model_copy(update={"content_hash": "other"})
+        edited = _document().model_copy(
+            update={"content_hash": hashlib.sha256(b"other").hexdigest()}
+        )
         edited_chunks, edited_placements = _placed(edited, size=50, min_size=2)
         second = build_structure(edited, edited_chunks, edited_placements)
 

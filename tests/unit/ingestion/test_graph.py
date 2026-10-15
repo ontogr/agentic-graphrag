@@ -838,12 +838,17 @@ class TestGraphAdd:
             document_key="shared",
             source_format=SourceFormat.TXT,
             family=DocumentFamily.PROSE,
-            content_hash="first",
+            content_hash=hashlib.sha256(b"first").hexdigest(),
             loader_name="inline",
             char_count=5,
             line_count=1,
         )
-        second = first.model_copy(update={"text": "second", "content_hash": "second"})
+        second = first.model_copy(
+            update={
+                "text": "second",
+                "content_hash": hashlib.sha256(b"second").hexdigest(),
+            }
+        )
 
         with pytest.raises(ValueError, match="distinct document keys"):
             await graph.add(documents=[first, second])
@@ -857,12 +862,17 @@ class TestGraphAdd:
             document_key="memory://doc",
             source_format=SourceFormat.TXT,
             family=DocumentFamily.PROSE,
-            content_hash="first",
+            content_hash=hashlib.sha256(b"first").hexdigest(),
             loader_name="text",
             char_count=5,
             line_count=1,
         )
-        second = first.model_copy(update={"text": "second", "content_hash": "second"})
+        second = first.model_copy(
+            update={
+                "text": "second",
+                "content_hash": hashlib.sha256(b"second").hexdigest(),
+            }
+        )
         chunker = Chunker()
 
         first_chunk = chunker.chunk(first).chunks[0]
@@ -923,7 +933,7 @@ def _named_documents(*names: str) -> list[Document]:
                 document_key=f"memory://{name}",
                 source_format=SourceFormat.TXT,
                 family=DocumentFamily.PROSE,
-                content_hash=name,
+                content_hash=hashlib.sha256(text.encode("utf-8")).hexdigest(),
                 loader_name="text",
                 char_count=len(text),
                 line_count=1,
@@ -1666,7 +1676,7 @@ class TestGraphEscalation:
                 document_key=f"memory://{name}",
                 source_format=SourceFormat.TXT,
                 family=DocumentFamily.PROSE,
-                content_hash=name,
+                content_hash=hashlib.sha256(_SHORT_TEXT.encode("utf-8")).hexdigest(),
                 loader_name="text",
                 char_count=len(_SHORT_TEXT),
                 line_count=1,
