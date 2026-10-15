@@ -70,9 +70,7 @@ class TestAgragSystem:
         document = text_document("hello " * 50, uri="corpus/doc.txt")
         system = _system(document)
         document_id = Document.node_id_for(document_key=document.resolved_document_key)
-        evidence_id = (
-            f"ev1:s:{document_id}:0123456789abcdef:6-11"
-        )
+        evidence_id = f"ev1:s:{document_id}:0123456789abcdef:6-11"
         run = {
             "answer": f"It says hello [{evidence_id}].",
             "status": "answered",

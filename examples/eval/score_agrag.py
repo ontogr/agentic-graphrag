@@ -84,9 +84,7 @@ async def main(dataset: Path) -> None:
         )
         rows = []
         scope = frozenset(
-            str(path)
-            for path in (dataset / "documents").rglob("*")
-            if path.is_file()
+            str(path) for path in (dataset / "documents").rglob("*") if path.is_file()
         )
         for item in questions:
             # A new agent for each question keeps the run state apart.
