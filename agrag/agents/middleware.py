@@ -11,8 +11,10 @@ from langchain.agents.middleware.types import (
     ModelRequest,
     ModelResponse,
 )
+from langchain_core.messages import ToolMessage
+from langgraph.errors import GraphBubbleUp
 
-from agrag.common.data_models.task import EventKind
+from agrag.common.data_models.task import EventKind, StepKind, StepState
 
 
 @dataclass
@@ -28,6 +30,8 @@ class RunState:
         retrieval_failed: Whether a search leg failed or a result was truncated.
         fetched_ids: Evidence ids fetched in this run with complete text.
         fetches: Fetch outcomes by evidence id.
+        open_steps: Steps this run set in progress and has not yet resolved,
+            by name, with their kind.
     """
 
     max_tool_calls: int
@@ -38,6 +42,7 @@ class RunState:
     retrieval_failed: bool = False
     fetched_ids: list[str] = field(default_factory=list)
     fetches: dict[str, Any] = field(default_factory=dict)
+    open_steps: dict[str, StepKind] = field(default_factory=dict)
 
     def fail_recording(self, description: str) -> None:
         """Mark that a write did not complete and keep its description."""
@@ -128,7 +133,12 @@ class RoundRobinModelMiddleware(AgentMiddleware):
 
 
 class TaskEventMiddleware(AgentMiddleware):
-    """Persist assistant messages, tool calls and tool results as task events."""
+    """Persist assistant messages, tool calls and tool results as task events.
+
+    A tool that raises does not end the run. Its error is recorded as the tool
+    result, the steps this run left in progress are marked failed, and the
+    model receives an error tool message so it can react.
+    """
 
     def __init__(self, memory: Any, task_name: str, run_state: RunState) -> None:
         """Bind event capture to one task run."""
@@ -171,6 +181,8 @@ class TaskEventMiddleware(AgentMiddleware):
         )
         try:
             result = await handler(request)
+        except GraphBubbleUp:
+            raise
         except Exception as exc:
             await record_event_or_flag(
                 self._memory,
@@ -180,7 +192,17 @@ class TaskEventMiddleware(AgentMiddleware):
                 name=call["name"],
                 payload=f"error: {type(exc).__name__}: {exc}",
             )
-            raise
+            await self._fail_open_steps()
+            return ToolMessage(
+                content=(
+                    f"The tool failed with {type(exc).__name__}. Any step it left "
+                    "in progress is marked failed. Retry with other arguments, "
+                    "use another tool, or answer with the evidence you have."
+                ),
+                tool_call_id=call["id"],
+                name=call["name"],
+                status="error",
+            )
         await record_event_or_flag(
             self._memory,
             self._task_name,
@@ -190,6 +212,20 @@ class TaskEventMiddleware(AgentMiddleware):
             payload=_tool_result_text(result),
         )
         return result
+
+    async def _fail_open_steps(self) -> None:
+        """Mark each step this run left in progress as failed."""
+        for name, kind in list(self._run_state.open_steps.items()):
+            del self._run_state.open_steps[name]
+            try:
+                outcome = await self._memory.set_step(
+                    self._task_name, name, StepState.FAILED, kind=kind
+                )
+            except Exception as exc:  # noqa: BLE001 - a store error must end up in the result
+                self._run_state.fail_recording(f"set_step {name}: {exc!r}")
+                continue
+            if not outcome.recorded:
+                self._run_state.fail_recording(f"set_step {name}: {outcome.error}")
 
 
 def _message_text(message: Any) -> str:

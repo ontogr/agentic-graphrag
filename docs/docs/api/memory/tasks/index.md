@@ -28,4 +28,5 @@ argument. Nothing here calls a model or an embedder.
 - [**EVENT_PAGE_LIMIT**](EVENT_PAGE_LIMIT.md) –
 - [**MAX_PAYLOAD_CHARACTERS**](MAX_PAYLOAD_CHARACTERS.md) –
 - [**MAX_REQUEST_ID_LENGTH**](MAX_REQUEST_ID_LENGTH.md) –
+- [**STEP_PAGE_LIMIT**](STEP_PAGE_LIMIT.md) –
 - [**STEP_VIEW_LIMIT**](STEP_VIEW_LIMIT.md) –

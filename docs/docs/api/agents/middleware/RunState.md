@@ -6,7 +6,7 @@ sidebar_label: RunState
 # `agrag.agents.middleware.RunState` \{#agrag-agents-middleware-RunState}
 
 ```python
-RunState(max_tool_calls:int, tool_calls:int = 0, budget_exhausted:bool = False, recording_failed:bool = False, recording_failures:list[str] = list(), retrieval_failed:bool = False, fetched_ids:list[str] = list(), fetches:dict[str, Any] = dict()) -> None
+RunState(max_tool_calls:int, tool_calls:int = 0, budget_exhausted:bool = False, recording_failed:bool = False, recording_failures:list[str] = list(), retrieval_failed:bool = False, fetched_ids:list[str] = list(), fetches:dict[str, Any] = dict(), open_steps:dict[str, StepKind] = dict()) -> None
 ```
 
 Mutable facts accumulated by tools and middleware during one run.
@@ -21,6 +21,8 @@ Mutable facts accumulated by tools and middleware during one run.
 - [**retrieval_failed**](#agrag-agents-middleware-RunState-retrieval_failed) (<code>bool</code>) – Whether a search leg failed or a result was truncated.
 - [**fetched_ids**](#agrag-agents-middleware-RunState-fetched_ids) (<code>list\[str\]</code>) – Evidence ids fetched in this run with complete text.
 - [**fetches**](#agrag-agents-middleware-RunState-fetches) (<code>dict\[str, Any\]</code>) – Fetch outcomes by evidence id.
+- [**open_steps**](#agrag-agents-middleware-RunState-open_steps) (<code>dict\[str, [StepKind](../../common/data_models/task/StepKind.md)\]</code>) – Steps this run set in progress and has not yet resolved,
+  by name, with their kind.
 
 **Functions:**
 
@@ -56,6 +58,12 @@ fetches: dict[str, Any] = field(default_factory=dict)
 
 ```python
 max_tool_calls: int
+```
+
+## `open_steps` \{#agrag-agents-middleware-RunState-open_steps}
+
+```python
+open_steps: dict[str, StepKind] = field(default_factory=dict)
 ```
 
 ## `recording_failed` \{#agrag-agents-middleware-RunState-recording_failed}

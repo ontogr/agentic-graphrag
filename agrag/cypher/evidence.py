@@ -261,13 +261,14 @@ def entity_labels_query() -> str:
     needs one of that name, so the labels of those indexes are the entity labels.
 
     Returns:
-        Cypher returning one ``label`` row per distinct label. It takes no
-        parameters.
+        Cypher returning one ``labelsOrTypes`` row per distinct index, a list
+        of labels. It takes no parameters. Neo4j 5 does not allow ``UNWIND``
+        directly after ``SHOW``, so the caller flattens the lists.
     """
     return (
         "SHOW INDEXES YIELD labelsOrTypes, properties, type "
         "WHERE type = 'VECTOR' AND properties = ['embedding'] "
-        "UNWIND labelsOrTypes AS label RETURN DISTINCT label"
+        "RETURN DISTINCT labelsOrTypes"
     )
 
 

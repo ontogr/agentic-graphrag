@@ -349,9 +349,8 @@ async def _entity_labels(store: GraphStore, labels: Sequence[str] | None) -> lis
     if labels is not None:
         return sorted(set(labels))
     rows = await store.execute_read(entity_labels_query())
-    return sorted(
-        str(row["label"]) for row in rows if row["label"] not in _NON_ENTITY_LABELS
-    )
+    found = {str(label) for row in rows for label in row["labelsOrTypes"]}
+    return sorted(found - _NON_ENTITY_LABELS)
 
 
 def _index_specs(

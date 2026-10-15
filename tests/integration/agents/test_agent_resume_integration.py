@@ -232,3 +232,63 @@ class TestResumeAfterInterruption:
         finally:
             await _delete_project_memory(store, project_id)
             await store.close()
+
+
+@pytest.mark.skipif(neo4j_missing, reason="neo4j extra not installed")
+class TestResumePastTheStepViewCap:
+    """Resume sees every completed and interrupted step, not only the shown ones."""
+
+    async def test_steps_beyond_the_view_cap_are_reused_and_marked(
+        self, monkeypatch: MonkeyPatch
+    ) -> None:
+        """With 60 completed and 60 in-progress steps, none is missed on resume."""
+        store = build_graph_store("neo4j")
+        await store.connect()
+        project_id = f"resume-cap-{uuid4().hex[:8]}"
+        task_name = "long task"
+        try:
+            memory = TaskMemory(store, project_id=project_id, agent_id="resume-test")
+            created = await memory.create_task(task_name, "Finish the long task.")
+            assert created.recorded
+            for index in range(60):
+                name = f"done-{index:02d}"
+                noted = await memory.record_event(
+                    task_name,
+                    EventKind.NOTE,
+                    name=f"step:{name}",
+                    payload=f"result for {name}",
+                )
+                assert noted.event is not None
+                await memory.set_step(
+                    task_name,
+                    name,
+                    StepState.COMPLETED,
+                    result_event_seq=noted.event.seq,
+                )
+            for index in range(60):
+                await memory.set_step(
+                    task_name, f"open-{index:02d}", StepState.IN_PROGRESS
+                )
+
+            model = _ScriptedModel(
+                replies=[AIMessage(content="The long task is finished.")]
+            )
+            agent = _build(monkeypatch, store, project_id, model)
+            result = await agent.ainvoke(
+                {"task_name": task_name, "question": "Finish the long task."}
+            )
+
+            assert result["status"] == "answered"
+            reused = _text(model.seen[0])
+            assert "result for done-00" in reused
+            assert "result for done-59" in reused
+            assert "(omitted" not in reused
+
+            lookup = await memory.get_task(task_name)
+            assert lookup.view is not None
+            assert lookup.view.step_counts[StepState.COMPLETED] == 60
+            assert lookup.view.step_counts[StepState.IN_PROGRESS] == 0
+            assert lookup.view.step_counts[StepState.UNKNOWN] == 60
+        finally:
+            await _delete_project_memory(store, project_id)
+            await store.close()

@@ -2,7 +2,7 @@
 
 import importlib.util
 import json
-from collections.abc import Sequence
+import re
 from typing import Any
 
 from opentelemetry.trace import Tracer
@@ -20,8 +20,6 @@ from agrag.common.data_models.task import (
     Event,
     EventKind,
     StepState,
-    StepSummary,
-    TaskView,
 )
 from agrag.embedding.base import Embedder
 from agrag.evidence import check_citations, fetch
@@ -127,7 +125,7 @@ class _TaskAgent:
                 raise ValueError(f"Could not create task: {created.error}")
             lookup = await self._memory.get_task(task_name)
         if lookup.view is not None and lookup.view.step_counts[StepState.IN_PROGRESS]:
-            await _mark_interrupted_steps(self._memory, task_name, lookup.view)
+            await _mark_interrupted_steps(self._memory, task_name)
             lookup = await self._memory.get_task(task_name)
         view = lookup.view
         view_json = view.model_dump_json() if view is not None else "{}"
@@ -168,11 +166,9 @@ class _TaskAgent:
             role="user",
             payload=question,
         )
-        completed = view.steps[StepState.COMPLETED] if view is not None else []
         reused = await _completed_results(
             self._memory,
             task_name,
-            completed,
             max_chars=self._settings.max_result_characters,
         )
         ensure_harness_profile(self._provider)
@@ -299,15 +295,13 @@ class _TaskAgent:
         )
 
 
-async def _mark_interrupted_steps(
-    memory: TaskMemory, task_name: str, view: TaskView
-) -> None:
-    """Mark steps a stopped run left in progress as unknown.
+async def _mark_interrupted_steps(memory: TaskMemory, task_name: str) -> None:
+    """Mark every step a stopped run left in progress as unknown.
 
     The earlier run ended before it recorded their outcome. Unknown steps are
     rerun by the next run, and the view shows that they were not completed.
     """
-    for step in view.steps[StepState.IN_PROGRESS]:
+    for step in await memory.list_steps(task_name, StepState.IN_PROGRESS):
         await memory.set_step(task_name, step.name, StepState.UNKNOWN, kind=step.kind)
 
 
@@ -326,14 +320,13 @@ async def _task_events(memory: TaskMemory, task_name: str) -> list[Event]:
 async def _completed_results(
     memory: TaskMemory,
     task_name: str,
-    steps: Sequence[StepSummary],
     *,
     max_chars: int,
 ) -> str:
     """Render the stored result of each completed step, up to a character bound."""
     lines: list[str] = []
     used = 0
-    for step in steps:
+    for step in await memory.list_steps(task_name, StepState.COMPLETED):
         if step.result_event_seq is None:
             text = "(no stored result)"
         else:
@@ -367,8 +360,20 @@ def _message_content(message: Any) -> str:
     return content if isinstance(content, str) else str(content or "")
 
 
-def _citation_ids(answer: str) -> list[str]:
-    """Extract evidence ids in the answer's square-bracket citations."""
-    import re  # noqa: PLC0415
+_CITATION_GROUP = re.compile(r"\[([^\[\]]*)\]")
+_EVIDENCE_ID = re.compile(r"ev1:[^\s,;()]+")
 
-    return list(dict.fromkeys(re.findall(r"\[([A-Za-z0-9_-]+)\]", answer)))
+
+def _citation_ids(answer: str) -> list[str]:
+    """Extract the evidence ids named in the answer's bracketed citations.
+
+    An id like ``ev1:s:<uuid>:<hash>:0-10`` contains colons, so the id is read
+    from inside each bracket group. A malformed id is still returned, so the
+    citation check can flag it.
+    """
+    ids = [
+        evidence_id
+        for group in _CITATION_GROUP.findall(answer)
+        for evidence_id in _EVIDENCE_ID.findall(group)
+    ]
+    return list(dict.fromkeys(ids))

@@ -13,6 +13,10 @@ Bases: <code>AgentMiddleware</code>
 
 Persist assistant messages, tool calls and tool results as task events.
 
+A tool that raises does not end the run. Its error is recorded as the tool
+result, the steps this run left in progress are marked failed, and the
+model receives an error tool message so it can react.
+
 **Functions:**
 
 - [**awrap_model_call**](#agrag-agents-middleware-TaskEventMiddleware-awrap_model_call) – Record the assistant response before any tool it requests runs.

@@ -252,6 +252,10 @@ def make_core_tools(  # noqa: PLR0915
             if stored is None:
                 return "The step result was not recorded, so the step is not completed."
             result_seq = stored.seq
+        if step_state is StepState.IN_PROGRESS:
+            state.open_steps[name] = step_kind
+        else:
+            state.open_steps.pop(name, None)
         outcome = await memory.set_step(
             task_name,
             name,

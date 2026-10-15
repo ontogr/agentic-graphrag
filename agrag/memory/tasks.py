@@ -53,6 +53,7 @@ from agrag.cypher.memory import (
     set_event_id_query,
     step_page_query,
     step_state_counts_query,
+    steps_in_state_page_query,
     store_request_result_query,
     task_conflict_decisions_query,
     task_conflict_keys_query,
@@ -67,6 +68,7 @@ from agrag.memory.decisions import _decision_from_row
 MAX_PAYLOAD_CHARACTERS = 32_000
 MAX_REQUEST_ID_LENGTH = 64
 STEP_VIEW_LIMIT = 50
+STEP_PAGE_LIMIT = 200
 EVENT_PAGE_LIMIT = 200
 _WRITE_ATTEMPTS = 3
 
@@ -435,6 +437,41 @@ class TaskMemory:
             conflicts_truncated=len(conflict_keys) > 10,
         )
         return TaskLookup(found=True, view=view)
+
+    async def list_steps(self, task_name: str, state: StepState) -> list[StepSummary]:
+        """Read every step of a task in one state, in name order.
+
+        Unlike the resume view, this is not capped, so a caller that needs
+        all steps of a state, such as resume, sees every one.
+
+        Args:
+            task_name: The task name.
+            state: The state whose steps to read.
+
+        Returns:
+            The steps, or an empty list when the task does not exist.
+        """
+        task = await _find_task(self._store, self._project_id, task_name)
+        if task is None:
+            return []
+        steps: list[StepSummary] = []
+        after_name: str | None = None
+        while True:
+            rows = await self._store.execute_read(
+                steps_in_state_page_query(),
+                {
+                    "project_id": self._project_id,
+                    "task_id": str(task.id),
+                    "state": state.value,
+                    "after_name": after_name,
+                    "limit": STEP_PAGE_LIMIT,
+                },
+            )
+            page = [StepSummary.model_validate(row) for row in rows]
+            steps.extend(page)
+            if len(page) < STEP_PAGE_LIMIT:
+                return steps
+            after_name = page[-1].name
 
     async def list_events(
         self, task_name: str, *, after_seq: int = 0, limit: int = 50

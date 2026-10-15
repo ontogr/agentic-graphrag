@@ -372,6 +372,22 @@ class TestFindEntities:
         assert result.status is DiscoveryStatus.OK
         assert _names(result)[0] == "Aspirin"
 
+    async def test_omitted_labels_are_discovered_from_the_vector_indexes(
+        self, entity_env: EntityEnv
+    ) -> None:
+        """With no labels given, search covers every entity label that has an index."""
+        result = await find_entities(
+            entity_env.store,
+            _KeywordEmbedder(),
+            "aspirin",
+            scope=frozenset({entity_env.headache_note}),
+            limit=5,
+            mode=DiscoveryMode.LEXICAL,
+        )
+
+        assert result.status is DiscoveryStatus.OK
+        assert "Aspirin" in _names(result)
+
     async def test_operator_characters_in_the_query_are_plain_terms(
         self, entity_env: EntityEnv
     ) -> None:
