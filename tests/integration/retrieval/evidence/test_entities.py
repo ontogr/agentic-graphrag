@@ -39,6 +39,7 @@ from agrag.common.data_models.graph_schema import (
     GraphSchema,
     RelationType,
 )
+from agrag.cypher.evidence import entity_labels_query
 from agrag.embedding.base import Embedder
 from agrag.evidence import explore, fetch, find_entities
 from agrag.graphdb import build_graph_store
@@ -319,6 +320,15 @@ def _names(result: EntityResult) -> list[str]:
 
 class TestFindEntities:
     """Entity discovery returns entities with their visible supporting passages."""
+
+    async def test_label_query_lists_the_labels_with_a_vector_index(
+        self, entity_env: EntityEnv
+    ) -> None:
+        """The query behind the default label set returns the entity labels."""
+        rows = await entity_env.store.execute_read(entity_labels_query())
+
+        labels = {label for row in rows for label in row["labels"]}
+        assert {entity_env.drug, entity_env.condition} <= labels
 
     async def test_every_hit_is_supported_by_fetchable_text_with_the_mention(
         self, entity_env: EntityEnv

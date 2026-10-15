@@ -21,8 +21,8 @@ from agrag.agents.build import build_agent
 from agrag.agents.ledger import Ledger
 from agrag.agents.settings import AgentLLMSettings, AgentSettings
 from agrag.agents.tools import make_tools
+from agrag.chunking import Chunker
 from agrag.common.data_models.chunk import CHUNK_LABEL, Chunk
-from agrag.common.data_models.document import Document
 from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.graph_record import NodeRecord, RelationRecord
 from agrag.common.data_models.graph_schema import (
@@ -36,10 +36,15 @@ from agrag.common.data_models.vector_record import Distance
 from agrag.cypher.entities import validate_identifier
 from agrag.embedding.base import Embedder
 from agrag.graphdb import build_graph_store
+from agrag.ingestion.graph import Graph
 from agrag.retrieval.filters import SearchFilters
 from agrag.retrieval.search_engine import SearchEngine
 from agrag.retrieval.settings import RetrievalSettings
 from tests.conftest import FAKE_EMBEDDING_DIMENSIONS
+from tests.integration.retrieval.evidence._corpus import (
+    NoEntityExtractor,
+    make_document,
+)
 
 
 neo4j_missing = importlib.util.find_spec("neo4j") is None
@@ -202,6 +207,16 @@ class TestToolsIntegration:
         yield
         for label in (self.label, self.other_label):
             await self.store.execute_write(f"MATCH (n:{label}) DETACH DELETE n")
+        keys = [self.document_one, self.document_two]
+        await self.store.execute_write(
+            "MATCH (d:Document) WHERE d.document_key IN $keys "
+            "OPTIONAL MATCH (d)-[:HAS_PART]->(c:Chunk) DETACH DELETE c, d",
+            {"keys": keys},
+        )
+        await self.store.execute_write(
+            "MATCH (j:CutoverJob) WHERE j.document_key IN $keys DETACH DELETE j",
+            {"keys": keys},
+        )
         if self.chunk_ids:
             # Chunk nodes are shared by every suite, and the native index
             # cannot be dropped per test, so teardown deletes only the ids
@@ -593,50 +608,17 @@ class TestAgentBuildIntegration:
         )
 
     async def _seed_chunk(self, text: str) -> None:
-        """Write one chunk in this test's document partition."""
-        document_id = Document.node_id_for(document_key=self.document_one)
-        chunk = Chunk(
-            id=uuid4(),
-            document_id=document_id,
-            index=0,
-            text=text,
-            content_hash=hashlib.sha256(text.encode("utf-8")).hexdigest(),
-            provenance=TextProvenance(char_start=0, char_end=len(text)),
+        """Add a document holding the text, as ingestion would write it."""
+        graph = await Graph.open(
+            schema=GraphSchema(
+                name="agent_seed", version="1", entities=[], relations=[]
+            ),
+            graph_store=self.store,
+            embedder=self.embedder,
+            extractor=NoEntityExtractor(),
+            chunker=Chunker(size=2000),
         )
-        chunk.embedding = await self.embedder.embed_one(text)
-        self.chunk_ids.append(chunk.id)
-        await self.store.upsert_nodes(
-            CHUNK_LABEL,
-            [
-                NodeRecord(
-                    id=chunk.id,
-                    labels=[CHUNK_LABEL],
-                    properties={
-                        "document_id": str(document_id),
-                        "index": 0,
-                        "text": text,
-                        "content_hash": hashlib.sha256(
-                            text.encode("utf-8")
-                        ).hexdigest(),
-                        "provenance": '{"kind":"text","char_start":0,'
-                        f'"char_end":{len(text)}}}',
-                        "heading_path": [],
-                        "embedding": chunk.embedding,
-                        "created_at": "2024-01-01T00:00:00",
-                    },
-                )
-            ],
-        )
-        await self.store.ensure_vector_index(
-            label=CHUNK_LABEL,
-            vector_property="embedding",
-            dimensions=4,
-            distance=Distance.COSINE,
-        )
-        await self.store.ensure_fulltext_index(
-            label=CHUNK_LABEL,
-            properties=["text"],
-        )
+        await graph.add(documents=[make_document(self.document_one, text)])
         await self.store.execute_read("CALL db.awaitIndexes(60)")
 
     @staticmethod
@@ -680,8 +662,9 @@ class TestAgentBuildIntegration:
             agent_id="integration-agent",
             llm_settings=settings,
         )
-        result = await agent.ainvoke({"task_name": "run-result", "question": "test"})
-        assert result["task"]["name"] == "run-result"
+        task_name = f"run-result-{uuid4().hex[:8]}"
+        result = await agent.ainvoke({"task_name": task_name, "question": "test"})
+        assert result["task"]["name"] == task_name
         assert result["status"] in {
             "answered",
             "insufficient_evidence",
@@ -715,7 +698,7 @@ class TestAgentBuildIntegration:
         )
         result = await agent.ainvoke(
             {
-                "task_name": "multi-hop-question",
+                "task_name": f"multi-hop-question-{uuid4().hex[:8]}",
                 "question": (
                     "Where does Alice work, and what does the source "
                     "text say about her time there?"
@@ -759,7 +742,7 @@ class TestAgentBuildIntegration:
         )
         result = await agent.ainvoke(
             {
-                "task_name": "under-evidenced-question",
+                "task_name": f"under-evidenced-question-{uuid4().hex[:8]}",
                 "question": "What year did Alice found the engines team?",
             }
         )
@@ -771,10 +754,10 @@ class TestAgentBuildIntegration:
     @pytest.mark.skipif(
         not _agent_llm_configured(), reason="LLM endpoint not configured"
     )
-    async def test_tool_budget_still_returns_a_cited_answer(
+    async def test_tool_budget_ends_the_run_as_budget_exhausted(
         self,
     ) -> None:
-        """A one-call tool budget still ends the run with an answer."""
+        """A one-call tool budget ends the run with the budget_exhausted status."""
         alice = await self._seed_entity(self.label, "Alice")
         acme = await self._seed_entity(self.other_label, "Acme")
         await self._seed_relation("WORKS_FOR", alice, acme)
@@ -794,7 +777,7 @@ class TestAgentBuildIntegration:
         )
         result = await agent.ainvoke(
             {
-                "task_name": "tool-budget-question",
+                "task_name": f"tool-budget-question-{uuid4().hex[:8]}",
                 "question": (
                     "Where does Alice work, and what does the source "
                     "text say about her time there?"
@@ -802,7 +785,10 @@ class TestAgentBuildIntegration:
             }
         )
 
-        # The run ends with an answer rather than a GraphRecursionError, and
-        # the answer keeps the citations it was able to check.
-        assert "Alice" in result["answer"]
-        assert result["status"] in {"answered", "partial", "budget_exhausted"}
+        # The run ends with an answer and the events recorded so far, not a
+        # GraphRecursionError. One call is enough to discover but not to fetch,
+        # so the answer must not cite evidence that was never checked.
+        assert result["status"] == "budget_exhausted"
+        assert result["answer"]
+        assert result["citations"] == []
+        assert result["task"]["last_event_seq"] > 0

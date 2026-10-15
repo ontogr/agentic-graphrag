@@ -2,6 +2,7 @@
 
 import importlib.util
 import json
+import re
 from typing import Any
 
 from opentelemetry.trace import Tracer
@@ -266,6 +267,4 @@ def _message_content(message: Any) -> str:
 
 def _citation_ids(answer: str) -> list[str]:
     """Extract evidence ids in the answer's square-bracket citations."""
-    import re  # noqa: PLC0415
-
-    return list(dict.fromkeys(re.findall(r"\[([A-Za-z0-9_-]+)\]", answer)))
+    return list(dict.fromkeys(re.findall(r"\[(ev1:[A-Za-z0-9:_-]+)\]", answer)))

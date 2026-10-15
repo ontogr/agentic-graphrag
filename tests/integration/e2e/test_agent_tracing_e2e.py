@@ -2,6 +2,7 @@
 
 import importlib.util
 import os
+from uuid import uuid4
 
 import pytest
 from dotenv import load_dotenv
@@ -54,7 +55,9 @@ class TestAgentTracingE2E:
             tracer=provider.get_tracer("agrag-e2e"),
         )
 
-        await agent.ainvoke({"task_name": "alice", "question": "Who is Alice?"})
+        await agent.ainvoke(
+            {"task_name": f"alice-{uuid4().hex[:8]}", "question": "Who is Alice?"}
+        )
         await graph_store.close()
 
         spans = exporter.get_finished_spans()

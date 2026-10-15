@@ -8,7 +8,6 @@ corpus, like the other agent integration tests, so it shares the database-wide
 ``Chunk`` vector index with them. It skips when no agent LLM endpoint is configured.
 """
 
-import hashlib
 import json
 import os
 from collections.abc import AsyncGenerator, Sequence
@@ -24,16 +23,21 @@ from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
 
 from agrag.agents.build import build_agent
 from agrag.agents.settings import AgentLLMSettings
-from agrag.common.data_models.chunk import CHUNK_LABEL, Chunk
+from agrag.chunking import Chunker
 from agrag.common.data_models.document import Document
 from agrag.common.data_models.graph_record import NodeRecord, RelationRecord
-from agrag.common.data_models.provenance import TextProvenance
+from agrag.common.data_models.graph_schema import GraphSchema
 from agrag.common.data_models.vector_record import Distance
 from agrag.cypher.entities import validate_identifier
 from agrag.embedding.base import Embedder
 from agrag.eval.trajectory import read_trajectory
 from agrag.graphdb import build_graph_store
+from agrag.ingestion.graph import Graph
 from tests.conftest import FAKE_EMBEDDING_DIMENSIONS
+from tests.integration.retrieval.evidence._corpus import (
+    NoEntityExtractor,
+    make_document,
+)
 
 
 _OUTPUT_DIR = Path(os.environ.get("AGRAG_TRACING_OUTPUT_DIR", "test-output"))
@@ -144,14 +148,15 @@ class TestAgentTracing:
         yield
         for label in (self.person_label, self.company_label, self.robot_label):
             await self.store.execute_write(f"MATCH (n:{label}) DETACH DELETE n")
-        if self.chunk_ids:
-            # Chunk nodes are shared by every suite, and the native index
-            # cannot be dropped per test, so teardown deletes only the ids
-            # this test wrote.
-            await self.store.execute_write(
-                f"MATCH (n:{CHUNK_LABEL}) WHERE n.id IN $ids DETACH DELETE n",
-                {"ids": [str(chunk_id) for chunk_id in self.chunk_ids]},
-            )
+        await self.store.execute_write(
+            "MATCH (d:Document {document_key: $key}) "
+            "OPTIONAL MATCH (d)-[:HAS_PART]->(c:Chunk) DETACH DELETE c, d",
+            {"key": self.document_key},
+        )
+        await self.store.execute_write(
+            "MATCH (j:CutoverJob {document_key: $key}) DETACH DELETE j",
+            {"key": self.document_key},
+        )
         await self.store.close()
 
     async def _seed_entity(self, label: str, name: str) -> UUID:
@@ -196,51 +201,18 @@ class TestAgentTracing:
             ]
         )
 
-    async def _seed_chunk(self, index: int, text: str) -> None:
-        """Write one chunk in this test's document partition."""
-        chunk = Chunk(
-            id=uuid4(),
-            document_id=UUID(self.document_id),
-            index=index,
-            text=text,
-            content_hash=hashlib.sha256(text.encode("utf-8")).hexdigest(),
-            provenance=TextProvenance(char_start=0, char_end=len(text)),
+    async def _seed_document(self, text: str) -> None:
+        """Add a document holding the text, as ingestion would write it."""
+        graph = await Graph.open(
+            schema=GraphSchema(
+                name="agent_seed", version="1", entities=[], relations=[]
+            ),
+            graph_store=self.store,
+            embedder=self.embedder,
+            extractor=NoEntityExtractor(),
+            chunker=Chunker(size=2000),
         )
-        chunk.embedding = await self.embedder.embed_one(text)
-        self.chunk_ids.append(chunk.id)
-        await self.store.upsert_nodes(
-            CHUNK_LABEL,
-            [
-                NodeRecord(
-                    id=chunk.id,
-                    labels=[CHUNK_LABEL],
-                    properties={
-                        "document_id": self.document_id,
-                        "index": index,
-                        "text": text,
-                        "content_hash": hashlib.sha256(
-                            text.encode("utf-8")
-                        ).hexdigest(),
-                        "provenance": '{"kind":"text","char_start":0,'
-                        f'"char_end":{len(text)}}}',
-                        "heading_path": [],
-                        "content_kind": "text",
-                        "embedding": chunk.embedding,
-                        "created_at": "2024-01-01T00:00:00",
-                    },
-                )
-            ],
-        )
-        await self.store.ensure_vector_index(
-            label=CHUNK_LABEL,
-            vector_property="embedding",
-            dimensions=4,
-            distance=Distance.COSINE,
-        )
-        await self.store.ensure_fulltext_index(
-            label=CHUNK_LABEL,
-            properties=["text"],
-        )
+        await graph.add(documents=[make_document(self.document_key, text)])
         await self.store.execute_read("CALL db.awaitIndexes(60)")
 
     async def test_retrieval_spans_nest_under_their_tool_span(self) -> None:
@@ -253,8 +225,7 @@ class TestAgentTracing:
         company = await self._seed_entity(self.company_label, "Zephyra Robotics")
         await self._seed_entity(self.robot_label, "Lumen-9")
         await self._seed_relation("FOUNDED", founder, company)
-        await self._seed_chunk(0, _FOUNDER_CHUNK)
-        await self._seed_chunk(1, _LIFT_CHUNK)
+        await self._seed_document(f"{_FOUNDER_CHUNK}\n\n{_LIFT_CHUNK}")
 
         agent = build_agent(
             graph_store=self.store,
@@ -265,7 +236,9 @@ class TestAgentTracing:
             llm_settings=settings,
             tracer=self.tracer,
         )
-        await agent.ainvoke({"task_name": "tracing-run", "question": _PROMPT})
+        await agent.ainvoke(
+            {"task_name": f"tracing-run-{uuid4().hex[:8]}", "question": _PROMPT}
+        )
         self.provider.force_flush()
 
         spans = self.exporter.get_finished_spans()

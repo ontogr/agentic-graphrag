@@ -8,6 +8,7 @@ and the agent model ids print to the log so a run shows what graded what.
 
 from collections.abc import Callable
 from typing import Any
+from uuid import uuid4
 
 import pytest
 from deepeval.metrics import GEval
@@ -34,7 +35,9 @@ async def test_agent_answer_scores_in_unit_range(
 ) -> None:
     """A real agent answer gets a GEval score between 0 and 1."""
     agent = agent_factory()
-    result = await agent.ainvoke({"task_name": "harness", "question": QUESTION})
+    result = await agent.ainvoke(
+        {"task_name": f"harness-{uuid4().hex[:8]}", "question": QUESTION}
+    )
     metric = GEval(
         name="Correctness",
         criteria=(

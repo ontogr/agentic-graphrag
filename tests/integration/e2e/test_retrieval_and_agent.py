@@ -630,7 +630,7 @@ class TestRetrievalE2E:
 
         result = await agent.ainvoke(
             {
-                "task_name": "headache-treatment",
+                "task_name": f"headache-treatment-{uuid4().hex[:8]}",
                 "question": "What treats headaches?",
             }
         )
