@@ -13,5 +13,6 @@ class IngestStats(BaseModel):
     documents: int = 0
     sources: int = 0
     skipped: int = 0
+    unchanged: int = 0
     quarantined: int = 0
     quarantined_items: list[StageFailure] = Field(default_factory=list)

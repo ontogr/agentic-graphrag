@@ -1,6 +1,10 @@
-"""Cypher reads for persisted Document nodes."""
+"""Cypher reads and writes for persisted Document nodes."""
 
-from agrag.common.data_models.structure import HAS_PART
+from agrag.common.data_models.structure import (
+    DOCUMENT_ACTIVATION_LABEL,
+    HAS_ACTIVATION,
+    HAS_PART,
+)
 from agrag.cypher._pending_filter import pending_filter_clause
 from agrag.cypher.entities import NODE_IDENTITY_LABEL
 
@@ -72,4 +76,34 @@ def set_chunk_extraction_fingerprint_query() -> str:
         f"MATCH (c:{NODE_IDENTITY_LABEL}:Chunk) WHERE c.id IN $chunk_ids "
         "SET c.extraction_fingerprint = $extraction_fingerprint "
         "RETURN count(c) AS stamped"
+    )
+
+
+def record_activation_query() -> str:
+    """Build Cypher recording one committed change to a document.
+
+    Increments the document's ``activation_seq`` and creates a
+    ``DocumentActivation`` node that carries the new value, linked to the
+    document by ``HAS_ACTIVATION``. The cutover job runs it in its commit
+    transaction, so a record exists exactly when its change is committed.
+
+    Returns:
+        Parameterized Cypher expecting ``$document_node_id``, ``$id``,
+        ``$document_key``, ``$verb``, ``$content_hash``,
+        ``$previous_content_hash``, ``$version_id`` and ``$job_id``. Null
+        hashes and version ids are left unset on the node. Returns the new
+        ``activation_seq``.
+    """
+    return (
+        f"MATCH (d:{NODE_IDENTITY_LABEL}:Document {{id: $document_node_id}}) "
+        "SET d.activation_seq = coalesce(d.activation_seq, 0) + 1 "
+        "WITH d "
+        f"CREATE (d)-[:{HAS_ACTIVATION}]->"
+        f"(a:{NODE_IDENTITY_LABEL}:{DOCUMENT_ACTIVATION_LABEL} {{"
+        "id: $id, document_key: $document_key, verb: $verb, "
+        "content_hash: $content_hash, "
+        "previous_content_hash: $previous_content_hash, "
+        "version_id: $version_id, activation_seq: d.activation_seq, "
+        "activated_at: datetime(), job_id: $job_id}) "
+        "RETURN a.activation_seq AS activation_seq"
     )

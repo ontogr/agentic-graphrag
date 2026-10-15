@@ -76,7 +76,8 @@ by `open()` when missing.
   `update()`.
 - **max_llm_pairs** (<code>int</code>) – The most ambiguous entity pairs that resolution sends
   to the LLM for each label. A lower value bounds the number of
-  verification calls and leaves more pairs undecided.
+  verification calls and leaves more pairs undecided. Zero sends
+  no pairs to the LLM.
 
 ## `add` \{#agrag-ingestion-graph-Graph-add}
 
@@ -88,9 +89,13 @@ Add content to the graph.
 
 Give exactly one of `source`, `text`, and `documents`.
 
-`add` does not compare hashes. Adding a key that already exists
-writes a second open version of the document; use `update` to
-replace a document.
+A key that already has a current version is handled as `update`
+handles it. Content that matches the stored version is skipped and
+counted in `ingestion.unchanged`, and changed content replaces the
+current version. A key without a current
+version, such as a new key or a deleted document, is added as a new
+document. Calling `add` again with the same documents therefore writes
+only what changed.
 
 If an extraction fails for a chunk, the document and its chunks are
 written without the extraction stamp, so the next `update` extracts
@@ -109,7 +114,8 @@ them again instead of returning a no-op.
   at the end with the fully-populated result.
 - **return_chunks** (<code>bool</code>) – Whether to include the produced chunks in the
   returned AddResult. False by default to avoid holding full text
-  for a large corpus when not needed.
+  for a large corpus when not needed. Chunks of a document that
+  is updated instead of added are not included.
 - **read_options** (<code>[ReadOptions](../../loaders/types/ReadOptions.md) | None</code>) – How loaders read sources, including the normalization of
   decoded text. None uses `ReadOptions()` defaults.
 
@@ -449,7 +455,7 @@ highest-similarity pairs are verified first.
 ## `update` \{#agrag-ingestion-graph-Graph-update}
 
 ```python
-update(document_key:str, *, text:str | None = None, source:SourcesType | None = None, loader:Loader | None = None, error_policy:ErrorPolicy = ErrorPolicy.RAISE, read_options:ReadOptions | None = None, force:bool = False) -> UpdateResult
+update(document_key:str, *, text:str | None = None, source:SourcesType | None = None, document:Document | None = None, loader:Loader | None = None, error_policy:ErrorPolicy = ErrorPolicy.RAISE, read_options:ReadOptions | None = None, force:bool = False) -> UpdateResult
 ```
 
 Replace one document version, or re-extract it in place.
@@ -486,9 +492,13 @@ A source must resolve to exactly one document.
 **Parameters:**
 
 - **document_key** (<code>str</code>) – The stable key of the document to replace.
-- **text** (<code>str | None</code>) – Replacement text, exactly one of `text`/`source`.
+- **text** (<code>str | None</code>) – Replacement text. Give exactly one of `text`, `source`, and
+  `document`.
 - **source** (<code>SourcesType | None</code>) – A single-file source, glob, or path list resolving to
   exactly one document.
+- **document** (<code>[Document](../../common/data_models/document/Document-ref.md) | None</code>) – An already-built replacement Document. It skips loading and
+  normalization, so its text and `content_hash` are used as given.
+  Its `resolved_document_key` must equal `document_key`.
 - **loader** (<code>[Loader](../../loaders/base/Loader.md) | None</code>) – A loader override for a single-file `source`.
 - **error_policy** (<code>[ErrorPolicy](../../loaders/types/ErrorPolicy.md)</code>) – RAISE propagates a stage failure. Any other
   policy records it and continues. Candidate storage failures
@@ -511,9 +521,10 @@ A source must resolve to exactly one document.
 
 **Raises:**
 
-- <code>ValueError</code> – Both or neither of `text` and `source` are given, a loader
-  override targets multiple sources, or a source resolves to any number
-  of documents other than one.
+- <code>ValueError</code> – Other than exactly one of `text`, `source`, and
+  `document` is given, a loader override targets multiple sources, a
+  source resolves to any number of documents other than one, or the
+  `document` key differs from `document_key`.
 
 <details open>
 <summary>Note</summary>

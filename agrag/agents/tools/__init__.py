@@ -16,7 +16,6 @@ from agrag.agents.tools.search import (
     make_answer_thematic_question_tool,
     make_explore_related_tool,
     make_look_up_entity_tool,
-    make_query_graph_directly_tool,
     make_search_source_text_tool,
 )
 from agrag.agents.tools.traversal import (
@@ -61,12 +60,8 @@ def make_tools(
         look_up_entity, explore_related, answer_from_graph_structure,
         answer_thematic_question, list_relationship_types,
         find_related_entities, describe_entity, traverse_from_entity,
-        and compute_over_evidence. query_graph_directly and
-        search_unreviewed_candidates join only when filters is None or empty;
-        the candidate tool also requires include_candidates=True. The Cypher
-        tool runs a generated
-        read-only Cypher query, which cannot be confined to a caller
-        scope, so a scoped agent never receives it.
+        and compute_over_evidence. search_unreviewed_candidates joins only
+        when filters is None or empty and include_candidates=True.
     """
     # Imported here, not at module scope: aggregate.py decorates its
     # function at import time, which would make this package require
@@ -90,10 +85,8 @@ def make_tools(
         make_traverse_from_entity_tool(engine, ledger, filters=bound_filters),
         compute_over_evidence,
     ]
-    if bound_filters is None or bound_filters == SearchFilters():
-        tools.append(
-            make_query_graph_directly_tool(engine, ledger, filters=bound_filters)
-        )
-        if include_candidates:
-            tools.append(make_search_candidates_tool(engine))
+    if include_candidates and (
+        bound_filters is None or bound_filters == SearchFilters()
+    ):
+        tools.append(make_search_candidates_tool(engine))
     return tools

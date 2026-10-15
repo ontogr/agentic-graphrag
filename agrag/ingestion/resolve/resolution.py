@@ -19,7 +19,12 @@ from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.extraction import ExtractedEntity, ExtractedRelation
 from agrag.common.data_models.provenance import TextProvenance
 from agrag.common.data_models.stage_failure import StageFailure
-from agrag.common.data_models.structure import HAS_CHILD, HAS_DOCUMENT, HAS_PART
+from agrag.common.data_models.structure import (
+    HAS_ACTIVATION,
+    HAS_CHILD,
+    HAS_DOCUMENT,
+    HAS_PART,
+)
 from agrag.common.text import normalize_text
 from agrag.cypher.entities import fetch_all_by_label_query, fetch_by_merge_keys_query
 from agrag.embedding.base import Embedder
@@ -57,6 +62,7 @@ SYSTEM_RELATION_TYPES = [
     "NEXT_CHUNK",
     HAS_CHILD,
     HAS_DOCUMENT,
+    HAS_ACTIVATION,
     "MATCHES",
     "RESOLVED_AS",
 ]

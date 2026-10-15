@@ -224,16 +224,13 @@ Each LLM path also opens one small domain span carrying its own ids and counts.
 | Resolution | `agrag.resolution.llm_verify` | `agrag.pair_count`, `agrag.match_count`, `agrag.uncertain_count`, `agrag.request_failed` (bool), `agrag.llm_unavailable` (bool) |
 | Merge | `agrag.merge.resolve_description` | `agrag.description_count`, `agrag.summarized` (bool) |
 | Community | `agrag.community.report_batch` | `agrag.batch_size` |
-| Text2cypher | `agrag.retrieval.generate_cypher` | `agrag.is_repair` (bool) |
 | Judge | `agrag.eval.judge` | `agrag.eval.judge_model` |
 
-Two of these are conditional:
+One of these is conditional:
 
 - `agrag.merge.resolve_description` opens only when the field
   conflicted. The field conflicted when more than one distinct candidate exists. A field
   every mention agrees on adds no span.
-- `agrag.retrieval.generate_cypher` opens on every generation, and
-  `agrag.is_repair` tells a first attempt from a retry after a failure.
 
 `agrag.resolution.llm_verify` never carries an `ERROR` status. A failed LLM
 call leaves its pairs undecided, not rejected, and is not an error. The span
@@ -260,10 +257,6 @@ agrag.retrieval.search                     RETRIEVER
     agrag.retrieval.vector_search
     agrag.retrieval.load_chunks
   agrag.retrieval.community                RETRIEVER
-  agrag.retrieval.text2cypher              RETRIEVER
-    agrag.retrieval.generate_cypher
-    agrag.retrieval.execute_cypher         one per attempt
-    agrag.graphdb.load_entities         one per entity row
   agrag.retrieval.fuse
   agrag.retrieval.bfs                      RETRIEVER, when recipe.bfs
   agrag.retrieval.community_expand         when recipe.community_expand
@@ -282,7 +275,7 @@ of the tool call that made it.
 | Span | Attributes |
 |---|---|
 | `agrag.retrieval.search` | `agrag.recipe.methods`, `agrag.recipe.limit`, `agrag.recipe.bfs`, `agrag.recipe.community_expand`, `agrag.recipe.reranker`, `agrag.failed_methods` (when a method failed) |
-| retrievers (`entity`, `chunk`, `community`, `text2cypher`, `bfs`) | `agrag.limit`. `bfs` also `agrag.seed_count`, `agrag.depth`, `agrag.direction`. `text2cypher` also `agrag.cypher` |
+| retrievers (`entity`, `chunk`, `community`, `bfs`) | `agrag.limit`. `bfs` also `agrag.seed_count`, `agrag.depth`, `agrag.direction`. |
 | `agrag.retrieval.find_entity` / `traverse` | `agrag.seed_ids`, `agrag.relation_type`, `agrag.direction`, `agrag.depth`, `agrag.limit`, `agrag.community_expand` on `traverse` |
 | `agrag.retrieval.list_relationship_types` | `agrag.seed_ids`, `agrag.relation_type_filter`, `agrag.direction`, `agrag.result_count`, `agrag.result_types` |
 | `agrag.retrieval.vector_search` | `agrag.collection`, `agrag.store` (`vector_store` or `graph_native`), `agrag.labels`, `agrag.limit`, `agrag.hit_count`, `agrag.hit_ids`, `agrag.hit_scores` |
@@ -290,7 +283,6 @@ of the tool call that made it.
 | `agrag.retrieval.load_*` | `agrag.requested_count`, `agrag.loaded_count` |
 | `agrag.retrieval.allowed_entity_ids` | `agrag.document_count`, `agrag.entity_count` |
 | `agrag.retrieval.active_member_ids` | `agrag.requested_count`, `agrag.superseded_count` |
-| `agrag.retrieval.execute_cypher` | `agrag.is_repair`, `agrag.row_count` |
 | `agrag.retrieval.fuse` | `agrag.rrf_k`, `agrag.fuse.methods`, `agrag.fuse.method_counts` |
 | `agrag.retrieval.community_expand` / `community_context` | `agrag.seed_count`, `agrag.top_k`, `agrag.added_count` on `community_expand` |
 | `agrag.retrieval.rerank.cross_encoder` | `agrag.model`, `agrag.input_count`, `agrag.min_score` (when set), `agrag.skipped` (when the extra is missing) |

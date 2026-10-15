@@ -15,9 +15,11 @@ SECTION_LABEL = "Section"
 TABLE_LABEL = "Table"
 FIGURE_LABEL = "Figure"
 SOURCE_LABEL = "Source"
+DOCUMENT_ACTIVATION_LABEL = "DocumentActivation"
 HAS_CHILD = "HAS_CHILD"
 HAS_PART = "HAS_PART"
 HAS_DOCUMENT = "HAS_DOCUMENT"
+HAS_ACTIVATION = "HAS_ACTIVATION"
 
 
 def _uuid(*parts: str | int | UUID) -> UUID:

@@ -377,7 +377,10 @@ class TestDocumentLifecycle:
             await store.close()
 
     async def test_repeat_add_converges_has_part_edges(self) -> None:
-        """Adding identical content twice leaves one open edge per chunk."""
+        """Adding identical content twice leaves one open edge per chunk.
+
+        The second add finds the stored version and writes nothing.
+        """
         store = build_graph_store("neo4j")
         await store.connect()
         graph = await _open_graph(store)
@@ -391,7 +394,8 @@ class TestDocumentLifecycle:
             second = await graph.add(
                 documents=[_document(key, text)], return_chunks=True
             )
-            assert len(second.chunks) == len(first.chunks)
+            assert second.chunks == []
+            assert second.storage.nodes_written == 0
 
             rows = await store.execute_read(
                 "MATCH (:Document {document_key: $key})-[r:HAS_PART]->(c:Chunk) "
