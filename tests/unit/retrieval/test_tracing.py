@@ -18,7 +18,6 @@ from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
 from agrag.common.data_models.chunk import Chunk
 from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.provenance import TextProvenance
-from agrag.common.data_models.query_value import QueryValue
 from agrag.common.data_models.relation import Relation
 from agrag.common.data_models.search_result import SearchResult
 from agrag.retrieval.filters import SearchFilters
@@ -81,18 +80,8 @@ def _relation_result() -> SearchResult:
     )
 
 
-def _query_value_result() -> SearchResult:
-    """Return one scalar query-row result."""
-    return SearchResult(item=QueryValue(value={"count": 3}), score=1.0, method="t2c")
-
-
 class TestResultText:
     """result_text renders every item type."""
-
-    def test_query_value_gives_json(self) -> None:
-        """A scalar query row renders as JSON."""
-        result = _query_value_result()
-        assert result_text(result) == '{"count": 3}'
 
 
 class TestRecordResults:
@@ -172,21 +161,6 @@ class TestRecordResults:
             f"retrieval.documents.{MAX_DOCUMENT_ATTRIBUTES}.document.id"
             not in attributes
         )
-
-    async def test_query_value_result_uses_its_own_id(self) -> None:
-        """A QueryValue result records its own id and JSON text."""
-        provider, exporter = _provider()
-        tracer = provider.get_tracer("t")
-        result = _query_value_result()
-        with retrieval_span(
-            tracer, "agrag.retrieval.text2cypher", query="q", filters=None
-        ) as span:
-            record_results(span, [result])
-
-        attributes = _single_span(exporter).attributes
-        assert attributes is not None
-        assert list(attributes["agrag.result_ids"]) == [str(result.item.id)]
-        assert list(attributes["agrag.result_texts"]) == ['{"count": 3}']
 
 
 class TestRetrievalSpan:

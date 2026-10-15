@@ -11,7 +11,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from agrag.agents.tracing import tool_span_context
-from agrag.retrieval.errors import AllRetrievalMethodsFailedError, ScopeDeniedError
+from agrag.retrieval.errors import ScopeDeniedError
 
 
 if TYPE_CHECKING:
@@ -24,11 +24,6 @@ if TYPE_CHECKING:
 SCOPE_DENIED = (
     "Refused: the requested data is outside this agent's permitted scope. "
     "Retry within the scope this agent was given."
-)
-
-QUERY_FAILED = (
-    "Error: the graph query failed, so this is not an empty result. "
-    "Rephrase the question or use another tool."
 )
 
 MAX_TOOL_LIMIT = 100
@@ -420,56 +415,3 @@ def make_answer_thematic_question_tool(
         return render_results(ledger, results)
 
     return answer_thematic_question
-
-
-def make_query_graph_directly_tool(
-    engine: "SearchEngine",
-    ledger: "Ledger",
-    *,
-    filters: "SearchFilters | None" = None,
-) -> Any:
-    """Build the query_graph_directly tool.
-
-    Args:
-        engine: The SearchEngine the tool calls.
-        ledger: The citation ledger for one run.
-        filters: Unused; the tool exists only for unscoped agents, so a
-            caller scope means make_tools() leaves it out entirely.
-
-    Returns:
-        A decorated tool function. When the generated query fails, the tool
-            returns an error message, not "No results found.", so the agent
-            can tell a failure from an empty answer and try another tool.
-    """
-    from langchain_core.tools import tool  # noqa: PLC0415
-
-    from agrag.retrieval.filters import SearchFilters  # noqa: PLC0415
-    from agrag.retrieval.recipes import TEXT2CYPHER  # noqa: PLC0415
-
-    if filters is not None and filters != SearchFilters():
-        raise ValueError("query_graph_directly cannot run with scoped filters")
-
-    @tool("query_graph_directly")
-    async def query_graph_directly(  # noqa: D417
-        query: str, callbacks: Any = None
-    ) -> str:
-        """Ask the graph a structural question in one generated query.
-
-        Generates a read-only Cypher query from the graph's schema and
-        runs it, for questions no staged tool fits: comparisons across
-        entity types, counted patterns, or a relationship shape the
-        other tools cannot express. Available only when this agent has
-        no caller-set data scope, since a generated query cannot be
-        confined to one.
-
-        Args:
-            query: The question to translate into one Cypher query.
-        """
-        with tool_span_context(callbacks):
-            try:
-                results = await engine.search(query, TEXT2CYPHER, filters=filters)
-            except AllRetrievalMethodsFailedError:
-                return QUERY_FAILED
-        return render_results(ledger, results)
-
-    return query_graph_directly

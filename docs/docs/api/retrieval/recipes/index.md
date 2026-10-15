@@ -18,5 +18,4 @@ Named, data-only configurations of what SearchEngine runs.
 - [**GRAPH_EXPAND**](GRAPH_EXPAND.md) –
 - [**HYBRID**](HYBRID.md) –
 - [**HYBRID_RERANKED**](HYBRID_RERANKED.md) –
-- [**TEXT2CYPHER**](TEXT2CYPHER.md) –
 - [**THEMATIC**](THEMATIC.md) –
