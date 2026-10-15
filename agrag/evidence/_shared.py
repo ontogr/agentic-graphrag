@@ -130,14 +130,15 @@ class StoredChunk:
             closed ``HAS_PART`` edge.
         closed_at: The time the ``HAS_PART`` edge closed, or None while it is open.
         document_key: The key of the document.
-        current_content_hash: The full content hash of the current version.
+        current_content_hash: The full content hash of the current version, or None
+            after the source has been deleted.
     """
 
     chunk: Chunk
     version_id: str | None
     closed_at: str | None
     document_key: str
-    current_content_hash: str
+    current_content_hash: str | None
 
 
 def stored_chunk(row: Mapping[str, Any]) -> StoredChunk:

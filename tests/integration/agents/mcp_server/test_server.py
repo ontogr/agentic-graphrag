@@ -225,6 +225,30 @@ class TestToolListing:
             assert tool.annotations.read_only_hint is True
             assert "scope" not in tool.input_schema["properties"]
 
+    async def test_lists_memory_reads_when_project_and_agent_are_set(
+        self, evidence_env: EvidenceEnv
+    ) -> None:
+        """Add the project-scoped memory reads to the evidence tools."""
+        settings = _settings(evidence_env).model_copy(
+            update={"project_id": "project-a", "agent_id": "assistant-a"}
+        )
+        server = build_server(evidence_env.store, BagOfWordsEmbedder(), settings)
+        async with Client(server) as client:
+            listing = await client.list_tools()
+
+        names = sorted(tool.name for tool in listing.tools)
+        assert names == [
+            "check_citations",
+            "fetch_event",
+            "fetch_evidence",
+            "get_decision",
+            "get_task",
+            "list_conflicts",
+            "list_events",
+            "search_decisions",
+            "search_evidence",
+        ]
+
 
 class TestEquivalenceWithDirectCalls:
     """Tool results equal the direct evidence functions on the same corpus."""
