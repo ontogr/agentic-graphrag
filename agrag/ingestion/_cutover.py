@@ -33,6 +33,7 @@ from agrag.cypher.cutover_job_write import (
 from agrag.cypher.documents import (
     flag_decisions_for_activation_query,
     record_activation_query,
+    retire_document_version_query,
     set_chunk_extraction_fingerprint_query,
 )
 from agrag.cypher.relations import (
@@ -420,6 +421,11 @@ async def _commit_pending_writes(
                 flag_decisions_for_activation_query(),
                 {"activation_id": activation_params["id"]},
             )
+            if change.verb == "delete":
+                await txn.execute_write(
+                    retire_document_version_query(),
+                    {"document_node_id": str(change.document_node_id)},
+                )
         await txn.execute_write(
             record_parts_closed_query(),
             {"job_id": job_arg, "parts_closed": parts_closed},

@@ -245,7 +245,7 @@ clean:
 DOCS_GRIPPE2MD ?= uv run --group docs griffe2md
 DOCS_PYTHON ?= uv run python
 # Community APIs live in agrag.ingestion.community, not agrag.communities.
-DOCS_API_PKGS ?= agents chunking common embedding eval graphdb ingestion loaders observability retrieval candidates memory
+DOCS_API_PKGS ?= agents chunking common embedding eval graphdb ingestion loaders observability retrieval candidates evidence memory
 
 docs-api:
 	mkdir -p docs/docs/api

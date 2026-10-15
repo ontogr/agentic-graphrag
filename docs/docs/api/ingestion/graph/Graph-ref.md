@@ -21,6 +21,7 @@ A knowledge graph that a caller can open and add content to.
 - [**detect_communities**](#agrag-ingestion-graph-Graph-detect_communities) – Detect entity communities via hierarchical Leiden.
 - [**open**](#agrag-ingestion-graph-Graph-open) – Open a graph, connecting and fully provisioning graph_store.
 - [**reevaluate**](#agrag-ingestion-graph-Graph-reevaluate) – Reevaluate matches among the given entities.
+- [**source_status**](#agrag-ingestion-graph-Graph-source_status) – Read a source's version, job lease and discovery index state.
 - [**update**](#agrag-ingestion-graph-Graph-update) – Replace one document version, or re-extract it in place.
 
 **Attributes:**
@@ -426,6 +427,14 @@ highest-similarity pairs are verified first.
 **Raises:**
 
 - <code>ValueError</code> – An id has no live persisted entity.
+
+## `source_status` \{#agrag-ingestion-graph-Graph-source_status}
+
+```python
+source_status(document_key:str) -> SourceStatus
+```
+
+Read a source's version, job lease and discovery index state.
 
 ## `update` \{#agrag-ingestion-graph-Graph-update}
 

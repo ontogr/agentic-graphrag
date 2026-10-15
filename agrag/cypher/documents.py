@@ -1,5 +1,6 @@
 """Cypher reads and writes for persisted Document nodes."""
 
+from agrag.common.data_models.cutover_job import CUTOVER_JOB_LABEL
 from agrag.common.data_models.decision import HAS_SUPPORT
 from agrag.common.data_models.structure import (
     DOCUMENT_ACTIVATION_LABEL,
@@ -32,6 +33,15 @@ def update_document_dates_query() -> str:
     return (
         f"MATCH (n:{NODE_IDENTITY_LABEL}:Document {{id: $document_node_id}}) "
         "SET n.published_at = $published_at, n.content_date = $content_date "
+        "RETURN n.id AS id"
+    )
+
+
+def retire_document_version_query() -> str:
+    """Build Cypher clearing the current content hash after source deletion."""
+    return (
+        f"MATCH (n:{NODE_IDENTITY_LABEL}:Document {{id: $document_node_id}}) "
+        "SET n.current_content_hash = null "
         "RETURN n.id AS id"
     )
 
@@ -130,4 +140,57 @@ def flag_decisions_for_activation_query() -> str:
         "d.review_reason = CASE WHEN a.verb IN ['delete', 'purge'] "
         "THEN 'source_removed' ELSE 'source_changed' END "
         "RETURN count(DISTINCT d) AS flagged"
+    )
+
+
+def source_status_query() -> str:
+    """Build Cypher reading committed source, activation and job state."""
+    return (
+        f"OPTIONAL MATCH (d:{NODE_IDENTITY_LABEL}:Document "
+        "{document_key: $document_key}) "
+        f"OPTIONAL MATCH (job:{CUTOVER_JOB_LABEL} {{document_key: $document_key}}) "
+        "WHERE job.status IN ['pending', 'rolling_back', 'committed', 'cleaning'] "
+        "WITH d, job ORDER BY job.created_at DESC "
+        "WITH d, collect(job)[0] AS job "
+        f"OPTIONAL MATCH (d)-[part:{HAS_PART}]->"
+        f"(chunk:{NODE_IDENTITY_LABEL}:Chunk) "
+        "WHERE part.invalid_at IS NULL "
+        f"AND {pending_filter_clause('d')} "
+        f"AND {pending_filter_clause('part')} "
+        f"AND {pending_filter_clause('chunk')} "
+        "WITH d, job, collect(part.version_id)[0] AS version_id, "
+        "count(part) > 0 AS has_current, "
+        "count(CASE WHEN chunk.id IS NOT NULL AND "
+        "chunk.extraction_fingerprint IS NULL THEN 1 END) = 0 AS complete "
+        f"OPTIONAL MATCH (d)-[:{HAS_ACTIVATION}]->(a:{NODE_IDENTITY_LABEL}:"
+        f"{DOCUMENT_ACTIVATION_LABEL}) "
+        "WITH d, job, version_id, has_current, complete, a "
+        "ORDER BY a.activation_seq DESC "
+        "WITH d, job, version_id, has_current, complete, collect(a)[0] AS activation "
+        f"RETURN d IS NOT NULL AND {pending_filter_clause('d')} "
+        "AS document_exists, "
+        f"CASE WHEN {pending_filter_clause('d')} "
+        "THEN d.current_content_hash END AS content_hash, "
+        f"CASE WHEN {pending_filter_clause('d')} "
+        "THEN d.activation_seq END AS activation_seq, version_id, "
+        "has_current, complete, "
+        "activation.verb AS last_verb, job.id AS job_id, "
+        "job.status AS job_status, toString(job.lease_expires_at) AS lease_expires_at, "
+        "duration.inSeconds(datetime(job.created_at), datetime()).seconds "
+        "AS job_age_seconds, "
+        "job.error AS job_error, job.lease_expires_at < datetime() AS lease_expired"
+    )
+
+
+def await_indexes_query() -> str:
+    """Build Cypher waiting for index population up to a bounded timeout."""
+    return "CALL db.awaitIndexes($timeout_seconds)"
+
+
+def indexes_not_ready_query() -> str:
+    """Build Cypher listing indexes that remain outside ONLINE after waiting."""
+    return (
+        "SHOW INDEXES YIELD name, state "
+        "WHERE state <> 'ONLINE' "
+        "RETURN name, state ORDER BY name"
     )
