@@ -28,7 +28,7 @@ from agrag.common.data_models.evidence import (
     FetchStatus,
     LegFailure,
 )
-from agrag.cypher.schema import fulltext_index_name
+from agrag.cypher.schema import fulltext_index_name, vector_index_name
 from agrag.embedding.base import Embedder
 from agrag.evidence import check_citations, discover, fetch
 from agrag.graphdb.neo4j import Neo4jGraphStore
@@ -71,6 +71,8 @@ class _HookedStore(Neo4jGraphStore):
         before_read: Awaited before each read. It can block or raise.
         hide_lexical_index: When True, SHOW INDEXES omits the chunk full-text
             index, as if it were missing.
+        vector_dimensions: The dimension reported by the vector index metadata,
+            or None to report that the vector index is absent.
     """
 
     def __init__(
@@ -79,10 +81,12 @@ class _HookedStore(Neo4jGraphStore):
         *,
         before_read: Callable[[], Awaitable[None]] | None = None,
         hide_lexical_index: bool = False,
+        vector_dimensions: int | None = VECTOR_DIMENSIONS,
     ) -> None:
         super().__init__(settings=Neo4jSettings())
         self._inner = inner
         self._before_read = before_read
+        self.vector_dimensions = vector_dimensions
         self._hidden_index = (
             fulltext_index_name(CHUNK_LABEL, ["text"]) if hide_lexical_index else None
         )
@@ -102,8 +106,17 @@ class _HookedStore(Neo4jGraphStore):
         if self._before_read is not None:
             await self._before_read()
         rows = await self._inner.execute_read(query, parameters, timeout=timeout)
-        if self._hidden_index is None or "SHOW INDEXES" not in query:
+        if "SHOW INDEXES" not in query:
             return rows
+        if "AS dimensions" in query:
+            return (
+                []
+                if self.vector_dimensions is None
+                else [{"dimensions": self.vector_dimensions}]
+            )
+        if self.vector_dimensions is None:
+            name = vector_index_name(CHUNK_LABEL, "embedding")
+            rows = [row for row in rows if row["name"] != name]
         return [row for row in rows if row["name"] != self._hidden_index]
 
 
@@ -246,7 +259,12 @@ class TestEquivalenceWithDirectCalls:
             )
 
         assert direct.status is DiscoveryStatus.OK
-        assert DiscoveryResult.model_validate(structured) == direct
+        result = DiscoveryResult.model_validate(structured)
+        assert result.hits
+        assert all(hit.score > 0 for hit in result.hits)
+        # Parallel corpus writes change full-text scores between the two calls.
+        exclude = {"hits": {"__all__": {"score"}}}
+        assert result.model_dump(exclude=exclude) == direct.model_dump(exclude=exclude)
 
     async def test_fetch_returns_gold_text_and_treats_out_of_scope_like_missing(
         self, evidence_env: EvidenceEnv
@@ -437,6 +455,52 @@ class TestStoreFailures:
 class TestEmbeddingModelMismatch:
     """A query embedder that differs from the stored vectors never searches them."""
 
+    async def test_index_changes_take_effect_without_restarting_the_server(
+        self, evidence_env: EvidenceEnv
+    ) -> None:
+        """Observe a missing, created, replaced, and repaired vector index."""
+        env = evidence_env
+        store = _HookedStore(env.store, vector_dimensions=None)
+        async with Client(_server(store, env)) as client:
+            for mode in ("semantic", "hybrid"):
+                structured = await _structured(
+                    client, "search_evidence", {"query": _HYBRID_QUERY, "mode": mode}
+                )
+                result = DiscoveryResult.model_validate(structured)
+                assert result.status is DiscoveryStatus.INDEX_NOT_READY
+                assert result.failures == []
+
+            store.vector_dimensions = VECTOR_DIMENSIONS
+            structured = await _structured(
+                client, "search_evidence", {"query": _HYBRID_QUERY, "mode": "semantic"}
+            )
+            assert (
+                DiscoveryResult.model_validate(structured).status is DiscoveryStatus.OK
+            )
+
+            store.vector_dimensions = VECTOR_DIMENSIONS + 1
+            refused = await client.call_tool(
+                "search_evidence", {"query": _HYBRID_QUERY, "mode": "semantic"}
+            )
+            assert refused.is_error is True
+            assert _EMBEDDING_MISMATCH in _text(refused)
+            structured = await _structured(
+                client, "search_evidence", {"query": _LEXICAL_QUERY, "mode": "hybrid"}
+            )
+            result = DiscoveryResult.model_validate(structured)
+            assert result.status is DiscoveryStatus.PARTIAL
+            assert result.hits
+            assert all(hit.legs == [DiscoveryLeg.LEXICAL] for hit in result.hits)
+
+            store.vector_dimensions = VECTOR_DIMENSIONS
+            structured = await _structured(
+                client, "search_evidence", {"query": _HYBRID_QUERY, "mode": "semantic"}
+            )
+            result = DiscoveryResult.model_validate(structured)
+            assert result.status is DiscoveryStatus.OK
+            assert result.hits
+            assert all(hit.legs == [DiscoveryLeg.SEMANTIC] for hit in result.hits)
+
     async def test_semantic_search_refuses_the_mismatched_embedder(
         self, evidence_env: EvidenceEnv
     ) -> None:
@@ -506,7 +570,12 @@ class TestEmbeddingModelMismatch:
             scope=_settings(env).scope,
         )
 
-        assert DiscoveryResult.model_validate(structured) == direct
+        result = DiscoveryResult.model_validate(structured)
+        assert result.hits
+        assert all(hit.score > 0 for hit in result.hits)
+        # Parallel corpus writes change full-text scores between the two calls.
+        exclude = {"hits": {"__all__": {"score"}}}
+        assert result.model_dump(exclude=exclude) == direct.model_dump(exclude=exclude)
 
     async def test_semantic_search_works_with_the_matching_embedder(
         self, evidence_env: EvidenceEnv
