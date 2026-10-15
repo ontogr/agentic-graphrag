@@ -91,9 +91,10 @@ def index_states_query() -> str:
         A missing index has no row.
     """
     return (
-        "SHOW INDEXES YIELD name, state, type, labelsOrTypes, properties "
+        "SHOW INDEXES YIELD name, state, populationPercent, type, labelsOrTypes, "
+        "properties "
         "WHERE name IN $names "
-        "RETURN name, state, type, labelsOrTypes, properties"
+        "RETURN name, state, populationPercent, type, labelsOrTypes, properties"
     )
 
 

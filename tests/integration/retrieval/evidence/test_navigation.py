@@ -515,6 +515,25 @@ class TestNavigate:
         assert _markers(result.items) == ["configureone"]
         assert result.version_status is VersionStatus.SUPERSEDED
 
+    async def test_deleted_id_is_superseded_when_navigating(
+        self, nav_env: NavEnv
+    ) -> None:
+        """A deleted document's retained passage is not reported as current."""
+        old_install = await _id_of(nav_env, "installone", nav_env.guide)
+        await nav_env.graph.delete_document(nav_env.guide)
+
+        result = await navigate(
+            nav_env.store,
+            old_install,
+            NavigationRelation.NEXT,
+            scope=frozenset({nav_env.guide}),
+            limit=5,
+            max_chars=10_000,
+        )
+
+        assert _markers(result.items) == ["configureone"]
+        assert result.version_status is VersionStatus.SUPERSEDED
+
     async def test_items_of_a_headed_document_resolve_through_fetch(
         self, nav_env: NavEnv
     ) -> None:
