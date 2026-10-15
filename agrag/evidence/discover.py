@@ -7,7 +7,6 @@ out-of-scope and superseded chunks never take a result slot.
 """
 
 import logging
-import re
 from collections import defaultdict
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -20,21 +19,23 @@ from agrag.common.data_models.evidence import (
     DiscoveryMode,
     DiscoveryResult,
     DiscoveryStatus,
-    EvidenceLocation,
     IndexState,
     LegFailure,
 )
-from agrag.common.data_models.provenance import PageProvenance
-from agrag.cypher.evidence import lexical_candidates_query, semantic_candidates_query
+from agrag.cypher.evidence import (
+    lexical_candidates_query,
+    semantic_candidates_query,
+)
 from agrag.cypher.schema import fulltext_index_name, vector_index_name
 from agrag.embedding.base import Embedder
 from agrag.evidence._shared import (
     IndexSpec,
     chunk_from_row,
+    chunk_location,
     chunk_reference,
     indexes_ready,
+    lucene_terms,
     scope_node_ids,
-    text_offsets,
 )
 from agrag.evidence.ids import encode_evidence_id
 from agrag.graphdb.base import GraphStore
@@ -48,6 +49,8 @@ RRF_CONSTANT = 60
 _SNIPPET_CHARS = 240
 _CANDIDATE_MULTIPLIER = 4
 _MAX_CANDIDATES = 1000
+_FULLTEXT_TYPE = "FULLTEXT"
+_VECTOR_TYPE = "VECTOR"
 _FULLTEXT_PROPERTIES = ["text"]
 _EMBEDDING_PROPERTY = "embedding"
 
@@ -133,9 +136,7 @@ async def discover(
         else [DiscoveryLeg(mode.value)]
     )
     try:
-        index_state = await indexes_ready(
-            store, _index_specs(legs), timeout=timeout
-        )
+        index_state = await indexes_ready(store, _index_specs(legs), timeout=timeout)
     except Exception:
         _LOGGER.exception("Evidence index state read failed")
         return DiscoveryResult(status=DiscoveryStatus.FAILED)
@@ -185,13 +186,13 @@ async def discover(
 
 
 def _index_specs(legs: Sequence[DiscoveryLeg]) -> list[IndexSpec]:
-    """Return the index schemas the requested search legs need."""
+    """Return the index each leg searches."""
     specs: list[IndexSpec] = []
     if DiscoveryLeg.LEXICAL in legs:
         specs.append(
             IndexSpec(
                 name=fulltext_index_name(CHUNK_LABEL, _FULLTEXT_PROPERTIES),
-                index_type="FULLTEXT",
+                index_type=_FULLTEXT_TYPE,
                 label=CHUNK_LABEL,
                 prop=_FULLTEXT_PROPERTIES[0],
             )
@@ -200,22 +201,12 @@ def _index_specs(legs: Sequence[DiscoveryLeg]) -> list[IndexSpec]:
         specs.append(
             IndexSpec(
                 name=vector_index_name(CHUNK_LABEL, _EMBEDDING_PROPERTY),
-                index_type="VECTOR",
+                index_type=_VECTOR_TYPE,
                 label=CHUNK_LABEL,
                 prop=_EMBEDDING_PROPERTY,
             )
         )
     return specs
-
-
-def _lucene_terms(query: str) -> str:
-    """Return the query as plain terms that Lucene cannot read as operators.
-
-    Only word characters survive, so no operator, field name, quote or
-    escape reaches the parser. Words are lowercased, so ``AND`` and ``NOT``
-    are not operators in any case.
-    """
-    return " ".join(re.findall(r"\w+", query.lower()))
 
 
 async def _run_leg(
@@ -234,7 +225,7 @@ async def _run_leg(
     runs out of candidates, or the ceiling is reached.
     """
     if leg is DiscoveryLeg.LEXICAL:
-        terms = _lucene_terms(query)
+        terms = lucene_terms(query)
         if not terms:
             return [], False
         statement = lexical_candidates_query()
@@ -332,21 +323,12 @@ def _combine(
 def _hit(item: _Visible, score: float, legs: list[DiscoveryLeg]) -> DiscoveryHit:
     """Build the public hit for one visible chunk."""
     chunk = item.chunk
-    bounds = text_offsets(chunk)
-    if bounds is not None:
-        location = EvidenceLocation(char_start=bounds[0], char_end=bounds[1])
-    elif isinstance(chunk.provenance, PageProvenance):
-        location = EvidenceLocation(
-            page_numbers=[span.page_no for span in chunk.provenance.page_spans]
-        )
-    else:
-        location = EvidenceLocation()
     return DiscoveryHit(
         evidence_id=item.evidence_id,
         document_key=item.document_key,
         title=item.title,
         content_hash=chunk.content_hash,
-        location=location,
+        location=chunk_location(chunk),
         snippet=chunk.text[:_SNIPPET_CHARS],
         score=score,
         legs=legs,

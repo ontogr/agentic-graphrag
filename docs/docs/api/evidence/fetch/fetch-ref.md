@@ -18,7 +18,7 @@ sets. A range that no chunk covers is cut to the covered part, which is marked
 `unavailable`. A missing id and an id outside the scope give the same
 outcome. A chunk reference returns the stored text of that chunk.
 
-The status of a version is `current` when its content hash matches the
+The status of a version is `current` when the id's content hash matches the
 document's current content hash. Updated and deleted versions are
 `superseded`; their text is still returned.
 

@@ -338,12 +338,13 @@ Open a graph, connecting and fully provisioning graph_store.
 Provisioning order: connect, then register every label/relation type
 this graph will ever write (schema's own labels/types plus the fixed
 system names CHUNK_LABEL/SYSTEM_RELATION_TYPES), then
-setup_constraints(), then setup_indexes(), then vector indexes for
-every schema entity label, then the full-text index on chunk text. A
-brand-new database is fully ready, including the merge_key uniqueness
-constraints the global exact-match tier relies on, the embedding vector
-indexes native search needs, and the chunk full-text index that evidence
-discovery reads, before this call returns.
+setup_constraints(), then setup_indexes(), then vector and full-text
+indexes for every schema entity label, then the full-text index on chunk
+text. A brand-new database is fully ready,
+including the merge_key uniqueness constraints the global exact-match
+tier relies on, the embedding vector indexes native search needs, the
+entity name indexes that entity discovery reads, and the chunk full-text
+index that evidence discovery reads, before this call returns.
 
 **Parameters:**
 
