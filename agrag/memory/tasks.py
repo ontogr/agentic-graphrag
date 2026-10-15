@@ -15,6 +15,7 @@ from datetime import UTC, datetime
 from typing import Any, NamedTuple, TypeVar
 from uuid import NAMESPACE_OID, UUID, uuid5
 
+from agrag.common.data_models.decision import Decision
 from agrag.common.data_models.task import (
     EVENT_LABEL,
     HAS_EVENT,
@@ -57,6 +58,7 @@ from agrag.cypher.memory import (
 )
 from agrag.graphdb.base import GraphStore, GraphStoreTransaction
 from agrag.graphdb.errors import GraphStoreConstraintViolationError
+from agrag.memory.decisions import _decision_from_row
 
 
 MAX_PAYLOAD_CHARACTERS = 32_000
@@ -119,6 +121,8 @@ def build_task_view(
     last_event_seq: int,
     step_counts: Mapping[StepState, int],
     steps: Sequence[StepSummary],
+    decisions: Sequence[Decision] = (),
+    decision_count: int | None = None,
 ) -> TaskView:
     """Assemble a resume view from a task's counts and step summaries.
 
@@ -135,6 +139,8 @@ def build_task_view(
             as zero.
         steps: Step summaries to choose from. The list may be longer than the
             cap, or cover only part of the task.
+        decisions: Active decisions to include in the bounded resume view.
+        decision_count: Total active decisions before applying the view cap.
 
     Returns:
         The view. ``steps_truncated`` is true when the counts exceed the
@@ -157,6 +163,9 @@ def build_task_view(
         steps=grouped,
         step_counts=counts,
         steps_truncated=sum(counts.values()) > len(shown),
+        decisions=list(decisions[:20]),
+        decision_count=decision_count if decision_count is not None else len(decisions),
+        decisions_truncated=(decision_count or len(decisions)) > 20,
     )
 
 
@@ -355,6 +364,23 @@ class TaskMemory:
             step_page_query(), {**params, "limit": STEP_VIEW_LIMIT}
         )
         steps = [StepSummary.model_validate(row) for row in page_rows]
+        decision_rows = await self._store.execute_read(
+            "MATCH (t:MemoryTask {project_id: $project_id, id: $task_id})"
+            "-[:MADE]->(d:MemoryDecision {status: 'active'}) "
+            "OPTIONAL MATCH (d)-[:HAS_SUPPORT]->(s:MemorySupport) "
+            "WITH t, d, s ORDER BY s.ordinal "
+            "WITH t, d, collect(s) AS supports "
+            "RETURN d AS decision, supports, t.name AS task_name "
+            "ORDER BY d.created_at DESC LIMIT 21",
+            params,
+        )
+        decisions = [_decision_from_row(row) for row in decision_rows[:20]]
+        decision_count = await self._store.execute_read(
+            "MATCH (t:MemoryTask {project_id: $project_id, id: $task_id})"
+            "-[:MADE]->(d:MemoryDecision {status: 'active'}) "
+            "RETURN count(d) AS count",
+            params,
+        )
         view = build_task_view(
             task_name=task.name,
             goal=task.goal,
@@ -362,6 +388,8 @@ class TaskMemory:
             last_event_seq=task.event_seq,
             step_counts=counts,
             steps=steps,
+            decisions=decisions,
+            decision_count=int(decision_count[0]["count"]),
         )
         return TaskLookup(found=True, view=view)
 

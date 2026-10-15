@@ -21,6 +21,25 @@ A bounded resume view of one task. It never includes event bodies.
 - [**step_counts**](#agrag-common-data_models-task-TaskView-step_counts) (<code>dict\[[StepState](StepState.md), int\]</code>) – Number of steps in each state, including steps that the
   cap hides. Every state is a key.
 - [**steps_truncated**](#agrag-common-data_models-task-TaskView-steps_truncated) (<code>bool</code>) – Whether some steps are hidden by the cap.
+- [**decisions**](#agrag-common-data_models-task-TaskView-decisions) (<code>list\[[Decision](../decision/Decision-ref.md)\]</code>) – Active decisions, newest first, capped at 20.
+
+## `decision_count` \{#agrag-common-data_models-task-TaskView-decision_count}
+
+```python
+decision_count: int = 0
+```
+
+## `decisions` \{#agrag-common-data_models-task-TaskView-decisions}
+
+```python
+decisions: list[Decision] = Field(default_factory=list)
+```
+
+## `decisions_truncated` \{#agrag-common-data_models-task-TaskView-decisions_truncated}
+
+```python
+decisions_truncated: bool = False
+```
 
 ## `goal` \{#agrag-common-data_models-task-TaskView-goal}
 

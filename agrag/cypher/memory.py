@@ -6,6 +6,14 @@ readers in ``relations.py`` never return them. Every query filters by
 under that project.
 """
 
+from agrag.common.data_models.decision import (
+    DECISION_LABEL,
+    DEPENDS_ON,
+    HAS_SUPPORT,
+    MADE,
+    SUPERSEDES,
+    SUPPORT_LABEL,
+)
 from agrag.common.data_models.task import (
     EVENT_LABEL,
     HAS_EVENT,
@@ -27,6 +35,12 @@ _STEP = validate_identifier(STEP_LABEL)
 _REQUEST = validate_identifier(REQUEST_LABEL)
 _HAS_EVENT = validate_identifier(HAS_EVENT)
 _HAS_STEP = validate_identifier(HAS_STEP)
+_DECISION = validate_identifier(DECISION_LABEL)
+_SUPPORT = validate_identifier(SUPPORT_LABEL)
+_MADE = validate_identifier(MADE)
+_HAS_SUPPORT = validate_identifier(HAS_SUPPORT)
+_DEPENDS_ON = validate_identifier(DEPENDS_ON)
+_SUPERSEDES = validate_identifier(SUPERSEDES)
 
 
 def memory_schema_queries() -> list[str]:
@@ -54,7 +68,65 @@ def memory_schema_queries() -> list[str]:
         node_id_constraint_query(_REQUEST),
         f"CREATE CONSTRAINT request_project_request_unique IF NOT EXISTS "
         f"FOR (r:{_REQUEST}) REQUIRE (r.project_id, r.request_id) IS UNIQUE",
+        node_id_constraint_query(_DECISION),
+        f"CREATE CONSTRAINT decision_task_choice_revision_unique IF NOT EXISTS "
+        f"FOR (d:{_DECISION}) REQUIRE "
+        "(d.task_id, d.choice_key, d.revision) IS UNIQUE",
+        node_id_constraint_query(_SUPPORT),
     ]
+
+
+def create_decision_query() -> str:
+    """Build a transaction-scoped decision and support write."""
+    return (
+        f"MATCH (t:{_TASK} {{id: $task_id, project_id: $project_id}}) "
+        f"CREATE (t)-[:{_MADE}]->(d:{_DECISION} $decision) "
+        "WITH d UNWIND $supports AS item "
+        f"CREATE (d)-[:{_HAS_SUPPORT}]->(s:{_SUPPORT}) SET s = item "
+        "WITH d, s, item "
+        f"OPTIONAL MATCH (target:{_DECISION} {{id: item.target_decision_id}}) "
+        "FOREACH (_ IN CASE WHEN item.target_decision_id IS NULL "
+        "THEN [] ELSE [1] END | "
+        f"CREATE (d)-[:{_DEPENDS_ON}]->(target)) "
+        "RETURN d.id AS id"
+    )
+
+
+def decision_by_id_query() -> str:
+    """Build a project-scoped decision read with its supports."""
+    return (
+        f"MATCH (t:{_TASK} {{project_id: $project_id}})-[:{_MADE}]->"
+        f"(d:{_DECISION} {{id: $id}}) "
+        f"OPTIONAL MATCH (d)-[:{_HAS_SUPPORT}]->(s:{_SUPPORT}) "
+        "WITH d, t, s ORDER BY s.ordinal "
+        "WITH d, t, collect(s) AS supports "
+        "RETURN d AS decision, supports, t.name AS task_name "
+        "LIMIT 1"
+    )
+
+
+def decision_status_query() -> str:
+    """Build a project-scoped lifecycle update without changing decision text."""
+    return (
+        f"MATCH (:{_TASK} {{project_id: $project_id}})-[:{_MADE}]->"
+        f"(d:{_DECISION} {{id: $id}}) "
+        "SET d.status = $status, d.rejection_reason = $reason, "
+        "d.rejected_by = $by RETURN d.id AS id"
+    )
+
+
+def decision_page_query() -> str:
+    """Build a project-scoped decision list for one task."""
+    return (
+        f"MATCH (t:{_TASK} {{project_id: $project_id, name: $task_name}})"
+        f"-[:{_MADE}]->(d:{_DECISION}) "
+        "WHERE $include_history OR d.status = 'active' "
+        f"OPTIONAL MATCH (d)-[:{_HAS_SUPPORT}]->(s:{_SUPPORT}) "
+        "WITH t, d, s ORDER BY s.ordinal "
+        "WITH t, d, collect(s) AS supports "
+        "RETURN d AS decision, supports, t.name AS task_name "
+        "ORDER BY d.created_at DESC LIMIT $limit"
+    )
 
 
 def find_task_query() -> str:

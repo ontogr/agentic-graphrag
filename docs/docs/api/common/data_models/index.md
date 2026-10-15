@@ -15,6 +15,7 @@ Shared data models used by agrag components.
 - [**community**](community/index.md) – The Community model: a Leiden-detected entity cluster with an LLM report.
 - [**cutover_job**](cutover_job/index.md) – Names and lifecycle states of the Cutover Job node.
 - [**data_point**](data_point/index.md) – The base class for a graph node.
+- [**decision**](decision/index.md) – Models for decision records: choices, their evidence supports and reads.
 - [**default_schema**](default_schema/index.md) – The default schema: nine entity types and eight typed relations.
 - [**document**](document/index.md) – The Document model: one unit of source text, before chunking.
 - [**dropped**](dropped/index.md) – Counts of items discarded during extraction or merge.
@@ -23,6 +24,7 @@ Shared data models used by agrag components.
 - [**extraction**](extraction/index.md) – Pre-resolution entity and relation mentions produced by an Extractor.
 - [**graph_record**](graph_record/index.md) – Graph storage record shapes for GraphStore.
 - [**graph_schema**](graph_schema/index.md) – The GraphSchema contract: entity and relation types extraction validates against.
+- [**memory_result**](memory_result/index.md) – Error codes and the base result of every project memory write.
 - [**normalization**](normalization/index.md) – The Normalization model: how a loader turned source bytes into text.
 - [**presets**](presets/index.md) – Preset schema fragments that add entity types to a base schema.
 - [**provenance**](provenance/index.md) – Provenance types for a chunk.
