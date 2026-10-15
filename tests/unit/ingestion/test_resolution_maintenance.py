@@ -9,7 +9,6 @@ from agrag.common.data_models.entity import Entity
 from agrag.ingestion import _resolution_maintenance
 from agrag.ingestion.resolve.resolver import ResolutionGroup, ResolutionResult
 from agrag.observability import get_tracer
-from agrag.retrieval.settings import RetrievalSettings
 
 
 def _result(failed: int, capped: int, unavailable: int) -> ResolutionResult:
@@ -58,8 +57,6 @@ class TestConsolidateFailureCounts:
                 schema=schema,
                 graph_store=AsyncMock(),
                 embedder=AsyncMock(),
-                vector_store=None,
-                retrieval_settings=RetrievalSettings(),
                 tracer=get_tracer(None),
                 max_llm_pairs=500,
             )

@@ -28,24 +28,6 @@ Class: `Neo4jSettings`. Prefix: `NEO4J_`.
 | `NEO4J_DATABASE` | `neo4j` | The database name. |
 | `NEO4J_MAX_CONNECTION_LIFETIME` | `240` | Seconds a pooled connection lives. Aura closes idle connections after about five minutes. |
 
-## Vector stores
-
-Each class rejects a plain `http` URL to a non-local host when a credential is set, or when `REQUIRE_TLS` is `true`.
-
-| Variable | Default | Class | Meaning |
-| --- | --- | --- | --- |
-| `QDRANT_URL` | `http://localhost:6333` | `QdrantSettings` | The Qdrant endpoint. |
-| `QDRANT_API_KEY` | empty | `QdrantSettings` | The Qdrant API key. |
-| `QDRANT_REQUIRE_TLS` | `false` | `QdrantSettings` | Reject a plain `http` URL to a non-local host. |
-| `WEAVIATE_MODE` | `custom` | `WeaviateSettings` | `cloud` for Weaviate Cloud, `custom` for a self-hosted instance. |
-| `WEAVIATE_URL` | `http://localhost:8080` | `WeaviateSettings` | The Weaviate endpoint. |
-| `WEAVIATE_API_KEY` | empty | `WeaviateSettings` | The Weaviate API key. |
-| `WEAVIATE_GRPC_PORT` | `50051` | `WeaviateSettings` | The gRPC port. Only `custom` mode uses it. |
-| `WEAVIATE_REQUIRE_TLS` | `false` | `WeaviateSettings` | Reject a plain `http` URL to a non-local host. |
-| `MILVUS_URI` | `http://localhost:19530` | `MilvusSettings` | The Milvus endpoint. |
-| `MILVUS_TOKEN` | empty | `MilvusSettings` | The Milvus token. |
-| `MILVUS_REQUIRE_TLS` | `false` | `MilvusSettings` | Reject a plain `http` URI to a non-local host. |
-
 ## Embeddings
 
 Class: `EmbeddingSettings`. Prefix: `EMBEDDING_`.
@@ -179,16 +161,11 @@ Class: `RetrievalSettings`. Prefix: `RETRIEVAL_`.
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `RETRIEVAL_ENTITY_COLLECTION` | `agrag_entities` | The vector-store collection for entity search. |
-| `RETRIEVAL_RESOLVED_ENTITY_COLLECTION` | `agrag_resolved_entities` | The collection for resolved-entity search. |
-| `RETRIEVAL_CHUNK_COLLECTION` | `agrag_chunks` | The collection for chunk search. |
-| `RETRIEVAL_COMMUNITY_COLLECTION` | `agrag_communities` | The collection for community search. |
-| `RETRIEVAL_ENTITY_LABELS` | `[]` | A JSON list of graph labels for native entity search when no vector store is set. |
+| `RETRIEVAL_ENTITY_LABELS` | `[]` | A JSON list of graph labels for native entity search. |
 | `RETRIEVAL_ENTITY_TOP_K` | `10` | Results per entity search. |
 | `RETRIEVAL_RESOLVED_ENTITY_TOP_K` | `10` | Results per resolved-entity search. |
 | `RETRIEVAL_CHUNK_TOP_K` | `10` | Results per chunk search. |
 | `RETRIEVAL_COMMUNITY_TOP_K` | `5` | Results per community search. |
-| `RETRIEVAL_HYBRID_ALPHA` | `0.5` | The dense-to-keyword blend for hybrid search, from 0 to 1. Vector-store search only. |
 | `RETRIEVAL_TRAVERSAL_DEPTH` | `2` | The maximum hops of a graph expansion. |
 | `RETRIEVAL_TRAVERSAL_LIMIT` | `50` | The maximum nodes a graph expansion returns. |
 | `RETRIEVAL_RRF_K` | `60` | The reciprocal-rank-fusion constant. |

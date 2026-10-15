@@ -120,7 +120,7 @@ Spans hold the question, the tool inputs, and the evidence text. The agent path 
 
 ## Trace the rest of the library with the same tracer
 
-The same tracer traces every other component that calls an LLM, so one run of an ingestion or retrieval pipeline produces a single connected trace. For a connected retrieval trace, pass one tracer to all five: `SearchEngine`, `GraphStore`, `VectorStore`, `Embedder` and `build_agent`. The engine does not push its tracer into its stores, so a store built without the tracer exports adapter spans that no retrieval span connects to. Pass it wherever a component takes `tracer=`:
+The same tracer traces every other component that calls an LLM, so one run of an ingestion or retrieval pipeline produces a single connected trace. For a connected retrieval trace, pass one tracer to four: `SearchEngine`, `GraphStore`, `Embedder` and `build_agent`. The engine does not push its tracer into its stores, so a store built without the tracer exports adapter spans that no retrieval span connects to. Pass it wherever a component takes `tracer=`:
 
 Pass the same tracer to `Graph.open`. When the graph has an LLM extractor, it opens one `agrag.extraction.escalate` span for each batch.
 

@@ -4,10 +4,9 @@ The resume hook closes the loop the Cutover Job runner leaves open when a
 process dies mid-call. A job whose worker died before its commit flip is
 rolled back — its tagged writes are deleted, and the live graph never saw
 them. A job that died while rolling back is finished the same way. A job
-that died after committing is rolled forward: its cleanup
-phase runs against the snapshot the job recorded, its pending vector
-payloads flip to committed, and the job reaches its terminal state. Every
-outcome converges to as-if-never-happened or as-if-completed.
+that died after committing is rolled forward: its cleanup phase runs
+against the snapshot the job recorded, and the job reaches its terminal
+state. Every outcome converges to as-if-never-happened or as-if-completed.
 
 A pending job whose lease is still live is skipped: its worker may be
 running normally in another process, and only a lapsed lease means the
@@ -15,7 +14,7 @@ document was abandoned.
 """
 
 import asyncio
-from collections.abc import Awaitable, Callable, Sequence
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID, uuid4
@@ -31,11 +30,7 @@ from agrag.cypher.cutover_job_write import (
     finish_cleaning_query,
 )
 from agrag.graphdb.base import GraphStore
-from agrag.ingestion._cutover import (
-    _renew_periodically,
-    clear_pending_vectors,
-    delete_pending_vectors,
-)
+from agrag.ingestion._cutover import _renew_periodically
 from agrag.ingestion._pending_rows import rollback_job_rows
 from agrag.ingestion.settings import CutoverJobSettings
 from agrag.observability import get_tracer, record_swallowed_exception
@@ -44,8 +39,6 @@ from agrag.observability import get_tracer, record_swallowed_exception
 async def resume_incomplete_jobs(
     graph_store: GraphStore,
     *,
-    vector_store: Any = None,
-    vector_collections: Sequence[str] = (),
     roll_forward: (
         Callable[[list[UUID], list[UUID], list[UUID]], Awaitable[list[StageFailure]]]
         | None
@@ -57,11 +50,6 @@ async def resume_incomplete_jobs(
 
     Args:
         graph_store: The store just connected and provisioned.
-        vector_store: The optional second write target; a rolled-back
-            job's pending vectors are deleted from it, a rolled-forward
-            job's are flipped to committed.
-        vector_collections: The collections the pending phase may have
-            written to.
         roll_forward: Runs one rolled-forward job's cleanup. It receives the
             job's affected-entity snapshot, its component seed ids and the
             entities it created. An exception or a returned failure leaves
@@ -108,8 +96,6 @@ async def resume_incomplete_jobs(
                 if await _roll_back(
                     graph_store,
                     job_id=job_id,
-                    vector_store=vector_store,
-                    vector_collections=vector_collections,
                     expected_lease_token=str(row["lease_token"]),
                     lease_ttl_seconds=lease_ttl_seconds,
                 ):
@@ -125,8 +111,6 @@ async def resume_incomplete_jobs(
                 affected_entity_ids=_uuid_list(row, "affected_entity_ids"),
                 component_seed_ids=_uuid_list(row, "component_seed_ids"),
                 created_entity_ids=_uuid_list(row, "created_entity_ids"),
-                vector_store=vector_store,
-                vector_collections=vector_collections,
                 roll_forward=roll_forward,
                 lease_token=str(row["lease_token"]),
                 lease_ttl_seconds=lease_ttl_seconds,
@@ -163,16 +147,14 @@ async def _roll_back(
     graph_store: GraphStore,
     *,
     job_id: str,
-    vector_store: Any,
-    vector_collections: Sequence[str],
     expected_lease_token: str,
     lease_ttl_seconds: int,
 ) -> bool:
     """Claim and delete one abandoned pending job's writes and job node.
 
     The claim rechecks the snapshot's lease token and expiry under the job
-    lock before external vector deletion starts. A job that renewed after
-    the initial scan therefore remains untouched.
+    lock before any deletion starts. A job that renewed after the initial
+    scan therefore remains untouched.
 
     Returns:
         Whether recovery completed deletion while its claim remained valid.
@@ -200,11 +182,6 @@ async def _roll_back(
     if not claimed:
         return False
     try:
-        await delete_pending_vectors(
-            vector_store=vector_store,
-            collections=vector_collections,
-            job_id=job_uuid,
-        )
         rolled_back = await rollback_job_rows(
             graph_store, job_id=job_uuid, token=UUID(token)
         )
@@ -221,8 +198,6 @@ async def _roll_forward(
     affected_entity_ids: list[UUID],
     component_seed_ids: list[UUID],
     created_entity_ids: list[UUID],
-    vector_store: Any,
-    vector_collections: Sequence[str],
     roll_forward: (
         Callable[[list[UUID], list[UUID], list[UUID]], Awaitable[list[StageFailure]]]
         | None
@@ -233,11 +208,10 @@ async def _roll_forward(
     """Finish one committed-or-cleaning job's remaining cleanup work.
 
     The commit cleared the job's pending tags atomically, so what is left
-    is the cleanup phase the crashed worker never reached: the same
-    cleanup a live call runs over the job's recorded snapshot, component
-    seeds and created entities, flipping the vector payloads still flagged
-    pending, and the terminal ``done`` flip. All three are idempotent, so a resume
-    that dies part way through simply re-runs them on the next open.
+    is the cleanup phase the crashed worker never reached: the same cleanup a
+    live call runs over the job's recorded snapshot, component seeds and
+    created entities, and the terminal ``done`` flip. Both are idempotent, so
+    a resume that dies part way through simply re-runs them on the next open.
 
     A cleanup that raises or returns failures leaves the job in ``cleaning``
     — terminal only once its cleanup actually completed — so a later open
@@ -283,12 +257,9 @@ async def _roll_forward(
         _finish_roll_forward(
             graph_store=graph_store,
             job_id=job_id,
-            job_uuid=job_uuid,
             affected_entity_ids=affected_entity_ids,
             component_seed_ids=component_seed_ids,
             created_entity_ids=created_entity_ids,
-            vector_store=vector_store,
-            vector_collections=vector_collections,
             roll_forward=roll_forward,
             lease_token=token,
             stop_renewal=stop_renewal,
@@ -318,12 +289,9 @@ async def _finish_roll_forward(
     *,
     graph_store: GraphStore,
     job_id: str,
-    job_uuid: UUID,
     affected_entity_ids: list[UUID],
     component_seed_ids: list[UUID],
     created_entity_ids: list[UUID],
-    vector_store: Any,
-    vector_collections: Sequence[str],
     roll_forward: (
         Callable[[list[UUID], list[UUID], list[UUID]], Awaitable[list[StageFailure]]]
         | None
@@ -347,15 +315,6 @@ async def _finish_roll_forward(
         # A recorded failure keeps the job in cleaning so a later open retries it.
         if failures:
             return False
-    try:
-        await clear_pending_vectors(
-            vector_store=vector_store,
-            collections=vector_collections,
-            job_id=job_uuid,
-        )
-    except Exception as exc:  # noqa: BLE001
-        record_swallowed_exception(exc)
-        return False
     stop_renewal.set()
     await renewal_stopped.wait()
     try:
