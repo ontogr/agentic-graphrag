@@ -25,7 +25,7 @@ class TestReadableCitations:
             evidence_id=_ID,
             status=FetchStatus.OK,
             text=_TEXT,
-            title="Maintenance report",
+            title="Q3's maintenance & report",
             uri="https://example.org/report?q=(lamp)&year=2026",
             covered_range=(0, len(_TEXT)),
         )
@@ -39,7 +39,7 @@ class TestReadableCitations:
             "Lamp [[1]](https://example.org/report?q=%28lamp%29&year=2026). "
             "Again [[1]](https://example.org/report?q=%28lamp%29&year=2026)."
             "\n\n### Sources\n\n"
-            "[1] [Maintenance report]"
+            "[1] [Q3&#x27;s maintenance &amp; report]"
             "(https://example.org/report?q=%28lamp%29&year=2026)"
         )
         assert sources == [fetched]

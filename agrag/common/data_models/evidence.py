@@ -24,7 +24,7 @@ def _source_reference(label: str, uri: str | None) -> str:
             " " if unicodedata.category(c).startswith("C") else c for c in label
         ).split()
     )
-    label = re.sub(r"([\\`*_{\[\]}()!|#])", r"\\\1", html.escape(label))
+    label = html.escape(re.sub(r"([\\`*_{\[\]}()!|#])", r"\\\1", label))
     fallback = label
     if not uri or any(unicodedata.category(c).startswith("C") for c in uri):
         return fallback
