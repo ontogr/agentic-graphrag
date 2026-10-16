@@ -1,8 +1,8 @@
 """Build the local MCP server that exposes the evidence operations as tools.
 
-Each tool is a thin layer over the functions in ``agrag.evidence``. The layer
-adds the trusted scope from settings, output limits, and the error mapping. It
-has no write path.
+Each tool is a thin layer over the functions in ``agrag.evidence`` or the
+project-scoped memory services. The layer adds trusted scope, output limits,
+and explicit write gates.
 
 Semantic and hybrid search need the same ``EMBEDDING_*`` settings that ingestion
 used. Each semantic or hybrid call compares the query embedder's dimension with
@@ -39,7 +39,10 @@ from agrag.embedding.base import Embedder
 from agrag.evidence import check_citations as verify_citations
 from agrag.evidence import discover, fetch
 from agrag.graphdb.base import GraphStore
-from agrag.mcp_server.read_tools import register_memory_read_tools
+from agrag.mcp_server.read_tools import (
+    register_evidence_read_tools,
+    register_memory_read_tools,
+)
 from agrag.mcp_server.settings import McpServerSettings
 from agrag.mcp_server.write_tools import register_write_tools
 
@@ -102,9 +105,13 @@ def _store_lifespan(
 
 
 def _register_memory_tools(
-    server: MCPServer, store: GraphStore, settings: McpServerSettings
+    server: MCPServer,
+    store: GraphStore,
+    embedder: Embedder,
+    settings: McpServerSettings,
 ) -> None:
     """Register the read surface and the operator-enabled write surface."""
+    register_evidence_read_tools(server, store, embedder, settings)
     if not settings.project_id.strip() or not settings.agent_id.strip():
         return
     register_memory_read_tools(server, store, settings)
@@ -142,15 +149,16 @@ def build_server(  # noqa: PLR0915
     server = MCPServer(
         name=_SERVER_NAME,
         instructions=(
-            "Read-only access to the evidence passages of the configured "
-            "documents. A score is not a confidence. A valid citation shows that "
-            "the text was fetched, not that it supports a claim. No match is not "
-            "proof that the passage does not exist."
+            "Access is limited to evidence passages in the configured documents "
+            "and memory in the configured project. Writes are available only "
+            "when enabled by server settings. A score is not a confidence. A "
+            "valid citation shows that the text was fetched, not that it supports "
+            "a claim. No match is not proof that a passage does not exist."
         ),
         lifespan=_store_lifespan(store),
     )
 
-    _register_memory_tools(server, store, settings)
+    _register_memory_tools(server, store, embedder, settings)
 
     @server.tool(
         annotations=_READ_ONLY,

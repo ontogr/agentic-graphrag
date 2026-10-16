@@ -26,9 +26,11 @@ from agrag.common.data_models.navigation import (
     TruncationReason,
 )
 from agrag.cypher.evidence import (
+    evidence_chunk_at_offset_query,
     evidence_chunks_query,
     navigation_chunks_query,
     navigation_sections_query,
+    table_neighbor_query,
 )
 from agrag.evidence._shared import (
     StoredChunk,
@@ -118,9 +120,12 @@ async def navigate(
     if str(reference.document_node_id) not in scope_node_ids(scope):
         return _unavailable()
 
+    is_chunk = reference.kind is EvidenceKind.CHUNK
     rows = await _read_rows(
         store,
-        evidence_chunks_query(by_chunk_id=reference.kind is EvidenceKind.CHUNK),
+        evidence_chunks_query(by_chunk_id=True)
+        if is_chunk
+        else evidence_chunk_at_offset_query(),
         _anchor_parameters(reference),
         reference.document_node_id,
     )
@@ -128,7 +133,13 @@ async def navigate(
         return NavigationResult(
             status=NavigationStatus.FAILED, detail=_STORE_ERROR_MESSAGE
         )
-    anchor = _anchor(reference, [stored_chunk(row) for row in rows])
+    anchor = (
+        _anchor(reference, [stored_chunk(row) for row in rows])
+        if is_chunk
+        else stored_chunk(rows[0])
+        if rows
+        else None
+    )
     if anchor is None:
         return _unavailable()
 
@@ -170,6 +181,8 @@ def _anchor_parameters(reference: EvidenceReference) -> dict[str, Any]:
     }
     if reference.chunk_id is not None:
         parameters["chunk_id"] = str(reference.chunk_id)
+    if reference.char_start is not None:
+        parameters["char_start"] = reference.char_start
     return parameters
 
 
@@ -235,9 +248,7 @@ async def _passages(
 ) -> list[_Passage] | None:
     """Return the neighbor passages of a relation, one more than limit at most.
 
-    The table context keeps the rows around the starting passage, so it is not
-    limited in the query. Its result holds at most three passages. A query that
-    fails gives None.
+    A query that fails gives None.
     """
     if relation is NavigationRelation.TABLE_CONTEXT:
         return await _table_context(store, anchor, limit)
@@ -267,18 +278,27 @@ async def _table_context(
     """
     if anchor.chunk.content_kind != "table":
         return []
-    rows = await _read_rows(
+    parameters = _neighbor_parameters(anchor, limit)
+    parameters["position"] = anchor.chunk.index
+    before_rows = await _read_rows(
         store,
-        navigation_chunks_query(NavigationRelation.TABLE_CONTEXT),
-        _neighbor_parameters(anchor, limit),
+        table_neighbor_query(previous=True),
+        parameters,
         anchor.chunk.document_id,
     )
-    if rows is None:
+    after_rows = await _read_rows(
+        store,
+        table_neighbor_query(previous=False),
+        parameters,
+        anchor.chunk.document_id,
+    )
+    if before_rows is None or after_rows is None:
         return None
-    table_rows = [stored_chunk(row) for row in rows]
-    before = [row for row in table_rows if row.chunk.index < anchor.chunk.index]
-    after = [row for row in table_rows if row.chunk.index > anchor.chunk.index]
-    window = [*before[-1:], anchor, *after[:1]]
+    window = [
+        *[stored_chunk(row) for row in before_rows],
+        anchor,
+        *[stored_chunk(row) for row in after_rows],
+    ]
     return [_Passage(row, list(row.chunk.heading_path)) for row in window]
 
 

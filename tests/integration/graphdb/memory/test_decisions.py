@@ -331,7 +331,7 @@ async def test_changed_document_support_records_full_old_hash_and_current_activa
     assert recorded.decision.review_state is ReviewState.NEEDS_REVIEW
     assert recorded.decision.review_reason.value == "source_changed_during_recording"
     assert support.content_hash == old_hash
-    assert support.recorded_activation_seq == 2
+    assert support.recorded_activation_seq == fetched[0].observed_activation_seq == 1
 
 
 async def test_refuses_inactive_decision_as_support(store, project):

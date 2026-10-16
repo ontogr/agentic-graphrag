@@ -10,6 +10,7 @@ from agrag.common.data_models.task import (
     EVENT_LABEL,
     HAS_EVENT,
     HAS_STEP,
+    PROJECT_LABEL,
     STEP_LABEL,
     TASK_LABEL,
 )
@@ -85,7 +86,12 @@ def flag_decisions_query() -> str:
     return (
         f"MATCH (t:{_TASK} {{project_id: $project_id}})-[:{_MADE}]->"
         f"(d:{_DECISION} {{id: $decision_id}}) "
-        "SET d.review_state = 'needs_review', d.review_reason = 'source_removed' "
+        "SET d.review_state = 'needs_review', d.review_reason = 'source_removed', "
+        "d.review_pending = true "
+        "WITH d "
+        f"MATCH (p:{PROJECT_LABEL} {{project_id: $project_id}}) "
+        "SET p.review_incomplete = true, "
+        "p.review_epoch = coalesce(p.review_epoch, 0) + 1 "
         "RETURN d.id AS id"
     )
 

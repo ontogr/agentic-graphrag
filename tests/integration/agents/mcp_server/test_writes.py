@@ -94,11 +94,16 @@ class TestMcpMemoryTools:
                 "get_task",
                 "list_events",
                 "fetch_event",
+                "list_steps",
                 "record_decision",
                 "supersede_decision",
                 "search_decisions",
                 "list_conflicts",
                 "get_decision",
+                "list_decisions",
+                "list_needing_review",
+                "reaffirm_decision",
+                "continue_review_propagation",
             } <= names
             assert "reject_decision" not in names
             create = await client.call_tool(
@@ -167,9 +172,14 @@ class TestMcpMemoryTools:
             fetched = await client.call_tool(
                 "fetch_event", {"task_name": "mcp task", "seq": 1}
             )
-            assert fetched.structured_content["events"][0]["payload"] == (
+            assert fetched.structured_content["event"]["payload"] == (
                 "event from the MCP host"
             )
+            exact_event = await client.call_tool(
+                "fetch_event", {"task_name": "mcp task", "seq": 2}
+            )
+            assert exact_event.structured_content["event"]["seq"] == 2
+            assert exact_event.structured_content["event"]["kind"] == "tool_result"
             evidence_search = await client.call_tool(
                 "search_evidence",
                 {
@@ -205,10 +215,16 @@ class TestMcpMemoryTools:
                     "name": "capture event",
                     "state": "completed",
                     "result_event_seq": 1,
+                    "result_basis": "supported",
+                    "supports": [{"evidence_id": evidence_id}],
                     "request_id": "step-once",
                 },
             )
             assert step.structured_content["recorded"] is True
+            steps = await client.call_tool(
+                "list_steps", {"task_name": "mcp task", "state": "completed"}
+            )
+            assert steps.structured_content["steps"][0]["result_basis"] == "supported"
             task_view = await client.call_tool("get_task", {"name": "mcp task"})
             assert task_view.structured_content["found"] is True
             decision = await client.call_tool(
@@ -247,6 +263,56 @@ class TestMcpMemoryTools:
             )
             assert original.structured_content["decision"]["status"] == "superseded"
             decision_id = replacement.structured_content["decision"]["id"]
+            history = await client.call_tool(
+                "list_decisions", {"task_name": "mcp task"}
+            )
+            assert history.structured_content["page"]["count"] == 2
+            review_list = await client.call_tool("list_needing_review", {})
+            assert (
+                review_list.structured_content["decisions"][0]["review_state"]
+                == "unknown"
+            )
+            propagation = await client.call_tool(
+                "continue_review_propagation", {"limit": 5}
+            )
+            assert propagation.structured_content["result"] == 1
+            reviewed = await client.call_tool("list_needing_review", {})
+            assert reviewed.structured_content["decisions"] == []
+
+            reaffirm_task = await client.call_tool(
+                "create_task",
+                {
+                    "name": "reaffirm task",
+                    "goal": "reaffirm a supported decision",
+                    "request_id": "reaffirm-task-once",
+                },
+            )
+            assert reaffirm_task.structured_content["recorded"] is True
+            reaffirm_decision = await client.call_tool(
+                "record_decision",
+                {
+                    "task_name": "reaffirm task",
+                    "choice_key": "reaffirm-choice",
+                    "conclusion": "Keep the documented activity.",
+                    "rationale": "The source passage supports the conclusion.",
+                    "supports": [{"evidence_id": evidence_id}],
+                    "assumptions": [],
+                    "open_questions": [],
+                    "request_id": "reaffirm-decision-once",
+                },
+            )
+            reaffirm_id = reaffirm_decision.structured_content["decision"]["id"]
+            reaffirmed = await client.call_tool(
+                "reaffirm_decision",
+                {
+                    "decision_id": reaffirm_id,
+                    "evidence": [{"evidence_id": evidence_id}],
+                    "explanation": "The current source still supports it.",
+                    "request_id": "reaffirm-once",
+                },
+            )
+            assert reaffirmed.structured_content["recorded"] is True
+            assert reaffirmed.structured_content["decision"]["review_state"] == "clear"
             other_task = await client.call_tool(
                 "create_task",
                 {
@@ -297,7 +363,10 @@ class TestMcpMemoryTools:
             build_server(evidence_env.store, BagOfWordsEmbedder(), read_only)
         ) as client:
             hidden = await client.list_tools()
-            assert "record_event" not in {tool.name for tool in hidden.tools}
+            hidden_names = {tool.name for tool in hidden.tools}
+            assert "record_event" not in hidden_names
+            assert "reaffirm_decision" not in hidden_names
+            assert "continue_review_propagation" not in hidden_names
             denied = await client.call_tool(
                 "record_event",
                 {

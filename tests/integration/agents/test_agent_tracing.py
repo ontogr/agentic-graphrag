@@ -260,7 +260,13 @@ class TestAgentTracing:
             if tool is not None:
                 owners[tool.context.span_id] = _tool_name(tool)
         assert owners, "no graph read ran under a tool span"
-        assert set(owners.values()) <= {"discover_evidence", "fetch_evidence"}
+        assert set(owners.values()) <= {
+            "discover_evidence",
+            "fetch_evidence",
+            "navigate",
+            "find_entities",
+            "explore",
+        }
         assert len(owners) >= 2, "fewer than two tool calls ran retrieval"
 
         searches = [

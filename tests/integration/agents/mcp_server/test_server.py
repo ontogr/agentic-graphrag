@@ -64,7 +64,7 @@ class _HookedStore(Neo4jGraphStore):
     """A Neo4j store whose reads can be delayed, failed or filtered.
 
     Reads and connections go through the wrapped store, which the test corpus
-    was written with. The server only reads, so no write path is wrapped.
+    was written with. These evidence tests do not wrap the memory write paths.
 
     Args:
         inner: The store that answers the reads.
@@ -207,17 +207,24 @@ def _gold_span_id(env: EvidenceEnv) -> str:
 
 
 class TestToolListing:
-    """The server lists exactly the three read-only tools, with schemas."""
+    """The server lists scoped evidence tools and their schemas."""
 
-    async def test_lists_three_read_only_tools_without_a_scope_argument(
+    async def test_lists_evidence_tools_without_a_scope_argument(
         self, evidence_env: EvidenceEnv
     ) -> None:
-        """List three tools with read-only annotations and no scope parameter."""
+        """List evidence tools with read-only annotations and no scope argument."""
         async with Client(_server(evidence_env.store, evidence_env)) as client:
             listing = await client.list_tools()
 
         names = sorted(tool.name for tool in listing.tools)
-        assert names == ["check_citations", "fetch_evidence", "search_evidence"]
+        assert {
+            "check_citations",
+            "explore",
+            "fetch_evidence",
+            "find_entities",
+            "navigate",
+            "search_evidence",
+        } <= set(names)
         for tool in listing.tools:
             assert tool.input_schema is not None
             assert tool.output_schema is not None
@@ -239,12 +246,19 @@ class TestToolListing:
         names = sorted(tool.name for tool in listing.tools)
         assert names == [
             "check_citations",
+            "explore",
             "fetch_event",
             "fetch_evidence",
+            "find_entities",
             "get_decision",
             "get_task",
             "list_conflicts",
+            "list_decisions",
             "list_events",
+            "list_needing_review",
+            "list_steps",
+            "list_support_history",
+            "navigate",
             "search_decisions",
             "search_evidence",
         ]
@@ -362,6 +376,43 @@ class TestEquivalenceWithDirectCalls:
 
         verdicts = CitationResult.model_validate(structured).checks
         assert verdicts[0].verdict is CitationVerdict.NOT_FETCHED
+
+
+class TestSharedEvidenceTools:
+    """Entity and navigation tools keep all reads inside configured scope."""
+
+    async def test_entity_and_navigation_calls_keep_trusted_scope(
+        self, evidence_env: EvidenceEnv
+    ) -> None:
+        """Return scoped entity support and hide a valid out-of-scope passage."""
+        env = evidence_env
+        outside_id = span_evidence_id(env.viber, VIBER_TEXT, 0, 40)
+
+        async with Client(_server(env.store, env)) as client:
+            entities = await client.call_tool(
+                "find_entities",
+                {"query": "activity", "mode": "lexical", "limit": 5},
+            )
+            assert not entities.is_error, entities.content
+            entity_result = entities.structured_content
+            assert all(
+                passage["document_key"] in _settings(env).scope
+                for hit in entity_result["hits"]
+                for passage in hit["support"]
+            )
+
+            navigation = await client.call_tool(
+                "navigate",
+                {"evidence_id": outside_id, "relation": "next", "limit": 5},
+            )
+            assert not navigation.is_error, navigation.content
+            assert navigation.structured_content["status"] == "unavailable"
+
+            exploration = await client.call_tool(
+                "explore", {"entity_id": "not-an-entity-id"}
+            )
+            assert not exploration.is_error, exploration.content
+            assert exploration.structured_content["status"] == "malformed"
 
 
 class TestOutputLimits:

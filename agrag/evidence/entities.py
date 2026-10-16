@@ -84,6 +84,7 @@ _INTERNAL_PROPERTIES = frozenset(
 _MAX_DEPTH = 2
 _MAX_EXPLORE_BOUND = 200
 _EDGE_SUPPORT_LIMIT = 3
+_EXPLORE_ROW_LIMIT = 1000
 
 
 @dataclass(frozen=True)
@@ -571,8 +572,12 @@ async def _walk(
                 "system_types": system_types,
                 "scope_ids": scope_ids,
                 "support_limit": _EDGE_SUPPORT_LIMIT,
+                "row_limit": _EXPLORE_ROW_LIMIT + 1,
             },
         )
+        if len(rows) > _EXPLORE_ROW_LIMIT:
+            bounds.add(ExplorationBound.CANDIDATES)
+            rows = rows[:_EXPLORE_ROW_LIMIT]
         next_frontier: list[str] = []
         for row in rows:
             relation_id = str(row["relation_id"])

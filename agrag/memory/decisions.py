@@ -8,6 +8,8 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import NAMESPACE_OID, UUID, uuid5
 
+from pydantic import TypeAdapter
+
 from agrag.common.data_models.decision import (
     DECISION_LABEL,
     DEPENDS_ON,
@@ -34,6 +36,8 @@ from agrag.common.data_models.decision import (
     RecordDecisionResult,
     RejectDecisionResult,
     ReviewState,
+    Support,
+    SupportHistoryPage,
     SupportInput,
     SupportKind,
 )
@@ -58,13 +62,17 @@ from agrag.cypher.memory import (
     store_request_result_query,
 )
 from agrag.cypher.memory_review import (
+    REVIEW_CHILD_PAGE_SIZE,
     claim_review_unit_query,
     clear_decision_review_query,
     current_document_query,
     expand_review_unit_query,
     finish_review_propagation_query,
     flag_new_decision_for_review_query,
+    next_support_ordinal_query,
+    queue_superseded_decision_query,
     replace_document_supports_query,
+    support_history_query,
 )
 from agrag.cypher.schema import fulltext_index_name
 from agrag.evidence.ids import MalformedEvidenceIdError, decode_evidence_id
@@ -76,7 +84,7 @@ MAX_DECISIONS = 100
 DECISION_PAGE_LIMIT = 20
 
 
-class _DecisionRefusedError(Exception):
+class _DecisionRefusedError(ValueError):
     """A validation failure that must roll back the current write."""
 
     def __init__(self, code: MemoryErrorCode) -> None:
@@ -102,15 +110,10 @@ def _decision_from_row(row: dict[str, Any]) -> Decision:
     """Validate a decision row and its typed supports.
 
     While a project's review propagation is pending, clear decisions read as
-    unknown unless they were reaffirmed.
+    unknown.
     """
     raw = dict(row["decision"])
-    reaffirmed = bool(raw.get("review_reaffirmed"))
-    if (
-        row.get("review_incomplete")
-        and raw.get("review_state", "clear") == "clear"
-        and not reaffirmed
-    ):
+    if row.get("review_incomplete") and raw.get("review_state", "clear") == "clear":
         raw["review_state"] = ReviewState.UNKNOWN.value
     raw["task_name"] = row["task_name"]
     raw["supports"] = [dict(support) for support in row["supports"] if support]
@@ -257,6 +260,7 @@ class DecisionMemory:
         evidence: Sequence[DocumentSupportInput],
         *,
         fetched_evidence: Sequence[FetchOutcome] = (),
+        explanation: str = "Reaffirmed after review.",
         request_id: str | None = None,
     ) -> ReaffirmDecisionResult:
         """Confirm a decision still stands on the current version of its documents.
@@ -278,6 +282,7 @@ class DecisionMemory:
             evidence: The new document supports, one or more per cited document.
             fetched_evidence: Fetch outcomes from this session. They must cover
                 the current version of each cited document.
+            explanation: The reason the reviewer accepts the current supports.
             request_id: An optional key that makes a retry return the stored
                 result of the first call.
 
@@ -290,6 +295,7 @@ class DecisionMemory:
             "fetched_evidence": [
                 item.model_dump(mode="json") for item in fetched_evidence
             ],
+            "explanation": explanation,
         }
         return await self._write(
             "reaffirm_decision",
@@ -297,7 +303,11 @@ class DecisionMemory:
             request_id,
             ReaffirmDecisionResult,
             lambda tx: self._reaffirm(
-                tx, decision_id, evidence=evidence, fetched=fetched_evidence
+                tx,
+                decision_id,
+                evidence=evidence,
+                fetched=fetched_evidence,
+                explanation=explanation,
             ),
         )
 
@@ -314,7 +324,7 @@ class DecisionMemory:
     async def continue_review_propagation(self, *, limit: int = 100) -> int:
         """Expand at most ``limit`` queued decisions by one dependency hop each."""
         processed = 0
-        for _ in range(max(0, limit)):
+        for _ in range(max(0, min(limit, 100))):
 
             async def process(tx: GraphStoreTransaction) -> bool:
                 claimed = await tx.execute_write(
@@ -329,6 +339,8 @@ class DecisionMemory:
                         {
                             "project_id": self._project_id,
                             "decision_id": decision_id,
+                            "page_limit": REVIEW_CHILD_PAGE_SIZE + 1,
+                            "child_limit": REVIEW_CHILD_PAGE_SIZE,
                         },
                     )
                 await tx.execute_write(
@@ -341,6 +353,31 @@ class DecisionMemory:
                 break
             processed += 1
         return processed
+
+    async def list_support_history(
+        self, decision_id: UUID, *, after_ordinal: int = -1, limit: int = 20
+    ) -> SupportHistoryPage:
+        """Read exact historical support associations and who reviewed them."""
+        size = max(1, min(limit, 100))
+        rows = await self._store.execute_read(
+            support_history_query(),
+            {
+                "project_id": self._project_id,
+                "id": str(decision_id),
+                "after_ordinal": after_ordinal,
+                "limit": size + 1,
+            },
+        )
+        return SupportHistoryPage(
+            supports=[
+                TypeAdapter(Support).validate_python(dict(row["support"]))
+                for row in rows[:size]
+            ],
+            truncated=len(rows) > size,
+            next_after_ordinal=rows[size - 1]["support"]["ordinal"]
+            if len(rows) > size
+            else None,
+        )
 
     async def list_review(
         self, *, task_name: str | None = None, limit: int = 20
@@ -365,10 +402,11 @@ class DecisionMemory:
             f"(d:{DECISION_LABEL} {{status: 'active'}}) "
             "MATCH (p:MemoryProject {project_id: $project_id}) "
             "WHERE (d.review_state = 'needs_review' OR "
-            "(p.review_incomplete AND NOT coalesce(d.review_reaffirmed, false))) "
+            "p.review_incomplete) "
             "AND ($task_name IS NULL OR t.name = $task_name) "
-            f"OPTIONAL MATCH (d)-[:{HAS_SUPPORT}]->(s:{SUPPORT_LABEL}) "
-            "WITH t, d, p, s ORDER BY s.ordinal "
+            f"OPTIONAL MATCH (d)-[:{HAS_SUPPORT}]->"
+            f"(s:{SUPPORT_LABEL} {{current: true}}) "
+            "WITH t, d, p, s ORDER BY s.current DESC, s.ordinal "
             "WITH t, d, p, collect(s) AS supports "
             "RETURN d AS decision, supports, t.name AS task_name, "
             "p.review_incomplete AS review_incomplete "
@@ -384,7 +422,7 @@ class DecisionMemory:
             f"(d:{DECISION_LABEL} {{status: 'active'}}) "
             "MATCH (p:MemoryProject {project_id: $project_id}) "
             "WHERE (d.review_state = 'needs_review' OR "
-            "(p.review_incomplete AND NOT coalesce(d.review_reaffirmed, false))) "
+            "p.review_incomplete) "
             "AND ($task_name IS NULL OR t.name = $task_name) "
             "RETURN count(d) AS count",
             {"project_id": self._project_id, "task_name": task_name},
@@ -444,9 +482,10 @@ class DecisionMemory:
             f"MATCH (t:{TASK_LABEL} {{project_id: $project_id}})-[:{MADE}]->(node) "
             f"WHERE node:{DECISION_LABEL} AND node.status = 'active' "
             "AND ($task_name IS NULL OR t.name = $task_name) "
-            f"OPTIONAL MATCH (node)-[:{HAS_SUPPORT}]->(s:{SUPPORT_LABEL}) "
+            f"OPTIONAL MATCH (node)-[:{HAS_SUPPORT}]->"
+            f"(s:{SUPPORT_LABEL} {{current: true}}) "
             "OPTIONAL MATCH (p:MemoryProject {project_id: $project_id}) "
-            "WITH node, score, t, p, s ORDER BY s.ordinal "
+            "WITH node, score, t, p, s ORDER BY s.current DESC, s.ordinal "
             "WITH node, score, t, p, collect(s) AS supports "
             "RETURN node AS decision, supports, t.name AS task_name, "
             "t.goal AS task_goal, score, "
@@ -490,8 +529,9 @@ class DecisionMemory:
                     f"MATCH (t:{TASK_LABEL} {{project_id: $project_id}})-[:{MADE}]->"
                     f"(d:{DECISION_LABEL}) WHERE d.id IN $ids "
                     "OPTIONAL MATCH (p:MemoryProject {project_id: $project_id}) "
-                    f"OPTIONAL MATCH (d)-[:{HAS_SUPPORT}]->(s:{SUPPORT_LABEL}) "
-                    "WITH d, t, p, s ORDER BY s.ordinal "
+                    f"OPTIONAL MATCH (d)-[:{HAS_SUPPORT}]->"
+                    f"(s:{SUPPORT_LABEL} {{current: true}}) "
+                    "WITH d, t, p, s ORDER BY s.current DESC, s.ordinal "
                     "WITH d, t, p, collect(s) AS supports "
                     "RETURN d AS decision, supports, t.name AS task_name, "
                     "coalesce(p.review_incomplete, false) AS review_incomplete",
@@ -574,7 +614,7 @@ class DecisionMemory:
             raise _DecisionRefusedError(MemoryErrorCode.SUPERSEDE_TARGET_INVALID)
         if not supports:
             raise _DecisionRefusedError(MemoryErrorCode.SUPPORT_REQUIRED)
-        support_props, currency_changed = await self._validated_supports(
+        support_props, currency_changed = await self.resolve_supports(
             tx, supports, fetched
         )
         revision = max((int(item["revision"]) for item in revisions), default=0) + 1
@@ -614,6 +654,7 @@ class DecisionMemory:
                     {
                         **support,
                         "id": str(_uuid("Support", identity, index)),
+                        "current": True,
                         "project_id": self._project_id,
                         "target_decision_id": str(support["decision_id"])
                         if support["kind"] == "decision"
@@ -629,12 +670,12 @@ class DecisionMemory:
         )
         if supersedes is not None:
             await tx.execute_write(
-                f"MATCH (old:{DECISION_LABEL} {{id: $id}}) "
-                "SET old.status = 'superseded', old.review_state = 'clear', "
-                "old.review_reason = null "
-                f"WITH old MATCH (new:{DECISION_LABEL} {{id: $new_id}}) "
-                f"CREATE (new)-[:{SUPERSEDES}]->(old)",
-                {"id": str(supersedes), "new_id": identity},
+                queue_superseded_decision_query(),
+                {
+                    "project_id": self._project_id,
+                    "id": str(supersedes),
+                    "new_id": identity,
+                },
             )
         lookup = await self._get_decision_tx(tx, identity)
         return RecordDecisionResult(
@@ -680,6 +721,9 @@ class DecisionMemory:
                 "by": self._agent_id,
             },
         )
+        await tx.execute_write(
+            finish_review_propagation_query(), {"project_id": self._project_id}
+        )
         return RejectDecisionResult(
             recorded=True, decision=await self._get_decision_tx(tx, str(decision_id))
         )
@@ -691,6 +735,7 @@ class DecisionMemory:
         *,
         evidence: Sequence[DocumentSupportInput],
         fetched: Sequence[FetchOutcome],
+        explanation: str,
     ) -> ReaffirmDecisionResult:
         lookup = await self._get_decision_tx(tx, str(decision_id))
         if lookup is None:
@@ -705,21 +750,34 @@ class DecisionMemory:
         cited = {
             str(support.document_node_id)
             for support in lookup.supports
-            if isinstance(support, DocumentSupport)
+            if isinstance(support, DocumentSupport) and support.current
         }
         for document_id in cited:
             if not await self._is_revalidated(tx, document_id, fetched):
                 raise _DecisionRefusedError(MemoryErrorCode.CANNOT_REVALIDATE)
         for support in lookup.supports:
+            if isinstance(support, EventSupport):
+                await self._event_support(
+                    tx, EventSupportInput(task_name=support.task_name, seq=support.seq)
+                )
             if not isinstance(support, DecisionSupport):
                 continue
             parent = await self._get_decision_tx(tx, str(support.decision_id))
-            if parent is not None and parent.review_state is ReviewState.NEEDS_REVIEW:
+            if (
+                parent is None
+                or parent.status is not DecisionStatus.ACTIVE
+                or parent.review_state is not ReviewState.CLEAR
+            ):
                 raise _DecisionRefusedError(MemoryErrorCode.CANNOT_REVALIDATE)
+        pending = await tx.execute_read(
+            f"MATCH (p:{PROJECT_LABEL} {{project_id: $project_id}}) "
+            "RETURN coalesce(p.review_incomplete, false) AS incomplete",
+            {"project_id": self._project_id},
+        )
+        if pending and pending[0]["incomplete"]:
+            raise _DecisionRefusedError(MemoryErrorCode.CANNOT_REVALIDATE)
         try:
-            support_props, changed = await self._validated_supports(
-                tx, evidence, fetched
-            )
+            support_props, changed = await self.resolve_supports(tx, evidence, fetched)
         except _DecisionRefusedError as refused:
             if refused.code in (
                 MemoryErrorCode.SUPPORT_NOT_FETCHED,
@@ -731,11 +789,18 @@ class DecisionMemory:
         if changed or cited_by_evidence != cited:
             raise _DecisionRefusedError(MemoryErrorCode.CANNOT_REVALIDATE)
         created = datetime.now(UTC)
+        ordinal_rows = await tx.execute_read(
+            next_support_ordinal_query(),
+            {"project_id": self._project_id, "id": str(decision_id)},
+        )
         await tx.execute_write(
             replace_document_supports_query(),
             {
                 "project_id": self._project_id,
                 "decision_id": str(decision_id),
+                "reviewer": self._agent_id,
+                "reviewed_at": created.isoformat(),
+                "explanation": explanation,
                 "supports": [
                     {
                         **support,
@@ -749,7 +814,11 @@ class DecisionMemory:
                             )
                         ),
                         "project_id": self._project_id,
-                        "ordinal": len(lookup.supports) + index,
+                        "ordinal": ordinal_rows[0]["ordinal"] + index,
+                        "current": True,
+                        "reviewed_by": self._agent_id,
+                        "reviewed_at": created.isoformat(),
+                        "review_explanation": explanation,
                     }
                     for index, support in enumerate(support_props)
                 ],
@@ -816,31 +885,21 @@ class DecisionMemory:
             },
         )
 
-    async def _validated_supports(
+    async def resolve_supports(
         self,
         tx: GraphStoreTransaction,
         supports: Sequence[SupportInput],
         fetched: Sequence[FetchOutcome],
     ) -> tuple[list[dict[str, Any]], bool]:
-        """Resolve and validate supports in caller order inside the write."""
+        """Resolve typed supports in a caller-owned transaction.
+
+        Returns property maps and whether any observed source has changed.
+        Raises ValueError when a reference cannot be resolved or was not fetched.
+        """
+        if len(supports) > 20:
+            raise _DecisionRefusedError(MemoryErrorCode.SUPPORT_REQUIRED)
         support_props: list[dict[str, Any]] = []
         currency_changed = False
-        try:
-            document_ids = sorted(
-                {
-                    str(decode_evidence_id(source.evidence_id).document_node_id)
-                    for source in supports
-                    if isinstance(source, DocumentSupportInput)
-                }
-            )
-        except MalformedEvidenceIdError:
-            raise _DecisionRefusedError(MemoryErrorCode.SUPPORT_MALFORMED) from None
-        for document_id in document_ids:
-            await tx.execute_write(
-                "MATCH (doc:Document {id: $id}) SET doc.activation_seq = "
-                "coalesce(doc.activation_seq, 0) RETURN doc.id AS id",
-                {"id": document_id},
-            )
         decision_ids = sorted(
             {
                 support.decision_id
@@ -906,6 +965,8 @@ class DecisionMemory:
         )
         if not docs or docs[0]["key"] != outcome.document_key:
             raise _DecisionRefusedError(MemoryErrorCode.SUPPORT_DOCUMENT_NOT_FOUND)
+        if outcome.observed_activation_seq is None:
+            raise _DecisionRefusedError(MemoryErrorCode.SUPPORT_NOT_FETCHED)
         current = (
             await tx.execute_read(
                 "MATCH (doc:Document {id: $id}) RETURN doc.document_key AS key, "
@@ -913,7 +974,10 @@ class DecisionMemory:
                 {"id": doc_id},
             )
         )[0]
-        changed = current["hash"] != outcome.content_hash
+        changed = (
+            current["hash"] != outcome.content_hash
+            or current["seq"] != outcome.observed_activation_seq
+        )
         support = DocumentSupport(
             kind=SupportKind.DOCUMENT,
             evidence_id=source.evidence_id,
@@ -925,7 +989,7 @@ class DecisionMemory:
             char_start=ref.char_start,
             char_end=ref.char_end,
             chunk_id=ref.chunk_id,
-            recorded_activation_seq=current["seq"],
+            recorded_activation_seq=outcome.observed_activation_seq,
         ).model_dump(mode="json")
         return support, changed
 
@@ -935,7 +999,8 @@ class DecisionMemory:
         """Resolve an event only inside this project."""
         rows = await tx.execute_read(
             "MATCH (t:MemoryTask {project_id: $project_id, name: $name})"
-            "-[:HAS_EVENT]->(e:MemoryEvent {seq: $seq}) RETURN e.id AS id",
+            "-[:HAS_EVENT]->(e:MemoryEvent {seq: $seq}) "
+            "RETURN e.id AS id, e.redacted_at AS redacted_at",
             {
                 "project_id": self._project_id,
                 "name": source.task_name,
@@ -944,6 +1009,8 @@ class DecisionMemory:
         )
         if not rows:
             raise _DecisionRefusedError(MemoryErrorCode.SUPPORT_EVENT_NOT_FOUND)
+        if rows[0]["redacted_at"] is not None:
+            raise _DecisionRefusedError(MemoryErrorCode.CANNOT_REVALIDATE)
         return EventSupport(
             kind=SupportKind.EVENT,
             event_id=rows[0]["id"],

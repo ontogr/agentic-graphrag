@@ -305,6 +305,8 @@ class FetchOutcome(BaseModel):
         content_hash: The full content hash of the version the text came from.
         status_of_version: Whether that version is current, when text is
             returned.
+        observed_activation_seq: The document activation sequence observed in
+            the same read as the text, including for a superseded version.
         covered_range: The offsets of the returned text, when it is a text
             range. A partial range gives the covered part only.
         partial: True when the requested range was not fully covered by chunks.
@@ -319,6 +321,7 @@ class FetchOutcome(BaseModel):
     document_key: str | None = None
     content_hash: str | None = None
     status_of_version: VersionStatus | None = None
+    observed_activation_seq: int | None = None
     covered_range: tuple[int, int] | None = None
     partial: bool = False
     detail: str | None = None

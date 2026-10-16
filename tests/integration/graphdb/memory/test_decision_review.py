@@ -1,6 +1,7 @@
 """Exercise source-change review through Neo4j-backed public memory operations."""
 
 from agrag.common.data_models.decision import (
+    DecisionSupport,
     DecisionSupportInput,
     DocumentSupportInput,
     EventSupportInput,
@@ -163,6 +164,100 @@ async def test_review_propagates_to_explicitly_dependent_decisions(
     assert child.decision.review_reason.value == "dependency_review"
 
 
+async def test_rejecting_parent_makes_descendants_unknown_until_propagated(
+    store, project, documents
+):
+    """Rejecting a parent queues transitive descendants in the same write."""
+    memory, parent = await _record_document_decision(
+        store, project, documents, "reject-parent"
+    )
+    tasks = TaskMemory(store, project_id=project, agent_id="agent")
+    previous = parent
+    descendants = []
+    for name in ("reject-child", "reject-grandchild"):
+        await tasks.create_task(name, "depend on prior decision")
+        event = await tasks.record_event(name, EventKind.NOTE, payload="fixture")
+        result = await memory.record_decision(
+            name,
+            name,
+            "follow prior",
+            "explicit dependency",
+            supports=[
+                DecisionSupportInput(decision_id=str(previous.id)),
+                EventSupportInput(task_name=name, seq=event.event.seq),
+            ],
+        )
+        assert result.recorded and result.decision is not None
+        previous = result.decision
+        descendants.append(previous)
+
+    rejected = await memory.reject_decision(parent.id, "no longer accepted")
+    assert rejected.recorded
+    assert (
+        await memory.get_decision(descendants[0].id)
+    ).decision.review_state is ReviewState.UNKNOWN
+    assert await memory.continue_review_propagation(limit=1) == 1
+    assert (
+        await memory.get_decision(descendants[0].id)
+    ).decision.review_state is ReviewState.NEEDS_REVIEW
+    assert (
+        await memory.get_decision(descendants[1].id)
+    ).decision.review_state is ReviewState.UNKNOWN
+    await memory.continue_review_propagation(limit=10)
+    assert (
+        await memory.get_decision(descendants[1].id)
+    ).decision.review_state is ReviewState.NEEDS_REVIEW
+
+
+async def test_superseding_parent_queues_dependent_without_migrating_support(
+    store, project, documents
+):
+    """Supersession makes a child unknown and propagates review to it."""
+    memory, parent = await _record_document_decision(
+        store, project, documents, "supersede-parent"
+    )
+    tasks = TaskMemory(store, project_id=project, agent_id="agent")
+    await tasks.create_task("supersede-child", "depend on the parent")
+    event = await tasks.record_event(
+        "supersede-child", EventKind.NOTE, payload="fixture"
+    )
+    child = await memory.record_decision(
+        "supersede-child",
+        "child-choice",
+        "follow parent",
+        "explicit dependency",
+        supports=[
+            DecisionSupportInput(decision_id=str(parent.id)),
+            EventSupportInput(task_name="supersede-child", seq=event.event.seq),
+        ],
+    )
+    assert child.recorded and child.decision is not None
+    evidence_id, fetched = await _current_harbor_support(store, documents)
+    replacement = await memory.supersede_decision(
+        parent.id,
+        "updated conclusion",
+        "replacement rationale",
+        explanation="The decision changed.",
+        supports=[DocumentSupportInput(evidence_id=evidence_id)],
+        fetched_evidence=fetched,
+    )
+
+    assert replacement.recorded and replacement.decision is not None
+    assert (
+        await memory.get_decision(child.decision.id)
+    ).decision.review_state is ReviewState.UNKNOWN
+    assert await memory.continue_review_propagation(limit=10) >= 1
+    current_child = await memory.get_decision(child.decision.id)
+    assert current_child.decision.review_state is ReviewState.NEEDS_REVIEW
+    dependencies = [
+        support.decision_id
+        for support in child.decision.supports
+        if isinstance(support, DecisionSupport)
+    ]
+    assert dependencies == [parent.id]
+    assert replacement.decision.id not in dependencies
+
+
 async def test_review_propagation_is_bounded_restartable_and_cycle_safe(
     store, project, documents
 ):
@@ -202,14 +297,14 @@ async def test_review_propagation_is_bounded_restartable_and_cycle_safe(
     await store.execute_write(
         "MATCH (last:MemoryDecision {id: $last_id}), "
         "(first:MemoryDecision {id: $first_id}) "
-        "CREATE (last)-[:DEPENDS_ON]->(first)",
+        "CREATE (first)-[:DEPENDS_ON]->(last)",
         {"last_id": str(chain[-1].id), "first_id": str(chain[0].id)},
     )
     await store.execute_write(
         "MATCH (p:MemoryProject {project_id: $project_id}) "
         "MATCH (d:MemoryDecision) WHERE d.id IN $ids "
         "SET d.review_state = 'clear', d.review_reason = null, "
-        "d.review_pending = false "
+        "d.review_pending = false, p.review_epoch = p.review_epoch + 1 "
         "WITH p "
         "MATCH (first:MemoryDecision {id: $first_id}) "
         "SET first.review_state = 'needs_review', first.review_pending = true, "
@@ -362,6 +457,19 @@ async def test_reaffirm_with_current_fetch_clears_flag_and_records_reviewer(
     assert result.decision.review_state is ReviewState.CLEAR
     assert result.decision.review_reason is None
     assert result.decision.supports[0].content_hash == fetched[0].content_hash
+    history = await reviewer.list_support_history(decision.id, limit=1)
+    assert history.truncated
+    assert history.next_after_ordinal is not None
+    historical = history.supports[0]
+    assert historical.evidence_id == decision.supports[0].evidence_id
+    assert not historical.current
+    assert historical.reviewed_by == "reviewer"
+    assert historical.review_explanation == "Reaffirmed after review."
+    next_page = await reviewer.list_support_history(
+        decision.id, after_ordinal=history.next_after_ordinal, limit=1
+    )
+    assert len(next_page.supports) == 1
+    assert next_page.supports[0].current
     retry = await reviewer.reaffirm_decision(
         decision.id,
         [DocumentSupportInput(evidence_id=evidence_id)],
@@ -506,7 +614,8 @@ async def test_propagation_reaches_clear_dependents_of_flagged_decisions(
     await store.execute_write(
         "MATCH (p:MemoryProject {project_id: $project_id}) "
         "MATCH (d:MemoryDecision {id: $id}) "
-        "SET d.review_pending = true, p.review_incomplete = true",
+        "SET d.review_pending = true, p.review_incomplete = true, "
+        "p.review_epoch = p.review_epoch + 1",
         {"project_id": project, "id": str(parent.id)},
     )
     assert (

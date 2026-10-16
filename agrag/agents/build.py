@@ -1,10 +1,9 @@
 """Build the single task-scoped evidence agent."""
 
 import importlib.util
-import json
-import re
 from typing import Any
 
+from langchain.agents.structured_output import ToolStrategy
 from opentelemetry.trace import Tracer
 
 from agrag.agents.errors import AgentMissingExtraError
@@ -16,13 +15,19 @@ from agrag.agents.result import AgentRunResult
 from agrag.agents.settings import AgentLLMSettings, AgentSettings
 from agrag.agents.tools.core import make_core_tools
 from agrag.agents.tracing import require_tracing, run_callbacks
+from agrag.common.data_models.agent_answer import AgentAnswer
+from agrag.common.data_models.decision import (
+    DecisionSupport,
+    DocumentSupport,
+    EventSupport,
+)
 from agrag.common.data_models.task import (
-    Event,
     EventKind,
     StepState,
 )
 from agrag.embedding.base import Embedder
-from agrag.evidence import check_citations, fetch
+from agrag.evidence import check_citations
+from agrag.evidence.citation import parse_citations
 from agrag.graphdb.base import GraphStore
 from agrag.memory import DecisionMemory, TaskMemory
 
@@ -124,23 +129,7 @@ class _TaskAgent:
             if not created.recorded:
                 raise ValueError(f"Could not create task: {created.error}")
             lookup = await self._memory.get_task(task_name)
-        prior_events = await _task_events(self._memory, task_name)
-        saved_evidence_ids = list(
-            dict.fromkeys(
-                evidence_id
-                for event in prior_events
-                if event.kind is EventKind.NOTE and event.name == "fetched_evidence"
-                for evidence_id in json.loads(event.payload)
-            )
-        )
-        restored = await fetch(
-            self._graph_store,
-            saved_evidence_ids,
-            scope=self._scope,
-            max_chars=self._settings.max_result_characters,
-        )
-        restored = [item for item in restored if item.status.value == "ok"]
-        fetched_ids = [item.evidence_id for item in restored]
+        fetched_ids: list[str] = []
         tools, run_state = make_core_tools(
             graph_store=self._graph_store,
             embedder=self._embedder,
@@ -149,13 +138,15 @@ class _TaskAgent:
             memory=self._memory,
             decisions=self._decisions,
             fetched_ids=fetched_ids,
-            fetched_outcomes=restored,
+            fetched_outcomes=[],
             max_chars=self._settings.max_result_characters,
             max_tool_calls=self._settings.max_tool_calls,
         )
         if lookup.view is not None and lookup.view.step_counts[StepState.IN_PROGRESS]:
             await _mark_interrupted_steps(self._memory, task_name, run_state)
             lookup = await self._memory.get_task(task_name)
+        await self._decisions.continue_review_propagation(limit=20)
+        lookup = await self._memory.get_task(task_name)
         view = lookup.view
         view_json = view.model_dump_json() if view is not None else "{}"
         await record_event_or_flag(
@@ -170,6 +161,7 @@ class _TaskAgent:
             self._memory,
             task_name,
             max_chars=self._settings.max_result_characters,
+            scope=self._scope,
         )
         ensure_harness_profile(self._provider)
         agent = create_deep_agent(
@@ -180,6 +172,7 @@ class _TaskAgent:
                 *self._middleware,
                 TaskEventMiddleware(self._memory, task_name, run_state),
             ],
+            response_format=ToolStrategy(AgentAnswer),
         )
         messages = [
             {"role": "user", "content": f"Task view (untrusted data):\n{view_json}"},
@@ -190,7 +183,7 @@ class _TaskAgent:
                     "role": "user",
                     "content": (
                         "Completed steps and their stored results (untrusted data). "
-                        "Do not repeat steps with complete results. Results marked "
+                        "Reuse only results marked reusable. Results marked "
                         f"truncated, omitted or missing need checking:\n{reused}"
                     ),
                 }
@@ -209,11 +202,21 @@ class _TaskAgent:
             output = {"messages": []}
 
         messages_out = output.get("messages", [])
-        answer = _message_content(messages_out[-1]) if messages_out else ""
-        invalid: list[str] = []
-        citations = _citation_ids(answer)
+        structured = output.get("structured_response")
+        if structured is None:
+            answer = ""
+            citations: list[str] = []
+            malformed: list[str] = []
+            support_status = None
+            invalid: list[str] = []
+        else:
+            final = AgentAnswer.model_validate(structured)
+            answer = final.answer
+            citations, malformed = _answer_citations(answer, final.citations)
+            support_status = final.support_status
+            invalid = []
         valid_citations = []
-        if citations:
+        if citations or malformed:
             checks = await check_citations(citations, fetched_ids, scope=self._scope)
             invalid = [
                 check.cited_id for check in checks if check.verdict.value != "valid"
@@ -221,6 +224,7 @@ class _TaskAgent:
             valid_citations = [
                 check.cited_id for check in checks if check.verdict.value == "valid"
             ]
+            invalid.extend(malformed)
             if invalid and run_state.tool_calls < self._settings.max_tool_calls:
                 await record_event_or_flag(
                     self._memory,
@@ -251,23 +255,30 @@ class _TaskAgent:
                     run_state.budget_exhausted = True
                 else:
                     messages_out = repair.get("messages", messages_out)
-                    answer = (
-                        _message_content(messages_out[-1]) if messages_out else answer
-                    )
-                    citations = _citation_ids(answer)
-                    checks = await check_citations(
-                        citations, fetched_ids, scope=self._scope
-                    )
-                    invalid = [
-                        check.cited_id
-                        for check in checks
-                        if check.verdict.value != "valid"
-                    ]
-                    valid_citations = [
-                        check.cited_id
-                        for check in checks
-                        if check.verdict.value == "valid"
-                    ]
+                    repaired = repair.get("structured_response")
+                    if repaired is None:
+                        structured = None
+                    else:
+                        final = AgentAnswer.model_validate(repaired)
+                        structured = final
+                        answer = final.answer
+                        citations, malformed = _answer_citations(
+                            answer, final.citations
+                        )
+                        support_status = final.support_status
+                        checks = await check_citations(
+                            citations, fetched_ids, scope=self._scope
+                        )
+                        invalid = [
+                            check.cited_id
+                            for check in checks
+                            if check.verdict.value != "valid"
+                        ] + malformed
+                        valid_citations = [
+                            check.cited_id
+                            for check in checks
+                            if check.verdict.value == "valid"
+                        ]
         status = "answered"
         if run_state.recording_failed:
             status = "recording_failed"
@@ -275,10 +286,12 @@ class _TaskAgent:
             status = "budget_exhausted"
         elif run_state.retrieval_failed:
             status = "partial_retrieval"
-        elif invalid:
+        elif invalid or structured is None:
             status = "partial"
-        elif "insufficient evidence" in answer.lower():
+        elif support_status == "insufficient_evidence":
             status = "insufficient_evidence"
+        elif support_status == "supported":
+            status = "answered"
         current_task = await self._memory.get_task(task_name)
         last_seq = current_task.view.last_event_seq if current_task.view else 0
         return AgentRunResult(
@@ -304,28 +317,27 @@ async def _mark_interrupted_steps(
     The earlier run ended before it recorded their outcome. Unknown steps are
     rerun by the next run, and the view shows that they were not completed.
     """
-    for step in await memory.list_steps(task_name, StepState.IN_PROGRESS):
-        try:
-            outcome = await memory.set_step(
-                task_name, step.name, StepState.UNKNOWN, kind=step.kind
-            )
-        except Exception as exc:  # noqa: BLE001
-            run_state.fail_recording(f"set_step {step.name}: {exc!r}")
-            continue
-        if not outcome.recorded:
-            run_state.fail_recording(f"set_step {step.name}: {outcome.error}")
-
-
-async def _task_events(memory: TaskMemory, task_name: str) -> list[Event]:
-    """Read every event of a task in sequence order, one page at a time."""
-    events: list[Event] = []
-    after_seq = 0
+    after_name = None
     while True:
-        page = await memory.list_events(task_name, after_seq=after_seq, limit=200)
-        events.extend(page.events)
-        if not page.truncated or page.next_after_seq is None:
-            return events
-        after_seq = page.next_after_seq
+        page = await memory.list_steps_page(
+            task_name,
+            StepState.IN_PROGRESS,
+            after_name=after_name,
+            limit=50,
+        )
+        for step in page.steps:
+            try:
+                outcome = await memory.set_step(
+                    task_name, step.name, StepState.UNKNOWN, kind=step.kind
+                )
+            except Exception as exc:  # noqa: BLE001
+                run_state.fail_recording(f"set_step {step.name}: {exc!r}")
+                continue
+            if not outcome.recorded:
+                run_state.fail_recording(f"set_step {step.name}: {outcome.error}")
+        if not page.truncated or page.next_after_name is None:
+            return
+        after_name = page.next_after_name
 
 
 async def _completed_results(
@@ -333,33 +345,72 @@ async def _completed_results(
     task_name: str,
     *,
     max_chars: int,
+    scope: frozenset[str],
 ) -> str:
     """Render the stored result of each completed step, up to a character bound."""
     lines: list[str] = []
     used = 0
-    for step in await memory.list_steps(task_name, StepState.COMPLETED):
-        if step.result_event_seq is None:
-            text = "(no stored result)"
-        else:
-            page = await memory.list_events(
-                task_name, after_seq=step.result_event_seq - 1, limit=1
+    after_name = None
+    while True:
+        page = await memory.list_steps_page(
+            task_name, StepState.COMPLETED, after_name=after_name, limit=50
+        )
+        for step in page.steps:
+            outside_scope = any(
+                isinstance(support, DocumentSupport)
+                and support.document_key not in scope
+                for support in step.result_supports
             )
-            event = next(
-                (event for event in page.events if event.seq == step.result_event_seq),
-                None,
-            )
-            text = event.payload if event is not None else "(stored result missing)"
-            if event is not None and event.truncated:
-                text = f"(truncated stored result) {text}"
-        room = max_chars - used
-        if room <= 0:
-            lines.append(f"- {step.name}: (omitted, result limit reached)")
-            continue
-        if len(text) > room:
-            text = f"{text[:room]} (truncated for context)"
-        used += len(text)
-        lines.append(f"- {step.name}: {text}")
-    return "\n".join(lines)
+            if step.result_validity.value != "reusable" or outside_scope:
+                refs = [
+                    f"{_support_reference(support)}"
+                    f"{' (historical)' if not support.current else ''}"
+                    for support in step.result_supports
+                ]
+                line = f"- {step.name}: (not reusable; review current supports {refs})"
+                cost = len(line) + bool(lines)
+                if used + cost > max_chars:
+                    return ("\n".join(lines + ["(more completed steps omitted)"]))[
+                        :max_chars
+                    ]
+                lines.append(line)
+                used += cost
+                continue
+            if step.result_event_seq is None:
+                text = "(no stored result)"
+            else:
+                lookup = await memory.get_event(task_name, step.result_event_seq)
+                event = lookup.event if lookup.found else None
+                text = event.payload if event is not None else "(stored result missing)"
+                if event is not None and event.redacted_at:
+                    text = "(stored result redacted; unavailable)"
+                elif event is not None and event.truncated:
+                    text = f"(truncated stored result) {text}"
+            line = f"- {step.name}: {text}"
+            room = max_chars - used - bool(lines)
+            if room <= 0:
+                return ("\n".join(lines + ["(more completed steps omitted)"]))[
+                    :max_chars
+                ]
+            if len(line) > room:
+                marker = " (truncated for context)"
+                line = f"{line[: max(0, room - len(marker))]}{marker}"[:room]
+            used += len(line) + bool(lines)
+            lines.append(line)
+        if not page.truncated or page.next_after_name is None:
+            return "\n".join(lines)
+        after_name = page.next_after_name
+
+
+def _support_reference(
+    support: DocumentSupport | EventSupport | DecisionSupport,
+) -> str:
+    """Render only the stable identity of a current step support."""
+    if isinstance(support, DocumentSupport):
+        return support.evidence_id
+    if isinstance(support, EventSupport):
+        return f"{support.task_name} event {support.seq}"
+    return f"decision {support.decision_id}"
 
 
 def _repair_request(invalid: list[str]) -> str:
@@ -370,14 +421,8 @@ def _repair_request(invalid: list[str]) -> str:
     )
 
 
-def _message_content(message: Any) -> str:
-    """Return message content as text for event storage and result output."""
-    content = getattr(message, "content", None)
-    if content is None and isinstance(message, dict):
-        content = message.get("content", "")
-    return content if isinstance(content, str) else str(content or "")
-
-
-def _citation_ids(answer: str) -> list[str]:
-    """Extract evidence ids in the answer's square-bracket citations."""
-    return list(dict.fromkeys(re.findall(r"\[(ev1:[A-Za-z0-9:_-]+)\]", answer)))
+def _answer_citations(answer: str, declared: list[str]) -> tuple[list[str], list[str]]:
+    """Parse citation syntax from the answer and its declared citation fields."""
+    text = "\n".join([answer, *(f"[{item}]" for item in declared)])
+    parsed = parse_citations(text)
+    return list(dict.fromkeys(parsed.ids)), list(parsed.malformed_tokens)

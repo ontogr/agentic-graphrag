@@ -35,4 +35,13 @@ class TestCoreTools:
             "record_decision",
             "supersede_decision",
             "search_decisions",
+            "get_event",
+            "list_events",
+            "list_steps",
+            "get_decision",
+            "list_support_history",
+            "list_decisions",
+            "list_decisions_for_review",
+            "reaffirm_decision",
+            "continue_decision_review",
         }

@@ -1,0 +1,35 @@
+---
+title: Validate connected memory against the full fixture
+---
+
+# Run the connected-memory workflow
+
+Run the pinned fixture through real graph ingestion, the configured agent, task memory, source-version review, and a local MCP client. The exercise writes structured JSON with answers, citations, expected semantic facts, and assertion outcomes. Read semantic facts and citations together. A passing source identity check does not prove that the answer is entailed by the cited text.
+
+## Prepare an isolated graph
+
+Use a disposable Neo4j database or instance. Set `NEO4J_URI`, `NEO4J_USERNAME`, `NEO4J_PASSWORD`, and `NEO4J_DATABASE` in the repository environment. The workflow does not supply a database default and does not clear data. `Graph.open()` prepares schema indexes and constraints. The `exercise` stage writes task and decision memory, then changes the Keep source with the production `Graph.add` path. Do not run it against a shared database.
+
+Set the repository's extraction variables for the selected extractor. Configure the agent model with `AGENT_LLM_BASE_URL`, `AGENT_LLM_API_KEY`, and `AGENT_LLM_MODEL_ID`, or use the shared `LLM_BASE_URL`, `LLM_API_KEY`, and `LLM_MODEL_ID` values already used by extraction. The workflow reads the existing environment and never prints credentials. It uses the embedding model configured in the example code. The pinned LegalBench-RAG and BEAM sources are fetched and hash-checked when the local dataset cache does not contain them. Review attribution and terms in `benchmarks/fixtures/connected_memory/NOTICE`.
+
+## Run each stage
+
+Run these commands from the repository root, in order:
+
+```bash
+uv run python -m examples.connected_memory.workflow ingest --output .amp/in/artifacts/connected-memory-ingest.json
+uv run python -m examples.connected_memory.workflow exercise --output .amp/in/artifacts/connected-memory-exercise.json
+uv run --extra mcp python -m examples.connected_memory.workflow mcp --output .amp/in/artifacts/connected-memory-mcp.json
+```
+
+`ingest` adds the five manifest documents with the configured real extractor. Do not rerun it while another ingestion process is active. `exercise` runs source-span, multi-source, insufficient-evidence, cross-session recall, interruption/resume, and source-change review cases with the configured LLM. It also runs fresh-task recall controls and prewritten holdout question variations. M1 replaces the manifest's exact source text and passes the changed document to `Graph.add`. The workflow checks its pinned hash, the old passage's superseded status, refusal to reaffirm with stale support, and the review flag. It then asks the agent to supersede the outdated conclusion and checks that the original evidence remains available in support history. Historical passages remain fetchable while retained; they are not current support. The holdout answers are recorded for review rather than scored with exact string matching.
+
+`mcp` launches the configured server over stdio, searches and fetches evidence within the fixture document scope, records a supported decision, and calls the decision reaffirmation operation. The client sets project, agent, and write access for this example process. Do not expose this local write-enabled configuration to untrusted clients.
+
+Each stage writes one JSON artifact to the requested path. Use a fresh isolated database when repeating the exercise because fixed project and task names make memory writes durable. The workflow never resets a database. Use unique isolated database names rather than deleting existing graph contents.
+
+## Scope and limits
+
+The agent can read only the five fixture document keys. MCP memory reads and writes are bound to the example's configured project and agent identity. MCP write tools are enabled only in the child server started for this example. The document scope does not provide authentication for a remote service, and project IDs are trusted local configuration rather than user identity.
+
+The six cases are internal workflow checks, not a benchmark score or proof of broad model quality. Human review is still needed for semantic support, including whether a citation entails each answer. The fresh-state controls isolate prior task state, but they do not establish that memory improves correctness. The final variations are a small overfitting check. The example does not claim complete model reproducibility or protection against an incorrect extractor, retrieval miss, or model interpretation.
