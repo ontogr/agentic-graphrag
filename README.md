@@ -18,7 +18,7 @@
 
 Agentic GraphRAG keeps what an agent knows, what it is working on, and what it has decided in one Neo4j graph. The graph holds your documents with their sections, tables, entities and relations. It also holds named tasks with an event log, and decision records that cite the exact passages they rest on.
 
-An agent, or any MCP client, can search the documents, fetch the exact text of a passage, and cite it. It can then record a decision with that passage as support, and a later session can resume the task by name. When a cited document gets a new version, the decisions that cite it are flagged for review, and the agent must fetch the current text before it reaffirms them.
+An agent, or any MCP client, can search the documents, fetch the exact text of a passage, and cite it. It can then record a decision with that passage as support, and a later session can resume the task by name. When a cited document gets a new version, Agentic GraphRAG flags the decisions that cite it for review. The agent must fetch the current text before it reaffirms them.
 
 ## Three connected layers
 
@@ -163,7 +163,7 @@ python build_graph.py
 
 ### Ask a question
 
-The agent needs an OpenAI-compatible LLM endpoint. Add `LLM_BASE_URL`, `LLM_API_KEY`, and `LLM_MODEL_ID` to `.env`. Then save this script as `ask.py`. A document added from a file has the absolute path of the file as its key, and the agent reads only the keys in its scope.
+The agent needs an OpenAI-compatible LLM endpoint. Add `LLM_BASE_URL`, `LLM_API_KEY`, and `LLM_MODEL_ID` to `.env`. Then create `ask.py` with this script. A document added from a file has the absolute path of the file as its key, and the agent reads only the keys in its scope.
 
 ```python
 import asyncio
@@ -215,11 +215,11 @@ Tomas Reyes founded Brightwell Robotics, where Mara Ellison works.
 ev_...
 ```
 
-The question needs a fact from each document. The agent finds both passages, fetches their text, and cites them. The run is saved as the task `company-founder`, and running `ask.py` again with the same task name resumes that task.
+The question needs a fact from each document. The agent finds both passages, fetches their text, and cites them. The agent saves the run as the task `company-founder`, and running `ask.py` again with the same task name resumes that task.
 
 ### Look at the saved task
 
-The task, its events and any decisions are stored in the graph. Save this script as `inspect_task.py` to read them.
+Agentic GraphRAG stores the task, its events and any decisions in the graph. Create `inspect_task.py` with this script to read them.
 
 ```python
 import asyncio
@@ -279,13 +279,13 @@ The lists below describe what the library does today. Each group links to the ma
 - `Graph.add` accepts a file, a directory, a glob, a list of paths, a raw string, or prebuilt `Document` objects.
 - Core readers handle plain text, log and XML files, and each paragraph keeps its character span in the document text.
 - Docling parses Markdown, HTML, AsciiDoc, Word, PowerPoint and Excel files into sections, tables and figures with no extra install.
-- Docling parses PDF and image files, with OCR chosen per file, and both formats need the `docling` extra.
+- Docling parses PDFs and images, with OCR chosen per file, and both formats need the `docling` extra.
 - CSV, TSV, JSON and JSON Lines files produce one document per row, record or array element, with an optional id column.
-- Each file goes to one loader by its extension, and a format whose extra is missing is reported with the extra to install.
+- Each file goes to one loader by its extension, and a format whose extra is missing produces an error that names the extra to install.
 - Each source can raise, skip or quarantine on error, so one bad file does not have to stop a batch.
 - A document key comes from the absolute path plus any record id or index, so adding a changed file updates the stored document.
-- Text is decoded with encoding detection, a byte-order mark is removed, line endings become LF, and NFKC normalization is on by default.
-- Sources over 32 MiB are rejected by default, and `ReadOptions.max_document_bytes` sets the limit.
+- The readers detect the text encoding, remove a byte-order mark, convert line endings to LF, and apply NFKC normalization by default.
+- The readers reject sources over 32 MiB by default, and `ReadOptions.max_document_bytes` sets the limit.
 - A chat loader reads a conversation file with one section per message when you pass it for a single file.
 - Docling headings set the section depth, using PDF bookmarks or dotted heading numbers.
 
@@ -294,15 +294,15 @@ Read more: [loading](https://ontogr.github.io/agentic-graphrag/stable/concepts/l
 ### Chunking
 
 - One section-aware chunker packs the sections of each document into chunks of up to 600 tokens by default, in reading order.
-- A table stays whole when it fits. A larger table is split into row groups that each repeat the header row.
+- A table stays whole when it fits. The chunker splits a larger table into row groups that each repeat the header row.
 - Table rows and running text never share a chunk.
 - A chunk that ends small is carried into the next section, so short sections do not each make a tiny chunk.
-- A single unit over the size limit is split with the Chonkie recursive splitter, and every piece is checked against the source text.
+- The chunker splits a single unit over the size limit with the Chonkie recursive splitter and checks every piece against the source text.
 - Each chunk records its heading path, the sections it covers, and the graph node it hangs under.
 - Chunks record character offsets for text sources, and page numbers with bounding boxes for layout sources.
 - Each chunk carries the chunker name and a fingerprint of its settings, and a document is re-chunked when those settings change.
-- A chunk id is derived from the document, its version, the chunker fingerprint and the chunk index.
-- Consecutive chunks of a document are linked with `NEXT_CHUNK` edges.
+- A chunk id comes from the document, its version, the chunker fingerprint and the chunk index.
+- `NEXT_CHUNK` edges link consecutive chunks of a document.
 - Record sources make one chunk per row, unless the row is over the size limit.
 - A chat file loaded with the chat loader packs consecutive messages into shared windows.
 - Each chunk can be embedded with its heading path in front of its text.
@@ -316,11 +316,11 @@ Read more: [chunking](https://ontogr.github.io/agentic-graphrag/stable/concepts/
 - The default schema has nine entity types and eight relation types, and each relation has its allowed source and target pairs.
 - The `operations` and `legal` presets add entity types to the default schema.
 - A local GLiNER model extracts entities and relations from each chunk without an LLM key.
-- A relation from the local model is kept only when its score is at least 0.7 and its endpoint types match an allowed pair in the schema.
+- Extraction keeps a relation from the local model only when its score is at least 0.7 and its endpoint types match an allowed pair in the schema.
 - In `hybrid` mode, the weakest chunks go to an LLM, limited to a configurable share of each batch.
 - Chunks with a kept entity whose type declares properties also go to the LLM, because only the LLM fills property values.
 - LLM calls go through BAML with eight supported providers, with retry, and with fallback or round-robin across several configured clients.
-- Extraction items that the schema does not allow are stored as `Candidate` nodes linked to their source chunks, not dropped.
+- Extraction items that the schema does not allow become `Candidate` nodes linked to their source chunks.
 - Candidates can be listed, searched, approved and rejected. Approved candidates convert into entities, relations or properties after the schema patch is applied.
 - Approving candidates writes a schema patch file for review, and Agentic GraphRAG never edits your schema file.
 - A schema can be exported to JSON Schema, SHACL or JSON-LD with Python functions.
@@ -330,17 +330,17 @@ Read more: [extraction](https://ontogr.github.io/agentic-graphrag/stable/concept
 ### Entity resolution
 
 - Mentions with the same label and the same normalized text share one entity node, which records how many mentions and which source chunks it received.
-- Fuzzy, embedding and LLM matches are stored as `MATCHES` edges, so the raw entities and their relations stay in the graph unchanged.
+- Fuzzy, embedding and LLM matches become `MATCHES` edges, so the raw entities and their relations stay in the graph unchanged.
 - Each connected set of matched entities gets one derived `ResolvedEntity` node, linked to its members by `RESOLVED_AS` edges.
 - A pair that no tier can decide, such as one whose LLM request failed, is left unmatched and is never treated as a rejection.
 - Ambiguous pairs go to the LLM in batches, most similar first, capped at 500 pairs per label by default through `max_llm_pairs`.
 - `Graph.consolidate()` runs resolution over every stored entity. It is a dry run by default, and with `apply=True` it writes the matches it finds.
 - `Graph.reevaluate(entity_ids)` checks matches among the entities you name. It adds newly confirmed matches and deactivates an edge only when current evidence rejects its pair.
 - `Graph.deactivate_match(match_id)` deactivates one match edge and rebuilds the affected resolved entities, leaving the raw entities in place.
-- When two entities conflict on a property, the first value seen is kept. Conflicting descriptions are summarized by an LLM, with a plain join as the fallback.
+- When two entities conflict on a property, merge keeps the first value seen. An LLM summarizes conflicting descriptions, with a plain join as the fallback.
 - Each resolved entity's embedding has a sync status, and search returns only resolved entities whose embedding is synced.
-- After an ingest job commits, the entities it created are resolved against everything already committed. Concurrent ingests that name one thing differently still end up in one cluster.
-- When a document update, delete or purge leaves an entity with no remaining evidence, that entity and its match edges are removed.
+- After an ingest job commits, resolution compares the entities it created with everything already committed. Concurrent ingests that name one thing differently still end up in one cluster.
+- When a document update, delete or purge leaves an entity with no remaining evidence, Agentic GraphRAG removes that entity and its match edges.
 - The LLM tier reads its settings from the `EXTRACTION_LLM_*` variables or from `LLM_BASE_URL` and `LLM_MODEL_ID`. Without them, its pairs stay undecided.
 
 Read more: [resolution](https://ontogr.github.io/agentic-graphrag/stable/concepts/resolution), [resolved entities](https://ontogr.github.io/agentic-graphrag/stable/concepts/resolved-entities) and [consolidate duplicates](https://ontogr.github.io/agentic-graphrag/stable/guides/consolidate-duplicates).
@@ -348,16 +348,16 @@ Read more: [resolution](https://ontogr.github.io/agentic-graphrag/stable/concept
 ### Graph storage and embeddings
 
 - The graph and its vectors live in one Neo4j database, reached through one Bolt connection to Aura or to a local server.
-- Nodes and relationships are written in batches, and each failed record is reported by id, so one bad row does not fail its batch.
-- Uniqueness constraints cover node ids, merge keys and relationship ids, and Neo4j native vector and full-text indexes are created for you.
-- A graph whose embedder dimension does not match an existing vector index is refused when it opens.
+- The store writes nodes and relationships in batches and reports each failed record by id, so one bad row does not fail its batch.
+- Uniqueness constraints cover node ids, merge keys and relationship ids, and the store creates the Neo4j native vector and full-text indexes.
+- Opening a graph fails when the embedder dimension does not match an existing vector index.
 - Search runs on each label's native vector index, filters results by node properties, and widens the search when a filter removes hits.
 - FastEmbed embeds text on the CPU by default, using the Granite model unless `EMBEDDING_MODEL` names another.
 - Sentence Transformers embeds text when the `embed-local` extra is installed and you build the embedder explicitly.
 - Model loads and encoding run in worker threads, so the event loop stays free during a slow embed.
-- Node identity stays stable when labels change, and labels are merged instead of replaced.
+- Node identity stays stable when labels change, and the store merges labels instead of replacing them.
 - Rows written by an in-flight job stay out of search results until the job commits.
-- A plaintext `bolt://` or `neo4j://` URI to a non-local host is rejected when settings are built.
+- Settings reject a plaintext `bolt://` or `neo4j://` URI to a non-local host.
 - All Neo4j connection settings come from `NEO4J_*` variables, and all embedder settings come from `EMBEDDING_*` variables.
 
 Read more: [graph storage](https://ontogr.github.io/agentic-graphrag/stable/concepts/graph-storage).
@@ -372,7 +372,7 @@ Read more: [graph storage](https://ontogr.github.io/agentic-graphrag/stable/conc
 - `Graph.purge_document()` hard-deletes the chunks, sections, tables and figures of every version, along with the relation and candidate evidence that cites them.
 - Each write runs as a per-document job with a lease that lasts 60 seconds by default, and `Graph.open()` rolls back or finishes a job that a crash left behind.
 - Writes from a running job stay hidden from search until the job commits.
-- A chunk whose extraction failed is marked, so the next update extracts it again instead of skipping the document.
+- A chunk whose extraction failed carries a marker, so the next update extracts it again instead of skipping the document.
 - `AddResult` reports counts for each pipeline stage, and each stage keeps up to 200 failure records along with the true total.
 - `on_progress` receives a partial `AddResult` after each batch of up to 100 documents.
 - `Graph.source_status()` reports whether a key is current, pending, failed, deleted or unknown, with its job lease and the readiness of the chunk search indexes.
@@ -386,8 +386,8 @@ Read more: [update and delete documents](https://ontogr.github.io/agentic-graphr
 - Communities above an internal weight threshold get an LLM-written title, summary, rating, rating explanation and findings.
 - Every other community gets a deterministic report, with no LLM call.
 - A failed report call falls back to the deterministic report, and the run report lists each failed community.
-- Each community's title and summary are embedded, so communities can be found by vector search.
-- Communities are stored as `Community` nodes linked from their entities by `MEMBER_OF` edges, and a new run replaces the previous partition in one transaction.
+- Each community's title and summary get an embedding, so vector search can find communities.
+- Communities become `Community` nodes that their entities link to with `MEMBER_OF` edges, and a new run replaces the previous partition in one transaction.
 - The `HYBRID_RERANKED` and `GRAPH_EXPAND` recipes add the reports of communities that overlap the entities found.
 - The `THEMATIC` recipe searches community reports directly, for broad questions.
 - The report LLM reads the same `LLM_BASE_URL`, `LLM_API_KEY` and `LLM_MODEL_ID` settings that extraction uses.
@@ -398,7 +398,7 @@ Read more: [communities](https://ontogr.github.io/agentic-graphrag/stable/concep
 ### Search, evidence and citations
 
 - Passage search runs full-text search, vector search, or both, and fuses the two rankings with reciprocal rank fusion.
-- Superseded, in-flight and out-of-scope passages are filtered inside the query, so every result is text the caller may read.
+- The query filters out superseded, in-flight and out-of-scope passages, so every result is text the caller may read.
 - Fetching an evidence id returns the exact text behind it, marked as truncated or partial when the requested range is not fully covered.
 - Each evidence id is a version-specific reference, so a citation from an earlier document version still resolves and is labelled as superseded.
 - Entity search finds entities by name and by meaning, and lists the passages in scope that mention each one.
@@ -406,7 +406,7 @@ Read more: [communities](https://ontogr.github.io/agentic-graphrag/stable/concep
 - Navigation moves from a passage to its parent and sibling sections, its adjacent passages, or the table rows around it, within a character budget.
 - Citation checks verify that every cited evidence id was fetched in the caller's scope. They report ids that were not fetched, that name another document, or that are malformed.
 - Cited answers render with numbered source references and a Sources list, and a source is linked only when it has an absolute HTTP(S) address.
-- A failed search leg and every truncation are reported in the result, so an incomplete result is not mistaken for an empty one.
+- The result reports each failed search leg and every truncation, so an incomplete result is not mistaken for an empty one.
 - `SearchEngine` runs named recipes over entity, chunk and community search, with an optional graph walk and a cross-encoder or graph-distance reranker.
 
 Read more: [retrieval](https://ontogr.github.io/agentic-graphrag/stable/concepts/retrieval) and [retrieve and answer](https://ontogr.github.io/agentic-graphrag/stable/guides/retrieve-and-answer).
@@ -416,12 +416,12 @@ Read more: [retrieval](https://ontogr.github.io/agentic-graphrag/stable/concepts
 - `build_agent` returns one DeepAgents-based agent, bound at build time to a fixed set of document keys, a project id and an agent id.
 - The evidence tools of the agent (discovery, entity search, graph exploration, navigation and passage fetch) read only the documents in its scope.
 - Each run returns a status (`answered`, `insufficient_evidence`, `partial`, `partial_retrieval`, `budget_exhausted` or `recording_failed`), the answer with numbered references, and the fetched citations.
-- Citations are checked against passages fetched in the same run, and one repair pass asks the model to fix any that fail.
-- The messages, tool calls and tool results of the run are saved to the task's event log as the run goes, with each payload capped at 32,000 characters.
+- The agent checks citations against passages fetched in the same run, and one repair pass asks the model to fix any that fail.
+- The agent saves the messages, tool calls and tool results of the run to the task's event log as the run goes, and caps each payload at 32,000 characters.
 - A run stops at a LangGraph step limit (50 by default) or a tool-call limit (20 by default) and reports `budget_exhausted`.
-- A run on an existing task name resumes that task. Steps left in progress are marked unknown, and completed step results are reused when their documents are still in scope.
+- A run on an existing task name resumes that task. The agent marks steps left in progress as unknown and reuses completed step results when their documents are still in scope.
 - The model can be one client, a fallback chain, or a round-robin rotation over Anthropic, OpenAI, OpenAI-compatible and Google AI clients.
-- A caller can pass an OpenTelemetry tracer to `build_agent`, and no global tracer is installed.
+- A caller can pass an OpenTelemetry tracer to `build_agent`, and the library installs no global tracer.
 - The agent can record task steps, decisions and decision reviews with typed supports, and a decision cannot rest on support that needs review.
 
 Read more: [the agent loop](https://ontogr.github.io/agentic-graphrag/stable/concepts/agent-loop) and [trace an agent run](https://ontogr.github.io/agentic-graphrag/stable/guides/trace-an-agent-run).
@@ -431,13 +431,13 @@ Read more: [the agent loop](https://ontogr.github.io/agentic-graphrag/stable/con
 - A task has a goal, an append-only log of messages, tool calls, tool results and notes, and named steps marked completed, failed, in progress, unknown or not started.
 - A named task resumes from a bounded view that lists its goal, step counts, active decisions and decisions needing review, without event bodies.
 - A decision records a conclusion, rationale, assumptions, open questions and supports. A support can cite a document passage, a task event or another active decision.
-- Decisions are active when recorded. They are superseded or rejected explicitly, and the earlier record and its support history are kept.
-- When a document gets a new version or is removed, every active decision that cites it is flagged for review, with the reason recorded.
+- Decisions are active when recorded. A caller supersedes or rejects them explicitly, and the earlier record and its support history stay in the graph.
+- When a document gets a new version or is removed, Agentic GraphRAG flags every active decision that cites it for review and records the reason.
 - Review spreads only along explicit decision dependencies, in bounded batches, with a queue stored in the graph so an interrupted run continues.
 - A decision is reaffirmed only when each cited document is fetched at its current version and each decision it depends on is active and clear.
-- Active decisions that give different conclusions for the same choice key in different tasks are listed as conflicts.
+- The library lists active decisions that give different conclusions for the same choice key in different tasks as conflicts.
 - Active decisions in the same project can be searched as precedents, each with the goal of the task that recorded it.
-- A write that reuses a request id is replayed instead of recorded twice, and a reused id with different arguments is refused.
+- A write that reuses a request id returns the stored result instead of recording twice, and the library refuses a reused id with different arguments.
 
 Read more: [connected memory](https://ontogr.github.io/agentic-graphrag/latest/guides/connected-memory).
 
@@ -449,7 +449,7 @@ Read more: [connected memory](https://ontogr.github.io/agentic-graphrag/latest/g
 - The server starts read-only, and write tools are not registered unless the deployer enables them.
 - Task and decision reads and writes work in a configured project, and decision rejection needs a separate switch.
 - Decisions and step support can cite only evidence that the same server process fetched in full.
-- Each tool result has a size cap, and search and fetch report when items were dropped.
+- Each tool result has a size cap, and search and fetch report when they dropped items.
 - Memory and entity reads have a per-request deadline that is set in configuration.
 - Logs go to stderr, so the stdio protocol stream stays clean.
 - Semantic search reports a dimension mismatch, and hybrid search falls back to lexical hits with a named failure.
@@ -460,15 +460,15 @@ Read more: [connected memory](https://ontogr.github.io/agentic-graphrag/latest/g
 
 ### Tracing and run reports
 
-- An OpenTelemetry tracer can be passed to `Graph`, `build_agent`, the stores, the embedders and the extractors. With no tracer, nothing is recorded and no global provider is installed.
+- You can pass an OpenTelemetry tracer to `Graph`, `build_agent`, the stores, the embedders and the extractors. With no tracer, the library records nothing and installs no global provider.
 - Ingestion spans cover loading, chunking, extraction, resolution, merge and storage writes, under the `agrag.ingestion.*`, `agrag.extraction.*`, `agrag.resolution.*`, `agrag.merge.*` and `agrag.storage.*` names.
 - Each LLM call produces a call span, one span per attempt and one span per provider request, with token counts where the provider reports them.
 - Search produces a root span that records the query, the scope, and the id, score, kind and text of every result.
 - Each `Graph.add` call returns an `AddResult` with statistics per stage for ingestion, chunking, extraction, resolution, merge and storage.
 - Per-item failures come back as records with the item id, error type and message, plus the trace and span ids when tracing is on, capped at 200 per stage.
-- Dropped relations and entities are counted by kind, label and reason in `DroppedCount` records.
+- `DroppedCount` records count dropped relations and entities by kind, label and reason.
 - Agent runs add OpenInference spans for tool and model calls under the caller's active span.
-- Quarantined sources are listed in the ingestion stats with their error message and trace ids.
+- The ingestion stats list quarantined sources with their error message and trace ids.
 - Graph-store spans record query text and parameter values, except vector values and full-text search terms.
 - Spans carry the full question, prompt, response and evidence text, and the library has no switch to remove it.
 
@@ -480,7 +480,7 @@ Read more: [observability](https://ontogr.github.io/agentic-graphrag/stable/conc
 - It checks each cited sentence of an agent answer against the evidence that sentence cites, and marks citations to evidence the run never fetched as unsupported.
 - It scores entity and relation extraction against hand-written gold annotations, with exact and overlap-based matching shown side by side.
 - It scores entity resolution clusters with B-cubed and pairwise metrics.
-- It scores agent runs from OpenTelemetry spans, covering expected tool use, task completion and a judged trajectory quality.
+- It scores agent runs from OpenTelemetry spans, covering expected tool use, task completion and a judged score for the sequence of steps.
 - It measures verifier calibration with per-class precision, recall and F1, a macro F1 and a confusion matrix, without a judge model.
 - A judge can be built from any OpenAI-compatible endpoint, configured with `EVAL_JUDGE_*` variables that fall back to the shared `LLM_*` variables.
 - An example script runs the answer metrics on your own documents and questions and prints a score table.
@@ -492,7 +492,7 @@ Read more: [score Agentic GraphRAG on your questions](https://ontogr.github.io/a
 
 - Every component reads environment variables or a `.env` file in the working directory, with a prefix for each area such as `NEO4J_`, `EMBEDDING_` and `EXTRACTION_`.
 - One OpenAI-compatible endpoint can serve extraction, the agent and the evaluation judge through `LLM_BASE_URL`, `LLM_API_KEY` and `LLM_MODEL_ID`. Each role can also have its own variables.
-- Schemas that declare labels, relation types or property names that the graph uses for its own records are rejected.
+- Schema validation rejects labels, relation types or property names that the graph uses for its own records.
 - Stored fingerprints detect changes to the schema structure and the extraction settings, so an update rechunks, re-extracts in place, or skips work as the change requires.
 - Each document has a stable graph node id derived from its document key, and chunk ids derive from the document version, the chunker settings and the position.
 - Every record is validated when it is built, including character offsets, page spans, heading paths and evidence reference forms.
@@ -520,7 +520,7 @@ Read more: [configuration reference](https://ontogr.github.io/agentic-graphrag/s
 | Images | `.png`, `.jpg`, `.jpeg`, `.tif`, `.tiff`, `.bmp` | Docling, needs the `docling` extra |
 | Chat exports | `.json`, `.jsonl`, `.ndjson` | Chat loader, which you pass for a single file |
 
-Docling reads every rich format. The core readers keep plain text, XML, and the record formats, so a CSV row keeps its identity. Docling without the `docling` extra reads Markdown, HTML, AsciiDoc, Word, PowerPoint, and Excel files. The extra adds the layout and table models for PDF and image files.
+Docling reads every rich format. The core readers keep plain text and XML along with the record formats, so a CSV row keeps its identity. Without the `docling` extra, Docling still reads Markdown, HTML, AsciiDoc, Word, PowerPoint and Excel files. The extra adds the layout and table models for PDFs and images.
 
 ## Project structure
 
