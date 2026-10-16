@@ -29,7 +29,7 @@ It keeps three connected kinds of memory in one graph: the knowledge in your doc
 
 ## Installation
 
-Agentic GraphRAG needs Python 3.11 or newer and a Neo4j database, version 5.23 or newer. The free Aura tier works, and so does a local Docker container.
+Agentic GraphRAG needs Python 3.11 or newer and a Neo4j database, version 5.23 or newer.
 
 ```bash
 uv pip install agentic-graphrag
