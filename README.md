@@ -141,7 +141,7 @@ Set `EXTRACTION_MODE` to choose how the graph reads text. The default is `hybrid
 
 For the default extractors, install `extract` for `gliner`, both `extract` and `llm` for `hybrid`, or `llm` for `llm` mode. Custom extractors use their own dependencies.
 
-When `hybrid` has no extraction LLM available, `Graph` selects GLiNER mode and logs a warning. `Graph` can build a BAML extractor from environment settings in either `hybrid` or `llm` mode, so a configured LLM may be used even when you do not pass `llm_extractor`. Set `EXTRACTION_MODE=gliner` to disable LLM extraction explicitly. Check `graph.effective_mode` to see the selected mode. See [Choose an extraction mode](https://ontogr.github.io/agentic-graphrag/latest/guides/choose-an-extraction-mode) for the tradeoffs.
+When `hybrid` has no extraction LLM available, `Graph` selects GLiNER mode and logs a warning. `Graph` can build a BAML extractor from environment settings in either `hybrid` or `llm` mode, so a configured LLM may be used even when you do not pass `llm_extractor`. Set `EXTRACTION_MODE=gliner` to disable LLM extraction explicitly. Check `graph.effective_mode` to see the selected mode. See [Choose an extraction mode](https://ontogr.github.io/agentic-graphrag/stable/guides/choose-an-extraction-mode) for the tradeoffs.
 
 ## Architecture
 

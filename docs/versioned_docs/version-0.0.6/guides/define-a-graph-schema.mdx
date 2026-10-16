@@ -1,0 +1,279 @@
+---
+sidebar_position: 7
+title: Define a graph schema
+description: Declare the entity and relation types for your domain and give them to a graph.
+---
+
+# Define a graph schema
+
+Declare the entity types and relation types for your domain. A schema lists the types that extraction can find. Give the schema to a graph. The extractor then looks only for those types. You can also write a schema as a short list or a YAML file. See [Write a custom schema](./write-a-custom-schema.mdx).
+
+## Before you start
+
+- A running Neo4j. Set `NEO4J_URI`, `NEO4J_USERNAME`, and `NEO4J_PASSWORD`. The [Quickstart](../get-started/quickstart.mdx) shows how.
+- The extras for local extraction:
+
+```bash
+uv pip install "agentic-graphrag[neo4j,extract]"
+```
+
+## 1. Declare the types
+
+An entity type has a label, a description, and optional properties. Each property uses a `PropertySpec` with a type: `string`, `integer`, `float`, `boolean`, or `date`. A property can be marked `required` and can list allowed values in `enum`. These fields describe what the extractor should return. They do not enforce property presence or allowed values on extracted data. A relation type has a label, a description, and the pairs of entity labels that it can join. The descriptions go into the extractor prompt, so write them for the extractor.
+
+```python
+from agrag.common.data_models import EntityType, GraphSchema, PropertySpec, RelationType
+
+schema = GraphSchema(
+    name="computing-history",
+    version="1",
+    entities=[
+        EntityType(
+            label="Person",
+            description="A named person.",
+            properties={"born": PropertySpec(type="integer")},
+        ),
+        EntityType(label="Machine", description="A named computing machine."),
+        EntityType(label="City", description="A named city."),
+    ],
+    relations=[
+        RelationType(
+            label="DESIGNED",
+            description="A person designed a machine.",
+            patterns=[("Person", "Machine")],
+        ),
+        RelationType(
+            label="WORKED_IN",
+            description="A person worked in a city.",
+            patterns=[("Person", "City")],
+        ),
+    ],
+)
+
+print(schema.to_prompt_description())
+```
+
+The full prompt description lists entity types, property declarations, and valid relation patterns:
+
+```text
+Schema computing-history (version 1)
+Entity types:
+- Person: A named person.
+  properties:
+    - born (integer)
+- Machine: A named computing machine.
+- City: A named city.
+Relation types:
+- DESIGNED: A person designed a machine.
+  valid patterns: (Person, Machine)
+- WORKED_IN: A person worked in a city.
+  valid patterns: (Person, City)
+```
+
+Use `enum` to list allowed values. Each value must match the property's type. For example, `PropertySpec(type="date", enum=["2024-01-31"])` is valid, but `PropertySpec(type="integer", enum=["many"])` is not. Set `required=True` to tell the extractor that the property should be present. Neither `required` nor `enum` validates extracted property values.
+
+When you change the types or the patterns, raise `version`.
+
+### Group types with parents
+
+A type can name parent types. A relation pattern that names a parent also covers every child. `ancestors(label)` returns the ancestors from nearest to farthest. `node_labels(label)` returns the type label first, followed by those ancestors. The graph stores each entity node with the same labels, as the example below shows.
+
+```python
+from agrag.common.data_models import EntityType, GraphSchema, RelationType
+
+schema = GraphSchema(
+    name="supply-chain",
+    version="1",
+    entities=[
+        EntityType(label="Organization", description="A company or institution."),
+        EntityType(
+            label="Vendor",
+            description="An organization that sells to others.",
+            parents=["Organization"],
+        ),
+        EntityType(label="Product", description="A named product."),
+    ],
+    relations=[
+        RelationType(
+            label="SUPPLIES",
+            description="An organization supplies a product.",
+            patterns=[("Organization", "Product")],
+        ),
+    ],
+)
+
+print(schema.ancestors("Vendor"))
+print(schema.node_labels("Vendor"))
+print(schema.allows("SUPPLIES", "Vendor", "Product"))
+```
+
+The output:
+
+```text
+['Organization']
+['Vendor', 'Organization']
+True
+```
+
+The graph stores a `Vendor` node with the labels `Vendor` and `Organization`. A query on `Organization` also finds it, and the vector index of `Organization` includes it. A graph that you wrote before you added parents keeps its old labels until you ingest the documents again.
+
+A child type does not inherit its parent's properties. Declare those properties again on the child.
+
+### Limit a relation
+
+Use `Cardinality` to declare the maximum number of edges per source or target. Use `symmetric=True` when a relation has no direction.
+
+```python
+from agrag.common.data_models import Cardinality, RelationType
+
+RelationType(
+    label="MARRIED_TO",
+    description="Two people are married.",
+    patterns=[("Person", "Person")],
+    symmetric=True,
+    cardinality=Cardinality(max_per_source=1, max_per_target=1),
+)
+```
+
+A symmetric relation needs equal limits on both sides. Each pattern must use the same type at both ends, or one end's type must be an ancestor of the other. These declarations are validated when you create the schema, but cardinality and symmetry are not enforced on extracted edges.
+
+## 2. Make sure that the schema is valid
+
+The schema enforces its own rules when you create it. It rejects a relation pattern that names an undeclared entity. It rejects property names that the graph writes itself, such as `name` and `id`. It rejects a relation type that has the name of a system edge, such as `MEMBER_OF`, and it rejects an `enum` value that does not match the property type. It rejects an unknown parent, a cycle in the parents, and a label that is declared twice. It rejects labels that the graph uses for its own nodes, such as `Document`, `Chunk` and `Candidate`.
+
+```python
+from agrag.common.data_models import EntityType, GraphSchema, PropertySpec, RelationType
+
+try:
+    GraphSchema(
+        name="broken",
+        version="1",
+        entities=[EntityType(label="Person", description="A named person.")],
+        relations=[
+            RelationType(
+                label="OWNS",
+                description="A person owns a product.",
+                patterns=[("Person", "Product")],
+            )
+        ],
+    )
+except ValueError as error:
+    print(error)
+
+try:
+    EntityType(label="Person", description="A named person.", properties={"text": PropertySpec(type="string")})
+except ValueError as error:
+    print(error)
+```
+
+Each error names the fix. For example: `Relation 'OWNS' pattern target 'Product' is not a declared entity`.
+
+## 3. Open a graph with the schema and add text
+
+This script contains the whole flow. It opens a graph, adds two sentences, and prints what the graph stored. `Graph` accepts a `GraphSchema`, a file path, a dict, a list of strings or a shipped schema name. Call `schema.resolve()` to print the entity types and relation patterns that the extractor works from.
+
+```python fixture:clean_neo4j
+import asyncio
+
+from agrag.common.data_models import EntityType, GraphSchema, PropertySpec, RelationType
+from agrag.embedding import build_embedder
+from agrag.graphdb import build_graph_store
+from agrag.ingestion import GlinerExtractor, Graph
+
+schema = GraphSchema(
+    name="computing-history",
+    version="1",
+    entities=[
+        EntityType(
+            label="Person",
+            description="A named person.",
+            properties={"born": PropertySpec(type="integer")},
+        ),
+        EntityType(label="Machine", description="A named computing machine."),
+        EntityType(label="City", description="A named city."),
+    ],
+    relations=[
+        RelationType(
+            label="DESIGNED",
+            description="A person designed a machine.",
+            patterns=[("Person", "Machine")],
+        ),
+        RelationType(
+            label="WORKED_IN",
+            description="A person worked in a city.",
+            patterns=[("Person", "City")],
+        ),
+    ],
+)
+
+TEXT = (
+    "Charles Babbage designed the Analytical Engine in London. "
+    "Ada Lovelace worked in London and wrote notes on the Analytical Engine."
+)
+
+
+async def main() -> None:
+    graph_store = build_graph_store("neo4j")
+    graph = await Graph.open(
+        schema=schema,
+        graph_store=graph_store,
+        embedder=build_embedder("ibm-granite/granite-embedding-small-english-r2"),
+        extractor=GlinerExtractor(),
+    )
+    try:
+        result = await graph.add(text=TEXT)
+        print("mentions:", result.extraction.entities_extracted)
+        print("relations:", result.extraction.relations_extracted)
+        entities = await graph_store.execute_read(
+            "MATCH (e:_Node) "
+            "WHERE NOT e:Chunk AND NOT e:Document AND NOT e:Community "
+            "AND NOT e:ResolvedEntity "
+            "RETURN labels(e) AS labels, e.name AS name ORDER BY name"
+        )
+        for row in entities:
+            print(row["labels"], row["name"])
+        relations = await graph_store.execute_read(
+            "MATCH (a:_Node)-[r]->(b:_Node) "
+            "WHERE type(r) IN ['DESIGNED', 'WORKED_IN'] "
+            "RETURN a.name AS source, type(r) AS relation, b.name AS target"
+        )
+        for row in relations:
+            print(row["source"], row["relation"], row["target"])
+    finally:
+        await graph_store.close()
+
+
+asyncio.run(main())
+```
+
+Output:
+
+```text
+mentions: 6
+relations: 2
+['_Node', 'Person'] Ada Lovelace
+['_Node', 'Machine'] Analytical Engine
+['_Node', 'Person'] Charles Babbage
+['_Node', 'City'] London
+Charles Babbage DESIGNED Analytical Engine
+Ada Lovelace WORKED_IN London
+```
+
+Six mentions give four entities, because mentions with the same label and text share one node.
+
+## Compare with the default schema
+
+`DEFAULT_SCHEMA` has nine general types and eight general relations. Your own schema can use names and descriptions from your domain, such as `Machine` and `DESIGNED`. The extractor uses those descriptions as its target. See [Default schema](../reference/default-schema.mdx) for the full list.
+
+## Fill properties
+
+The local extractor leaves properties empty. The value of `born` stays unset. To fill properties, use the LLM extractor. The guide [Extract and resolve entities](./extract-and-resolve.mdx) shows how to add it as a fallback.
+
+## Related
+
+- Concept: [Extraction](../concepts/extraction.mdx)
+- Guide: [Extract and resolve entities](./extract-and-resolve.mdx)
+- Reference: [Default schema](../reference/default-schema.mdx)
+- Guide: [Use a preset](./use-a-preset.mdx)
+- Reference: [JSON-LD schema export](../reference/schema-json-ld.mdx)
+- Reference: [Common API](../api/common/index.md)

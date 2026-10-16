@@ -1,0 +1,81 @@
+---
+sidebar_position: 5
+title: Chunking
+description: How Agentic GraphRAG packs the sections of a document into chunks and records where each chunk came from.
+---
+
+# Chunking
+
+Chunking divides a document into pieces that extraction and search can process. Each chunk keeps its source location and section context, so smaller search units remain traceable to the original document.
+
+## Why it exists
+
+Search and extraction work on short pieces of text. Where you cut decides what they can find. A cut in the wrong place can separate a name from the fact about it.
+
+A document already has structure: headings, paragraphs, and tables. The chunker uses that structure to avoid cutting facts apart where possible, while keeping chunks small enough for search and extraction. These goals compete: larger chunks preserve more context but make search less precise and increase work per chunk.
+
+## How it works
+
+```mermaid
+flowchart TD
+    D[Document sections] --> U{Next unit}
+    U -- Table --> T[Table chunks]
+    U -- Text --> S{Fits in the open chunk?}
+    S -- Yes --> P[Add to the open chunk]
+    S -- No --> F[Close the chunk]
+    F --> P
+    P --> E{Section ends and chunk is small?}
+    E -- Yes --> N[Carry on into the next section]
+    E -- No --> C[Chunk]
+    T --> C
+```
+
+*The chunker fills a chunk with the units of a section, then starts a new one. A small chunk carries on into the next section.*
+
+1. Pack. The chunker walks the sections in reading order. A unit is a paragraph, list, code block or formula. The chunker adds units to a chunk until the next unit would pass `size` tokens. The default size is 600 tokens.
+2. Split. A unit that is over `size` on its own is cut at paragraph, sentence, clause or word boundaries. The cut keeps the exact text.
+3. Merge. When a section ends and the open chunk has fewer than `min_size` tokens, the chunk carries on into the next section. The default `min_size` is a quarter of `size`. The next heading goes into the chunk text, so the text keeps its meaning.
+4. Tables. A table never mixes with text. A table that fits in `size` tokens is one chunk. A larger table becomes row groups. Each group repeats the header row, and the first group starts with the caption.
+
+One `Chunker` serves every format. Each loader maps its source into sections and units first, so chunk behavior does not depend on a file extension.
+
+### What a chunk carries
+
+- Location: a chunk from a text source keeps a character range in the normalized document text, and its text is an exact slice of that text. A chunk from a PDF, slide deck or spreadsheet keeps page numbers and a box on each page. A chunk from a Word, HTML or Markdown file has no page spans, because those formats have no pages.
+- Headings: a chunk keeps the headings above it in `heading_path`.
+- Sections: a chunk lists the sections whose text it holds in `section_ids`. In the graph it sits under the lowest section that holds all of that text. A table chunk sits under its table.
+- Origin: a chunk records the name of the chunker and a fingerprint of its settings.
+- Identity: a chunk id comes from the document, its version, the chunker fingerprint and the chunk number. A new version or new settings give new ids.
+
+### Record rows and chat
+
+A record row, such as one CSV row, has no sections. Its text is one unit, split into multiple chunks if it exceeds `size`. A chat file has one section for each message. A window of short messages can share one chunk.
+
+## Example
+
+A report has a section "Results" with three short paragraphs and a table. The chunker packs the three paragraphs into one chunk of about 300 tokens. The table becomes its own chunk, with the header row first. A search for a figure in the table returns the table chunk. The agent can then read the section "Results" through the graph.
+
+Suppose you change `size` from 600 to 400 and call `Graph.update` for the file. Agentic GraphRAG chunks it again, even though the text did not change. The settings fingerprint changed, so the chunk ids change.
+
+The fingerprint also covers the version of the splitter and a number for the table rendering rules, so an upgrade that changes chunks makes `Graph.update` chunk again.
+
+<details>
+<summary>Design choices</summary>
+
+One chunker serves all formats. Every loader gives the same input: sections made of units. A single packer then behaves the same for every format. A per-format choice would also make loading harder to predict.
+
+There is one level of chunk. Extraction and search use the same piece. The agent can get wider context by walking from the chunk to its section in the graph. A second, larger level could add context, but it would also require another set of embeddings.
+
+The default size is 600 tokens. Smaller chunks gave more entities per token in the Microsoft GraphRAG study, and they make search results sharper. Treat the default as a starting point. The benchmark runner compares it with 1,000 tokens.
+
+A small chunk carries on into the next section. Sections that hold a line or two make chunks that embed badly and cost an extraction call each. Carrying on removes most of them.
+
+Each chunk records its chunker. `Graph.update` compares its fingerprint with the current one. If the settings changed, the document is chunked again even when its text did not change.
+
+</details>
+
+## Related
+
+- [Loading documents](./loading.mdx) describes how the sections are read.
+- [Configure chunking](../guides/configure-chunking.mdx) shows how to set the size.
+- [Chunking API](../api/chunking/index.md) lists the chunker and its settings.

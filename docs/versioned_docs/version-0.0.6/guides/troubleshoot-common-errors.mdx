@@ -1,0 +1,247 @@
+---
+sidebar_position: 90
+title: Troubleshoot common errors
+description: Find an Agentic GraphRAG error message, learn the cause, and apply the fix.
+---
+
+# Troubleshoot common errors
+
+Find the message you see. Then follow the fix. The messages here come from Neo4j 5.26 and the driver version in the lock file. The exact text can differ slightly in other versions.
+
+## Neo4j rejects the login
+
+You see:
+
+```text
+neo4j.exceptions.AuthError: {neo4j_code: Neo.ClientError.Security.Unauthorized} {message: The client is unauthorized due to authentication failure.}
+```
+
+The username or password does not match the server. Agentic GraphRAG reads `NEO4J_USERNAME` and `NEO4J_PASSWORD`. The default password is `neo4j`, so a server with another password fails.
+
+1. Set `NEO4J_USERNAME` and `NEO4J_PASSWORD` in your shell or in a `.env` file to the values of your server.
+2. Run this test. It prints `connected` when the login works.
+
+```python
+import asyncio
+
+from agrag.graphdb import build_graph_store
+
+
+async def main() -> None:
+    graph_store = build_graph_store("neo4j")
+    await graph_store.connect()
+    print("connected")
+    await graph_store.close()
+
+
+asyncio.run(main())
+```
+
+## Neo4j is not reachable
+
+You see:
+
+```text
+neo4j.exceptions.ServiceUnavailable: Couldn't connect to localhost:7699 (resolved to ('127.0.0.1:7699',)): Failed to establish connection ... [Errno 111] Connect call failed
+```
+
+Nothing accepts connections at `NEO4J_URI`. The server can be stopped, on another port, or still starting. A new Neo4j container needs about 30 seconds.
+
+1. Make sure that the server runs. For Docker, run `docker ps`.
+2. Make sure that `NEO4J_URI` names the right host and port. The default is `bolt://localhost:7687`.
+3. Run the test from the previous section until it prints `connected`.
+
+## Agentic GraphRAG refuses the Neo4j address
+
+You see:
+
+```text
+Value error, 'bolt://db.example.com:7687' uses an unencrypted scheme ('bolt') but sends a configured credential to a non-local host; use one of ['bolt+s', 'bolt+ssc', 'neo4j+s', 'neo4j+ssc'] instead
+```
+
+Agentic GraphRAG does not send a password over an unencrypted connection to a remote host. Use an encrypted scheme. Aura addresses use `neo4j+s://`.
+
+```bash
+export NEO4J_URI="neo4j+s://<your-instance>.databases.neo4j.io"
+```
+
+## A later add fails after you deleted data by hand
+
+You see:
+
+```text
+GraphStoreAliasConflictError: merge_key alias already claimed by another entity: {'<label>:<name>': '<id>'}
+```
+
+Agentic GraphRAG keeps bookkeeping nodes beside the graph, such as merge aliases and document jobs. If you delete only the entity and chunk nodes, the bookkeeping points at entities that no longer exist.
+
+To start over, delete every node in the database and drop the vector indexes. This removes all data in the database, so use it only when the database holds nothing but Agentic GraphRAG data. See the last section for the commands.
+
+## A package extra is missing
+
+The message names the extra to install. The command in the message is correct.
+
+| You see | Install |
+|---|---|
+| `GraphStoreMissingExtraError: needs the 'neo4j' extra` | `neo4j` |
+| `EmbeddingMissingExtraError: needs the 'embed-local' extra` | `embed-local` |
+| `ExtractorMissingExtraError: 'GlinerExtractor' needs the 'extract' extra` | `extract` |
+| `ExtractorMissingExtraError: 'BAMLExtractor' needs the 'llm' extra` | `llm` |
+| `AgentMissingExtraError: needs the 'observability' extra` | `observability` |
+| `AgentMissingExtraError: needs the 'agents' extra` | `agents` |
+| `MissingExtraError: '.pdf' needs the 'docling' extra` | `docling` |
+
+Install an extra with `uv pip install "agentic-graphrag[<extra>]"`.
+
+A source with a missing loader extra follows your error policy. With `SKIP`, Agentic GraphRAG skips the file. With `QUARANTINE`, Agentic GraphRAG sets it aside and reports it. With `RAISE`, the run stops.
+
+:::note
+`build_agent` raises `AgentMissingExtraError` when the `agents` extra is not installed. Install `agents` to build the task agent.
+:::
+
+## The LLM extractor returns fewer entities than expected
+
+`BAMLExtractor` keeps an entity only when its name appears in the chunk text. Check these causes in order:
+
+1. The model changed the spelling. The match is case-sensitive and uses whole words. "ada lovelace" does not match "Ada Lovelace". Use a stronger model, or add the exact spelling rule to your entity-type descriptions.
+2. The name appears only in the heading. The heading is context. The extractor does not search it.
+3. The label is not in the schema. The parser removes the entity before the extractor sees it. Check the entity-type labels and descriptions.
+4. The chunk is long and the model stopped early. Use a smaller `chunk_size` or a model with a larger context window.
+
+`UnparsableExtractionError`: the model answered in prose or in broken JSON. BAML cannot read the reply, and `BAMLExtractor` reports the chunk as failed. In `hybrid` mode the chunk keeps the local result. In `llm` mode the run follows its error policy for that chunk. Use a larger model, or lower the chunk size.
+
+## An LLM call takes a very long time or retries many times
+
+`EXTRACTION_LLM_RETRY` sets how many times a failed call repeats and how long to wait between attempts. Its `timeout_ms` value is a deadline for starting new attempts. It does not stop a request that is already running. `request_timeout_ms` cancels an attempt after five minutes by default; `0` turns this limit off. A timed-out attempt can retry. To limit the total wait, lower `max_retries` and set both timeouts to values that allow one normal request to finish. A slow local model can take more than a minute for one chunk. A failed chunk follows the error policy you gave to `Graph.add`. See [Configuration](../reference/configuration.mdx).
+
+## Resolution reports unavailable LLM pairs
+
+`llm_unavailable_pairs` is above zero in a resolution result or report. The resolver found ambiguous pairs but could not send them to the LLM because no LLM settings were configured.
+
+Set `EXTRACTION_LLM_CLIENTS`, or set `LLM_BASE_URL` and `LLM_MODEL_ID`. Then run `consolidate(apply=True)` to review the remaining pairs.
+
+## The schema is rejected
+
+You see one of these:
+
+```text
+Value error, Relation 'TREATS' pattern target 'Condition' is not a declared entity
+```
+
+```text
+Value error, Entity type 'Drug' declares reserved property name(s) ['name']; ['_pending_job_id', 'created_at', 'embedding', 'id', 'merge_count', 'merge_key', 'name', 'source_chunk_ids'] are keys that the graph writes itself. Rename or remove those property names in the schema.
+```
+
+```text
+Value error, Relation type 'MEMBER_OF' uses a reserved relationship type; the graph writes its own edges with ['EVIDENCED_BY', 'HAS_CHILD', 'HAS_DOCUMENT', 'HAS_PART', 'MATCHES', 'MEMBER_OF', 'MENTIONED_IN', 'NEXT_CHUNK', 'RESOLVED_AS', 'SOURCE', 'TARGET']. Rename the relation type, for example 'BELONGS_TO' for 'MEMBER_OF'.
+```
+
+```text
+Value error, Entity type 'Vendor' names unknown parent 'Organisation'. Declare 'Organisation' as an entity type or fix the spelling. Did you mean 'Organization'?
+```
+
+```text
+Value error, Entity type parents form a cycle: A -> B -> A. Remove one parent link in the cycle.
+```
+
+```text
+Value error, enum value(s) ['many'] are not valid for type 'integer'. An integer value looks like 12 or -3.
+```
+
+Every relation pattern must name entity types that the schema declares. An entity property cannot be named `label`, `text`, `id`, `name`, `merge_key`, `merge_count`, `source_chunk_ids`, `created_at` or `embedding`, because the graph writes those keys itself. A relation type cannot use the name of an edge that the graph writes itself, such as `MEMBER_OF`, `MENTIONED_IN` or `NEXT_CHUNK`. Each `enum` value of a property must match the property type. Every parent must be a declared entity type, and the parents must not form a cycle. A label can be declared only once, for entity types and for relation types.
+
+Declare each entity type, then write the pattern. This schema passes:
+
+```python
+from agrag.common.data_models import EntityType, GraphSchema, RelationType
+
+schema = GraphSchema(
+    name="medicine",
+    version="1",
+    entities=[
+        EntityType(label="Drug", description="A medicine."),
+        EntityType(label="Condition", description="A disease or symptom."),
+    ],
+    relations=[
+        RelationType(
+            label="TREATS",
+            description="A drug treats a condition.",
+            patterns=[("Drug", "Condition")],
+        )
+    ],
+)
+print(schema.name, [entity.label for entity in schema.entities])
+```
+
+## A search returns nothing
+
+A search that finds nothing raises no error in most cases. These are the causes, from most to least common.
+
+The engine uses a different schema than the graph. `SearchEngine` searches the entity indexes of one schema. Without `graph_schema`, it uses `DEFAULT_SCHEMA`. A graph opened with another schema then returns no entities. Pass the same schema to `Graph.open` and to `SearchEngine`:
+
+```python fixture:clean_neo4j
+import asyncio
+
+from agrag.common.data_models import DEFAULT_SCHEMA
+from agrag.embedding import build_embedder
+from agrag.graphdb import build_graph_store
+from agrag.ingestion import GlinerExtractor, Graph
+from agrag.retrieval import ENTITY, SearchEngine
+
+
+async def main() -> None:
+    embedder = build_embedder("ibm-granite/granite-embedding-small-english-r2")
+    graph_store = build_graph_store("neo4j")
+    graph = await Graph.open(
+        schema=DEFAULT_SCHEMA,
+        graph_store=graph_store,
+        embedder=embedder,
+        extractor=GlinerExtractor(),
+    )
+    await graph.add(text="Grace Hopper worked at Harvard on the Mark I computer.")
+    engine = SearchEngine(
+        graph_store=graph_store, embedder=embedder, graph_schema=DEFAULT_SCHEMA
+    )
+    results = await engine.search("Grace Hopper", ENTITY)
+    print(len(results))
+    await graph_store.close()
+
+
+asyncio.run(main())
+```
+
+A filter matches nothing. `SearchFilters(document_ids=[...])` keeps only results from those documents. An id that no ingested document has gives an empty list. Make sure that each id names an ingested document.
+
+The vector index does not exist. A search in the Neo4j vector indexes returns no hits when the index is missing. Before you search, open the graph once. `Graph.open` creates the indexes.
+
+The engine uses another embedder than the graph. A query vector of another size makes each Neo4j vector search fail, so `search` raises `AllRetrievalMethodsFailedError` instead of returning results. Pass `SearchEngine` the embedder that you pass to `Graph.open`. To change the model of the graph, see the next section.
+
+When a search returns nothing, the agent has no evidence to cite. Its answer says that the evidence is insufficient.
+
+## The embedding dimension does not match
+
+`Graph.open` compares the dimension of your embedder with the vector indexes that already exist. When they differ, it raises one of these errors:
+
+```text
+EmbeddingDimensionMismatchError: expected dimension 384, embedder produces 4
+```
+
+The error comes from a Neo4j vector index. It means that the stored vectors come from a model that makes 384 values, and your embedder makes 4.
+
+1. To keep your data, open the graph with the original embedder.
+2. To change models, start with an empty database. This deletes all data in the database. Then open the graph with the new embedder and ingest your documents again.
+
+```python notest
+await graph_store.execute_write("MATCH (n) DETACH DELETE n")
+indexes = await graph_store.execute_read(
+    "SHOW INDEXES YIELD name, type WHERE type = 'VECTOR' RETURN name"
+)
+for row in indexes:
+    await graph_store.execute_write(f"DROP INDEX `{row['name']}` IF EXISTS")
+```
+
+## Related
+
+- Concepts: [Graph storage](../concepts/graph-storage.mdx), [Retrieval](../concepts/retrieval.mdx)
+- Guide: [Configure storage backends](./configure-storage-backends.mdx)
+- Reference: [Configuration](../reference/configuration.mdx)

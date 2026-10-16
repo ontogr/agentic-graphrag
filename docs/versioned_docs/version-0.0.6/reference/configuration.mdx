@@ -1,0 +1,188 @@
+---
+title: Configuration
+---
+
+# Configuration
+
+Agentic GraphRAG reads its configuration from environment variables. This page lists every variable, its default, and the settings class that reads it.
+
+## How configuration loads
+
+Each settings class reads three sources. The first source that has a value wins.
+
+1. An environment variable with the class prefix, for example `NEO4J_URI`.
+2. A `.env` file in the working directory.
+3. The default in the table.
+
+A class ignores variables it does not know. A list or object value is a JSON string.
+
+## Neo4j
+
+Class: `Neo4jSettings`. Prefix: `NEO4J_`.
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `NEO4J_URI` | `bolt://localhost:7687` | The Bolt URI. Use `neo4j+s://` for Aura. A plain `bolt://` or `neo4j://` URI to a non-local host raises `ValueError`. |
+| `NEO4J_USERNAME` | `neo4j` | The database user. |
+| `NEO4J_PASSWORD` | `neo4j` | The database password. |
+| `NEO4J_DATABASE` | `neo4j` | The database name. |
+| `NEO4J_MAX_CONNECTION_LIFETIME` | `240` | Seconds a pooled connection lives. Aura closes idle connections after about five minutes. |
+
+## Embeddings
+
+Class: `EmbeddingSettings`. Prefix: `EMBEDDING_`.
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `EMBEDDING_MODEL` | `ibm-granite/granite-embedding-small-english-r2` | The model name. The default embedder takes a model that FastEmbed supports. A `SentenceTransformerEmbedder` takes a sentence-transformers model name or path. |
+| `EMBEDDING_DEVICE` | none | The device, such as `cpu` or `cuda`. Only `SentenceTransformerEmbedder` uses it. None lets sentence-transformers choose. |
+| `EMBEDDING_NORMALIZE` | `true` | Whether to L2-normalize the vectors. |
+| `EMBEDDING_BATCH_SIZE` | `32` | Texts encoded per call. |
+| `EMBEDDING_CACHE_FOLDER` | none | Where the embedder caches downloaded model files. |
+
+## Local extraction
+
+Class: `ExtractionSettings`. Prefix: `EXTRACTION_`.
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `EXTRACTION_MODE` | `hybrid` | Selects `gliner`, `hybrid`, or `llm`. If no LLM extractor is available, `hybrid` selects `gliner` and logs a warning. `llm` mode sends chunks that meet the word minimum to the LLM. See [Choose an extraction mode](../guides/choose-an-extraction-mode.mdx) for tradeoffs and [Control LLM cost during extraction](../guides/control-llm-cost-during-extraction.mdx) for budget details. |
+| `EXTRACTION_MODEL_NAME` | `fastino/gliner2.5-base-v1` | GLiNER checkpoint loaded by `GlinerExtractor`. |
+| `EXTRACTION_DTYPE` | `fp32` | Model precision: `fp32`, `fp16`, or `bf16`. The model loads in `fp32` before the extractor casts it. |
+| `EXTRACTION_ENTITY_THRESHOLD` | `0.5` | Minimum score for a kept entity span. |
+| `EXTRACTION_RELATION_THRESHOLD` | `0.7` | Minimum score for a kept relation. A relation below it becomes a candidate when candidates are enabled. |
+| `EXTRACTION_RELATION_FLOOR` | `0.3` | Minimum relation score returned by the model. Relations between this value and `EXTRACTION_RELATION_THRESHOLD` are reported as candidates. It cannot exceed `EXTRACTION_RELATION_THRESHOLD`. |
+| `EXTRACTION_BAND_FLOOR` | `0.3` | Minimum entity score in the band below `EXTRACTION_ENTITY_THRESHOLD`. When candidates are enabled, a second model call reports spans in this band that overlap no kept entity. It cannot exceed `EXTRACTION_ENTITY_THRESHOLD`. |
+| `EXTRACTION_LABEL_THRESHOLDS` | `{}` | JSON object mapping entity or relation labels to their own thresholds. An entity label's threshold replaces `EXTRACTION_ENTITY_THRESHOLD` for that label. A relation label's threshold replaces `EXTRACTION_RELATION_THRESHOLD` as the cut for kept relations, and the model reads that relation at the lower of the threshold and `EXTRACTION_RELATION_FLOOR`. A label not in the schema has no effect. |
+| `EXTRACTION_ESCALATION_THRESHOLD` | `0.75` | A chunk is eligible for the LLM in `hybrid` mode when one of its entities scores below this value. |
+| `EXTRACTION_ESCALATION_BUDGET` | `0.2` | The share of the chunks in a batch that the LLM extractor can read, from `0` to `1`, or `all`. The value is rounded up. `all` sets no limit, and `0` means no chunk goes to the LLM. |
+| `EXTRACTION_MIN_ESCALATION_WORDS` | `8` | Minimum words in a chunk with no entities for the LLM to read it. Used in `llm` mode and for the empty-result case in `hybrid` mode. |
+| `EXTRACTION_CANDIDATES_ENABLED` | `true` | Set to `false` to stop writing candidates. The dropped counts stay on. Disabling candidates also skips GLiNER's second model call for band entities. |
+
+All score values must be between `0` and `1`. `EXTRACTION_LABEL_THRESHOLDS` must be one JSON object. For example, the following `.env` values configure every field:
+
+```dotenv
+EXTRACTION_MODE=hybrid
+EXTRACTION_MODEL_NAME=fastino/gliner2.5-base-v1
+EXTRACTION_DTYPE=fp32
+EXTRACTION_ENTITY_THRESHOLD=0.5
+EXTRACTION_RELATION_THRESHOLD=0.7
+EXTRACTION_RELATION_FLOOR=0.3
+EXTRACTION_BAND_FLOOR=0.3
+EXTRACTION_LABEL_THRESHOLDS={"Person": 0.7, "Organization": 0.6}
+EXTRACTION_ESCALATION_THRESHOLD=0.75
+EXTRACTION_ESCALATION_BUDGET=0.2
+EXTRACTION_MIN_ESCALATION_WORDS=8
+EXTRACTION_CANDIDATES_ENABLED=true
+```
+
+The `EXTRACTION_LLM_` settings in [Extraction](#extraction) belong to `ExtractionLLMSettings`, not `ExtractionSettings`. `fp16` and `bf16` can reduce memory use, but speed and support depend on the device and PyTorch build. The extractor loads the model in `fp32` and then casts it. Test lower precision on your data before using it in production.
+
+## LLM clients
+
+Three roles call an LLM: extraction, the agent, and the evaluation judge. You can set one endpoint for all three with the shared variables, or set a role's own variables.
+
+### Shared variables
+
+| Variable | Default | Read by |
+| --- | --- | --- |
+| `LLM_BASE_URL` | none | `from_openai_compatible_env()` of the three roles. Required for extraction. |
+| `LLM_API_KEY` | none | The same three methods. |
+| `LLM_MODEL_ID` | none | The same three methods. Required for extraction and for the judge. |
+
+### Extraction
+
+Class: `ExtractionLLMSettings`. Prefix: `EXTRACTION_LLM_`.
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `EXTRACTION_LLM_CLIENTS` | required | A JSON list of client objects (see below). |
+| `EXTRACTION_LLM_STRATEGY` | `single` | `single`, `fallback`, or `round_robin`. Ignored with one client. |
+| `EXTRACTION_LLM_RETRY` | see below | A JSON object with `max_retries` (`3`), `delay_ms` (`1000`), `multiplier` (`2.0`), `max_delay_ms` (`30000`), `timeout_ms` (`0`, no deadline), and `request_timeout_ms` (`300000`, `0` turns it off). `timeout_ms` stops new attempts after the deadline; it does not stop a request that is already running. `request_timeout_ms` cancels one attempt that runs too long. |
+
+`ExtractionLLMSettings.from_openai_compatible_env()` builds one `openai-generic` client from `LLM_BASE_URL`, `LLM_API_KEY`, and `LLM_MODEL_ID`. It raises `RuntimeError` when `LLM_BASE_URL` or `LLM_MODEL_ID` is missing.
+
+`ExtractionLLMSettings` also configures the LLM calls that summarize merged descriptions, verify entity matches, and write community reports. All of them read the same clients, strategy and retry values.
+
+### Agent
+
+Class: `AgentLLMSettings`. Prefix: `AGENT_LLM_`.
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `AGENT_LLM_CLIENTS` | required | A JSON list of client objects. |
+| `AGENT_LLM_STRATEGY` | `single` | `single`, `fallback`, or `round_robin`. Ignored with one client. |
+| `AGENT_LLM_BASE_URL` | `LLM_BASE_URL` | Read by `from_openai_compatible_env()`. |
+| `AGENT_LLM_API_KEY` | `LLM_API_KEY` | Read by `from_openai_compatible_env()`. |
+| `AGENT_LLM_MODEL_ID` | `LLM_MODEL_ID`, then `gpt-4o-mini` | Read by `from_openai_compatible_env()`. |
+
+### Evaluation judge
+
+Class: `EvalJudgeSettings`. Prefix: `EVAL_JUDGE_`.
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `EVAL_JUDGE_CLIENT` | required | A JSON client object. Only direct construction reads it. |
+| `EVAL_JUDGE_TEMPERATURE` | `0.0` | The sampling temperature. An empty value sends none. |
+| `EVAL_JUDGE_BASE_URL` | `LLM_BASE_URL` | Read by `from_openai_compatible_env()`. |
+| `EVAL_JUDGE_API_KEY` | `LLM_API_KEY` | Read by `from_openai_compatible_env()`. |
+| `EVAL_JUDGE_MODEL_ID` | `LLM_MODEL_ID` | Read by `from_openai_compatible_env()`. There is no default model. |
+
+### Client object
+
+Each entry in a `*_CLIENTS` list has these keys.
+
+| Key | Meaning |
+| --- | --- |
+| `name` | A unique name for the client. |
+| `provider` | One of `anthropic`, `aws-bedrock`, `google-ai`, `vertex-ai`, `openai`, `openai-responses`, `azure-openai`, `openai-generic`. |
+| `model` | The model identifier the provider expects. |
+| `api_key` | The API key, when the provider needs one directly. |
+| `base_url` | A custom endpoint. Required for `openai-generic`. |
+| `options` | Provider fields with no common shape, such as an Azure deployment id. |
+
+```dotenv
+EXTRACTION_LLM_CLIENTS=[{"name": "c", "provider": "openai-generic", "model": "your-model", "base_url": "https://your-endpoint.example.com/v1", "api_key": "your-key"}]
+```
+
+## Agent loop
+
+Class: `AgentSettings`. Prefix: `AGENT_`.
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `AGENT_RECURSION_LIMIT` | `50` | The maximum LangGraph steps before the run stops. |
+| `AGENT_MAX_TOOL_CALLS` | `20` | The maximum tool calls in one task run. |
+| `AGENT_MAX_RESULT_CHARACTERS` | `12000` | The maximum text that one evidence fetch returns. |
+
+## Retrieval
+
+Class: `RetrievalSettings`. Prefix: `RETRIEVAL_`.
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `RETRIEVAL_ENTITY_LABELS` | `[]` | A JSON list of graph labels for native entity search. |
+| `RETRIEVAL_ENTITY_TOP_K` | `10` | Results per entity search. |
+| `RETRIEVAL_RESOLVED_ENTITY_TOP_K` | `10` | Results per resolved-entity search. |
+| `RETRIEVAL_CHUNK_TOP_K` | `10` | Results per chunk search. |
+| `RETRIEVAL_COMMUNITY_TOP_K` | `5` | Results per community search. |
+| `RETRIEVAL_TRAVERSAL_DEPTH` | `2` | The maximum hops of a graph expansion. |
+| `RETRIEVAL_TRAVERSAL_LIMIT` | `50` | The maximum nodes a graph expansion returns. |
+| `RETRIEVAL_RRF_K` | `60` | The reciprocal-rank-fusion constant. |
+| `RETRIEVAL_RERANKER_MIN_SCORE` | none | Drop results below this score after reranking. None keeps all. |
+| `RETRIEVAL_NODE_DISTANCE_SEED_TOP_K` | `3` | How many top entity hits seed the node-distance reranker. |
+| `RETRIEVAL_CROSS_ENCODER_MODEL` | `cross-encoder/ms-marco-MiniLM-L-6-v2` | The cross-encoder for reranking. |
+
+## Ingestion
+
+Class: `CutoverJobSettings`. Prefix: `CUTOVER_JOB_`.
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `CUTOVER_JOB_LEASE_TTL_SECONDS` | `60` | Seconds a worker's lease on a document stays valid before another worker can take it. Must be greater than zero. |
+
+## Related
+
+- How-to: [Configure storage backends](../guides/configure-storage-backends.mdx).
+- How-to: [Control LLM cost during extraction](../guides/control-llm-cost-during-extraction.mdx).
+- Reference: [Core API](../api/index.md).
