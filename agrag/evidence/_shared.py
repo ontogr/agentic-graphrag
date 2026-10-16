@@ -130,6 +130,8 @@ class StoredChunk:
             closed ``HAS_PART`` edge.
         closed_at: The time the ``HAS_PART`` edge closed, or None while it is open.
         document_key: The key of the document.
+        title: Stored document title, when projected by the query.
+        uri: Stored source URI, when projected by the query.
         current_content_hash: The full content hash of the current version, or None
             after the source has been deleted.
     """
@@ -140,6 +142,8 @@ class StoredChunk:
     document_key: str
     current_content_hash: str | None
     activation_seq: int | None = None
+    title: str | None = None
+    uri: str | None = None
 
 
 def stored_chunk(row: Mapping[str, Any]) -> StoredChunk:
@@ -159,6 +163,8 @@ def stored_chunk(row: Mapping[str, Any]) -> StoredChunk:
         document_key=row["document_key"],
         current_content_hash=row["current_content_hash"],
         activation_seq=row.get("activation_seq"),
+        title=row.get("title"),
+        uri=row.get("uri"),
     )
 
 

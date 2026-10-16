@@ -65,7 +65,15 @@ These settings bound one run. Set them with `AGENT_` variables or `AgentSettings
 | `max_tool_calls` | `20` | The maximum tool calls in one task run. |
 | `max_result_characters` | `12000` | The maximum text that one evidence fetch returns. |
 
-The result has two parts that matter most. `answer` holds the final text. `citations` lists the fetched evidence that the answer cites.
+The result has two parts that matter most. `answer` holds Markdown with numbered references such as `[1]` and a Sources list. Numbers follow first appearance, and passages from the same document version share a number. `citations` lists the actual fetched evidence, including canonical IDs, stored titles, source URIs, and locations. A citation to a narrower span retains its fetched parent in that list. Invalid citation groups remain visible and keep the run's `partial` status.
+
+For example, an answer can contain `Revenue increased. [[1]](https://example.org/report.pdf)` followed by `[1] [Annual report](https://example.org/report.pdf)` in its Sources list. Local files and inline documents use plain numbered references and document titles. URLs point to the stored source address; the fetched text and content hash identify the cited version. Superseded evidence is labeled in the source list.
+
+The agent validates canonical IDs before formatting the answer. Do not pass the formatted `answer` back to `check_citations` to recover provenance. Use the returned `citations` records instead. Existing Markdown links are left unchanged; the automatic formatter handles canonical IDs in plain square brackets, including comma- or semicolon-separated groups.
+
+## Citations in MCP clients
+
+`fetch_evidence` returns the same source metadata and a `citation_markdown` field in both its structured result and serialized text. The field is `null` unless the evidence was fetched completely. MCP clients should keep `evidence_id` for `check_citations`, then use numbered claim references and a Sources list built from `citation_markdown`. The client controls its final answer and link rendering, and can also build its own presentation from the returned title, URI, and passage location.
 
 :::note
 The agent needs the `agents` extra. `build_agent` raises `AgentMissingExtraError` when the extra is not installed.

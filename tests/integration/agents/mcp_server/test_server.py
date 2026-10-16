@@ -9,6 +9,7 @@ functions and from the authored text, never from the server code.
 import asyncio
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from contextlib import suppress
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -43,6 +44,7 @@ from tests.integration.retrieval.evidence._corpus import (
     VIBER_TEXT,
     BagOfWordsEmbedder,
     locate,
+    make_document,
     span_evidence_id,
 )
 from tests.integration.retrieval.evidence.conftest import EvidenceEnv
@@ -266,6 +268,60 @@ class TestToolListing:
 
 class TestEquivalenceWithDirectCalls:
     """Tool results equal the direct evidence functions on the same corpus."""
+
+    async def test_fetched_source_links_preserve_ids_and_response_limits(
+        self, evidence_env: EvidenceEnv, tmp_path: Path
+    ) -> None:
+        """Stored source metadata reaches both MCP encodings, not dropped fetches."""
+        env = evidence_env
+        for key, uri, title in [
+            (env.keep, "https://example.org/privacy", "Privacy notice"),
+            (env.harbor, "/reports/harbor.txt", "Harbor log"),
+        ]:
+            text = (KEEP_TEXT if key == env.keep else HARBOR_TEXT) + "\nSource edition."
+            document = make_document(key, text).model_copy(
+                update={"uri": uri, "title": title}
+            )
+            await env.graph.add(documents=[document])
+        ids = [
+            span_evidence_id(
+                env.keep, KEEP_TEXT + "\nSource edition.", _GOLD_START, _GOLD_END
+            ),
+            span_evidence_id(env.harbor, HARBOR_TEXT + "\nSource edition.", 0, 20),
+        ]
+        async with Client(_server(env.store, env)) as client:
+            response = await client.call_tool("fetch_evidence", {"evidence_ids": ids})
+            assert not response.is_error
+            structured = response.structured_content
+            assert structured is not None
+            remote, local = structured["outcomes"]
+            assert remote["title"] == "Privacy notice"
+            assert remote["uri"] == "https://example.org/privacy"
+            assert remote["citation_markdown"] == (
+                "[Privacy notice](https://example.org/privacy)"
+            )
+            assert local["uri"] is None
+            assert local["citation_markdown"] == "Harbor log"
+            assert "/reports/harbor.txt" not in _text(response)
+            assert "/reports/harbor.txt" not in response.model_dump_json()
+            assert remote["citation_markdown"] in _text(response)
+            assert remote["evidence_id"] == ids[0]
+            (tmp_path / "source-citations.json").write_text(
+                response.model_dump_json(by_alias=True, indent=2)
+            )
+
+        budget = 2 * len(FetchResult.model_validate(structured).model_dump_json()) - 100
+        async with Client(_server(env.store, env, max_response_chars=budget)) as client:
+            capped = await _structured(client, "fetch_evidence", {"evidence_ids": ids})
+            assert capped["truncated"] is True
+            assert len(capped["outcomes"]) == 1
+            checked = await _structured(
+                client, "check_citations", {"cited_evidence_ids": ids}
+            )
+            assert [item["verdict"] for item in checked["checks"]] == [
+                "valid",
+                "not_fetched",
+            ]
 
     @pytest.mark.parametrize(
         ("mode", "query"),

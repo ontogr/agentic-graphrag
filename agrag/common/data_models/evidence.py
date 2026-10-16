@@ -4,13 +4,53 @@ Evidence is passage text from a Document, named by an evidence id. The models
 here are the values that the evidence operations exchange with callers.
 """
 
+import html
+import re
+import unicodedata
 from enum import StrEnum
+from urllib.parse import quote, urlsplit
 from uuid import UUID
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, computed_field, field_validator, model_validator
 
 
 CONTENT_HASH_PREFIX_LENGTH = 16
+
+
+def _source_uri(uri: str | None) -> str | None:
+    """Keep absolute HTTP(S) source URLs with valid, credential-free authorities."""
+    if not uri or any(unicodedata.category(c).startswith("C") for c in uri):
+        return None
+    try:
+        parsed = urlsplit(uri)
+        if (
+            parsed.scheme.lower() not in {"http", "https"}
+            or not parsed.hostname
+            or any(c.isspace() for c in parsed.netloc)
+            or "\\" in parsed.netloc
+            or parsed.username is not None
+            or parsed.password is not None
+        ):
+            return None
+        _ = parsed.port
+    except ValueError:
+        return None
+    return uri
+
+
+def _source_reference(label: str, uri: str | None) -> str:
+    """Escape a source label and link only absolute HTTP(S) source URIs."""
+    label = " ".join(
+        "".join(
+            " " if unicodedata.category(c).startswith("C") else c for c in label
+        ).split()
+    )
+    label = html.escape(re.sub(r"([\\`*_{\[\]}()!|#])", r"\\\1", label))
+    uri = _source_uri(uri)
+    if uri is None:
+        return label
+    destination = quote(uri, safe=":/?#@!$&*+,;=%~.-_")
+    return f"[{label}]({destination})"
 
 
 class EvidenceKind(StrEnum):
@@ -302,6 +342,9 @@ class FetchOutcome(BaseModel):
         text: The returned text, or None when no text is returned.
         reference: The decoded reference, or None for a malformed id.
         document_key: The key of the document, when the document is readable.
+        title: Stored document title, when readable.
+        uri: Valid HTTP(S) source URL, when available.
+        location: Passage location, including page provenance when available.
         content_hash: The full content hash of the version the text came from.
         status_of_version: Whether that version is current, when text is
             returned.
@@ -312,6 +355,8 @@ class FetchOutcome(BaseModel):
         partial: True when the requested range was not fully covered by chunks.
         detail: A short message for a malformed or failed id. It is None for an
             unavailable id, because the reason stays on the server side.
+        citation_markdown: Escaped source reference for a complete fetch, or None.
+            Absolute HTTP(S) source URIs become links; other sources display as text.
     """
 
     evidence_id: str
@@ -319,12 +364,32 @@ class FetchOutcome(BaseModel):
     text: str | None = None
     reference: EvidenceReference | None = None
     document_key: str | None = None
+    title: str | None = None
+    uri: str | None = None
+    location: EvidenceLocation | None = None
     content_hash: str | None = None
     status_of_version: VersionStatus | None = None
     observed_activation_seq: int | None = None
     covered_range: tuple[int, int] | None = None
     partial: bool = False
     detail: str | None = None
+
+    @computed_field
+    @property
+    def citation_markdown(self) -> str | None:
+        """Return a readable source reference only for complete fetched evidence."""
+        if self.status is not FetchStatus.OK or self.partial:
+            return None
+        label = self.title or self.document_key or "Source"
+        if self.status_of_version is VersionStatus.SUPERSEDED:
+            label += ", superseded version"
+        return _source_reference(label, self.uri)
+
+    @field_validator("uri")
+    @classmethod
+    def _public_source_uri(cls, uri: str | None) -> str | None:
+        """Limit caller-facing source addresses to valid HTTP(S) URLs."""
+        return _source_uri(uri)
 
 
 class CitationVerdict(StrEnum):

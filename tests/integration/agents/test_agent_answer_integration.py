@@ -1,7 +1,9 @@
 """Integration coverage for typed, evidence-checked agent answers."""
 
 import importlib.util
+import json
 from collections.abc import Sequence
+from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
@@ -20,6 +22,12 @@ from agrag.embedding.base import Embedder
 from agrag.graphdb import build_graph_store
 from agrag.graphdb.base import GraphStore
 from agrag.memory import TaskMemory
+from tests.integration.retrieval.evidence._corpus import (
+    KEEP_TEXT,
+    make_document,
+    span_evidence_id,
+)
+from tests.integration.retrieval.evidence.conftest import EvidenceEnv
 
 
 neo4j_missing = importlib.util.find_spec("neo4j") is None
@@ -30,6 +38,7 @@ class _FinalModel(BaseChatModel):
 
     answer: AgentAnswer | None
     repair_answer: AgentAnswer | None = None
+    fetch_ids: list[str] = []
     calls: int = 0
     _tool_name: str = PrivateAttr(default="AgentAnswer")
 
@@ -55,7 +64,27 @@ class _FinalModel(BaseChatModel):
         **kwargs: Any,
     ) -> ChatResult:
         """Return the typed answer as a tool call."""
-        answer = self.repair_answer if self.calls else self.answer
+        if self.fetch_ids and not self.calls:
+            self.calls += 1
+            return ChatResult(
+                generations=[
+                    ChatGeneration(
+                        message=AIMessage(
+                            content="",
+                            tool_calls=[
+                                {
+                                    "name": "fetch_evidence",
+                                    "args": {"evidence_ids": self.fetch_ids},
+                                    "id": "fetch-source",
+                                }
+                            ],
+                        )
+                    )
+                ]
+            )
+        answer = (
+            self.repair_answer if self.calls > bool(self.fetch_ids) else self.answer
+        )
         self.calls += 1
         if answer is None:
             return ChatResult(
@@ -99,13 +128,15 @@ def _build(
     project_id: str,
     model: _FinalModel,
     settings: AgentSettings | None = None,
+    *,
+    scope: frozenset[str] = frozenset(),
 ) -> Any:
     """Build an agent with the supplied model."""
     monkeypatch.setattr("agrag.agents.build.build_chat_model", lambda _config: model)
     return build_agent(
         graph_store=store,
         embedder=_ZeroEmbedder(),
-        scope=frozenset(),
+        scope=scope,
         project_id=project_id,
         agent_id="answer-test",
         llm_settings=AgentLLMSettings(
@@ -134,6 +165,70 @@ async def _delete_project_memory(store: GraphStore, project_id: str) -> None:
 @pytest.mark.skipif(neo4j_missing, reason="neo4j extra not installed")
 class TestAgentAnswerIntegration:
     """Final status comes from the answer schema, not its wording."""
+
+    async def test_validated_answer_renders_sources_after_repair(
+        self, monkeypatch: MonkeyPatch, evidence_env: EvidenceEnv, tmp_path: Path
+    ) -> None:
+        """The real agent fetches, repairs, then links validated contained spans."""
+        env = evidence_env
+        text = KEEP_TEXT + "\nCitation edition."
+        await env.graph.add(
+            documents=[
+                make_document(env.keep, text).model_copy(
+                    update={
+                        "title": "Privacy notice",
+                        "uri": "https://example.org/privacy",
+                    }
+                )
+            ]
+        )
+        parent = span_evidence_id(env.keep, text, 0, 30)
+        narrower = span_evidence_id(env.keep, text, 0, 10)
+        unfetched = span_evidence_id(env.keep, text, 0, 40)
+        final_text = f"Claim [{narrower}; {parent}]. Unverified [{unfetched}]."
+        model = _FinalModel(
+            fetch_ids=[parent],
+            answer=AgentAnswer(
+                answer=f"Claim [{unfetched}].",
+                support_status="supported",
+                citations=[unfetched],
+            ),
+            repair_answer=AgentAnswer(
+                answer=final_text, support_status="supported", citations=[narrower]
+            ),
+        )
+        project_id = f"citation-answer-{uuid4().hex}"
+        try:
+            result = await _build(
+                monkeypatch, env.store, project_id, model, scope=frozenset({env.keep})
+            ).ainvoke({"task_name": "source-citations", "question": "Cite the source."})
+
+            assert result["answer"] == (
+                "Claim [[1]](https://example.org/privacy). "
+                f"Unverified [{unfetched}]."
+                "\n\n### Sources\n\n"
+                "[1] [Privacy notice](https://example.org/privacy)"
+            )
+            assert result["status"] == "partial"
+            assert result["invalid_citations"] == [unfetched]
+            assert [source.evidence_id for source in result["citations"]] == [parent]
+            assert result["citations"][0].text == text[:30]
+            assert model.calls == 3
+            (tmp_path / "agent-citations.json").write_text(
+                json.dumps(
+                    {
+                        "answer": result["answer"],
+                        "status": result["status"],
+                        "invalid_citations": result["invalid_citations"],
+                        "citations": [
+                            item.model_dump(mode="json") for item in result["citations"]
+                        ],
+                    },
+                    indent=2,
+                )
+            )
+        finally:
+            await _delete_project_memory(env.store, project_id)
 
     async def test_insufficient_evidence_status_is_structured(
         self, monkeypatch: MonkeyPatch

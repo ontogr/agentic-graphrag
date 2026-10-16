@@ -7,6 +7,7 @@ from typing import Any
 from agrag.common.data_models.chunk import Chunk
 from agrag.common.data_models.evidence import (
     EvidenceKind,
+    EvidenceLocation,
     EvidenceReference,
     FetchOutcome,
     FetchStatus,
@@ -16,6 +17,7 @@ from agrag.cypher.evidence import evidence_chunks_query
 from agrag.evidence._shared import (
     StoredChunk,
     choose_chunk_set,
+    chunk_location,
     scope_node_ids,
     stored_chunk,
     text_range,
@@ -155,6 +157,9 @@ def _chunk_outcome(
         text=text,
         reference=reference,
         document_key=stored.document_key,
+        title=stored.title,
+        uri=stored.uri,
+        location=chunk_location(stored.chunk),
         content_hash=stored.chunk.content_hash,
         status_of_version=_version_status(stored, stored.chunk.content_hash),
         observed_activation_seq=stored.activation_seq,
@@ -220,6 +225,11 @@ def _span_outcome(
         text=text,
         reference=reference,
         document_key=first.document_key,
+        title=first.title,
+        uri=first.uri,
+        location=EvidenceLocation(
+            char_start=covered_start, char_end=covered_start + len(text)
+        ),
         content_hash=first.chunk.content_hash,
         status_of_version=_version_status(first, first.chunk.content_hash),
         observed_activation_seq=first.activation_seq,

@@ -112,8 +112,8 @@ def evidence_chunks_query(*, by_chunk_id: bool) -> str:
         Parameterized Cypher expecting $document_id, $content_hash_prefix and,
         when ``by_chunk_id`` is set, $chunk_id. Each row holds the chunk
         properties, the edge's ``version_id``, the edge's ``closed_at`` time (null
-        while the edge is open), and the document key, title and current content
-        hash.
+        while the edge is open), and the document key, title, source URI and
+        current content hash.
     """
     chunk_filter = "AND chunk.id = $chunk_id " if by_chunk_id else ""
     # A deleted document has no open edge left, so none of its versions is read.
@@ -135,6 +135,7 @@ def evidence_chunks_query(*, by_chunk_id: bool) -> str:
         f"RETURN chunk {_CHUNK_FIELDS} AS chunk, part.version_id AS version_id, "
         "toString(part.invalid_at) AS closed_at, "
         "document.document_key AS document_key, document.title AS title, "
+        "document.uri AS uri, "
         "document.current_content_hash AS current_content_hash, "
         "document.activation_seq AS activation_seq"
     )

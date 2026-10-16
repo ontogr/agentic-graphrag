@@ -26,7 +26,7 @@ from agrag.common.data_models.task import (
     StepState,
 )
 from agrag.embedding.base import Embedder
-from agrag.evidence import check_citations
+from agrag.evidence import check_citations, render_citations
 from agrag.evidence.citation import parse_citations
 from agrag.graphdb.base import GraphStore
 from agrag.memory import DecisionMemory, TaskMemory
@@ -294,14 +294,13 @@ class _TaskAgent:
             status = "answered"
         current_task = await self._memory.get_task(task_name)
         last_seq = current_task.view.last_event_seq if current_task.view else 0
+        answer, sources = render_citations(
+            answer, valid_citations, list(run_state.fetches.values())
+        )
         return AgentRunResult(
             answer=answer,
             status=status,
-            citations=[
-                run_state.fetches[evidence_id]
-                for evidence_id in valid_citations
-                if evidence_id in run_state.fetches
-            ],
+            citations=sources,
             invalid_citations=invalid,
             task={"name": task_name, "last_event_seq": last_seq},
             recording_failures=run_state.recording_failures,
