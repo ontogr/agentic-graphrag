@@ -9,6 +9,7 @@ Shared data models used by agrag components.
 
 **Modules:**
 
+- [**agent_answer**](agent_answer/index.md) – Structured final answer produced by the default evidence agent.
 - [**candidate**](candidate/index.md) – Candidate items rejected by the extraction schema.
 - [**candidate_review**](candidate_review/index.md) – Models for candidate review and schema patches.
 - [**chunk**](chunk/index.md) – The Chunk model: one retrieval-sized piece of a Document.

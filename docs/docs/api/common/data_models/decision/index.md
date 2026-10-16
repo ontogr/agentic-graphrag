@@ -29,6 +29,7 @@ Models for decision records: choices, their evidence supports and reads.
 - [**RejectDecisionResult**](RejectDecisionResult.md) – The outcome of rejecting a decision.
 - [**ReviewReason**](ReviewReason.md) – Why a decision needs review.
 - [**ReviewState**](ReviewState.md) – Whether a decision's supports still hold.
+- [**SupportHistoryPage**](SupportHistoryPage.md) – A bounded page of immutable support references and review transitions.
 - [**SupportKind**](SupportKind.md) – Kind of a support that a decision cites.
 
 **Attributes:**

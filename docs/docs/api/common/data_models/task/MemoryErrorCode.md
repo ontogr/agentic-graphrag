@@ -14,6 +14,8 @@ Fixed error codes returned by task memory operations.
 - [**EVENT_NOT_FOUND**](#agrag-common-data_models-task-MemoryErrorCode-EVENT_NOT_FOUND) –
 - [**INVALID_REQUEST_ID**](#agrag-common-data_models-task-MemoryErrorCode-INVALID_REQUEST_ID) –
 - [**REQUEST_ID_REUSED**](#agrag-common-data_models-task-MemoryErrorCode-REQUEST_ID_REUSED) –
+- [**SUPPORT_INVALID**](#agrag-common-data_models-task-MemoryErrorCode-SUPPORT_INVALID) –
+- [**SUPPORT_REQUIRED**](#agrag-common-data_models-task-MemoryErrorCode-SUPPORT_REQUIRED) –
 - [**TASK_EXISTS**](#agrag-common-data_models-task-MemoryErrorCode-TASK_EXISTS) –
 - [**TASK_NOT_FOUND**](#agrag-common-data_models-task-MemoryErrorCode-TASK_NOT_FOUND) –
 
@@ -33,6 +35,18 @@ INVALID_REQUEST_ID = 'invalid_request_id'
 
 ```python
 REQUEST_ID_REUSED = 'request_id_reused'
+```
+
+## `SUPPORT_INVALID` \{#agrag-common-data_models-task-MemoryErrorCode-SUPPORT_INVALID}
+
+```python
+SUPPORT_INVALID = 'support_invalid'
+```
+
+## `SUPPORT_REQUIRED` \{#agrag-common-data_models-task-MemoryErrorCode-SUPPORT_REQUIRED}
+
+```python
+SUPPORT_REQUIRED = 'support_required'
 ```
 
 ## `TASK_EXISTS` \{#agrag-common-data_models-task-MemoryErrorCode-TASK_EXISTS}

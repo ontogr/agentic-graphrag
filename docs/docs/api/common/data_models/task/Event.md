@@ -23,6 +23,7 @@ One raw event appended to a task.
 - [**truncated**](#agrag-common-data_models-task-Event-truncated) (<code>bool</code>) – Whether the stored payload is shorter than the full text.
 - [**author**](#agrag-common-data_models-task-Event-author) (<code>str</code>) – The agent that recorded the event.
 - [**at**](#agrag-common-data_models-task-Event-at) (<code>datetime</code>) – When the event was recorded.
+- [**redacted_at**](#agrag-common-data_models-task-Event-redacted_at) (<code>datetime | None</code>) – When the payload was redacted, or None while available.
 
 ## `at` \{#agrag-common-data_models-task-Event-at}
 
@@ -70,6 +71,12 @@ payload: str
 
 ```python
 payload_sha256: str
+```
+
+## `redacted_at` \{#agrag-common-data_models-task-Event-redacted_at}
+
+```python
+redacted_at: datetime | None = None
 ```
 
 ## `role` \{#agrag-common-data_models-task-Event-role}
