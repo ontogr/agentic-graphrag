@@ -19,6 +19,7 @@ their queries. Evidence ids name passage text of one version of a document.
 - [**fetch**](fetch/index.md) – Fetch the exact text behind evidence ids, limited to the caller's scope.
 - [**ids**](ids/index.md) – Encode and decode evidence ids.
 - [**navigate**](navigate/index.md) – Navigate from one evidence passage to its neighbors, within scope and bounds.
+- [**render**](render/index.md) – Render validated evidence citations without changing their fetched provenance.
 - [**source_status**](source_status/index.md) – Read the committed lifecycle and index state of a document source.
 
 **Functions:**
@@ -26,3 +27,4 @@ their queries. Evidence ids name passage text of one version of a document.
 - [**check_citations**](citation/check_citations.md) – Return one verdict for each cited evidence id, in the order given.
 - [**explore**](entities/explore.md) – Explore the entity relations around one entity, within bounds.
 - [**find_entities**](entities/find_entities.md) – Find up to `limit` entities that match a query by name or by meaning.
+- [**render_citations**](render/render_citations.md) – Replace validated inline IDs with readable Markdown source references.

@@ -4,13 +4,46 @@ Evidence is passage text from a Document, named by an evidence id. The models
 here are the values that the evidence operations exchange with callers.
 """
 
+import html
+import re
+import unicodedata
 from enum import StrEnum
+from urllib.parse import quote, urlsplit
 from uuid import UUID
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, computed_field, model_validator
 
 
 CONTENT_HASH_PREFIX_LENGTH = 16
+
+
+def _source_reference(label: str, uri: str | None) -> str:
+    """Escape a source label and link only absolute HTTP(S) source URIs."""
+    label = " ".join(
+        "".join(
+            " " if unicodedata.category(c).startswith("C") else c for c in label
+        ).split()
+    )
+    label = re.sub(r"([\\`*_{\[\]}()!|#])", r"\\\1", html.escape(label))
+    fallback = f"({label})"
+    if not uri or any(unicodedata.category(c).startswith("C") for c in uri):
+        return fallback
+    try:
+        parsed = urlsplit(uri)
+        if (
+            parsed.scheme.lower() not in {"http", "https"}
+            or not parsed.hostname
+            or any(c.isspace() for c in parsed.netloc)
+            or "\\" in parsed.netloc
+            or parsed.username is not None
+            or parsed.password is not None
+        ):
+            return fallback
+        _ = parsed.port
+    except ValueError:
+        return fallback
+    destination = quote(uri, safe=":/?#@!$&*+,;=%~.-_")
+    return f"[{label}]({destination})"
 
 
 class EvidenceKind(StrEnum):
@@ -302,6 +335,9 @@ class FetchOutcome(BaseModel):
         text: The returned text, or None when no text is returned.
         reference: The decoded reference, or None for a malformed id.
         document_key: The key of the document, when the document is readable.
+        title: Stored document title, when readable.
+        uri: Stored source URI or local path, not necessarily a web URL.
+        location: Passage location, including page provenance when available.
         content_hash: The full content hash of the version the text came from.
         status_of_version: Whether that version is current, when text is
             returned.
@@ -312,6 +348,8 @@ class FetchOutcome(BaseModel):
         partial: True when the requested range was not fully covered by chunks.
         detail: A short message for a malformed or failed id. It is None for an
             unavailable id, because the reason stays on the server side.
+        citation_markdown: Escaped source reference for a complete fetch, or None.
+            Only absolute HTTP(S) source URIs become links. No URL is inferred.
     """
 
     evidence_id: str
@@ -319,12 +357,53 @@ class FetchOutcome(BaseModel):
     text: str | None = None
     reference: EvidenceReference | None = None
     document_key: str | None = None
+    title: str | None = None
+    uri: str | None = None
+    location: EvidenceLocation | None = None
     content_hash: str | None = None
     status_of_version: VersionStatus | None = None
     observed_activation_seq: int | None = None
     covered_range: tuple[int, int] | None = None
     partial: bool = False
     detail: str | None = None
+
+    @computed_field
+    @property
+    def citation_markdown(self) -> str | None:
+        """Return a readable source reference only for complete fetched evidence."""
+        return self.format_citation()
+
+    def format_citation(
+        self, *, reference: EvidenceReference | None = None
+    ) -> str | None:
+        """Format this source, optionally labeling a validated contained span.
+
+        Incomplete fetches return None. Superseded sources are labeled as such.
+        A source URL does not guarantee access to a historical version or passage.
+
+        Args:
+            reference: A cited span already validated against this fetch. None
+                uses the fetched range or page provenance.
+
+        Returns:
+            An escaped Markdown link or non-link reference, or None.
+        """
+        if self.status is not FetchStatus.OK or self.partial:
+            return None
+        label = self.title or self.document_key or "Source"
+        bounds = self.covered_range
+        if reference is not None and reference.kind is EvidenceKind.SPAN:
+            bounds = (reference.char_start, reference.char_end)
+        if bounds is not None:
+            label += f", characters {bounds[0]} to {bounds[1]}"
+        elif self.location is not None and self.location.page_numbers:
+            pages = ", ".join(
+                str(page) for page in sorted(set(self.location.page_numbers))
+            )
+            label += f", pages {pages}"
+        if self.status_of_version is VersionStatus.SUPERSEDED:
+            label += ", superseded version"
+        return _source_reference(label, self.uri)
 
 
 class CitationVerdict(StrEnum):

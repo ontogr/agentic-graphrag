@@ -132,6 +132,12 @@ asyncio.run(main())
 
 The result contains the answer, fetched evidence, citation validation, and task event sequence. The agent stores task state under the supplied `project_id`, `agent_id`, and `task_name`.
 
+Render `result["answer"]` with your application's Markdown renderer to show clickable HTTP(S) source references. The example uses an inline source URI, so its references are readable text rather than links. Keep `result["citations"]` for canonical evidence IDs and fetched passage text.
+
+For a document copied from a remote source, set `Document.uri` to its actual user-openable HTTP(S) URL and `Document.title` to a readable name before passing it to `graph.add(documents=[...])`. Supply the document text yourself. `graph.add(source=...)` reads local paths, directories, and globs; it does not download a URL. Local paths remain in the returned source metadata but are not converted to `file://` links. An application that serves local documents can provide its own authorized document-viewer links.
+
+See [Citations in MCP clients](../concepts/agent-loop.mdx#citations-in-mcp-clients) for client rendering limits and the difference between Markdown references and native citation chips.
+
 The agent uses the supplied document keys as its read scope. It does not search outside that scope.
 
 ### Set the document scope
