@@ -79,6 +79,8 @@ def answer_case(question: str, result: AgentRunResult, reference: str) -> LLMTes
 
     ``retrieval_context`` holds the fetched evidence. ``metadata["citations"]``
     maps each evidence id to its text for ``CitationAccuracyMetric``.
+    Numbered source references are expanded to evidence IDs, and the generated
+    source list is excluded from the claims being scored.
 
     Args:
         question: The question the agent answered.
@@ -89,9 +91,29 @@ def answer_case(question: str, result: AgentRunResult, reference: str) -> LLMTes
         The test case with the answer and rendered evidence.
     """
     evidence = _rendered_evidence(result)
+    answer, separator, sources = result["answer"].partition("\n\n### Sources\n\n")
+    if separator:
+        numbered = {}
+        for match in re.finditer(r"^\[(\d+)\] (.+)$", sources, re.MULTILINE):
+            keys = [
+                item.evidence_id
+                for item in result["citations"]
+                if item.citation_markdown == match[2] and item.text is not None
+            ]
+            if keys:
+                numbered[match[1]] = ", ".join(keys)
+        answer = re.sub(
+            r"\[\[(\d+)\]\]\([^()\s]*\)|\[(\d+)\]",
+            lambda match: (
+                "["
+                + numbered.get(match[1] or match[2], f"X{match[1] or match[2]}")
+                + "]"
+            ),
+            answer,
+        )
     return LLMTestCase(
         input=question,
-        actual_output=result["answer"],
+        actual_output=answer,
         expected_output=reference,
         retrieval_context=list(evidence.values()),
         metadata={"citations": evidence},
