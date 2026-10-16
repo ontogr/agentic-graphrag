@@ -359,7 +359,11 @@ def make_core_tools(  # noqa: PLR0915
 
     @tool
     async def search_decisions(query: str, limit: int = 20) -> str:
-        """Find decisions in this project that may be useful as precedents."""
+        """Find current decisions in this project that can serve as precedents.
+
+        Excludes decisions that need review or have non-current supports. Use
+        list_decisions_for_review to inspect this task's pending decisions.
+        """
         if not 1 <= limit <= 20:
             return "Limit must be between 1 and 20."
         found = await decisions.search_decisions(query, limit=limit)
