@@ -9,12 +9,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.0.6] - 2026-10-16
 
-### Breaking changes
-
-- Separate Qdrant, Weaviate and Milvus backends and their extras have been removed. Use Neo4j's native vector indexes instead.
-- Generated Cypher retrieval has been removed. Use the supported retrieval methods and evidence operations instead.
-- The agent workflow is now task-scoped. Update agent construction and invocation to pass the required document scope, project, agent and task identities. See the [agent guide](https://ontogr.github.io/agentic-graphrag/stable/guides/retrieve-and-answer).
-
 ### Added
 
 - Record the content version on each chunk ([#131](https://github.com/ontogr/agentic-graphrag/pull/131))
