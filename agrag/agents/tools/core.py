@@ -419,9 +419,13 @@ def make_core_tools(  # noqa: PLR0915
         decision_id: str, after_ordinal: int = -1, limit: int = 20
     ) -> str:
         """Read one bounded page of a decision's original and refreshed supports."""
+        try:
+            parsed_id = UUID(decision_id)
+        except ValueError:
+            return "decision_id must be a UUID."
         return (
             await decisions.list_support_history(
-                UUID(decision_id), after_ordinal=after_ordinal, limit=limit
+                parsed_id, after_ordinal=after_ordinal, limit=limit
             )
         ).model_dump_json()
 
