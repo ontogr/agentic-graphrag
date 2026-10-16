@@ -34,10 +34,28 @@ model_config = ConfigDict(frozen=True)
 name: str
 ```
 
+## `result_basis` \{#agrag-common-data_models-task-StepSummary-result_basis}
+
+```python
+result_basis: StepResultBasis = StepResultBasis.UNKNOWN
+```
+
 ## `result_event_seq` \{#agrag-common-data_models-task-StepSummary-result_event_seq}
 
 ```python
 result_event_seq: int | None
+```
+
+## `result_supports` \{#agrag-common-data_models-task-StepSummary-result_supports}
+
+```python
+result_supports: list[Support] = Field(default_factory=list)
+```
+
+## `result_validity` \{#agrag-common-data_models-task-StepSummary-result_validity}
+
+```python
+result_validity: StepResultValidity = StepResultValidity.UNKNOWN
 ```
 
 ## `state` \{#agrag-common-data_models-task-StepSummary-state}

@@ -53,6 +53,12 @@ content_hash: str
 content_hash_prefix: str
 ```
 
+## `current` \{#agrag-common-data_models-decision-DocumentSupport-current}
+
+```python
+current: bool = True
+```
+
 ## `document_key` \{#agrag-common-data_models-decision-DocumentSupport-document_key}
 
 ```python
@@ -93,4 +99,22 @@ recorded_activation_seq: int | None = None
 
 ```python
 reference_kind: EvidenceKind
+```
+
+## `review_explanation` \{#agrag-common-data_models-decision-DocumentSupport-review_explanation}
+
+```python
+review_explanation: str | None = None
+```
+
+## `reviewed_at` \{#agrag-common-data_models-decision-DocumentSupport-reviewed_at}
+
+```python
+reviewed_at: datetime | None = None
+```
+
+## `reviewed_by` \{#agrag-common-data_models-decision-DocumentSupport-reviewed_by}
+
+```python
+reviewed_by: str | None = None
 ```

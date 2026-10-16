@@ -119,11 +119,13 @@ class ExplorationBound(StrEnum):
         EDGES: More edges existed than ``max_edges`` allows.
         DEPTH: Entities at the last allowed depth have further connections that
             were not followed.
+        CANDIDATES: More relations existed than the per-frontier read limit.
     """
 
     NODES = "nodes"
     EDGES = "edges"
     DEPTH = "depth"
+    CANDIDATES = "candidates"
 
 
 class EdgeKind(StrEnum):

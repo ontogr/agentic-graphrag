@@ -12,12 +12,16 @@ Models for durable task state: tasks, raw events, steps and resume views.
 - [**CreateTaskResult**](CreateTaskResult.md) – The outcome of creating or reusing a task.
 - [**Event**](Event.md) – One raw event appended to a task.
 - [**EventKind**](EventKind.md) – Kind of a raw event appended to a task.
+- [**EventLookup**](EventLookup.md) – The result of reading one event by task and sequence number.
 - [**EventPage**](EventPage.md) – One page of events of a task, in sequence order.
 - [**MemoryErrorCode**](MemoryErrorCode.md) – Fixed error codes returned by task memory operations.
 - [**RecordEventResult**](RecordEventResult.md) – The outcome of appending one event.
 - [**SetStepResult**](SetStepResult.md) – The outcome of creating or updating a step.
 - [**Step**](Step.md) – A named step of a task with an explicit state.
 - [**StepKind**](StepKind.md) – Broad category of a step.
+- [**StepPage**](StepPage.md) – One bounded page of steps in a task and state.
+- [**StepResultBasis**](StepResultBasis.md) – Whether a step result depends on evidence or stands independently.
+- [**StepResultValidity**](StepResultValidity.md) – Whether a completed step result is safe to reuse.
 - [**StepState**](StepState.md) – State of a step. Resume reruns every step that is not completed.
 - [**StepSummary**](StepSummary.md) – The fields of a step that a resume view shows.
 - [**Task**](Task-ref.md) – A named unit of work inside one project.

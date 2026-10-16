@@ -127,6 +127,10 @@ class DocumentSupport(BaseModel):
     char_end: int | None = None
     chunk_id: UUID | None = None
     recorded_activation_seq: int | None = None
+    current: bool = True
+    reviewed_by: str | None = None
+    reviewed_at: datetime | None = None
+    review_explanation: str | None = None
 
 
 class EventSupport(BaseModel):
@@ -144,6 +148,10 @@ class EventSupport(BaseModel):
     event_id: UUID
     task_name: str
     seq: int
+    current: bool = True
+    reviewed_by: str | None = None
+    reviewed_at: datetime | None = None
+    review_explanation: str | None = None
 
 
 class DecisionSupport(BaseModel):
@@ -157,6 +165,10 @@ class DecisionSupport(BaseModel):
     model_config = ConfigDict(frozen=True)
     kind: Literal[SupportKind.DECISION]
     decision_id: UUID
+    current: bool = True
+    reviewed_by: str | None = None
+    reviewed_at: datetime | None = None
+    review_explanation: str | None = None
 
 
 Support = Annotated[
@@ -215,6 +227,15 @@ class DecisionReviewList(BaseModel):
     decisions: list[Decision] = Field(default_factory=list)
     count: int = 0
     truncated: bool = False
+
+
+class SupportHistoryPage(BaseModel):
+    """A bounded page of immutable support references and review transitions."""
+
+    model_config = ConfigDict(frozen=True)
+    supports: list[Support] = Field(default_factory=list)
+    truncated: bool = False
+    next_after_ordinal: int | None = None
 
 
 class DecisionPage(BaseModel):

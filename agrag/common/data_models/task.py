@@ -6,7 +6,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from agrag.common.data_models.decision import ConflictGroup, Decision
+from agrag.common.data_models.decision import ConflictGroup, Decision, Support
 
 
 TASK_LABEL = "MemoryTask"
@@ -52,12 +52,31 @@ class StepKind(StrEnum):
     OTHER = "other"
 
 
+class StepResultBasis(StrEnum):
+    """Whether a step result depends on evidence or stands independently."""
+
+    INDEPENDENT = "independent"
+    SUPPORTED = "supported"
+    UNKNOWN = "unknown"
+
+
+class StepResultValidity(StrEnum):
+    """Whether a completed step result is safe to reuse."""
+
+    REUSABLE = "reusable"
+    NEEDS_REVIEW = "needs_review"
+    UNAVAILABLE = "unavailable"
+    UNKNOWN = "unknown"
+
+
 class MemoryErrorCode(StrEnum):
     """Fixed error codes returned by task memory operations."""
 
     TASK_EXISTS = "task_exists"
     TASK_NOT_FOUND = "task_not_found"
     EVENT_NOT_FOUND = "event_not_found"
+    SUPPORT_REQUIRED = "support_required"
+    SUPPORT_INVALID = "support_invalid"
     REQUEST_ID_REUSED = "request_id_reused"
     INVALID_REQUEST_ID = "invalid_request_id"
 
@@ -103,6 +122,7 @@ class Event(BaseModel):
         truncated: Whether the stored payload is shorter than the full text.
         author: The agent that recorded the event.
         at: When the event was recorded.
+        redacted_at: When the payload was redacted, or None while available.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -117,6 +137,7 @@ class Event(BaseModel):
     truncated: bool
     author: str
     at: datetime
+    redacted_at: datetime | None = None
 
 
 class Step(BaseModel):
@@ -142,6 +163,8 @@ class Step(BaseModel):
     state: StepState
     result_event_seq: int | None
     updated_seq: int
+    result_basis: StepResultBasis = StepResultBasis.UNKNOWN
+    result_supports: list[Support] = Field(default_factory=list)
 
 
 class StepSummary(BaseModel):
@@ -159,6 +182,18 @@ class StepSummary(BaseModel):
     kind: StepKind
     state: StepState
     result_event_seq: int | None
+    result_basis: StepResultBasis = StepResultBasis.UNKNOWN
+    result_validity: StepResultValidity = StepResultValidity.UNKNOWN
+    result_supports: list[Support] = Field(default_factory=list)
+
+
+class StepPage(BaseModel):
+    """One bounded page of steps in a task and state."""
+
+    model_config = ConfigDict(frozen=True)
+    steps: list[StepSummary] = Field(default_factory=list)
+    truncated: bool = False
+    next_after_name: str | None = None
 
 
 class TaskView(BaseModel):
@@ -225,6 +260,14 @@ class EventPage(BaseModel):
     events: list[Event]
     truncated: bool
     next_after_seq: int | None = None
+
+
+class EventLookup(BaseModel):
+    """The result of reading one event by task and sequence number."""
+
+    model_config = ConfigDict(frozen=True)
+    found: bool
+    event: Event | None = None
 
 
 class WriteResult(BaseModel):

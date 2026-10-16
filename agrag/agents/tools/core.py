@@ -7,14 +7,23 @@ from uuid import UUID
 
 from agrag.agents.middleware import RunState, record_event_or_flag
 from agrag.agents.tracing import tool_span_context
-from agrag.common.data_models.decision import DocumentSupportInput
+from agrag.common.data_models.decision import (
+    DecisionSupportInput,
+    DocumentSupportInput,
+    SupportInput,
+)
 from agrag.common.data_models.evidence import (
     DiscoveryMode,
     FetchOutcome,
     FetchStatus,
 )
 from agrag.common.data_models.navigation import NavigationRelation
-from agrag.common.data_models.task import EventKind, StepKind, StepState
+from agrag.common.data_models.task import (
+    EventKind,
+    StepKind,
+    StepResultBasis,
+    StepState,
+)
 from agrag.embedding.base import Embedder
 from agrag.evidence import (
     check_citations,
@@ -119,7 +128,7 @@ def make_core_tools(  # noqa: PLR0915
     @tool("navigate")
     async def navigate_evidence(
         evidence_id: str,
-        relation: str,
+        relation: NavigationRelation,
         limit: int = 10,
         max_chars: int = 12_000,
         callbacks: Any = None,
@@ -130,7 +139,7 @@ def make_core_tools(  # noqa: PLR0915
                 result = await navigate(
                     graph_store,
                     evidence_id,
-                    NavigationRelation(relation),
+                    relation,
                     scope=scope,
                     limit=min(limit, 50),
                     max_chars=min(max_chars, 20_000),
@@ -226,8 +235,13 @@ def make_core_tools(  # noqa: PLR0915
         return lookup.model_dump_json()
 
     @tool
-    async def set_step(
-        name: str, state_name: str, kind: str = "other", result: str | None = None
+    async def set_step(  # noqa: PLR0917
+        name: str,
+        state_name: str,
+        kind: str = "other",
+        result: str | None = None,
+        result_basis: str = "unknown",
+        supports: list[SupportInput] | None = None,
     ) -> str:
         """Record task-step progress and the text for a completed step.
 
@@ -237,8 +251,11 @@ def make_core_tools(  # noqa: PLR0915
         try:
             step_state = StepState(state_name)
             step_kind = StepKind(kind)
+            basis = StepResultBasis(result_basis)
         except ValueError as exc:
             return f"Invalid step state: {exc}"
+        if not await _support_inputs_are_current(decisions, supports or []):
+            return "A decision support is missing, inactive, or needs review."
         result_seq = None
         if step_state is StepState.COMPLETED:
             if not result:
@@ -260,7 +277,14 @@ def make_core_tools(  # noqa: PLR0915
             result_seq = event.seq
         try:
             outcome = await memory.set_step(
-                task_name, name, step_state, kind=step_kind, result_event_seq=result_seq
+                task_name,
+                name,
+                step_state,
+                kind=step_kind,
+                result_event_seq=result_seq,
+                result_basis=basis,
+                supports=supports or [],
+                fetched_evidence=_current_fetches(state),
             )
         except Exception as exc:
             state.fail_recording(f"set_step {name}: {exc!r}")
@@ -275,19 +299,18 @@ def make_core_tools(  # noqa: PLR0915
         return outcome.model_dump_json()
 
     @tool
-    async def record_decision(
+    async def record_decision(  # noqa: PLR0917
         choice_key: str,
         conclusion: str,
         rationale: str,
-        evidence_ids: list[str],
+        supports: list[SupportInput],
+        assumptions: list[str] | None = None,
+        open_questions: list[str] | None = None,
     ) -> str:
-        """Record a decision supported by evidence fetched in this run."""
-        supports = [DocumentSupportInput(evidence_id=item) for item in evidence_ids]
-        fetched = [
-            state.fetches[item]
-            for item in evidence_ids
-            if item in state.fetches and state.fetches[item].status is FetchStatus.OK
-        ]
+        """Record a decision with typed source and decision supports."""
+        if not await _support_inputs_are_current(decisions, supports):
+            return "A decision support is missing, inactive, or needs review."
+        fetched = _current_fetches(state)
         result = await decisions.record_decision(
             task_name,
             choice_key,
@@ -295,26 +318,27 @@ def make_core_tools(  # noqa: PLR0915
             rationale,
             supports=supports,
             fetched_evidence=fetched,
+            assumptions=assumptions or [],
+            open_questions=open_questions or [],
         )
         if not result.recorded:
             state.fail_recording(f"record_decision: {result.error}")
         return result.model_dump_json()
 
     @tool
-    async def supersede_decision(
+    async def supersede_decision(  # noqa: PLR0917
         decision_id: str,
         conclusion: str,
         rationale: str,
         explanation: str,
-        evidence_ids: list[str],
+        supports: list[SupportInput],
+        assumptions: list[str] | None = None,
+        open_questions: list[str] | None = None,
     ) -> str:
         """Replace a decision with a supported conclusion."""
-        supports = [DocumentSupportInput(evidence_id=item) for item in evidence_ids]
-        fetched = [
-            state.fetches[item]
-            for item in evidence_ids
-            if item in state.fetches and state.fetches[item].status is FetchStatus.OK
-        ]
+        if not await _support_inputs_are_current(decisions, supports):
+            return "A decision support is missing, inactive, or needs review."
+        fetched = _current_fetches(state)
         try:
             old_id = UUID(decision_id)
         except ValueError:
@@ -326,6 +350,8 @@ def make_core_tools(  # noqa: PLR0915
             explanation=explanation,
             supports=supports,
             fetched_evidence=fetched,
+            assumptions=assumptions or [],
+            open_questions=open_questions or [],
         )
         if not result.recorded:
             state.fail_recording(f"supersede_decision: {result.error}")
@@ -333,11 +359,128 @@ def make_core_tools(  # noqa: PLR0915
 
     @tool
     async def search_decisions(query: str, limit: int = 20) -> str:
-        """Find decisions in this project that may be useful as precedents."""
+        """Find current decisions in this project that can serve as precedents.
+
+        Excludes decisions that need review or have non-current supports. Use
+        list_decisions_for_review to inspect this task's pending decisions.
+        """
         if not 1 <= limit <= 20:
             return "Limit must be between 1 and 20."
         found = await decisions.search_decisions(query, limit=limit)
-        return json.dumps([item.model_dump(mode="json") for item in found])
+        usable = [
+            hit.model_dump(mode="json")
+            for hit in found
+            if hit.decision.review_state.value == "clear"
+            and all(support.current for support in hit.decision.supports)
+        ]
+        return json.dumps(usable)
+
+    @tool
+    async def get_event(event_task_name: str, seq: int) -> str:
+        """Read one event by its task name and sequence number."""
+        lookup = await memory.get_event(event_task_name, seq)
+        return lookup.model_dump_json()
+
+    @tool
+    async def list_events(
+        event_task_name: str, after_seq: int = 0, limit: int = 50
+    ) -> str:
+        """Read one bounded page of task events."""
+        if not 1 <= limit <= 50:
+            return "Limit must be between 1 and 50."
+        page = await memory.list_events(
+            event_task_name, after_seq=after_seq, limit=limit
+        )
+        return page.model_dump_json()
+
+    @tool
+    async def list_steps(
+        state_name: str, after_name: str | None = None, limit: int = 50
+    ) -> str:
+        """Read one bounded page of steps in a task state."""
+        if not 1 <= limit <= 50:
+            return "Limit must be between 1 and 50."
+        try:
+            step_state = StepState(state_name)
+        except ValueError as exc:
+            return f"Invalid step state: {exc}"
+        page = await memory.list_steps_page(
+            task_name, step_state, after_name=after_name, limit=limit
+        )
+        return page.model_dump_json()
+
+    @tool
+    async def get_decision(decision_id: str) -> str:
+        """Read a decision by its id, including its typed supports."""
+        try:
+            parsed_id = UUID(decision_id)
+        except ValueError:
+            return "decision_id must be a UUID."
+        return (await decisions.get_decision(parsed_id)).model_dump_json()
+
+    @tool
+    async def list_support_history(
+        decision_id: str, after_ordinal: int = -1, limit: int = 20
+    ) -> str:
+        """Read one bounded page of a decision's original and refreshed supports."""
+        if not 1 <= limit <= 50:
+            return "Limit must be between 1 and 50."
+        try:
+            parsed_id = UUID(decision_id)
+        except ValueError:
+            return "decision_id must be a UUID."
+        return (
+            await decisions.list_support_history(
+                parsed_id, after_ordinal=after_ordinal, limit=limit
+            )
+        ).model_dump_json()
+
+    @tool
+    async def list_decisions(include_history: bool = True) -> str:
+        """List task decisions, including superseded history by default."""
+        page = await decisions.list_decisions(
+            task_name, include_history=include_history
+        )
+        return page.model_dump_json()
+
+    @tool
+    async def list_decisions_for_review(limit: int = 20) -> str:
+        """List decisions flagged for review without treating them as false."""
+        if not 1 <= limit <= 50:
+            return "Limit must be between 1 and 50."
+        page = await decisions.list_review(task_name=task_name, limit=limit)
+        return page.model_dump_json()
+
+    @tool
+    async def reaffirm_decision(
+        decision_id: str,
+        evidence_ids: list[str],
+        explanation: str = "Reaffirmed after current evidence review.",
+    ) -> str:
+        """Reaffirm a reviewed decision using current fetched documents."""
+        try:
+            parsed_id = UUID(decision_id)
+        except ValueError:
+            return "decision_id must be a UUID."
+        supports = [DocumentSupportInput(evidence_id=item) for item in evidence_ids]
+        fetched = _current_fetches(state, evidence_ids)
+        outcome = await decisions.reaffirm_decision(
+            parsed_id,
+            supports,
+            fetched_evidence=fetched,
+            explanation=explanation,
+        )
+        if not outcome.recorded:
+            state.fail_recording(f"reaffirm_decision: {outcome.error}")
+        return outcome.model_dump_json()
+
+    @tool
+    async def continue_decision_review(limit: int = 20) -> str:
+        """Advance queued decision-review propagation by a bounded amount."""
+        if not 0 <= limit <= 50:
+            return "Limit must be between 0 and 50."
+        processed = await decisions.continue_review_propagation(limit=limit)
+        return json.dumps({"processed": processed})
 
     return [
         discover_evidence,
@@ -351,4 +494,51 @@ def make_core_tools(  # noqa: PLR0915
         record_decision,
         supersede_decision,
         search_decisions,
+        get_event,
+        list_events,
+        list_steps,
+        get_decision,
+        list_support_history,
+        list_decisions,
+        list_decisions_for_review,
+        reaffirm_decision,
+        continue_decision_review,
     ], state
+
+
+def _current_fetches(
+    state: RunState, evidence_ids: Sequence[str] | None = None
+) -> list[FetchOutcome]:
+    """Return only complete fetches of current document versions."""
+    ids = evidence_ids if evidence_ids is not None else state.fetched_ids
+    return [
+        state.fetches[item]
+        for item in ids
+        if item in state.fetches
+        and state.fetches[item].status is FetchStatus.OK
+        and state.fetches[item].status_of_version is not None
+        and state.fetches[item].status_of_version.value == "current"
+    ]
+
+
+async def _support_inputs_are_current(
+    decisions: DecisionMemory, supports: Sequence[SupportInput]
+) -> bool:
+    """Reject decision dependencies that are not active and fully current."""
+    for support in supports:
+        if not isinstance(support, DecisionSupportInput):
+            continue
+        try:
+            decision_id = UUID(support.decision_id)
+        except ValueError:
+            return False
+        lookup = await decisions.get_decision(decision_id)
+        decision = lookup.decision
+        if (
+            decision is None
+            or decision.status.value != "active"
+            or decision.review_state.value != "clear"
+            or any(not item.current for item in decision.supports)
+        ):
+            return False
+    return True

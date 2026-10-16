@@ -125,9 +125,15 @@ class RetentionMemory:
             {**params, "marker": _MARKER, "redacted_at": timestamp},
         )
         supports = await tx.execute_read(event_supports_query(), params)
+        affected = sorted(str(row["id"]) for row in supports)
+        for decision_id in affected:
+            await tx.execute_write(
+                flag_decisions_query(),
+                {"project_id": self._project_id, "decision_id": decision_id},
+            )
         return RetentionResult(
             recorded=True,
-            affected_decision_ids=sorted(row["id"] for row in supports),
+            affected_decision_ids=affected,
         )
 
     async def _delete_task(

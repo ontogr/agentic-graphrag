@@ -19,8 +19,9 @@ sets. A range that no chunk covers is cut to the covered part, which is marked
 outcome. A chunk reference returns the stored text of that chunk.
 
 The status of a version is `current` when the id's content hash matches the
-document's current content hash. Updated and deleted versions are
-`superseded`; their text is still returned.
+document's current content hash. Older content remains fetchable as
+`superseded` while the source is live and retained. Soft deletion hides
+all text for the source; purge removes it.
 
 **Parameters:**
 

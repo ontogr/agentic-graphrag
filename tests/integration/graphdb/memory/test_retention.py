@@ -2,7 +2,12 @@
 
 from agrag.common.data_models.decision import EventSupportInput
 from agrag.common.data_models.retention import RetentionErrorCode
-from agrag.common.data_models.task import EventKind
+from agrag.common.data_models.task import (
+    EventKind,
+    StepResultBasis,
+    StepResultValidity,
+    StepState,
+)
 from agrag.memory.decisions import DecisionMemory
 from agrag.memory.retention import RetentionMemory
 from agrag.memory.tasks import TaskMemory
@@ -18,8 +23,26 @@ class TestRetentionMemory:
         tasks = TaskMemory(store, project_id=project, agent_id="agent")
         await tasks.create_task("notes", "record notes")
         event = await tasks.record_event(
-            "notes", EventKind.NOTE, payload="private text"
+            "notes", EventKind.NOTE, payload="private text", request_id="event-1"
         )
+        await tasks.set_step(
+            "notes",
+            "use tool output",
+            StepState.COMPLETED,
+            result_event_seq=event.event.seq,
+            result_basis=StepResultBasis.SUPPORTED,
+            supports=[EventSupportInput(task_name="notes", seq=event.event.seq)],
+        )
+        decision = await DecisionMemory(
+            store, project_id=project, agent_id="agent"
+        ).record_decision(
+            "notes",
+            "private-event",
+            "use the tool output",
+            "event support",
+            supports=[EventSupportInput(task_name="notes", seq=event.event.seq)],
+        )
+        assert decision.recorded
         retention = RetentionMemory(store, project, "agent")
 
         result = await retention.redact_event(
@@ -48,6 +71,23 @@ class TestRetentionMemory:
         assert rows[0]["event"]["seq"] == event.event.seq
         assert rows[0]["event"]["kind"] == event.event.kind.value
         assert rows[0]["event"]["redacted_at"] is not None
+        exact = await tasks.get_event("notes", event.event.seq)
+        assert exact.event is not None
+        assert exact.event.redacted_at is not None
+        assert exact.event.payload == "[REDACTED]"
+        replayed_event = await tasks.record_event(
+            "notes", EventKind.NOTE, payload="private text", request_id="event-1"
+        )
+        assert replayed_event.event.payload == "[REDACTED]"
+        assert str(decision.decision.id) in result.affected_decision_ids
+        current = await DecisionMemory(
+            store, project_id=project, agent_id="agent"
+        ).get_decision(decision.decision.id)
+        assert current.decision.review_state.value == "needs_review"
+        view = await tasks.get_task("notes")
+        completed = view.view.steps[StepState.COMPLETED][0]
+        assert completed.state is StepState.COMPLETED
+        assert completed.result_validity is StepResultValidity.UNAVAILABLE
 
     async def test_delete_task_flags_event_dependents_and_removes_owned_memory(
         self, store, project

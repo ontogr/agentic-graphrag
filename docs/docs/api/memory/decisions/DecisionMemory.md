@@ -18,9 +18,11 @@ Write and search durable decisions for one configured project.
 - [**list_conflicts**](#agrag-memory-decisions-DecisionMemory-list_conflicts) – List active same-choice decisions with different conclusions.
 - [**list_decisions**](#agrag-memory-decisions-DecisionMemory-list_decisions) – List decisions for a task, including lifecycle history by default.
 - [**list_review**](#agrag-memory-decisions-DecisionMemory-list_review) – List active decisions that need a look, within this project's bounds.
+- [**list_support_history**](#agrag-memory-decisions-DecisionMemory-list_support_history) – Read exact historical support associations and who reviewed them.
 - [**reaffirm_decision**](#agrag-memory-decisions-DecisionMemory-reaffirm_decision) – Confirm a decision still stands on the current version of its documents.
 - [**record_decision**](#agrag-memory-decisions-DecisionMemory-record_decision) – Record a decision only when every support is valid and in scope.
 - [**reject_decision**](#agrag-memory-decisions-DecisionMemory-reject_decision) – Mark a decision rejected without changing its recorded conclusion.
+- [**resolve_supports**](#agrag-memory-decisions-DecisionMemory-resolve_supports) – Resolve typed supports in a caller-owned transaction.
 - [**search_decisions**](#agrag-memory-decisions-DecisionMemory-search_decisions) – Find same-project decisions as precedents, with their task context.
 - [**supersede_decision**](#agrag-memory-decisions-DecisionMemory-supersede_decision) – Record a same-choice replacement and preserve the old decision.
 
@@ -78,10 +80,18 @@ clear the flag.
 
 - <code>[DecisionReviewList](../../common/data_models/decision/DecisionReviewList.md)</code> – The decisions in the page, the total count, and whether more exist.
 
+## `list_support_history` \{#agrag-memory-decisions-DecisionMemory-list_support_history}
+
+```python
+list_support_history(decision_id:UUID, *, after_ordinal:int = -1, limit:int = 20) -> SupportHistoryPage
+```
+
+Read exact historical support associations and who reviewed them.
+
 ## `reaffirm_decision` \{#agrag-memory-decisions-DecisionMemory-reaffirm_decision}
 
 ```python
-reaffirm_decision(decision_id:UUID, evidence:Sequence[DocumentSupportInput], *, fetched_evidence:Sequence[FetchOutcome] = (), request_id:str | None = None) -> ReaffirmDecisionResult
+reaffirm_decision(decision_id:UUID, evidence:Sequence[DocumentSupportInput], *, fetched_evidence:Sequence[FetchOutcome] = (), explanation:str = 'Reaffirmed after review.', request_id:str | None = None) -> ReaffirmDecisionResult
 ```
 
 Confirm a decision still stands on the current version of its documents.
@@ -104,6 +114,7 @@ still needing review.
 - **evidence** (<code>Sequence\[[DocumentSupportInput](../../common/data_models/decision/DocumentSupportInput.md)\]</code>) – The new document supports, one or more per cited document.
 - **fetched_evidence** (<code>Sequence\[[FetchOutcome](../../common/data_models/evidence/FetchOutcome.md)\]</code>) – Fetch outcomes from this session. They must cover
   the current version of each cited document.
+- **explanation** (<code>str</code>) – The reason the reviewer accepts the current supports.
 - **request_id** (<code>str | None</code>) – An optional key that makes a retry return the stored
   result of the first call.
 
@@ -129,6 +140,17 @@ reject_decision(decision_id:UUID, reason:str, *, request_id:str | None = None) -
 ```
 
 Mark a decision rejected without changing its recorded conclusion.
+
+## `resolve_supports` \{#agrag-memory-decisions-DecisionMemory-resolve_supports}
+
+```python
+resolve_supports(tx:GraphStoreTransaction, supports:Sequence[SupportInput], fetched:Sequence[FetchOutcome]) -> tuple[list[dict[str, Any]], bool]
+```
+
+Resolve typed supports in a caller-owned transaction.
+
+Returns property maps and whether any observed source has changed.
+Raises ValueError when a reference cannot be resolved or was not fetched.
 
 ## `search_decisions` \{#agrag-memory-decisions-DecisionMemory-search_decisions}
 

@@ -46,8 +46,9 @@ async def fetch(
     outcome. A chunk reference returns the stored text of that chunk.
 
     The status of a version is ``current`` when the id's content hash matches the
-    document's current content hash. Updated and deleted versions are
-    ``superseded``; their text is still returned.
+    document's current content hash. Older content remains fetchable as
+    ``superseded`` while the source is live and retained. Soft deletion hides
+    all text for the source; purge removes it.
 
     Args:
         store: The graph store to read.
@@ -156,6 +157,7 @@ def _chunk_outcome(
         document_key=stored.document_key,
         content_hash=stored.chunk.content_hash,
         status_of_version=_version_status(stored, stored.chunk.content_hash),
+        observed_activation_seq=stored.activation_seq,
         covered_range=covered,
     )
 
@@ -220,6 +222,7 @@ def _span_outcome(
         document_key=first.document_key,
         content_hash=first.chunk.content_hash,
         status_of_version=_version_status(first, first.chunk.content_hash),
+        observed_activation_seq=first.activation_seq,
         covered_range=(covered_start, covered_start + len(text)),
         partial=partial,
     )

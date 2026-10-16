@@ -4,8 +4,10 @@ The check confirms traceability only. A ``valid`` verdict means the citation nam
 text that was fetched in scope. It does not show that the text supports a claim.
 """
 
+import re
 from collections import defaultdict
 from collections.abc import Iterable, Sequence
+from dataclasses import dataclass
 from uuid import UUID
 
 from agrag.common.data_models.evidence import (
@@ -16,6 +18,49 @@ from agrag.common.data_models.evidence import (
 )
 from agrag.evidence._shared import scope_node_ids
 from agrag.evidence.ids import MalformedEvidenceIdError, decode_evidence_id
+
+
+_BRACKET = re.compile(r"\[([^\[\]\n]*)(\]|(?=\[|\n|$))")
+_CITATION_LIKE = re.compile(r"ev\w*:|\bE\d+\b|^\d+$", re.I)
+
+
+@dataclass(frozen=True)
+class ParsedCitations:
+    """Evidence ids and malformed citation-like tokens found in text."""
+
+    ids: tuple[str, ...]
+    malformed_tokens: tuple[str, ...]
+
+
+def parse_citations(text: str) -> ParsedCitations:
+    """Extract canonical evidence ids and malformed citation-like tokens.
+
+    IDs may appear alone or grouped in brackets with comma or semicolon
+    separators. Markdown links are ignored unless their label contains an
+    evidence-id-like token.
+    """
+    ids: list[str] = []
+    malformed: list[str] = []
+    for match in _BRACKET.finditer(text):
+        body, close = match.groups()
+        if not _CITATION_LIKE.search(body.strip()):
+            continue
+        if text[match.end() :].startswith("(") and not re.search(r"ev\w*:", body, re.I):
+            continue
+        invalid = close != "]"
+        for raw_token in re.split(r"[,;]", body):
+            token = raw_token.strip()
+            try:
+                decode_evidence_id(token)
+            except MalformedEvidenceIdError:
+                invalid = True
+            else:
+                ids.append(token)
+        if invalid:
+            malformed.append(match.group().rstrip())
+    return ParsedCitations(
+        ids=tuple(dict.fromkeys(ids)), malformed_tokens=tuple(malformed)
+    )
 
 
 async def check_citations(

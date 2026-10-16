@@ -135,7 +135,32 @@ def evidence_chunks_query(*, by_chunk_id: bool) -> str:
         f"RETURN chunk {_CHUNK_FIELDS} AS chunk, part.version_id AS version_id, "
         "toString(part.invalid_at) AS closed_at, "
         "document.document_key AS document_key, document.title AS title, "
-        "document.current_content_hash AS current_content_hash"
+        "document.current_content_hash AS current_content_hash, "
+        "document.activation_seq AS activation_seq"
+    )
+
+
+def evidence_chunk_at_offset_query() -> str:
+    """Build a bounded query for the chunk covering one text offset."""
+    still_present = (
+        f"EXISTS {{ MATCH (document)-[open:{HAS_PART}]->"
+        f"(:{NODE_IDENTITY_LABEL}:{CHUNK_LABEL}) "
+        f"WHERE open.invalid_at IS NULL AND {pending_filter_clause('open')} }}"
+    )
+    return (
+        f"MATCH (document:{NODE_IDENTITY_LABEL}:{DOCUMENT_LABEL} {{id: $document_id}})"
+        f"-[part:{HAS_PART}]->(chunk:{NODE_IDENTITY_LABEL}:{CHUNK_LABEL}) "
+        "WHERE chunk.content_hash STARTS WITH $content_hash_prefix "
+        "AND chunk.char_start <= $char_start AND $char_start < chunk.char_end "
+        f"AND {pending_filter_clause('document')} "
+        f"AND {pending_filter_clause('part')} "
+        f"AND {pending_filter_clause('chunk')} "
+        f"AND {still_present} "
+        f"RETURN chunk {_CHUNK_FIELDS} AS chunk, part.version_id AS version_id, "
+        "toString(part.invalid_at) AS closed_at, "
+        "document.document_key AS document_key, document.title AS title, "
+        "document.current_content_hash AS current_content_hash, "
+        "document.activation_seq AS activation_seq ORDER BY chunk.index LIMIT 1"
     )
 
 
@@ -199,6 +224,29 @@ def navigation_chunks_query(relation: NavigationRelation) -> str:
     if relation is NavigationRelation.TABLE_CONTEXT:
         return _neighbor_chunks_head(relation) + tail
     return _neighbor_chunks_head(relation) + tail + " LIMIT $fetch"
+
+
+def table_neighbor_query(*, previous: bool) -> str:
+    """Build a query for the nearest row passage on one side of a table row."""
+    comparison = "<" if previous else ">"
+    ordering = "DESC" if previous else "ASC"
+    return (
+        f"MATCH (table:{NODE_IDENTITY_LABEL}:{TABLE_LABEL})"
+        f"-[:{HAS_CHILD}]->(anchor:{NODE_IDENTITY_LABEL}:{CHUNK_LABEL} "
+        "{id: $chunk_id}) "
+        f"MATCH (table)-[:{HAS_CHILD}]->(neighbor:{NODE_IDENTITY_LABEL}:{CHUNK_LABEL}) "
+        f"WHERE neighbor.index {comparison} $position "
+        f"MATCH (document:{NODE_IDENTITY_LABEL}:{DOCUMENT_LABEL} {{id: $document_id}})"
+        f"-[part:{HAS_PART}]->(neighbor) WHERE part.version_id = $version_id "
+        f"AND {pending_filter_clause('neighbor')} "
+        f"AND {pending_filter_clause('part')} "
+        f"AND {pending_filter_clause('document')} "
+        f"RETURN neighbor {_CHUNK_FIELDS} AS chunk, part.version_id AS version_id, "
+        "toString(part.invalid_at) AS closed_at, "
+        "document.document_key AS document_key, "
+        "document.current_content_hash AS current_content_hash, "
+        f"neighbor.index AS position ORDER BY position {ordering} LIMIT 1"
+    )
 
 
 def navigation_sections_query(relation: NavigationRelation) -> str:
@@ -393,7 +441,7 @@ def explore_edges_query() -> str:
         f"AND {pending_filter_clause('scope_chunk')} "
         "} "
         "WITH DISTINCT relation, other, startNode(relation) AS source, "
-        "endNode(relation) AS target "
+        "endNode(relation) AS target ORDER BY relation.id LIMIT $row_limit "
         "CALL { "
         "WITH relation "
         "OPTIONAL MATCH (support_document:"

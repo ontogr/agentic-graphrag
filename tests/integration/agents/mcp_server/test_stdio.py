@@ -76,7 +76,10 @@ class TestStdioSession:
 
         assert sorted(tool.name for tool in listing.tools) == [
             "check_citations",
+            "explore",
             "fetch_evidence",
+            "find_entities",
+            "navigate",
             "search_evidence",
         ]
         assert hits[0].document_key == env.keep

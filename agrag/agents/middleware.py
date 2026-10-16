@@ -209,7 +209,15 @@ class TaskEventMiddleware(AgentMiddleware):
                 name=call["name"],
                 status="error",
             )
-        await self._record_tool_result(call, _tool_result_text(result))
+        event = await self._record_tool_result(call, _tool_result_text(result))
+        if event is not None and isinstance(result, ToolMessage):
+            reference = json.dumps({"task_name": self._task_name, "seq": event.seq})
+            result = result.model_copy(
+                update={
+                    "content": f"{_tool_result_text(result)}\n\n"
+                    f"Recorded event support: {reference}"
+                }
+            )
         return result
 
     async def _record_tool_result(self, call: Any, content: Any) -> Any:

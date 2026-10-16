@@ -5,6 +5,7 @@ context and the task state persisted by the agent.
 """
 
 import importlib.util
+import json
 from collections.abc import Sequence
 from typing import Any
 from uuid import uuid4
@@ -17,11 +18,18 @@ from pytest import MonkeyPatch
 
 from agrag.agents.build import build_agent
 from agrag.agents.settings import AgentLLMSettings, AgentSettings
-from agrag.common.data_models.task import EventKind, StepState
+from agrag.common.data_models.decision import EventSupportInput
+from agrag.common.data_models.task import (
+    EventKind,
+    StepResultBasis,
+    StepResultValidity,
+    StepState,
+)
 from agrag.embedding.base import Embedder
 from agrag.graphdb import build_graph_store
 from agrag.graphdb.base import GraphStore
 from agrag.memory import TaskMemory
+from agrag.memory.retention import RetentionMemory
 
 
 neo4j_missing = importlib.util.find_spec("neo4j") is None
@@ -78,6 +86,24 @@ def _call(name: str, args: dict[str, Any]) -> AIMessage:
     return AIMessage(content="", tool_calls=[{"name": name, "args": args, "id": name}])
 
 
+def _answer(text: str) -> AIMessage:
+    """Build the final answer using the structured-output tool contract."""
+    return AIMessage(
+        content="",
+        tool_calls=[
+            {
+                "name": "AgentAnswer",
+                "args": {
+                    "answer": text,
+                    "support_status": "supported",
+                    "citations": [],
+                },
+                "id": "final-answer",
+            }
+        ],
+    )
+
+
 def _text(messages: list[BaseMessage]) -> str:
     """Join message contents for assertions about model context."""
     return "\n".join(str(message.content) for message in messages)
@@ -127,6 +153,143 @@ async def _delete_project_memory(store: GraphStore, project_id: str) -> None:
 class TestAgentResumeIntegration:
     """Resume task work from persisted Neo4j step state."""
 
+    async def test_tool_result_exposes_its_persisted_event_reference(
+        self, monkeypatch: MonkeyPatch
+    ) -> None:
+        """The model can address a tool result as typed event support."""
+        store = build_graph_store("neo4j")
+        await store.connect()
+        project_id = f"event-reference-{uuid4().hex}"
+        task_name = f"task-{uuid4().hex}"
+        memory = TaskMemory(store, project_id=project_id, agent_id="resume-test")
+        try:
+            model = _ScriptedModel(
+                replies=[_call("get_task", {}), _answer("Task inspected.")]
+            )
+            result = await _build(monkeypatch, store, project_id, model).ainvoke(
+                {"task_name": task_name, "question": "Inspect the task."}
+            )
+            assert result["status"] == "answered"
+            events = await memory.list_events(task_name)
+            saved = next(
+                event for event in events.events if event.kind is EventKind.TOOL_RESULT
+            )
+            context = _text(model.seen[1])
+            assert f'"task_name": "{task_name}", "seq": {saved.seq}' in context
+            lookup = await memory.get_event(task_name, saved.seq)
+            assert lookup.event is not None
+            content = json.loads(lookup.event.payload)["content"]
+            assert json.loads(content)["found"] is True
+        finally:
+            await _delete_project_memory(store, project_id)
+            await store.close()
+
+    async def test_unknown_result_basis_is_not_reused(
+        self, monkeypatch: MonkeyPatch
+    ) -> None:
+        """A completed result with unknown support is omitted from model context."""
+        store = build_graph_store("neo4j")
+        await store.connect()
+        project_id = f"resume-unknown-{uuid4().hex}"
+        task_name = f"unknown-task-{uuid4().hex}"
+        memory = TaskMemory(store, project_id=project_id, agent_id="resume-test")
+        try:
+            assert (
+                await memory.create_task(task_name, "Review current inputs.")
+            ).recorded
+            event = await memory.record_event(
+                task_name,
+                EventKind.NOTE,
+                name="private-result",
+                payload="unknown-basis-payload",
+            )
+            assert event.event is not None
+            assert (
+                await memory.set_step(
+                    task_name,
+                    "uncertain review",
+                    StepState.COMPLETED,
+                    result_event_seq=event.event.seq,
+                )
+            ).recorded
+
+            model = _ScriptedModel(replies=[_answer("I reviewed the current inputs.")])
+            result = await _build(monkeypatch, store, project_id, model).ainvoke(
+                {"task_name": task_name, "question": "Review current inputs."}
+            )
+
+            assert result["status"] == "answered"
+            context = _text(model.seen[0])
+            assert "unknown-basis-payload" not in context
+            assert "uncertain review: (not reusable" in context
+        finally:
+            await _delete_project_memory(store, project_id)
+            await store.close()
+
+    async def test_redacted_event_support_invalidates_completed_result(
+        self, monkeypatch: MonkeyPatch
+    ) -> None:
+        """A result is not reused after its supporting event is redacted."""
+        store = build_graph_store("neo4j")
+        await store.connect()
+        project_id = f"resume-redacted-{uuid4().hex}"
+        task_name = f"redacted-task-{uuid4().hex}"
+        memory = TaskMemory(store, project_id=project_id, agent_id="resume-test")
+        result_text = "Result based on private source material."
+        try:
+            assert (await memory.create_task(task_name, "Review the source.")).recorded
+            source = await memory.record_event(
+                task_name,
+                EventKind.NOTE,
+                name="source",
+                payload="private-source-payload",
+            )
+            assert source.event is not None
+            result_event = await memory.record_event(
+                task_name,
+                EventKind.NOTE,
+                name="result:source review",
+                payload=result_text,
+            )
+            assert result_event.event is not None
+            assert (
+                await memory.set_step(
+                    task_name,
+                    "source review",
+                    StepState.COMPLETED,
+                    result_event_seq=result_event.event.seq,
+                    result_basis=StepResultBasis.SUPPORTED,
+                    supports=[
+                        EventSupportInput(task_name=task_name, seq=source.event.seq)
+                    ],
+                )
+            ).recorded
+
+            assert (
+                await RetentionMemory(
+                    store, project_id=project_id, agent_id="resume-test"
+                ).redact_event(str(source.event.id))
+            ).recorded
+
+            persisted = await memory.get_task(task_name)
+            assert persisted.view is not None
+            completed = persisted.view.steps[StepState.COMPLETED][0]
+            assert completed.result_validity is StepResultValidity.UNAVAILABLE
+
+            model = _ScriptedModel(replies=[_answer("I will review the source again.")])
+            response = await _build(monkeypatch, store, project_id, model).ainvoke(
+                {"task_name": task_name, "question": "Review the source."}
+            )
+
+            assert response["status"] == "answered"
+            context = _text(model.seen[0])
+            assert "private-source-payload" not in context
+            assert result_text not in context
+            assert "source review: (not reusable" in context
+        finally:
+            await _delete_project_memory(store, project_id)
+            await store.close()
+
     async def test_completed_result_survives_more_than_200_later_events(
         self, monkeypatch: MonkeyPatch
     ) -> None:
@@ -161,10 +324,11 @@ class TestAgentResumeIntegration:
                     "filing review",
                     StepState.COMPLETED,
                     result_event_seq=saved.event.seq,
+                    result_basis=StepResultBasis.INDEPENDENT,
                 )
             ).recorded
 
-            model = _ScriptedModel(replies=[AIMessage(content="The memo is finished.")])
+            model = _ScriptedModel(replies=[_answer("The memo is finished.")])
             result = await _build(monkeypatch, store, project_id, model).ainvoke(
                 {"task_name": task_name, "question": "Finish the memo."}
             )
@@ -207,6 +371,7 @@ class TestAgentResumeIntegration:
                         name,
                         StepState.COMPLETED,
                         result_event_seq=event.event.seq,
+                        result_basis=StepResultBasis.INDEPENDENT,
                     )
                 ).recorded
             for index in range(6):
@@ -225,9 +390,10 @@ class TestAgentResumeIntegration:
                             "state_name": "completed",
                             "kind": "other",
                             "result": "Finished interrupted-0.",
+                            "result_basis": "independent",
                         },
                     ),
-                    AIMessage(content="The long task is finished."),
+                    _answer("The long task is finished."),
                 ]
             )
             result = await _build(monkeypatch, store, project_id, model).ainvoke(
@@ -274,7 +440,7 @@ class TestAgentResumeIntegration:
                         },
                     ),
                     _call("discover_evidence", {"query": "trigger failure"}),
-                    AIMessage(content="I recovered and completed the task."),
+                    _answer("I recovered and completed the task."),
                 ]
             )
             result = await _build(monkeypatch, store, project_id, model).ainvoke(

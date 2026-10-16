@@ -5,10 +5,14 @@ from agrag.common.data_models.decision import (
     DEPENDS_ON,
     HAS_SUPPORT,
     MADE,
+    SUPERSEDES,
     SUPPORT_LABEL,
 )
 from agrag.common.data_models.structure import HAS_PART
 from agrag.common.data_models.task import PROJECT_LABEL, TASK_LABEL
+
+
+REVIEW_CHILD_PAGE_SIZE = 100
 
 
 def flag_new_decision_for_review_query() -> str:
@@ -37,29 +41,40 @@ def claim_review_unit_query() -> str:
         f"-[:{MADE}]->(d:{DECISION_LABEL} {{review_pending: true}}) "
         "WITH p, d ORDER BY d.created_at, d.id LIMIT 1 "
         "FOREACH (_ IN CASE WHEN d IS NULL THEN [] ELSE [1] END | "
-        "SET d.review_pending = false) "
+        "SET d.review_pending = false, "
+        "d.review_cursor = CASE WHEN coalesce(d.review_epoch, -1) <> p.review_epoch "
+        "THEN null ELSE d.review_cursor END, d.review_epoch = p.review_epoch) "
         "RETURN d.id AS id"
     )
 
 
 def expand_review_unit_query() -> str:
-    """Flag and enqueue every active one-hop dependent of a claimed decision.
-
-    A dependent already flagged keeps its state and reason, but is queued
-    again so its own dependents are reached even if they were reaffirmed
-    since the dependent was last expanded.
-    """
+    """Flag one bounded page of active dependents of a claimed decision."""
     return (
+        f"MATCH (p:{PROJECT_LABEL} {{project_id: $project_id}}) "
         f"MATCH (t:{TASK_LABEL} {{project_id: $project_id}})-[:{MADE}]->"
         f"(parent:{DECISION_LABEL} {{id: $decision_id}}) "
+        "CALL (parent, p) { "
         f"MATCH (child:{DECISION_LABEL} {{status: 'active'}})"
         f"-[:{DEPENDS_ON}]->(parent) "
-        "WITH child, coalesce(child.review_state, 'clear') = 'needs_review' AS flagged "
-        "SET child.review_reason = CASE WHEN flagged THEN child.review_reason "
-        "ELSE 'dependency_review' END, "
-        "child.review_state = 'needs_review', "
-        "child.review_pending = true "
-        "RETURN count(DISTINCT child) AS queued"
+        "WHERE child.id > coalesce(parent.review_cursor, '') "
+        "AND coalesce(child.review_epoch, -1) <> p.review_epoch "
+        "WITH child ORDER BY child.id LIMIT $page_limit "
+        "RETURN collect(child) AS page } "
+        "WITH parent, p, page, size(page) = $page_limit AS more, "
+        "page[..$child_limit] AS batch "
+        "FOREACH (child IN batch | SET "
+        "child.review_reason = CASE "
+        "WHEN coalesce(child.review_state, 'clear') = 'needs_review' "
+        "THEN child.review_reason ELSE 'dependency_review' END, "
+        "child.review_state = 'needs_review', child.review_pending = true, "
+        "child.review_cursor = CASE "
+        "WHEN coalesce(child.review_epoch, -1) <> p.review_epoch "
+        "THEN null ELSE child.review_cursor END, "
+        "child.review_epoch = p.review_epoch) "
+        "FOREACH (_ IN CASE WHEN size(batch) > 0 THEN [1] ELSE [] END | "
+        "SET parent.review_cursor = batch[-1].id, parent.review_pending = more) "
+        "RETURN size(batch) AS queued"
     )
 
 
@@ -86,22 +101,51 @@ def current_document_query() -> str:
         "MATCH (doc:Document {id: $id}) "
         f"OPTIONAL MATCH (doc)-[part:{HAS_PART}]->() WHERE part.invalid_at IS NULL "
         "RETURN doc.document_key AS key, doc.current_content_hash AS hash, "
-        "count(part) > 0 AS live"
+        "doc.activation_seq AS activation_seq, count(part) > 0 AS live"
+    )
+
+
+def support_event_query() -> str:
+    """Read an event support without exposing another project's events."""
+    return (
+        "MATCH (t:MemoryTask {project_id: $project_id, name: $task_name})"
+        "-[:HAS_EVENT]->(e:MemoryEvent {seq: $seq}) "
+        "RETURN e.id AS id, e.redacted_at AS redacted_at, e.truncated AS truncated"
+    )
+
+
+def support_history_query() -> str:
+    """Read support history in creation order with a stable ordinal cursor."""
+    return (
+        "MATCH (:MemoryTask {project_id: $project_id})-[:MADE]->"
+        "(:MemoryDecision {id: $id})-[:HAS_SUPPORT]->(s:MemorySupport) "
+        "WHERE s.ordinal > $after_ordinal "
+        "RETURN s AS support ORDER BY s.ordinal LIMIT $limit"
+    )
+
+
+def next_support_ordinal_query() -> str:
+    """Read the next append position without loading historical support bodies."""
+    return (
+        "MATCH (:MemoryTask {project_id: $project_id})-[:MADE]->"
+        "(:MemoryDecision {id: $id})-[:HAS_SUPPORT]->(s:MemorySupport) "
+        "RETURN coalesce(max(s.ordinal), -1) + 1 AS ordinal"
     )
 
 
 def replace_document_supports_query() -> str:
-    """Replace a decision's document supports and keep its other supports.
+    """Archive current document supports and attach replacement supports.
 
-    Expects ``$project_id``, ``$decision_id`` and ``$supports``, a list of
-    support property maps that already carry their ids and ordinals.
+    Old support nodes stay attached as history with their original evidence ids.
     """
     return (
         f"MATCH (t:{TASK_LABEL} {{project_id: $project_id}})-[:{MADE}]->"
         f"(d:{DECISION_LABEL} {{id: $decision_id}}) "
         f"OPTIONAL MATCH (d)-[:{HAS_SUPPORT}]->"
-        f"(old:{SUPPORT_LABEL} {{kind: 'document'}}) "
-        "DETACH DELETE old "
+        f"(old:{SUPPORT_LABEL} {{kind: 'document', current: true}}) "
+        "SET old.current = false, old.reviewed_by = $reviewer, "
+        "old.reviewed_at = $reviewed_at, "
+        "old.review_explanation = $explanation "
         "WITH DISTINCT d UNWIND $supports AS item "
         f"CREATE (d)-[:{HAS_SUPPORT}]->(s:{SUPPORT_LABEL}) SET s = item "
         "RETURN d.id AS id"
@@ -109,15 +153,26 @@ def replace_document_supports_query() -> str:
 
 
 def clear_decision_review_query() -> str:
-    """Clear a reaffirmed decision's review state and mark it as reaffirmed.
-
-    The project queue marker is left alone. ``review_reaffirmed`` keeps the
-    decision clear in review reads while that marker is set.
-    """
+    """Clear a reaffirmed decision's review state."""
     return (
         f"MATCH (:{TASK_LABEL} {{project_id: $project_id}})-[:{MADE}]->"
         f"(d:{DECISION_LABEL} {{id: $decision_id}}) "
         "SET d.review_state = 'clear', d.review_reason = null, "
-        "d.review_reaffirmed = true "
+        "d.review_reaffirmed = null "
         "RETURN d.id AS id"
+    )
+
+
+def queue_superseded_decision_query() -> str:
+    """Queue dependents of a decision superseded in the same transaction."""
+    return (
+        f"MATCH (old:{DECISION_LABEL} {{id: $id, project_id: $project_id}}) "
+        "SET old.status = 'superseded', old.review_state = 'clear', "
+        "old.review_reason = null, old.review_pending = true "
+        f"WITH old MATCH (p:{PROJECT_LABEL} {{project_id: $project_id}}) "
+        "SET p.review_incomplete = true, "
+        "p.review_epoch = coalesce(p.review_epoch, 0) + 1 "
+        f"WITH old MATCH (new:{DECISION_LABEL} {{id: $new_id}}) "
+        f"CREATE (new)-[:{SUPERSEDES}]->(old) "
+        "RETURN old.id AS id"
     )

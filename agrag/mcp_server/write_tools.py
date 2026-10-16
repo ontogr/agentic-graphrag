@@ -10,6 +10,8 @@ from mcp.types import CallToolResult, ToolAnnotations
 from pydantic import Field
 
 from agrag.common.data_models.decision import (
+    DocumentSupportInput,
+    ReaffirmDecisionResult,
     RecordDecisionResult,
     RejectDecisionResult,
     SupportInput,
@@ -21,6 +23,7 @@ from agrag.common.data_models.task import (
     RecordEventResult,
     SetStepResult,
     StepKind,
+    StepResultBasis,
     StepState,
 )
 from agrag.graphdb.base import GraphStore
@@ -119,14 +122,18 @@ def register_write_tools(
 
     @server.tool(annotations=_WRITE, description="Create or update a named task step.")
     async def set_step(  # noqa: PLR0917
+        ctx: Context[Any, Any],
         task_name: Annotated[str, Field(min_length=1, max_length=200)],
         name: Annotated[str, Field(min_length=1, max_length=200)],
         state: StepState,
         request_id: Annotated[str, Field(min_length=1, max_length=64)],
         kind: StepKind = StepKind.OTHER,
         result_event_seq: Annotated[int | None, Field(ge=1)] = None,
+        result_basis: StepResultBasis = StepResultBasis.UNKNOWN,
+        supports: Annotated[list[SupportInput] | None, Field(max_length=20)] = None,
     ) -> Annotated[CallToolResult, SetStepResult]:
-        """Set a step state and optionally link its result event."""
+        """Set a step state with its result basis and trusted source evidence."""
+        fetched = list(fetched_evidence_for(ctx))
         return await bounded_result(
             deadline,
             settings.max_response_chars,
@@ -136,6 +143,9 @@ def register_write_tools(
                 state,
                 kind=kind,
                 result_event_seq=result_event_seq,
+                result_basis=result_basis,
+                supports=supports or (),
+                fetched_evidence=fetched,
                 request_id=request_id,
             ),
         )
@@ -206,6 +216,48 @@ def register_write_tools(
                 open_questions=open_questions,
                 request_id=request_id,
             ),
+        )
+
+    @server.tool(
+        annotations=_WRITE,
+        description=(
+            "Reaffirm an active decision using current fetched document evidence."
+        ),
+    )
+    async def reaffirm_decision(
+        ctx: Context[Any, Any],
+        decision_id: UUID,
+        evidence: Annotated[
+            list[DocumentSupportInput], Field(min_length=1, max_length=20)
+        ],
+        explanation: Annotated[str, Field(min_length=1, max_length=4000)],
+        request_id: Annotated[str, Field(min_length=1, max_length=64)],
+    ) -> Annotated[CallToolResult, ReaffirmDecisionResult]:
+        """Reaffirm a decision with evidence fetched in this server session."""
+        return await bounded_result(
+            deadline,
+            settings.max_response_chars,
+            decisions.reaffirm_decision(
+                decision_id,
+                evidence,
+                fetched_evidence=list(fetched_evidence_for(ctx)),
+                explanation=explanation,
+                request_id=request_id,
+            ),
+        )
+
+    @server.tool(
+        annotations=_WRITE,
+        description="Continue bounded project-scoped decision review propagation.",
+    )
+    async def continue_review_propagation(
+        limit: Annotated[int, Field(ge=1, le=100)] = 20,
+    ) -> Annotated[CallToolResult, int]:
+        """Process at most the requested number of queued review units."""
+        return await bounded_result(
+            deadline,
+            settings.max_response_chars,
+            decisions.continue_review_propagation(limit=limit),
         )
 
     if settings.allow_reject:

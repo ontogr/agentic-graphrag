@@ -19,9 +19,10 @@ returns `request_id_reused`.
 **Functions:**
 
 - [**create_task**](#agrag-memory-tasks-TaskMemory-create_task) – Create a task, or return the existing task of that name.
+- [**get_event**](#agrag-memory-tasks-TaskMemory-get_event) – Read one exact event and its redaction state from this project.
 - [**get_task**](#agrag-memory-tasks-TaskMemory-get_task) – Read the bounded resume view of a task.
 - [**list_events**](#agrag-memory-tasks-TaskMemory-list_events) – Read events of a task in sequence order, one page at a time.
-- [**list_steps**](#agrag-memory-tasks-TaskMemory-list_steps) – Read every step of a task in one state, in name order.
+- [**list_steps_page**](#agrag-memory-tasks-TaskMemory-list_steps_page) – Read one bounded page of steps, with a name cursor for continuation.
 - [**record_event**](#agrag-memory-tasks-TaskMemory-record_event) – Append one raw event to a task.
 - [**set_step**](#agrag-memory-tasks-TaskMemory-set_step) – Create or update a step of a task.
 
@@ -51,6 +52,14 @@ Create a task, or return the existing task of that name.
 
 - <code>[CreateTaskResult](../../common/data_models/task/CreateTaskResult.md)</code> – The task when recorded. Otherwise `task_exists` when the name is
 - <code>[CreateTaskResult](../../common/data_models/task/CreateTaskResult.md)</code> – taken by a task with another goal.
+
+## `get_event` \{#agrag-memory-tasks-TaskMemory-get_event}
+
+```python
+get_event(task_name:str, seq:int) -> EventLookup
+```
+
+Read one exact event and its redaction state from this project.
 
 ## `get_task` \{#agrag-memory-tasks-TaskMemory-get_task}
 
@@ -92,23 +101,13 @@ Read events of a task in sequence order, one page at a time.
 - <code>[EventPage](../../common/data_models/task/EventPage.md)</code> – The page. When the task does not exist, `found` is false and the
 - <code>[EventPage](../../common/data_models/task/EventPage.md)</code> – page is empty.
 
-## `list_steps` \{#agrag-memory-tasks-TaskMemory-list_steps}
+## `list_steps_page` \{#agrag-memory-tasks-TaskMemory-list_steps_page}
 
 ```python
-list_steps(task_name:str, state:StepState) -> list[StepSummary]
+list_steps_page(task_name:str, state:StepState, *, after_name:str | None = None, limit:int = 50) -> StepPage
 ```
 
-Read every step of a task in one state, in name order.
-
-**Parameters:**
-
-- **task_name** (<code>str</code>) – Task whose steps to read.
-- **state** (<code>[StepState](../../common/data_models/task/StepState.md)</code>) – State to select.
-
-**Returns:**
-
-- <code>list\[[StepSummary](../../common/data_models/task/StepSummary.md)\]</code> – All matching steps, or an empty list if the task does not exist.
-- <code>list\[[StepSummary](../../common/data_models/task/StepSummary.md)\]</code> – Unlike the task view, this list is not capped at 50 steps.
+Read one bounded page of steps, with a name cursor for continuation.
 
 ## `record_event` \{#agrag-memory-tasks-TaskMemory-record_event}
 
@@ -137,7 +136,7 @@ event records the hash of the full text. No model is called.
 ## `set_step` \{#agrag-memory-tasks-TaskMemory-set_step}
 
 ```python
-set_step(task_name:str, name:str, state:StepState, *, kind:StepKind = StepKind.OTHER, result_event_seq:int | None = None, request_id:str | None = None) -> SetStepResult
+set_step(task_name:str, name:str, state:StepState, *, kind:StepKind = StepKind.OTHER, result_event_seq:int | None = None, result_basis:StepResultBasis = StepResultBasis.UNKNOWN, supports:Sequence[SupportInput] = (), fetched_evidence:Sequence[FetchOutcome] = (), request_id:str | None = None) -> SetStepResult
 ```
 
 Create or update a step of a task.
@@ -150,6 +149,10 @@ Create or update a step of a task.
 - **kind** (<code>[StepKind](../../common/data_models/task/StepKind.md)</code>) – The broad category of the step.
 - **result_event_seq** (<code>int | None</code>) – The sequence number of the event that holds the
   result, or None.
+- **result_basis** (<code>[StepResultBasis](../../common/data_models/task/StepResultBasis.md)</code>) – Whether the result is independent, supported, or
+  unknown. Supported results are reusable only while available.
+- **supports** (<code>Sequence\[[SupportInput](../../common/data_models/decision/SupportInput.md)\]</code>) – Explicit source references for a supported result.
+- **fetched_evidence** (<code>Sequence\[[FetchOutcome](../../common/data_models/evidence/FetchOutcome.md)\]</code>) – Current fetch outcomes for document references.
 - **request_id** (<code>str | None</code>) – Optional id of at most 64 characters for a safe retry.
 
 **Returns:**

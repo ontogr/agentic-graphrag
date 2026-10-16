@@ -139,6 +139,7 @@ class StoredChunk:
     closed_at: str | None
     document_key: str
     current_content_hash: str | None
+    activation_seq: int | None = None
 
 
 def stored_chunk(row: Mapping[str, Any]) -> StoredChunk:
@@ -157,6 +158,7 @@ def stored_chunk(row: Mapping[str, Any]) -> StoredChunk:
         closed_at=row["closed_at"],
         document_key=row["document_key"],
         current_content_hash=row["current_content_hash"],
+        activation_seq=row.get("activation_seq"),
     )
 
 

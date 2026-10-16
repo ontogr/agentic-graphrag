@@ -15,7 +15,15 @@ from datetime import UTC, datetime
 from typing import Any, NamedTuple, TypeVar
 from uuid import NAMESPACE_OID, UUID, uuid5
 
-from agrag.common.data_models.decision import ConflictGroup, Decision
+from agrag.common.data_models.decision import (
+    ConflictGroup,
+    Decision,
+    DecisionSupport,
+    DocumentSupport,
+    EventSupport,
+    SupportInput,
+)
+from agrag.common.data_models.evidence import FetchOutcome
 from agrag.common.data_models.task import (
     EVENT_LABEL,
     HAS_EVENT,
@@ -28,12 +36,16 @@ from agrag.common.data_models.task import (
     CreateTaskResult,
     Event,
     EventKind,
+    EventLookup,
     EventPage,
     MemoryErrorCode,
     RecordEventResult,
     SetStepResult,
     Step,
     StepKind,
+    StepPage,
+    StepResultBasis,
+    StepResultValidity,
     StepState,
     StepSummary,
     Task,
@@ -60,9 +72,10 @@ from agrag.cypher.memory import (
     task_review_decisions_query,
     upsert_step_query,
 )
+from agrag.cypher.memory_review import current_document_query, support_event_query
 from agrag.graphdb.base import GraphStore, GraphStoreTransaction
 from agrag.graphdb.errors import GraphStoreConstraintViolationError
-from agrag.memory.decisions import _decision_from_row
+from agrag.memory.decisions import DecisionMemory, _decision_from_row
 
 
 MAX_PAYLOAD_CHARACTERS = 32_000
@@ -315,6 +328,9 @@ class TaskMemory:
         *,
         kind: StepKind = StepKind.OTHER,
         result_event_seq: int | None = None,
+        result_basis: StepResultBasis = StepResultBasis.UNKNOWN,
+        supports: Sequence[SupportInput] = (),
+        fetched_evidence: Sequence[FetchOutcome] = (),
         request_id: str | None = None,
     ) -> SetStepResult:
         """Create or update a step of a task.
@@ -326,6 +342,10 @@ class TaskMemory:
             kind: The broad category of the step.
             result_event_seq: The sequence number of the event that holds the
                 result, or None.
+            result_basis: Whether the result is independent, supported, or
+                unknown. Supported results are reusable only while available.
+            supports: Explicit source references for a supported result.
+            fetched_evidence: Current fetch outcomes for document references.
             request_id: Optional id of at most 64 characters for a safe retry.
 
         Returns:
@@ -338,6 +358,11 @@ class TaskMemory:
             "state": state.value,
             "kind": kind.value,
             "result_event_seq": result_event_seq,
+            "result_basis": result_basis.value,
+            "supports": [item.model_dump(mode="json") for item in supports],
+            "fetched_evidence": [
+                item.model_dump(mode="json") for item in fetched_evidence
+            ],
         }
         return await self._write(
             operation="set_step",
@@ -351,6 +376,9 @@ class TaskMemory:
                 state=state,
                 kind=kind,
                 result_event_seq=result_event_seq,
+                result_basis=result_basis,
+                supports=supports,
+                fetched_evidence=fetched_evidence,
             ),
         )
 
@@ -377,13 +405,19 @@ class TaskMemory:
         page_rows = await self._store.execute_read(
             step_page_query(), {**params, "limit": STEP_VIEW_LIMIT}
         )
-        steps = [StepSummary.model_validate(row) for row in page_rows]
+        steps = [
+            StepSummary.model_validate(
+                {**row, "result_supports": json.loads(row["result_supports"])}
+            )
+            for row in page_rows
+        ]
+        steps = [await self._validate_step_result(step) for step in steps]
         decision_rows = await self._store.execute_read(
             "MATCH (t:MemoryTask {project_id: $project_id, id: $task_id})"
             "-[:MADE]->(d:MemoryDecision {status: 'active'}) "
             "MATCH (p:MemoryProject {project_id: $project_id}) "
-            "OPTIONAL MATCH (d)-[:HAS_SUPPORT]->(s:MemorySupport) "
-            "WITH t, d, p, s ORDER BY s.ordinal "
+            "OPTIONAL MATCH (d)-[:HAS_SUPPORT]->(s:MemorySupport {current: true}) "
+            "WITH t, d, p, s ORDER BY s.current DESC, s.ordinal "
             "WITH t, d, p, collect(s) AS supports "
             "RETURN d AS decision, supports, t.name AS task_name, "
             "p.review_incomplete AS review_incomplete "
@@ -440,38 +474,85 @@ class TaskMemory:
         )
         return TaskLookup(found=True, view=view)
 
-    async def list_steps(self, task_name: str, state: StepState) -> list[StepSummary]:
-        """Read every step of a task in one state, in name order.
-
-        Args:
-            task_name: Task whose steps to read.
-            state: State to select.
-
-        Returns:
-            All matching steps, or an empty list if the task does not exist.
-            Unlike the task view, this list is not capped at 50 steps.
-        """
+    async def list_steps_page(
+        self,
+        task_name: str,
+        state: StepState,
+        *,
+        after_name: str | None = None,
+        limit: int = 50,
+    ) -> StepPage:
+        """Read one bounded page of steps, with a name cursor for continuation."""
         task = await _find_task(self._store, self._project_id, task_name)
         if task is None:
-            return []
-        steps: list[StepSummary] = []
-        after_name: str | None = None
-        while True:
-            rows = await self._store.execute_read(
-                steps_in_state_page_query(),
-                {
-                    "project_id": self._project_id,
-                    "task_id": str(task.id),
-                    "state": state.value,
-                    "after_name": after_name,
-                    "limit": STEP_PAGE_LIMIT,
-                },
+            return StepPage()
+        size = max(1, min(limit, STEP_PAGE_LIMIT))
+        rows = await self._store.execute_read(
+            steps_in_state_page_query(),
+            {
+                "project_id": self._project_id,
+                "task_id": str(task.id),
+                "state": state.value,
+                "after_name": after_name,
+                "limit": size + 1,
+            },
+        )
+        steps = [
+            StepSummary.model_validate(
+                {**row, "result_supports": json.loads(row["result_supports"])}
             )
-            page = [StepSummary.model_validate(row) for row in rows]
-            steps.extend(page)
-            if len(page) < STEP_PAGE_LIMIT:
-                return steps
-            after_name = page[-1].name
+            for row in rows[:size]
+        ]
+        steps = [await self._validate_step_result(step) for step in steps]
+        truncated = len(rows) > size
+        return StepPage(
+            steps=steps,
+            truncated=truncated,
+            next_after_name=steps[-1].name if truncated else None,
+        )
+
+    async def _validate_step_result(self, step: StepSummary) -> StepSummary:
+        """Check the saved support identities before exposing a reusable result."""
+        if step.result_validity is not StepResultValidity.REUSABLE:
+            return step
+        validity = StepResultValidity.REUSABLE
+        for support in step.result_supports:
+            if isinstance(support, DocumentSupport):
+                rows = await self._store.execute_read(
+                    current_document_query(), {"id": str(support.document_node_id)}
+                )
+                if not rows or not rows[0]["live"]:
+                    validity = StepResultValidity.UNAVAILABLE
+                elif (
+                    rows[0]["activation_seq"] != support.recorded_activation_seq
+                    or rows[0]["hash"] != support.content_hash
+                ):
+                    validity = StepResultValidity.NEEDS_REVIEW
+            elif isinstance(support, EventSupport):
+                rows = await self._store.execute_read(
+                    support_event_query(),
+                    {
+                        "project_id": self._project_id,
+                        "task_name": support.task_name,
+                        "seq": support.seq,
+                    },
+                )
+                if not rows or rows[0]["redacted_at"] or rows[0]["truncated"]:
+                    validity = StepResultValidity.UNAVAILABLE
+            elif isinstance(support, DecisionSupport):
+                parent = await DecisionMemory(
+                    self._store, project_id=self._project_id, agent_id=self._agent_id
+                ).get_decision(support.decision_id)
+                if not parent.found or parent.decision is None:
+                    validity = StepResultValidity.UNAVAILABLE
+                elif (
+                    parent.decision.status.value != "active"
+                    or parent.decision.review_state.value != "clear"
+                ):
+                    validity = StepResultValidity.NEEDS_REVIEW
+            if validity is not StepResultValidity.REUSABLE:
+                break
+        return step.model_copy(update={"result_validity": validity})
 
     async def list_events(
         self, task_name: str, *, after_seq: int = 0, limit: int = 50
@@ -507,6 +588,19 @@ class TaskMemory:
             events=events,
             truncated=truncated,
             next_after_seq=events[-1].seq if truncated else None,
+        )
+
+    async def get_event(self, task_name: str, seq: int) -> EventLookup:
+        """Read one exact event and its redaction state from this project."""
+        task = await _find_task(self._store, self._project_id, task_name)
+        if task is None:
+            return EventLookup(found=False)
+        rows = await self._store.execute_read(
+            event_by_seq_query(),
+            {"project_id": self._project_id, "task_id": str(task.id), "seq": seq},
+        )
+        return EventLookup(
+            found=bool(rows), event=Event.model_validate(rows[0]) if rows else None
         )
 
     async def _write(
@@ -586,7 +680,23 @@ class TaskMemory:
         if claim["payload_sha256"] != digest:
             raise _WriteRefusedError(MemoryErrorCode.REQUEST_ID_REUSED)
         if claim["result_json"] is not None:
-            return result_type.model_validate_json(claim["result_json"])
+            result = result_type.model_validate_json(claim["result_json"])
+            if isinstance(result, RecordEventResult) and result.event is not None:
+                rows = await tx.execute_read(
+                    event_by_seq_query(),
+                    {
+                        "project_id": self._project_id,
+                        "task_id": str(result.event.task_id),
+                        "seq": result.event.seq,
+                    },
+                )
+                if rows and rows[0]["redacted_at"] is not None:
+                    result = result.model_copy(
+                        update={
+                            "event": Event.model_validate(rows[0]),
+                        }
+                    )
+            return result
         result = await effect(tx)
         await tx.execute_write(
             store_request_result_query(),
@@ -693,11 +803,27 @@ class TaskMemory:
         state: StepState,
         kind: StepKind,
         result_event_seq: int | None,
+        result_basis: StepResultBasis,
+        supports: Sequence[SupportInput],
+        fetched_evidence: Sequence[FetchOutcome],
     ) -> SetStepResult:
         """Create or update the step, checking the result event first."""
         task = await _find_task(tx, self._project_id, task_name)
         if task is None:
             raise _WriteRefusedError(MemoryErrorCode.TASK_NOT_FOUND)
+        if state is StepState.COMPLETED and result_basis is StepResultBasis.SUPPORTED:
+            if not supports:
+                raise _WriteRefusedError(MemoryErrorCode.SUPPORT_REQUIRED)
+            try:
+                resolved, changed = await DecisionMemory(
+                    self._store, project_id=self._project_id, agent_id=self._agent_id
+                ).resolve_supports(tx, supports, fetched_evidence)
+            except ValueError:
+                raise _WriteRefusedError(MemoryErrorCode.SUPPORT_INVALID) from None
+            if changed:
+                raise _WriteRefusedError(MemoryErrorCode.SUPPORT_INVALID)
+        else:
+            resolved = []
         task_params = {"project_id": self._project_id, "task_id": str(task.id)}
         if result_event_seq is not None:
             found = await tx.execute_read(
@@ -705,6 +831,10 @@ class TaskMemory:
             )
             if not found:
                 raise _WriteRefusedError(MemoryErrorCode.EVENT_NOT_FOUND)
+            if state is StepState.COMPLETED and (
+                found[0]["redacted_at"] or found[0]["truncated"]
+            ):
+                raise _WriteRefusedError(MemoryErrorCode.SUPPORT_INVALID)
         rows = await tx.execute_write(
             upsert_step_query(),
             {
@@ -714,10 +844,18 @@ class TaskMemory:
                 "kind": kind.value,
                 "state": state.value,
                 "result_event_seq": result_event_seq,
+                "result_basis": result_basis.value,
+                "result_supports": json.dumps(
+                    resolved,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ),
                 "updated_seq": task.event_seq,
             },
         )
-        step = Step.model_validate(rows[0])
+        step_row = dict(rows[0])
+        step_row["result_supports"] = json.loads(step_row["result_supports"] or "[]")
+        step = Step.model_validate(step_row)
         return SetStepResult(recorded=True, step=step)
 
     async def _ensure_schema(self) -> None:

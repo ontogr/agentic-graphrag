@@ -19,6 +19,8 @@ The result of fetching one evidence id.
 - [**content_hash**](#agrag-common-data_models-evidence-FetchOutcome-content_hash) (<code>str | None</code>) – The full content hash of the version the text came from.
 - [**status_of_version**](#agrag-common-data_models-evidence-FetchOutcome-status_of_version) (<code>[VersionStatus](VersionStatus.md) | None</code>) – Whether that version is current, when text is
   returned.
+- [**observed_activation_seq**](#agrag-common-data_models-evidence-FetchOutcome-observed_activation_seq) (<code>int | None</code>) – The document activation sequence observed in
+  the same read as the text, including for a superseded version.
 - [**covered_range**](#agrag-common-data_models-evidence-FetchOutcome-covered_range) (<code>tuple\[int, int\] | None</code>) – The offsets of the returned text, when it is a text
   range. A partial range gives the covered part only.
 - [**partial**](#agrag-common-data_models-evidence-FetchOutcome-partial) (<code>bool</code>) – True when the requested range was not fully covered by chunks.
@@ -53,6 +55,12 @@ document_key: str | None = None
 
 ```python
 evidence_id: str
+```
+
+## `observed_activation_seq` \{#agrag-common-data_models-evidence-FetchOutcome-observed_activation_seq}
+
+```python
+observed_activation_seq: int | None = None
 ```
 
 ## `partial` \{#agrag-common-data_models-evidence-FetchOutcome-partial}

@@ -162,6 +162,11 @@ class Chunk(DataPoint):
             "content_kind": self.content_kind,
             "created_at": self.created_at.isoformat(),
         }
+        if isinstance(self.provenance, TextProvenance) and len(self.text) == (
+            self.provenance.char_end - self.provenance.char_start
+        ):
+            properties["char_start"] = self.provenance.char_start
+            properties["char_end"] = self.provenance.char_end
         if self.chunker is not None:
             properties["chunker"] = self.chunker
         if self.chunker_hash is not None:
