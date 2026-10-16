@@ -10,7 +10,6 @@ from typing import Any
 
 import pytest
 from deepeval.models import DeepEvalBaseLLM
-from langchain_core.messages import AIMessage, HumanMessage
 from pydantic import BaseModel
 
 from agrag.agents.result import AgentRunResult
@@ -80,19 +79,6 @@ def _result(answer: str) -> AgentRunResult:
     }
 
 
-def _run(messages: list[Any]) -> AgentRunResult:
-    """Build a run with the given messages and no fetched evidence."""
-    return {
-        "answer": "",
-        "status": "answered",
-        "citations": [],
-        "invalid_citations": [],
-        "recording_failures": [],
-        "task": {"name": "test", "last_event_seq": 0},
-        "messages": messages,
-    }
-
-
 async def _score(answer: str, judge: _ScriptedJudge | None = None) -> Any:
     """Score ``answer`` and return the metric."""
     metric = CitationAccuracyMetric(judge or _ScriptedJudge())
@@ -101,42 +87,20 @@ async def _score(answer: str, judge: _ScriptedJudge | None = None) -> Any:
 
 
 class TestFinalAnswer:
-    """final_answer reads the last assistant message in every message form."""
+    """Evaluations use the final answer rather than conversation content."""
 
-    def test_reads_a_dict_message(self) -> None:
-        """A message dict gives its content."""
-        result = _run([{"role": "assistant", "content": "Done."}])
+    @pytest.mark.parametrize("message_text", ["", "Earlier reasoning."])
+    def test_reads_the_answer_instead_of_assistant_content(
+        self, message_text: str
+    ) -> None:
+        """Structured answers need no plain-text assistant message."""
+        result = _result("Net income rose [E1].")
+        result["messages"] = [{"role": "assistant", "content": message_text}]
 
-        assert final_answer(result) == "Done."
-
-    def test_reads_a_message_object_after_a_user_turn(self) -> None:
-        """The last AI message wins over earlier and later non-AI messages."""
-        result = _run(
-            [
-                HumanMessage("q"),
-                AIMessage("first"),
-                AIMessage("second"),
-                HumanMessage("thanks"),
-            ]
+        assert final_answer(result) == "Net income rose [E1]."
+        assert answer_case("q", result, "reference").actual_output == (
+            "Net income rose [E1]."
         )
-
-        assert final_answer(result) == "second"
-
-    def test_joins_the_text_blocks_of_block_content(self) -> None:
-        """Text blocks join and other block types drop out."""
-        blocks: list[str | dict[Any, Any]] = [
-            {"type": "text", "text": "Net income "},
-            {"type": "tool_use", "id": "x", "name": "n", "input": {}},
-            {"type": "text", "text": "rose."},
-        ]
-        result = _run([AIMessage(content=blocks)])
-
-        assert final_answer(result) == "Net income rose."
-
-    def test_raises_without_an_assistant_message(self) -> None:
-        """A run with no assistant message is an error, not an empty answer."""
-        with pytest.raises(ValueError, match="no assistant message"):
-            final_answer(_run([HumanMessage("q")]))
 
 
 class TestAnswerCase:

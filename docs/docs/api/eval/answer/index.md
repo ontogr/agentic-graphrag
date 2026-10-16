@@ -27,7 +27,7 @@ shows it. A chunk shows in full, whatever its size.
 - [**context_recall**](context_recall.md) – Build the metric for reference facts that the evidence covers.
 - [**correctness**](correctness.md) – Build the answer correctness metric against the reference.
 - [**faithfulness**](faithfulness.md) – Build the metric for claims that the evidence the agent saw does not contradict.
-- [**final_answer**](final_answer.md) – Return the text of the last assistant message in an agent run.
+- [**final_answer**](final_answer.md) – Return the final answer text from a task-scoped agent run.
 
 **Attributes:**
 

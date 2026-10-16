@@ -50,7 +50,7 @@ Needs the `eval` extra: `pip install 'agentic-graphrag[eval]'`.
 - [**expected_tools_metric**](trajectory/expected_tools_metric.md) – Build the metric that the run called every expected tool.
 - [**extraction_case**](extraction/extraction_case.md) – Build a test case that holds a predicted and a gold extraction.
 - [**faithfulness**](answer/faithfulness.md) – Build the metric for claims that the evidence the agent saw does not contradict.
-- [**final_answer**](answer/final_answer.md) – Return the text of the last assistant message in an agent run.
+- [**final_answer**](answer/final_answer.md) – Return the final answer text from a task-scoped agent run.
 - [**micro_scores**](extraction/micro_scores.md) – Pool measured entity and relation metrics into dataset scores.
 - [**parse_json_case**](adapter/parse_json_case.md) – Read the `(actual, expected)` models back from a JSON test case.
 - [**read_trajectory**](trajectory/read_trajectory.md) – Read the tool and model steps from finished spans.
