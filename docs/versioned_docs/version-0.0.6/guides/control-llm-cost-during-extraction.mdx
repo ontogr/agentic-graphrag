@@ -1,0 +1,133 @@
+---
+title: Control LLM cost during extraction
+description: Limit how many chunks an LLM reads during extraction, and read the report that shows what the local model kept.
+---
+
+# Control LLM cost during extraction
+
+In `hybrid` mode, a local model reads every chunk, then an LLM can review eligible chunks up to a budget. Eligibility includes low-confidence or empty results and chunks with entities that declare properties. Use this guide to set the budget and interpret the run report. For other mode tradeoffs, see [Choose an extraction mode](./choose-an-extraction-mode.mdx).
+
+## Before you start
+
+Install the extras and configure the LLM client. See [Extract and resolve](./extract-and-resolve.mdx) for the client settings.
+
+```bash
+uv pip install "agentic-graphrag[extract,llm]"
+```
+
+## Choose a mode
+
+Set the mode with `EXTRACTION_MODE`, or with `ExtractionSettings(mode=...)`. The default is `hybrid`.
+
+| Mode | Local model | LLM | What the LLM reads |
+| --- | --- | --- | --- |
+| `gliner` | Reads every chunk | Not used | Nothing |
+| `hybrid` | Reads every chunk | Reads eligible chunks, up to the budget | Chunk text and the local entities |
+| `llm` | Not used | Reads every chunk with at least `EXTRACTION_MIN_ESCALATION_WORDS` words | The text only |
+
+The threshold and the budget apply only in `hybrid`. The `llm` mode uses only the word minimum.
+
+If no LLM extractor is available, `hybrid` selects `gliner` and logs a warning. The graph's `effective_mode` and the run report identify the selected mode. `llm` mode requires an LLM extractor; graph construction raises an error when none is available.
+
+## Turn on the LLM tier
+
+`Graph` can build the LLM extractor from `EXTRACTION_LLM_CLIENTS`, or from `LLM_BASE_URL` and `LLM_MODEL_ID`. If those settings are absent, pass an LLM extractor as `llm_extractor`. Without either configuration, `hybrid` falls back to the local extractor and the budget has no effect.
+
+{/* pmd-metadata: notest */}
+
+```python
+from agrag.ingestion import Graph
+from agrag.ingestion.extract import BAMLExtractor, ExtractionLLMSettings, GlinerExtractor
+
+graph = await Graph.open(
+    schema=schema,
+    graph_store=graph_store,
+    embedder=embedder,
+    extractor=GlinerExtractor(),
+    llm_extractor=BAMLExtractor(
+        settings=ExtractionLLMSettings.from_openai_compatible_env()
+    ),
+)
+```
+
+## Set the budget
+
+Three settings decide which chunks the LLM reads. Set them in the environment, or pass an `ExtractionSettings` object as `extraction_settings`.
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `EXTRACTION_ESCALATION_THRESHOLD` | `0.75` | A chunk is eligible when one of its entities scores below this value. |
+| `EXTRACTION_ESCALATION_BUDGET` | `0.2` | The share of the chunks in a batch that the LLM can read. `all` removes the limit. `0` means no chunk goes to the LLM. |
+| `EXTRACTION_MIN_ESCALATION_WORDS` | `8` | A chunk with no entities is eligible only when it has at least this many words. |
+
+A chunk is eligible in three cases:
+
+1. One of its entities scores below the escalation threshold.
+2. It has no entities and at least `EXTRACTION_MIN_ESCALATION_WORDS` words.
+3. One of its entities has a type with declared or inherited properties. The default local extractor does not fill property values; the LLM extractor does.
+
+The budget is a share of all chunks in a batch, not a share of the eligible chunks. The result is rounded up. For example, a budget of `0.2` on a batch of 12 chunks lets the LLM read 3 chunks. The LLM reads the weakest eligible chunks first. The chunk with the lowest entity score comes first, and chunks with no entities come last. Chunks with equal scores keep their order in the batch.
+
+`Graph.add` ranks the chunks of each batch of up to 100 documents. `Graph.update` ranks the chunks of the one document that it updates.
+
+## How the LLM result combines with the local result
+
+The escalation step sends an eligible chunk's text and local entities to the LLM. The two results combine as a union:
+
+1. The LLM entities come first. An LLM entity with the same name as a local entity takes the local span and score. The LLM label wins when the two labels differ.
+2. Local entities that the LLM did not return are added back, with their local span and score.
+3. Relations from both results are kept. A relation that appears in both results appears once.
+
+If the LLM call fails, if its answer cannot be read, or if it returns no entities for a chunk where the local model found some, the chunk keeps the local result. An LLM error does not stop the run in `hybrid` mode. The report counts these chunks as `failed`.
+
+In `llm` mode, no local result exists to keep. An LLM error follows the `ErrorPolicy` of the run. `RAISE` stops the call, `SKIP` skips the chunk, and `QUARANTINE` records it. Each of these counts the chunk as `failed`.
+
+## Read the run report
+
+`Graph.add` and `Graph.update` return the report in `result.escalation`. Both methods also log it at the `INFO` level of the `agrag.ingestion.graph` logger. To see the log lines, configure logging first:
+
+```python
+import logging
+
+logging.basicConfig(level=logging.INFO)
+```
+
+A run in `hybrid` mode logs a report like this:
+
+```text
+mode hybrid | chunks 1,240 | eligible 410 (33%) | escalated 248 (budget 20%)
+left for GLiNER only 162 | lowest score left 0.62
+budget needed 34% to escalate all eligible chunks
+escalation failed on 3 chunks | first result kept
+time first extractor 41.2s | escalation 96.8s
+```
+
+The report has these fields:
+
+| Field | Meaning |
+| --- | --- |
+| `mode` | The mode that the run used. |
+| `total` | The chunks that the run read. |
+| `skipped_short` | The chunks that `llm` mode did not send to the LLM because they were shorter than the word minimum. |
+| `eligible` | In `hybrid`, chunks with a low-confidence kept entity, no kept entities and enough words, or a kept entity whose type declares properties. |
+| `escalated` | The eligible chunks that the LLM read. |
+| `left_for_gliner` | The eligible chunks that kept the local result because the budget ran out. |
+| `lowest_score_left` | The lowest entity score among the chunks in `left_for_gliner`. |
+| `failed` | The chunks where the LLM call failed, its answer could not be read, or it returned no entities where the local model found some. |
+| `budget_needed` | The smallest budget that lets the LLM read every eligible chunk. For several batches, this is the largest need of any one batch. |
+| `primary_seconds` | The wall-clock seconds of the local model. |
+| `escalation_seconds` | The wall-clock seconds of the LLM calls. |
+
+The line about the budget and the line about the left-over chunks appear only when some eligible chunks stayed with the local model. The failure line appears only when an LLM answer was unusable. The graph logs nothing about escalation when it has no LLM extractor.
+
+## Choose a budget from the report
+
+1. Run once with the default budget.
+2. Read `lowest score left`. A value near the escalation threshold means that the chunks the LLM did not read are almost strong. A low value, such as 0.4, means that weak chunks stayed with the local model.
+3. To let the LLM read every eligible chunk, set `EXTRACTION_ESCALATION_BUDGET` to the `budget needed` value, or to `all`.
+4. To cut cost, lower the budget. Set it to `0` to send no chunk to the LLM.
+
+## Related
+
+- Explanation: [Extraction](../concepts/extraction.mdx).
+- Reference: [Configuration](../reference/configuration.mdx#local-extraction).

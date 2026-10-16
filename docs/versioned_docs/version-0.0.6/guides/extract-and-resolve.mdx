@@ -1,0 +1,371 @@
+---
+sidebar_position: 2
+---
+
+# Extract and resolve entities
+
+Use an extractor directly when you need to inspect extraction results, or pass extractors to `Graph` to extract and resolve entities during ingestion. This guide covers both paths and explains which results are retained when a model cannot decide.
+
+## Before you start
+
+The extraction examples use a chunk of text. The resolution examples use a graph. This guide assumes that you finished the [Quickstart](../get-started/quickstart.mdx). Each code block is complete and opens its own connections. The LLM examples read `LLM_BASE_URL`, `LLM_MODEL_ID`, and optionally `LLM_API_KEY` from the environment or from `.env`.
+
+## Extract with the default schema
+
+`BAMLExtractor` sends the chunk to an LLM and returns typed entities and relations. The model sees each entity and relation label with its description. The allowed entity-type pairs for each relation are checked after extraction. The model answers with labels and names. `BAMLExtractor` then finds each name in the chunk text and sets the offsets itself. It needs the `llm` extra:
+
+```bash
+uv pip install "agentic-graphrag[llm]"
+```
+
+{/* pmd-metadata: fixture:llm_env */}
+
+```python
+import asyncio
+import hashlib
+
+from uuid import uuid4
+
+from agrag.common.data_models.chunk import Chunk
+from agrag.common.data_models import DEFAULT_SCHEMA
+from agrag.common.data_models.provenance import TextProvenance
+from agrag.ingestion.extract import BAMLExtractor, ExtractionLLMSettings
+
+
+async def main() -> None:
+    text = "Ada Lovelace wrote the first algorithm for the Analytical Engine."
+    chunk = Chunk(
+        id=uuid4(),
+        document_id=uuid4(),
+        content_hash=hashlib.sha256(text.encode("utf-8")).hexdigest(),
+        text=text,
+        provenance=TextProvenance(char_start=0, char_end=len(text)),
+    )
+
+    # Point at your OpenAI-compatible endpoint with environment variables:
+    #   LLM_BASE_URL, LLM_MODEL_ID, and optionally LLM_API_KEY
+    settings = ExtractionLLMSettings.from_openai_compatible_env()
+    extractor = BAMLExtractor(settings=settings)
+    result = await extractor.extract(chunk, DEFAULT_SCHEMA)
+    print(result.entities)
+
+
+asyncio.run(main())
+```
+
+### What the extractor keeps
+
+The extractor keeps a name only when it appears in the chunk with matching case and whole-word boundaries. It locates repeated names in order, accepts names that span a line break, and drops names that it cannot locate. It also drops undeclared labels and relations that use a dropped entity.
+
+For entity types with properties, the LLM returns values stated in the text. The extractor removes undeclared property keys and returns them as property candidates. LLM entities and relations have no confidence score.
+
+To record what the extractor does, pass a `tracer` to it. See [Trace an agent run](./trace-an-agent-run.mdx).
+
+## Give the model the section heading
+
+When a chunk has a heading path, `BAMLExtractor` sends it as a separate `section` line above the text block, for example `Guide > Setup`. The prompt says that the line is context only. `BAMLExtractor` looks for each name in the chunk text only. It drops a name that appears only in the heading. Set `include_heading_path=False` to turn this off:
+
+{/* pmd-metadata: fixture:llm_env */}
+
+```python
+import asyncio
+
+from agrag.ingestion.extract import BAMLExtractor, ExtractionLLMSettings
+
+
+async def main() -> None:
+    settings = ExtractionLLMSettings.from_openai_compatible_env()
+    extractor = BAMLExtractor(settings=settings, include_heading_path=False)
+
+
+asyncio.run(main())
+```
+
+Only `BAMLExtractor` uses the heading path. The local extractor reads the chunk text only. See [Configure chunking](./configure-chunking.mdx) for the embedding side of this configuration.
+
+## Configure extraction
+
+`GlinerExtractor` reads its settings from `ExtractionSettings`. By default, it loads the base GLiNER 2.5 model in full precision and keeps entity spans with a score of at least 0.5. Set environment variables, add them to `.env`, or pass an `ExtractionSettings` object to the extractor. `Graph` accepts a local `Extractor` through `extractor=` and an LLM `LLMExtractor` through `llm_extractor=`.
+
+| Variable | Default | Effect |
+| --- | --- | --- |
+| `EXTRACTION_MODEL_NAME` | `fastino/gliner2.5-base-v1` | GLiNER checkpoint to load. Choose a checkpoint based on its requirements and evaluate its results on representative documents. |
+| `EXTRACTION_DTYPE` | `fp32` | Model precision: `fp32`, `fp16`, or `bf16`. |
+| `EXTRACTION_ENTITY_THRESHOLD` | `0.5` | Lowest entity score kept, unless a label has its own threshold. |
+| `EXTRACTION_LABEL_THRESHOLDS` | `{}` | JSON object of per-label thresholds. |
+
+The base model needs about 850 MB for the first model download. `fp16` and `bf16` reduce model memory use, but their speed and support vary by device and PyTorch build. The model loads in `fp32` before it is cast. Check extraction results on your data before using a lower precision in production.
+
+For example, set per-label scores and the precision in `.env`:
+
+```dotenv
+EXTRACTION_DTYPE=bf16
+EXTRACTION_LABEL_THRESHOLDS={"Person": 0.7, "Organization": 0.6}
+```
+
+You can set the same values in Python:
+
+```python
+from agrag.ingestion import ExtractionSettings, GlinerExtractor
+
+settings = ExtractionSettings(dtype="bf16", label_thresholds={"Person": 0.7})
+extractor = GlinerExtractor(settings=settings)
+```
+
+`Graph` takes the settings from an injected, top-level `GlinerExtractor`. For a custom extractor, pass `extraction_settings=` to `Graph.open`. If you pass settings to both the graph and a top-level GLiNER extractor, their values must match.
+
+See the [configuration reference](../reference/configuration.mdx#local-extraction) for all extraction settings. Each extracted entity and relation has a `confidence` score from the model.
+
+`EXTRACTION_MODE` accepts `gliner`, `hybrid` (the default), and `llm`. `Graph.effective_mode` reports the mode selected for the graph, not the class of the extractor. When `hybrid` has no LLM configured, the mode becomes `gliner` and Graph logs a warning. An injected custom local extractor still runs unchanged in that mode; Graph does not replace it with GLiNER. In `hybrid`, Graph sends the weak chunks to the LLM extractor. See [Control LLM cost during extraction](./control-llm-cost-during-extraction.mdx) for the modes, the budget and the run report.
+
+For LLM-only ingestion, pass `extraction_settings=ExtractionSettings(mode="llm")` and `llm_extractor=BAMLExtractor(...)` to `Graph.open`. Do not pass `extractor=` in that mode. If you omit `llm_extractor=`, `Graph` reads `EXTRACTION_LLM_CLIENTS`, or `LLM_BASE_URL` with `LLM_MODEL_ID`, to build it. `Graph.llm_model_name` reports the configured client models, or the class name of a custom LLM extractor.
+
+## Extract with the local model
+
+`GlinerExtractor` runs a model on your machine. It needs no LLM key. It needs the `extract` extra:
+
+```bash
+uv pip install "agentic-graphrag[extract]"
+```
+
+```python
+import asyncio
+import hashlib
+
+from uuid import uuid4
+
+from agrag.common.data_models import DEFAULT_SCHEMA
+from agrag.common.data_models.chunk import Chunk
+from agrag.common.data_models.provenance import TextProvenance
+from agrag.ingestion.extract import GlinerExtractor
+
+
+async def main() -> None:
+    text = "Ada Lovelace wrote the first algorithm for the Analytical Engine."
+    chunk = Chunk(
+        id=uuid4(),
+        document_id=uuid4(),
+        content_hash=hashlib.sha256(text.encode("utf-8")).hexdigest(),
+        text=text,
+        provenance=TextProvenance(char_start=0, char_end=len(text)),
+    )
+
+    result = await GlinerExtractor().extract(chunk, DEFAULT_SCHEMA)
+    for entity in result.entities:
+        print(entity.label, entity.text, entity.confidence)
+    for candidate in result.candidates:
+        print(candidate.reason, candidate.label, candidate.confidence)
+
+
+asyncio.run(main())
+```
+
+Each kept entity and relation has a `confidence`. The extractor keeps an entity at 0.5 or more and a relation at 0.7 or more. Set `EXTRACTION_ENTITY_THRESHOLD` and `EXTRACTION_RELATION_THRESHOLD` to change them. A relation must also match a pattern of the schema. The pattern accepts the child types of its labels.
+
+`result.candidates` lists proposed candidate records. GLiNER reports relation drops in extraction statistics whether candidate writing is enabled or not. Set `EXTRACTION_CANDIDATES_ENABLED=false` to stop writing candidate records; GLiNER still makes one model call for each chunk and skips the entity-band candidate pass. With candidates on, it makes two calls.
+
+The default chunk size fits the model in one pass. See [Configure chunking](./configure-chunking.mdx) before you set a much larger size.
+
+## Run locally first, escalating to an LLM
+
+`GlinerExtractor` runs a local model on every chunk. Pass an LLM extractor as `llm_extractor` to `Graph.open`, and the graph sends the LLM only the chunks where the local result is weak, up to a budget. The LLM reads each of those chunks together with the entities that the local model found, and the two results combine. This needs both extras:
+
+```bash
+uv pip install "agentic-graphrag[extract,llm]"
+```
+
+{/* pmd-metadata: notest */}
+
+```python
+import asyncio
+
+from agrag.common.data_models import DEFAULT_SCHEMA
+from agrag.embedding import build_embedder
+from agrag.graphdb import build_graph_store
+from agrag.ingestion import Graph
+from agrag.ingestion.extract import (
+    BAMLExtractor,
+    ExtractionLLMSettings,
+    GlinerExtractor,
+)
+
+
+async def main() -> None:
+    graph_store = build_graph_store("neo4j")
+    graph = await Graph.open(
+        schema=DEFAULT_SCHEMA,
+        graph_store=graph_store,
+        embedder=build_embedder("ibm-granite/granite-embedding-small-english-r2"),
+        extractor=GlinerExtractor(),
+        llm_extractor=BAMLExtractor(
+            settings=ExtractionLLMSettings.from_openai_compatible_env()
+        ),
+    )
+    try:
+        result = await graph.add(text="Ada Lovelace wrote the first algorithm.")
+        print(result.escalation)
+    finally:
+        await graph_store.close()
+
+
+asyncio.run(main())
+```
+
+The `escalation` report shows how many chunks were weak, how many the LLM read, and how many LLM calls failed. The [Control LLM cost during extraction](./control-llm-cost-during-extraction.mdx) guide explains the budget settings and each field of the report.
+
+## Configure the LLM provider
+
+Set `EXTRACTION_LLM_CLIENTS` (or a `.env` file) to point at any supported provider: Anthropic, OpenAI, Azure OpenAI, AWS Bedrock, Google AI, Vertex AI, or a self-hosted OpenAI-compatible endpoint through `openai-generic`. The value is a JSON list of client configs:
+
+```text
+EXTRACTION_LLM_CLIENTS=[{"name": "c", "provider": "openai-generic", "model": "your-model-name", "base_url": "https://your-endpoint.example.com/v1", "api_key": "your-api-key"}]
+EXTRACTION_LLM_STRATEGY=single
+```
+
+A strategy of `fallback` or `round_robin` composes more than one client.
+
+Alternatively, use `ExtractionLLMSettings.from_openai_compatible_env()` to read `LLM_BASE_URL`, `LLM_MODEL_ID`, and `LLM_API_KEY`. `LLM_API_KEY` is optional. The call raises `RuntimeError` when `LLM_BASE_URL` or `LLM_MODEL_ID` is missing.
+
+## Resolution runs inside every write
+
+`Graph.add` runs resolution as part of ingestion. Exact, fuzzy, and embedding tiers handle candidate pairs before the capped LLM tier reviews remaining ambiguous pairs. The LLM considers pairs in similarity order, with entity indices breaking ties. Pairs outside the cap stay undecided. Resolution preserves the original entity nodes. Confirmed non-exact matches are stored as `MATCHES` edges and represented by a derived resolved entity.
+
+```python
+import asyncio
+
+from agrag.common.data_models import DEFAULT_SCHEMA
+from agrag.embedding import build_embedder
+from agrag.graphdb import build_graph_store
+from agrag.ingestion import Graph
+from agrag.ingestion.extract import GlinerExtractor
+
+
+async def main() -> None:
+    graph_store = build_graph_store("neo4j")
+    graph = await Graph.open(
+        schema=DEFAULT_SCHEMA,
+        graph_store=graph_store,
+        embedder=build_embedder("ibm-granite/granite-embedding-small-english-r2"),
+        extractor=GlinerExtractor(),
+    )
+    try:
+        result = await graph.add(text="Ada Lovelace wrote the first algorithm.")
+        print(result.resolution.exact_match_hits)
+        print(result.resolution.ambiguous_count)
+        print(result.resolution.failed_llm_requests)
+        print(result.resolution.cap_truncated_pairs)
+        print(result.resolution.llm_unavailable_pairs)
+    finally:
+        await graph_store.close()
+
+
+asyncio.run(main())
+```
+
+`Graph.open` has no resolution configuration. Resolution uses the schema, the embedder, and the extractor that you pass to it. Inspect every run through the resolution stats on the returned `AddResult`. A pair that the LLM could not judge stays undecided. It is not a rejection, and it does not merge. Nonzero `failed_llm_requests`, `cap_truncated_pairs`, or `llm_unavailable_pairs` means that some pairs did not receive an LLM verdict. Fix the cause and run `consolidate()` to review them. Zero counts do not guarantee a decision for every pair, because the LLM can still return an uncertain answer. `in_batch_groups` counts only groups with at least two incoming mentions, not singletons or a lone mention joined to persisted candidates.
+
+## Consolidate the whole graph
+
+`consolidate()` runs the same resolution as a full pass over every persisted entity of each type. The LLM reviews the most similar pairs first for each label, with entity indices breaking ties. Pairs over the cap stay undecided. Run a dry run first, then apply:
+
+```python
+import asyncio
+
+from agrag.common.data_models import DEFAULT_SCHEMA
+from agrag.embedding import build_embedder
+from agrag.graphdb import build_graph_store
+from agrag.ingestion import Graph
+from agrag.ingestion.extract import GlinerExtractor
+
+
+async def main() -> None:
+    graph_store = build_graph_store("neo4j")
+    graph = await Graph.open(
+        schema=DEFAULT_SCHEMA,
+        graph_store=graph_store,
+        embedder=build_embedder("ibm-granite/granite-embedding-small-english-r2"),
+        extractor=GlinerExtractor(),
+    )
+    try:
+        await graph.add(text="Ada Lovelace wrote the first algorithm.")
+
+        report = await graph.consolidate()
+        print([(m.entity_a_id, m.entity_b_id) for m in report.would_match])
+        print(report.ambiguous_count)
+        print(report.failed_llm_requests)
+
+        applied = await graph.consolidate(apply=True)
+    finally:
+        await graph_store.close()
+
+
+asyncio.run(main())
+```
+
+A dry run writes nothing. An apply run writes `MATCHES` edges and derived resolved nodes. It reports exactly the matches it wrote. LLM review calls stay bounded no matter how large the graph grows.
+
+## Re-evaluate specific entities
+
+`reevaluate()` re-runs the same resolution for entities you name, when new evidence lands or a past decision looks wrong. It adds newly confirmed matches. It deactivates an edge only when the current evidence rejects its pair, such as an embedding score below the discard threshold or an explicit LLM "no match". If the LLM request fails, the pair is over the cap, the LLM is unavailable, or the model is uncertain, the pair stays undecided and its edge stays active. The edge id appears in `report.matches_unverified`. It leaves every entity outside the list untouched:
+
+```python
+import asyncio
+
+from uuid import UUID
+from agrag.common.data_models import DEFAULT_SCHEMA
+from agrag.embedding import build_embedder
+from agrag.graphdb import build_graph_store
+from agrag.ingestion import Graph
+from agrag.ingestion.extract import GlinerExtractor
+
+
+async def main() -> None:
+    graph_store = build_graph_store("neo4j")
+    graph = await Graph.open(
+        schema=DEFAULT_SCHEMA,
+        graph_store=graph_store,
+        embedder=build_embedder("ibm-granite/granite-embedding-small-english-r2"),
+        extractor=GlinerExtractor(),
+    )
+    try:
+        await graph.add(text="Ada Lovelace worked with Charles Babbage.")
+        rows = await graph_store.execute_read(
+            "MATCH (e:_Node:Person) RETURN e.id AS id LIMIT 2"
+        )
+        entity_ids = [UUID(str(row["id"])) for row in rows]
+
+        report = await graph.reevaluate(entity_ids)
+        print(report.matches_added)
+        print(report.matches_removed)
+        print(report.matches_unverified)
+    finally:
+        await graph_store.close()
+
+
+asyncio.run(main())
+```
+
+There is no automatic trigger. A caller that learns something new calls `reevaluate()` explicitly. An edge in `matches_unverified` remains active because the resolver could not re-check its pair. See [Entity resolution](../concepts/resolution.mdx) for the difference between an undecided pair and a rejection.
+
+`Resolver.resolve()` also takes an optional `neighbors_by_index` map of per-entity neighboring-relationship strings, which batched `LLMVerify` calls send to the model as extra context. `Graph.add()` and `Graph.consolidate()` build one automatically from a batch's extracted relations and each persisted entity's stored graph edges.
+
+## Define your own schema
+
+```python
+from agrag.common.data_models.graph_schema import (
+    EntityType,
+    GraphSchema,
+    RelationType,
+)
+
+schema = GraphSchema(
+    name="clinical",
+    version="1",
+    entities=[EntityType(label="Drug", description="A medication.")],
+    relations=[],
+)
+```
+
+## Next steps
+
+See the [API reference](../api/index.md) for every `Extractor`, `Comparator`, and schema field.

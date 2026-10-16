@@ -1,0 +1,36 @@
+---
+title: agrag.ingestion.resolve.resolver.ComparisonVerdict
+sidebar_label: ComparisonVerdict
+---
+
+# `agrag.ingestion.resolve.resolver.ComparisonVerdict` \{#agrag-ingestion-resolve-resolver-ComparisonVerdict}
+
+Bases: <code>StrEnum</code>
+
+A Comparator's verdict on one entity pair.
+
+**Attributes:**
+
+- [**MATCH**](#agrag-ingestion-resolve-resolver-ComparisonVerdict-MATCH) – The comparator is confident these are the same entity.
+- [**NO_MATCH**](#agrag-ingestion-resolve-resolver-ComparisonVerdict-NO_MATCH) – The comparator is confident these are different entities.
+- [**UNCERTAIN**](#agrag-ingestion-resolve-resolver-ComparisonVerdict-UNCERTAIN) – No decision. The comparator cannot decide, or the LLM tier
+  failed, was capped, or had no settings. The next comparator gets a
+  turn, and a caller must not treat it as a rejection.
+
+## `MATCH` \{#agrag-ingestion-resolve-resolver-ComparisonVerdict-MATCH}
+
+```python
+MATCH = 'match'
+```
+
+## `NO_MATCH` \{#agrag-ingestion-resolve-resolver-ComparisonVerdict-NO_MATCH}
+
+```python
+NO_MATCH = 'no_match'
+```
+
+## `UNCERTAIN` \{#agrag-ingestion-resolve-resolver-ComparisonVerdict-UNCERTAIN}
+
+```python
+UNCERTAIN = 'uncertain'
+```
