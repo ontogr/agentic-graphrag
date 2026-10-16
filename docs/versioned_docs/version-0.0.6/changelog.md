@@ -22,7 +22,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Record evidence-linked decisions ([#147](https://github.com/ontogr/agentic-graphrag/pull/147))
 - Add task and decision MCP tools ([#149](https://github.com/ontogr/agentic-graphrag/pull/149))
 - Add task and event retention operations ([#151](https://github.com/ontogr/agentic-graphrag/pull/151))
-- Replace agent workflow with task-scoped agent ([#150](https://github.com/ontogr/agentic-graphrag/pull/150))
 - Review decisions after source changes and reaffirm them ([#152](https://github.com/ontogr/agentic-graphrag/pull/152))
 - Record agent events and resume tasks ([#154](https://github.com/ontogr/agentic-graphrag/pull/154))
 - Purge a document and its evidence after cutover ([#155](https://github.com/ontogr/agentic-graphrag/pull/155))
@@ -32,7 +31,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Remove generated Cypher retrieval ([#136](https://github.com/ontogr/agentic-graphrag/pull/136))
-- Remove the separate vector services ([#139](https://github.com/ontogr/agentic-graphrag/pull/139))
+- Remove the separate Qdrant, Weaviate and Milvus backends and their extras. Vector search uses Neo4j's native indexes ([#139](https://github.com/ontogr/agentic-graphrag/pull/139)).
+- Replace the agent workflow with a task-scoped agent that uses explicit document scope, project, agent and task identities ([#150](https://github.com/ontogr/agentic-graphrag/pull/150)).
 
 ### Fixed
 
