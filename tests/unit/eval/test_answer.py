@@ -17,7 +17,6 @@ from agrag.common.data_models.evidence import FetchOutcome, FetchStatus
 from agrag.eval.answer import (
     CitationAccuracyMetric,
     answer_case,
-    final_answer,
 )
 from tests.integration.eval._citation_gate import citation_gate
 
@@ -86,8 +85,8 @@ async def _score(answer: str, judge: _ScriptedJudge | None = None) -> Any:
     return metric
 
 
-class TestFinalAnswer:
-    """Evaluations use the final answer rather than conversation content."""
+class TestAnswerCase:
+    """Answer cases carry final text and the evidence the agent saw."""
 
     @pytest.mark.parametrize("message_text", ["", "Earlier reasoning."])
     def test_reads_the_answer_instead_of_assistant_content(
@@ -97,14 +96,9 @@ class TestFinalAnswer:
         result = _result("Net income rose [E1].")
         result["messages"] = [{"role": "assistant", "content": message_text}]
 
-        assert final_answer(result) == "Net income rose [E1]."
         assert answer_case("q", result, "reference").actual_output == (
             "Net income rose [E1]."
         )
-
-
-class TestAnswerCase:
-    """answer_case carries the question, reference and the evidence the agent saw."""
 
     def test_puts_rendered_evidence_in_key_order(self) -> None:
         """retrieval_context is the ledger's rendered text, in key order."""

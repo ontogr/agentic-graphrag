@@ -10,6 +10,18 @@ class AgentAnswer(BaseModel):
 
     model_config = ConfigDict(frozen=True)
 
-    answer: str
+    answer: str = Field(
+        description=(
+            "Final answer text. Cite fetched evidence inline in square brackets "
+            "immediately after each supported claim, using its full evidence id "
+            "(for example [ev1:c:...])."
+        )
+    )
     support_status: Literal["supported", "insufficient_evidence"]
-    citations: list[str] = Field(default_factory=list)
+    citations: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Evidence ids cited inline in answer. This list does not replace "
+            "the inline citations that connect each claim to its evidence."
+        ),
+    )

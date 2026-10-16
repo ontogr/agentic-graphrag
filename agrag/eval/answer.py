@@ -65,15 +65,6 @@ _SUPPORT_STEPS = [
 ]
 
 
-def final_answer(result: AgentRunResult) -> str:
-    """Return the final answer text from a task-scoped agent run.
-
-    Args:
-        result: The result of ``agent.ainvoke``.
-    """
-    return result["answer"]
-
-
 def _rendered_evidence(result: AgentRunResult) -> dict[str, str]:
     """Return each validated evidence id with the text the agent saw."""
     return {
@@ -100,7 +91,7 @@ def answer_case(question: str, result: AgentRunResult, reference: str) -> LLMTes
     evidence = _rendered_evidence(result)
     return LLMTestCase(
         input=question,
-        actual_output=final_answer(result),
+        actual_output=result["answer"],
         expected_output=reference,
         retrieval_context=list(evidence.values()),
         metadata={"citations": evidence},

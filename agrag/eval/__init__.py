@@ -20,7 +20,6 @@ from agrag.eval.answer import (
     context_recall,
     correctness,
     faithfulness,
-    final_answer,
 )
 from agrag.eval.extraction import (
     ExtractionGold,
@@ -85,7 +84,6 @@ __all__ = [
     "expected_tools_metric",
     "extraction_case",
     "faithfulness",
-    "final_answer",
     "micro_scores",
     "parse_json_case",
     "read_trajectory",

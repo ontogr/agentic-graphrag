@@ -21,7 +21,6 @@ from agrag.common.data_models.evidence import (
     DiscoveryStatus,
     FetchStatus,
 )
-from agrag.eval.answer import final_answer
 from agrag.eval.judge import ChatModelJudge
 from agrag.evidence import discover, fetch
 from tests.integration.eval.conftest import AnswerQualityGraph, TinyCorpus
@@ -109,7 +108,7 @@ async def test_agent_answer_scores_in_unit_range(
     await metric.a_measure(
         LLMTestCase(
             input=QUESTION,
-            actual_output=final_answer(result),
+            actual_output=result["answer"],
             expected_output=EXPECTED,
         )
     )

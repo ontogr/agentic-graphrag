@@ -19,13 +19,13 @@ A final answer with an explicit evidence-support assessment.
 ## `answer` \{#agrag-common-data_models-agent_answer-AgentAnswer-answer}
 
 ```python
-answer: str
+answer: str = Field(description='Final answer text. Cite fetched evidence inline in square brackets immediately after each supported claim, using its full evidence id (for example [ev1:c:...]).')
 ```
 
 ## `citations` \{#agrag-common-data_models-agent_answer-AgentAnswer-citations}
 
 ```python
-citations: list[str] = Field(default_factory=list)
+citations: list[str] = Field(default_factory=list, description='Evidence ids cited inline in answer. This list does not replace the inline citations that connect each claim to its evidence.')
 ```
 
 ## `model_config` \{#agrag-common-data_models-agent_answer-AgentAnswer-model_config}
