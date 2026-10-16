@@ -17,7 +17,7 @@ The result of fetching one evidence id.
 - [**reference**](#agrag-common-data_models-evidence-FetchOutcome-reference) (<code>[EvidenceReference](EvidenceReference.md) | None</code>) – The decoded reference, or None for a malformed id.
 - [**document_key**](#agrag-common-data_models-evidence-FetchOutcome-document_key) (<code>str | None</code>) – The key of the document, when the document is readable.
 - [**title**](#agrag-common-data_models-evidence-FetchOutcome-title) (<code>str | None</code>) – Stored document title, when readable.
-- [**uri**](#agrag-common-data_models-evidence-FetchOutcome-uri) (<code>str | None</code>) – Stored source address, including local paths.
+- [**uri**](#agrag-common-data_models-evidence-FetchOutcome-uri) (<code>str | None</code>) – Valid HTTP(S) source URL, when available.
 - [**location**](#agrag-common-data_models-evidence-FetchOutcome-location) (<code>[EvidenceLocation](EvidenceLocation.md) | None</code>) – Passage location, including page provenance when available.
 - [**content_hash**](#agrag-common-data_models-evidence-FetchOutcome-content_hash) (<code>str | None</code>) – The full content hash of the version the text came from.
 - [**status_of_version**](#agrag-common-data_models-evidence-FetchOutcome-status_of_version) (<code>[VersionStatus](VersionStatus.md) | None</code>) – Whether that version is current, when text is

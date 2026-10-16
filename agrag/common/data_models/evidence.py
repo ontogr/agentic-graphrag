@@ -11,23 +11,16 @@ from enum import StrEnum
 from urllib.parse import quote, urlsplit
 from uuid import UUID
 
-from pydantic import BaseModel, Field, computed_field, model_validator
+from pydantic import BaseModel, Field, computed_field, field_validator, model_validator
 
 
 CONTENT_HASH_PREFIX_LENGTH = 16
 
 
-def _source_reference(label: str, uri: str | None) -> str:
-    """Escape a source label and link only absolute HTTP(S) source URIs."""
-    label = " ".join(
-        "".join(
-            " " if unicodedata.category(c).startswith("C") else c for c in label
-        ).split()
-    )
-    label = html.escape(re.sub(r"([\\`*_{\[\]}()!|#])", r"\\\1", label))
-    fallback = label
+def _source_uri(uri: str | None) -> str | None:
+    """Keep absolute HTTP(S) source URLs with valid, credential-free authorities."""
     if not uri or any(unicodedata.category(c).startswith("C") for c in uri):
-        return fallback
+        return None
     try:
         parsed = urlsplit(uri)
         if (
@@ -38,10 +31,24 @@ def _source_reference(label: str, uri: str | None) -> str:
             or parsed.username is not None
             or parsed.password is not None
         ):
-            return fallback
+            return None
         _ = parsed.port
     except ValueError:
-        return fallback
+        return None
+    return uri
+
+
+def _source_reference(label: str, uri: str | None) -> str:
+    """Escape a source label and link only absolute HTTP(S) source URIs."""
+    label = " ".join(
+        "".join(
+            " " if unicodedata.category(c).startswith("C") else c for c in label
+        ).split()
+    )
+    label = html.escape(re.sub(r"([\\`*_{\[\]}()!|#])", r"\\\1", label))
+    uri = _source_uri(uri)
+    if uri is None:
+        return label
     destination = quote(uri, safe=":/?#@!$&*+,;=%~.-_")
     return f"[{label}]({destination})"
 
@@ -336,7 +343,7 @@ class FetchOutcome(BaseModel):
         reference: The decoded reference, or None for a malformed id.
         document_key: The key of the document, when the document is readable.
         title: Stored document title, when readable.
-        uri: Stored source address, including local paths.
+        uri: Valid HTTP(S) source URL, when available.
         location: Passage location, including page provenance when available.
         content_hash: The full content hash of the version the text came from.
         status_of_version: Whether that version is current, when text is
@@ -377,6 +384,12 @@ class FetchOutcome(BaseModel):
         if self.status_of_version is VersionStatus.SUPERSEDED:
             label += ", superseded version"
         return _source_reference(label, self.uri)
+
+    @field_validator("uri")
+    @classmethod
+    def _public_source_uri(cls, uri: str | None) -> str | None:
+        """Limit caller-facing source addresses to valid HTTP(S) URLs."""
+        return _source_uri(uri)
 
 
 class CitationVerdict(StrEnum):

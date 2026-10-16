@@ -81,6 +81,8 @@ class TestReadableCitations:
         [
             "/home/user/report.pdf",
             "file:///home/user/report.pdf",
+            "reports/report.pdf",
+            r"C:\reports\report.pdf",
             "inline://report",
             "javascript:alert(1)",
             "https://user:secret@example.org/report",
@@ -108,6 +110,9 @@ class TestReadableCitations:
         assert fetched.model_dump()["citation_markdown"] == (
             "Report \\[draft\\] &lt;script&gt; \\*April\\*"
         )
+        assert fetched.uri is None
+        assert fetched.model_dump()["uri"] is None
+        assert uri not in fetched.model_dump_json()
 
     def test_invalid_mixed_groups_and_incomplete_fetches_stay_visible(self) -> None:
         """A truncated fetch cannot become a source link despite a supplied ID."""

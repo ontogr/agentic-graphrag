@@ -300,8 +300,10 @@ class TestEquivalenceWithDirectCalls:
             assert remote["citation_markdown"] == (
                 "[Privacy notice](https://example.org/privacy)"
             )
-            assert local["uri"] == "/reports/harbor.txt"
+            assert local["uri"] is None
             assert local["citation_markdown"] == "Harbor log"
+            assert "/reports/harbor.txt" not in _text(response)
+            assert "/reports/harbor.txt" not in response.model_dump_json()
             assert remote["citation_markdown"] in _text(response)
             assert remote["evidence_id"] == ids[0]
             (tmp_path / "source-citations.json").write_text(
