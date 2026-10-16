@@ -29,7 +29,6 @@ from agrag.cypher.entities import (
     validate_identifier,
 )
 from agrag.cypher.schema import (
-    node_id_constraint_name,
     node_id_constraint_query,
     vector_index_name,
     vector_index_query,
@@ -304,12 +303,16 @@ class TestNeo4jGraphStoreIntegration:
     async def test_schema_cleanup_ignores_constraint_backing_indexes(self) -> None:
         """Schema cleanup preserves the constraint-owned index drop path."""
         label = validate_identifier(f"Cleanup_{uuid4().hex[:8]}")
-        constraint_name = node_id_constraint_name(label)
+        constraint_name = f"{label}_unique"
         index_name = vector_index_name(label, "embedding")
         store = build_graph_store("neo4j")
         await store.connect()
         try:
-            await store.execute_write(node_id_constraint_query(label))
+            # Other workers recreate standard id constraints during schema setup.
+            await store.execute_write(
+                f"CREATE CONSTRAINT {constraint_name} FOR (n:{label}) "
+                "REQUIRE n.cleanup_key IS UNIQUE"
+            )
             await store.execute_write(
                 vector_index_query(label, "embedding", DIM, Distance.COSINE)
             )
