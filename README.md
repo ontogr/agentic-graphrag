@@ -16,7 +16,7 @@
 
 Agentic GraphRAG is an open source Python framework that gives AI agents a memory they can trace back to its sources.
 
-It keeps three connected kinds of memory in one Neo4j graph: the knowledge in your documents, the tasks your agents are working on, and the decisions they have made. Add your documents and they become a knowledge graph. Agents search it, read the exact passage behind each result, and cite it. They record decisions that point to the passages they rely on, a later session picks a task up where it stopped, and a decision is flagged for review when a document behind it changes. Use it from Python, through the built-in agent, or from any MCP client.
+It keeps three connected kinds of memory in one graph: the knowledge in your documents, the tasks your agents are working on, and the decisions they have made. Add your documents and they become a knowledge graph. Agents search it, read the exact passage behind each result, and cite it. They record decisions that point to the passages they rely on, a later session picks a task up where it stopped, and a decision is flagged for review when a document behind it changes. Use it from Python, through the built-in agent, or from any MCP client.
 
 ## Table of contents
 
@@ -29,7 +29,7 @@ It keeps three connected kinds of memory in one Neo4j graph: the knowledge in yo
 
 ## Installation
 
-Agentic GraphRAG needs Python 3.11 or newer and a Neo4j database, version 5.23 or newer. The free Neo4j Aura tier works, and so does a local Docker container.
+Agentic GraphRAG needs Python 3.11 or newer and a Neo4j database, version 5.23 or newer. The free Aura tier works, and so does a local Docker container.
 
 ```bash
 uv pip install agentic-graphrag
@@ -38,7 +38,7 @@ uv pip install agentic-graphrag
 Add the extras for the parts you use:
 
 ```bash
-# Neo4j storage and local extraction
+# Graph storage and local extraction
 uv pip install "agentic-graphrag[neo4j,extract]"
 
 # The built-in agent
@@ -115,7 +115,7 @@ Score answers for correctness, faithfulness, citation accuracy, and context prec
 
 ### Fits your setup
 
-Everything is configured with environment variables or a `.env` file. Point extraction, the agent and the judge at one OpenAI-compatible endpoint, or give each its own settings. Agentic GraphRAG refuses to send your Neo4j password over an unencrypted connection to a remote host. Install only the parts you need through extras, and tune thresholds and LLM budgets per entity and relation type.
+Everything is configured with environment variables or a `.env` file. Point extraction, the agent and the judge at one OpenAI-compatible endpoint, or give each its own settings. Agentic GraphRAG refuses to send your database password over an unencrypted connection to a remote host. Install only the parts you need through extras, and tune thresholds and LLM budgets per entity and relation type.
 
 ## Project structure
 
@@ -128,7 +128,7 @@ agrag/
 ├── candidates/           # Out-of-schema candidate capture, review and conversion
 ├── ingestion/            # Graph API, extraction, resolution, community detection and pipeline stages
 ├── embedding/            # Dense embedding interfaces
-├── graphdb/              # Graph-store interface and Neo4j backend
+├── graphdb/              # Graph-store interface and backend
 ├── cypher/               # Validated Cypher builders
 ├── retrieval/            # Search methods, retrievers, recipes and rerankers
 ├── evidence/             # Passage discovery, fetch, navigation and citation checks
