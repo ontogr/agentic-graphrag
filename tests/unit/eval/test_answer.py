@@ -18,7 +18,9 @@ from agrag.eval.answer import (
     CitationAccuracyMetric,
     answer_case,
 )
+from agrag.evidence import render_citations
 from tests.integration.eval._citation_gate import citation_gate
+from tests.integration.retrieval.evidence._corpus import span_evidence_id
 
 
 class _ScriptedJudge(DeepEvalBaseLLM):
@@ -121,6 +123,35 @@ class TestAnswerCase:
 
 class TestCitationAccuracyMetric:
     """The metric scores each cited sentence and combines precision and recall."""
+
+    @pytest.mark.parametrize("uri", [None, "https://example.org/report"])
+    async def test_scores_numbered_rendered_citations(self, uri: str | None) -> None:
+        """Source references resolve to fetched passages, not bibliography claims."""
+        text = "This is a supported claim."
+        evidence_id = span_evidence_id("report", text, 0, len(text))
+        fetched = FetchOutcome(
+            evidence_id=evidence_id,
+            status=FetchStatus.OK,
+            text=text,
+            title="Annual report with several words",
+            uri=uri,
+        )
+        answer, sources = render_citations(
+            f"This is a supported claim [{evidence_id}]. "
+            "Another factual claim has no citation.",
+            [evidence_id],
+            [fetched],
+        )
+        result = _result(answer)
+        result["citations"] = sources
+        metric = CitationAccuracyMetric(_ScriptedJudge())
+
+        await metric.a_measure(answer_case("q", result, "reference"))
+
+        assert metric.score == pytest.approx(2 / 3)
+        assert metric.score_breakdown["cited_sentences"] == 1
+        assert metric.score_breakdown["sentences"] == 2
+        assert metric.score_breakdown["sentence_rows"][0]["keys"] == [evidence_id]
 
     @pytest.mark.parametrize(
         "answer",
