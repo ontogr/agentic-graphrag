@@ -419,6 +419,8 @@ def make_core_tools(  # noqa: PLR0915
         decision_id: str, after_ordinal: int = -1, limit: int = 20
     ) -> str:
         """Read one bounded page of a decision's original and refreshed supports."""
+        if not 1 <= limit <= 50:
+            return "Limit must be between 1 and 50."
         try:
             parsed_id = UUID(decision_id)
         except ValueError:
@@ -440,6 +442,8 @@ def make_core_tools(  # noqa: PLR0915
     @tool
     async def list_decisions_for_review(limit: int = 20) -> str:
         """List decisions flagged for review without treating them as false."""
+        if not 1 <= limit <= 50:
+            return "Limit must be between 1 and 50."
         page = await decisions.list_review(task_name=task_name, limit=limit)
         return page.model_dump_json()
 

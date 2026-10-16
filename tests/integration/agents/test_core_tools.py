@@ -149,6 +149,15 @@ async def test_core_memory_tools_read_write_and_review_persisted_data() -> None:
         decision_id = recorded["decision"]["id"]
         assert recorded["recorded"] is True
         assert recorded["decision"]["supports"][0]["kind"] == "document"
+        for invalid_limit in (0, 51):
+            for name, arguments in (
+                ("list_support_history", {"decision_id": decision_id}),
+                ("list_decisions_for_review", {}),
+            ):
+                response = await tool_by_name[name].ainvoke(
+                    {**arguments, "limit": invalid_limit}
+                )
+                assert response == "Limit must be between 1 and 50."
         fetched_decision = json.loads(
             await tool_by_name["get_decision"].ainvoke({"decision_id": decision_id})
         )
