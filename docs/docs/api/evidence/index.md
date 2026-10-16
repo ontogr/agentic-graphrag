@@ -27,4 +27,4 @@ their queries. Evidence ids name passage text of one version of a document.
 - [**check_citations**](citation/check_citations.md) – Return one verdict for each cited evidence id, in the order given.
 - [**explore**](entities/explore.md) – Explore the entity relations around one entity, within bounds.
 - [**find_entities**](entities/find_entities.md) – Find up to `limit` entities that match a query by name or by meaning.
-- [**render_citations**](render/render_citations.md) – Replace validated inline IDs with readable Markdown source references.
+- [**render_citations**](render/render_citations.md) – Replace validated inline IDs with numbered citations and a source list.

@@ -17,7 +17,7 @@ The result of fetching one evidence id.
 - [**reference**](#agrag-common-data_models-evidence-FetchOutcome-reference) (<code>[EvidenceReference](EvidenceReference.md) | None</code>) – The decoded reference, or None for a malformed id.
 - [**document_key**](#agrag-common-data_models-evidence-FetchOutcome-document_key) (<code>str | None</code>) – The key of the document, when the document is readable.
 - [**title**](#agrag-common-data_models-evidence-FetchOutcome-title) (<code>str | None</code>) – Stored document title, when readable.
-- [**uri**](#agrag-common-data_models-evidence-FetchOutcome-uri) (<code>str | None</code>) – Stored source URI or local path, not necessarily a web URL.
+- [**uri**](#agrag-common-data_models-evidence-FetchOutcome-uri) (<code>str | None</code>) – Stored source address, including local paths.
 - [**location**](#agrag-common-data_models-evidence-FetchOutcome-location) (<code>[EvidenceLocation](EvidenceLocation.md) | None</code>) – Passage location, including page provenance when available.
 - [**content_hash**](#agrag-common-data_models-evidence-FetchOutcome-content_hash) (<code>str | None</code>) – The full content hash of the version the text came from.
 - [**status_of_version**](#agrag-common-data_models-evidence-FetchOutcome-status_of_version) (<code>[VersionStatus](VersionStatus.md) | None</code>) – Whether that version is current, when text is
@@ -30,11 +30,7 @@ The result of fetching one evidence id.
 - [**detail**](#agrag-common-data_models-evidence-FetchOutcome-detail) (<code>str | None</code>) – A short message for a malformed or failed id. It is None for an
   unavailable id, because the reason stays on the server side.
 - [**citation_markdown**](#agrag-common-data_models-evidence-FetchOutcome-citation_markdown) (<code>str | None</code>) – Escaped source reference for a complete fetch, or None.
-  Only absolute HTTP(S) source URIs become links. No URL is inferred.
-
-**Functions:**
-
-- [**format_citation**](#agrag-common-data_models-evidence-FetchOutcome-format_citation) – Format this source, optionally labeling a validated contained span.
+  Absolute HTTP(S) source URIs become links; other sources display as text.
 
 ## `citation_markdown` \{#agrag-common-data_models-evidence-FetchOutcome-citation_markdown}
 
@@ -73,26 +69,6 @@ document_key: str | None = None
 ```python
 evidence_id: str
 ```
-
-## `format_citation` \{#agrag-common-data_models-evidence-FetchOutcome-format_citation}
-
-```python
-format_citation(*, reference:EvidenceReference | None = None) -> str | None
-```
-
-Format this source, optionally labeling a validated contained span.
-
-Incomplete fetches return None. Superseded sources are labeled as such.
-A source URL does not guarantee access to a historical version or passage.
-
-**Parameters:**
-
-- **reference** (<code>[EvidenceReference](EvidenceReference.md) | None</code>) – A cited span already validated against this fetch. None
-  uses the fetched range or page provenance.
-
-**Returns:**
-
-- <code>str | None</code> – An escaped Markdown link or non-link reference, or None.
 
 ## `location` \{#agrag-common-data_models-evidence-FetchOutcome-location}
 

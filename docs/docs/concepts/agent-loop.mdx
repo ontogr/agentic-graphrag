@@ -65,17 +65,15 @@ These settings bound one run. Set them with `AGENT_` variables or `AgentSettings
 | `max_tool_calls` | `20` | The maximum tool calls in one task run. |
 | `max_result_characters` | `12000` | The maximum text that one evidence fetch returns. |
 
-The result has two parts that matter most. `answer` holds Markdown with readable source references in place of validated inline evidence IDs. `citations` lists the actual fetched evidence, including canonical IDs, stored titles, source URIs, and locations. A citation to a narrower span retains its fetched parent in that list. Invalid citation groups remain visible and keep the run's `partial` status.
+The result has two parts that matter most. `answer` holds Markdown with numbered references such as `[1]` and a Sources list. Numbers follow first appearance, and passages from the same document version share a number. `citations` lists the actual fetched evidence, including canonical IDs, stored titles, source URIs, and locations. A citation to a narrower span retains its fetched parent in that list. Invalid citation groups remain visible and keep the run's `partial` status.
 
-An HTTP(S) source can appear as `[Annual report, pages 12](https://example.org/report.pdf)`. Local files and inline documents appear as non-link references, such as `(Annual report, pages 12)`. No URL is inferred from an evidence ID or document key. Source URLs open the stored source address, not necessarily the exact passage or historical version. Superseded evidence is labeled in the reference.
+For example, an answer can contain `Revenue increased. [[1]](https://example.org/report.pdf)` followed by `[1] [Annual report](https://example.org/report.pdf)` in its Sources list. Local files and inline documents use plain numbered references and document titles. URLs point to the stored source address; the fetched text and content hash identify the cited version. Superseded evidence is labeled in the source list.
 
 The agent validates canonical IDs before formatting the answer. Do not pass the formatted `answer` back to `check_citations` to recover provenance. Use the returned `citations` records instead. Existing Markdown links are left unchanged; the automatic formatter handles canonical IDs in plain square brackets, including comma- or semicolon-separated groups.
 
 ## Citations in MCP clients
 
-`fetch_evidence` returns the same source metadata and a `citation_markdown` field in both its structured result and serialized text. The field is `null` unless the evidence was fetched completely. MCP clients should keep `evidence_id` for `check_citations`, then place the readable reference beside the supported claim. The server instructs the client to use those references, but the client controls its final answer and link rendering.
-
-These are ordinary Markdown links, not native citation chips. The [MCP tools specification](https://modelcontextprotocol.io/specification/2025-11-25/server/tools) defines result content, not citation presentation. [Claude Code's MCP support](https://code.claude.com/docs/en/mcp) does not promise native citations for arbitrary tool results. [Gemini grounding](https://ai.google.dev/gemini-api/docs/google-search) and [OpenAI web search](https://platform.openai.com/docs/guides/tools-web-search) use provider-specific citation metadata. This server does not emit those annotations or implement OpenAI's separate Company Knowledge search/fetch contract.
+`fetch_evidence` returns the same source metadata and a `citation_markdown` field in both its structured result and serialized text. The field is `null` unless the evidence was fetched completely. MCP clients should keep `evidence_id` for `check_citations`, then use numbered claim references and a Sources list built from `citation_markdown`. The client controls its final answer and link rendering, and can also build its own presentation from the returned title, URI, and passage location.
 
 :::note
 The agent needs the `agents` extra. `build_agent` raises `AgentMissingExtraError` when the extra is not installed.

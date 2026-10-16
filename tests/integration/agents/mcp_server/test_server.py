@@ -298,11 +298,10 @@ class TestEquivalenceWithDirectCalls:
             assert remote["title"] == "Privacy notice"
             assert remote["uri"] == "https://example.org/privacy"
             assert remote["citation_markdown"] == (
-                f"[Privacy notice, characters {_GOLD_START} to {_GOLD_END}]"
-                "(https://example.org/privacy)"
+                "[Privacy notice](https://example.org/privacy)"
             )
             assert local["uri"] == "/reports/harbor.txt"
-            assert local["citation_markdown"] == "(Harbor log, characters 0 to 20)"
+            assert local["citation_markdown"] == "Harbor log"
             assert remote["citation_markdown"] in _text(response)
             assert remote["evidence_id"] == ids[0]
             (tmp_path / "source-citations.json").write_text(

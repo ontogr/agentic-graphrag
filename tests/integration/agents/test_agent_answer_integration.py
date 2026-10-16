@@ -204,10 +204,10 @@ class TestAgentAnswerIntegration:
             ).ainvoke({"task_name": "source-citations", "question": "Cite the source."})
 
             assert result["answer"] == (
-                "Claim [Privacy notice, characters 0 to 10]"
-                "(https://example.org/privacy); "
-                "[Privacy notice, characters 0 to 30](https://example.org/privacy). "
+                "Claim [[1]](https://example.org/privacy). "
                 f"Unverified [{unfetched}]."
+                "\n\n### Sources\n\n"
+                "[1] [Privacy notice](https://example.org/privacy)"
             )
             assert result["status"] == "partial"
             assert result["invalid_citations"] == [unfetched]

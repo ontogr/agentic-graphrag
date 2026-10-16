@@ -17,12 +17,12 @@ class AgentRunResult(TypedDict):
 
     Attributes:
         answer: Final Markdown answer with validated inline evidence IDs replaced
-            by readable source references. HTTP(S) sources become links; local
-            sources remain non-link references. Invalid citations stay visible.
+            by numbered references and a Sources list. HTTP(S) sources become
+            links. Invalid citations stay visible.
         status: Outcome after evidence, write and budget checks.
         citations: Complete fetched evidence supporting the answer, with canonical
             IDs and stored source metadata. A narrower cited span retains its
-            actual fetched parent here. Links do not replace this provenance.
+            actual fetched parent here.
         invalid_citations: Cited evidence ids that did not pass validation.
         recording_failures: Descriptions of task writes that did not complete.
         task: Task name and latest persisted event sequence.

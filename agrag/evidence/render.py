@@ -16,14 +16,14 @@ def render_citations(
     valid_ids: Sequence[str],
     fetched: Sequence[FetchOutcome],
 ) -> tuple[str, list[FetchOutcome]]:
-    """Replace validated inline IDs with readable Markdown source references.
+    """Replace validated inline IDs with numbered citations and a source list.
 
     Call after ``check_citations`` with only its valid IDs and complete fetches
     from the same scope. This function formats references, not claim support.
     Mixed invalid groups and existing Markdown links are left unchanged. Local
-    sources become non-link references; no web URL is inferred from an ID.
-    A narrower valid span uses its fetched parent's metadata while labeling its
-    own offsets. The parent outcome remains unchanged in the source list.
+    sources display as text references. Numbers follow first appearance and
+    group passages from the same document version. A narrower valid span keeps
+    its fetched parent's metadata in the returned evidence.
 
     Args:
         answer: Answer containing square-bracket evidence IDs, alone or grouped.
@@ -38,17 +38,17 @@ def render_citations(
         for item in fetched
         if item.status is FetchStatus.OK and not item.partial
     }
-    labels: dict[str, str] = {}
+    resolved: dict[str, FetchOutcome] = {}
     sources: dict[str, FetchOutcome] = {}
     for evidence_id in valid_ids:
         source = _source_for(evidence_id, complete)
         if source is None:
             continue
-        reference = decode_evidence_id(evidence_id)
-        label = source.format_citation(reference=reference)
-        if label is not None:
-            labels[evidence_id] = label
+        if source.citation_markdown is not None:
+            resolved[evidence_id] = source
             sources.setdefault(source.evidence_id, source)
+    numbered: dict[tuple[str, str], int] = {}
+    references: list[str] = []
 
     def replace(match: re.Match[str]) -> str:
         if answer[match.end() :].startswith("("):
@@ -57,12 +57,32 @@ def render_citations(
         if (
             not parsed.ids
             or parsed.malformed_tokens
-            or any(evidence_id not in labels for evidence_id in parsed.ids)
+            or any(evidence_id not in resolved for evidence_id in parsed.ids)
         ):
             return match.group()
-        return "; ".join(labels[evidence_id] for evidence_id in parsed.ids)
+        markers: dict[int, str] = {}
+        for evidence_id in parsed.ids:
+            source = resolved[evidence_id]
+            reference = decode_evidence_id(evidence_id)
+            key = (str(reference.document_node_id), reference.content_hash_prefix)
+            label = source.citation_markdown
+            if label is None:
+                continue
+            if key not in numbered:
+                numbered[key] = len(numbered) + 1
+                references.append(f"[{numbered[key]}] {label}")
+            number = numbered[key]
+            marker = f"[{number}]"
+            if label.startswith("[") and "](" in label:
+                destination = label.rsplit("](", 1)[1]
+                marker = f"[{marker}]({destination}"
+            markers[number] = marker
+        return " ".join(markers.values())
 
-    return _INLINE.sub(replace, answer), list(sources.values())
+    rendered = _INLINE.sub(replace, answer)
+    if references:
+        rendered += "\n\n### Sources\n\n" + "\n\n".join(references)
+    return rendered, list(sources.values())
 
 
 def _source_for(

@@ -9,14 +9,14 @@ sidebar_label: render_citations
 render_citations(answer:str, valid_ids:Sequence[str], fetched:Sequence[FetchOutcome]) -> tuple[str, list[FetchOutcome]]
 ```
 
-Replace validated inline IDs with readable Markdown source references.
+Replace validated inline IDs with numbered citations and a source list.
 
 Call after `check_citations` with only its valid IDs and complete fetches
 from the same scope. This function formats references, not claim support.
 Mixed invalid groups and existing Markdown links are left unchanged. Local
-sources become non-link references; no web URL is inferred from an ID.
-A narrower valid span uses its fetched parent's metadata while labeling its
-own offsets. The parent outcome remains unchanged in the source list.
+sources display as text references. Numbers follow first appearance and
+group passages from the same document version. A narrower valid span keeps
+its fetched parent's metadata in the returned evidence.
 
 **Parameters:**
 

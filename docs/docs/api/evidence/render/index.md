@@ -9,4 +9,4 @@ Render validated evidence citations without changing their fetched provenance.
 
 **Functions:**
 
-- [**render_citations**](render_citations.md) – Replace validated inline IDs with readable Markdown source references.
+- [**render_citations**](render_citations.md) – Replace validated inline IDs with numbered citations and a source list.

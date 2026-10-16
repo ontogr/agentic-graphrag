@@ -20,7 +20,7 @@ class TestReadableCitations:
     """Only complete, validated evidence becomes a readable source reference."""
 
     def test_grouped_and_narrower_citations_keep_the_fetched_parent(self) -> None:
-        """Repeated citations resolve to one real fetch with truthful span labels."""
+        """Repeated and narrower citations share a source number and real fetch."""
         fetched = FetchOutcome(
             evidence_id=_ID,
             status=FetchStatus.OK,
@@ -36,16 +36,45 @@ class TestReadableCitations:
         )
 
         assert answer == (
-            "Lamp [Maintenance report, characters 4 to 8]"
-            "(https://example.org/report?q=%28lamp%29&year=2026); "
-            "[Maintenance report, characters 0 to 31]"
-            "(https://example.org/report?q=%28lamp%29&year=2026). "
-            "Again [Maintenance report, characters 4 to 8]"
-            "(https://example.org/report?q=%28lamp%29&year=2026)."
+            "Lamp [[1]](https://example.org/report?q=%28lamp%29&year=2026). "
+            "Again [[1]](https://example.org/report?q=%28lamp%29&year=2026)."
+            "\n\n### Sources\n\n"
+            "[1] [Maintenance report]"
+            "(https://example.org/report?q=%28lamp%29&year=2026)"
         )
         assert sources == [fetched]
         assert sources[0].evidence_id == _ID
         assert sources[0].text == _TEXT
+
+    def test_numbers_follow_first_use_and_group_passages_by_document_version(
+        self,
+    ) -> None:
+        """Source order follows the answer while fetched passages retain their IDs."""
+        local_id = span_evidence_id("local-report", _TEXT, 0, 31)
+        local = FetchOutcome(
+            evidence_id=local_id, status=FetchStatus.OK, title="Local report"
+        )
+        first = FetchOutcome(
+            evidence_id=_ID,
+            status=FetchStatus.OK,
+            title="Maintenance report",
+            uri="https://example.org/report",
+        )
+        second = first.model_copy(update={"evidence_id": _NARROW})
+
+        answer, sources = render_citations(
+            f"Local [{local_id}]. Remote [{_ID}; {_NARROW}]. Again [{_NARROW}].",
+            [_NARROW, _ID, local_id],
+            [first, second, local],
+        )
+
+        assert answer == (
+            "Local [1]. Remote [[2]](https://example.org/report). "
+            "Again [[2]](https://example.org/report)."
+            "\n\n### Sources\n\n[1] Local report"
+            "\n\n[2] [Maintenance report](https://example.org/report)"
+        )
+        assert {source.evidence_id for source in sources} == {local_id, _ID, _NARROW}
 
     @pytest.mark.parametrize(
         "uri",
@@ -73,10 +102,11 @@ class TestReadableCitations:
         answer, _ = render_citations(f"Claim [{_ID}].", [_ID], [fetched])
 
         assert answer == (
-            "Claim (Report \\[draft\\] &lt;script&gt; \\*April\\*, characters 0 to 31)."
+            "Claim [1].\n\n### Sources\n\n"
+            "[1] Report \\[draft\\] &lt;script&gt; \\*April\\*"
         )
         assert fetched.model_dump()["citation_markdown"] == (
-            "(Report \\[draft\\] &lt;script&gt; \\*April\\*, characters 0 to 31)"
+            "Report \\[draft\\] &lt;script&gt; \\*April\\*"
         )
 
     def test_invalid_mixed_groups_and_incomplete_fetches_stay_visible(self) -> None:

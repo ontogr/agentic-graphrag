@@ -25,7 +25,7 @@ def _source_reference(label: str, uri: str | None) -> str:
         ).split()
     )
     label = re.sub(r"([\\`*_{\[\]}()!|#])", r"\\\1", html.escape(label))
-    fallback = f"({label})"
+    fallback = label
     if not uri or any(unicodedata.category(c).startswith("C") for c in uri):
         return fallback
     try:
@@ -336,7 +336,7 @@ class FetchOutcome(BaseModel):
         reference: The decoded reference, or None for a malformed id.
         document_key: The key of the document, when the document is readable.
         title: Stored document title, when readable.
-        uri: Stored source URI or local path, not necessarily a web URL.
+        uri: Stored source address, including local paths.
         location: Passage location, including page provenance when available.
         content_hash: The full content hash of the version the text came from.
         status_of_version: Whether that version is current, when text is
@@ -349,7 +349,7 @@ class FetchOutcome(BaseModel):
         detail: A short message for a malformed or failed id. It is None for an
             unavailable id, because the reason stays on the server side.
         citation_markdown: Escaped source reference for a complete fetch, or None.
-            Only absolute HTTP(S) source URIs become links. No URL is inferred.
+            Absolute HTTP(S) source URIs become links; other sources display as text.
     """
 
     evidence_id: str
@@ -371,36 +371,9 @@ class FetchOutcome(BaseModel):
     @property
     def citation_markdown(self) -> str | None:
         """Return a readable source reference only for complete fetched evidence."""
-        return self.format_citation()
-
-    def format_citation(
-        self, *, reference: EvidenceReference | None = None
-    ) -> str | None:
-        """Format this source, optionally labeling a validated contained span.
-
-        Incomplete fetches return None. Superseded sources are labeled as such.
-        A source URL does not guarantee access to a historical version or passage.
-
-        Args:
-            reference: A cited span already validated against this fetch. None
-                uses the fetched range or page provenance.
-
-        Returns:
-            An escaped Markdown link or non-link reference, or None.
-        """
         if self.status is not FetchStatus.OK or self.partial:
             return None
         label = self.title or self.document_key or "Source"
-        bounds = self.covered_range
-        if reference is not None and reference.kind is EvidenceKind.SPAN:
-            bounds = (reference.char_start, reference.char_end)
-        if bounds is not None:
-            label += f", characters {bounds[0]} to {bounds[1]}"
-        elif self.location is not None and self.location.page_numbers:
-            pages = ", ".join(
-                str(page) for page in sorted(set(self.location.page_numbers))
-            )
-            label += f", pages {pages}"
         if self.status_of_version is VersionStatus.SUPERSEDED:
             label += ", superseded version"
         return _source_reference(label, self.uri)
