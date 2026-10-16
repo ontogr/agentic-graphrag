@@ -80,12 +80,6 @@ async def test_answer_quality_graph_has_searchable_and_fetchable_evidence(
     assert "foreign currency" in outcomes[0].text.lower()
 
 
-def _answer_text(result: dict[str, Any]) -> str:
-    """Return the text of the last message in an agent result."""
-    last = result["messages"][-1]
-    return last["content"] if isinstance(last, dict) else last.content
-
-
 async def test_agent_answer_scores_in_unit_range(
     judge: ChatModelJudge,
     agent_factory: Callable[[], Any],
@@ -114,7 +108,7 @@ async def test_agent_answer_scores_in_unit_range(
     await metric.a_measure(
         LLMTestCase(
             input=QUESTION,
-            actual_output=_answer_text(result),
+            actual_output=result["answer"],
             expected_output=EXPECTED,
         )
     )

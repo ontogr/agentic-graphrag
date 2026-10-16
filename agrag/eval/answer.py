@@ -21,7 +21,6 @@ from deepeval.metrics import (
 )
 from deepeval.models import DeepEvalBaseLLM
 from deepeval.test_case import LLMTestCase, SingleTurnParams
-from langchain_core.messages import BaseMessage
 
 from agrag.agents.result import AgentRunResult
 
@@ -66,47 +65,6 @@ _SUPPORT_STEPS = [
 ]
 
 
-def _content_text(content: Any) -> str:
-    """Join the text of a message that holds a string or a list of blocks."""
-    if isinstance(content, str):
-        return content
-    parts = []
-    for block in content:
-        if isinstance(block, str):
-            parts.append(block)
-        elif isinstance(block, dict) and block.get("type") == "text":
-            parts.append(block.get("text", ""))
-    return "".join(parts)
-
-
-def _is_assistant(message: Any) -> bool:
-    """Tell an assistant message from a dict or a LangChain message object."""
-    if isinstance(message, dict):
-        return message.get("role") == "assistant"
-    return isinstance(message, BaseMessage) and message.type == "ai"
-
-
-def final_answer(result: AgentRunResult) -> str:
-    """Return the text of the last assistant message in an agent run.
-
-    Handles message dicts and LangChain message objects, and content that is a
-    string or a list of blocks. Only text blocks count.
-
-    Args:
-        result: The result of ``agent.ainvoke``.
-
-    Raises:
-        ValueError: The run holds no assistant message.
-    """
-    for message in reversed(result["messages"]):
-        if _is_assistant(message):
-            content = (
-                message["content"] if isinstance(message, dict) else message.content
-            )
-            return _content_text(content)
-    raise ValueError("agent result has no assistant message")
-
-
 def _rendered_evidence(result: AgentRunResult) -> dict[str, str]:
     """Return each validated evidence id with the text the agent saw."""
     return {
@@ -133,7 +91,7 @@ def answer_case(question: str, result: AgentRunResult, reference: str) -> LLMTes
     evidence = _rendered_evidence(result)
     return LLMTestCase(
         input=question,
-        actual_output=final_answer(result),
+        actual_output=result["answer"],
         expected_output=reference,
         retrieval_context=list(evidence.values()),
         metadata={"citations": evidence},

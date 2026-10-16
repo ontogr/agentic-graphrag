@@ -35,7 +35,6 @@ from agrag.eval import (
     ChatModelJudge,
     SpanCapture,
     expected_tools_metric,
-    final_answer,
     task_completion,
     trajectory_case,
     trajectory_quality,
@@ -118,7 +117,7 @@ async def test_agent_trajectory_meets_thresholds(
                 {"task_name": item["id"], "question": item["question"]}
             )
         trajectory = capture.trajectory()
-        answer = final_answer(result)
+        answer = result["answer"]
         case = trajectory_case(item["question"], answer, trajectory)
         with capsys.disabled():
             print(
