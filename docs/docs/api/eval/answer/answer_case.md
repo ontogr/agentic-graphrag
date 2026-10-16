@@ -13,6 +13,8 @@ Build the test case that every answer-quality metric scores.
 
 `retrieval_context` holds the fetched evidence. `metadata["citations"]`
 maps each evidence id to its text for `CitationAccuracyMetric`.
+Numbered source references are expanded to evidence IDs, and the generated
+source list is excluded from the claims being scored.
 
 **Parameters:**
 
