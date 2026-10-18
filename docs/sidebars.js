@@ -69,16 +69,7 @@ const sidebars = {
       'guides/trace-an-agent-run',
       'guides/configure-storage-backends',
       'guides/troubleshoot-common-errors',
-    ]),
-    section('Benchmarks', [
-      'benchmarks/index',
-      'benchmarks/run-benchmarks',
       'guides/score-agrag-on-your-questions',
-      'benchmarks/legal',
-      'benchmarks/graphrag-general',
-      'benchmarks/financial',
-      'benchmarks/memory',
-      'benchmarks/healthcare',
     ]),
   ],
   referenceSidebar: [

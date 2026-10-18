@@ -188,7 +188,6 @@ const config = {
               {label: 'Installation', to: '/stable/get-started/installation'},
               {label: 'Quickstart', to: '/stable/get-started/quickstart'},
               {label: 'Architecture', to: '/stable/concepts/architecture'},
-              {label: 'Benchmarks', to: '/stable/benchmarks'},
             ],
           },
           {
