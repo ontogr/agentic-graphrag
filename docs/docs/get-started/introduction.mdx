@@ -9,7 +9,7 @@ Agentic GraphRAG is an open source Python framework that connects your documents
 
 ## What it keeps in the graph
 
-Agentic GraphRAG keeps three connected kinds of memory in one Neo4j graph. Knowledge holds your documents with their sections, chunks, entities, relations, and community summaries. Working memory holds named tasks, an ordered log of what an agent said and called, and the steps of each task. Decisions hold conclusions with their rationale and the passages, events, or other decisions they rely on.
+Agentic GraphRAG keeps three connected kinds of memory in one graph. Knowledge holds your documents with their sections, chunks, entities, relations, and community summaries. Working memory holds named tasks, an ordered log of what an agent said and called, and the steps of each task. Decisions hold conclusions with their rationale and the passages, events, or other decisions they rely on.
 
 Add your documents and they become a knowledge graph shaped by your own schema. Agents search the graph, read the exact passage behind each result, and cite it. They record decisions that point to the passages they rely on. A later session picks a task up where it stopped, and a decision is flagged for review when a document behind it changes.
 
@@ -34,7 +34,7 @@ flowchart LR
 *Ingestion builds the graph. The agent or MCP client reads it and records tasks and decisions in it.*
 
 1. You add documents. Agentic GraphRAG loads them, splits them into chunks, and extracts entities and relations.
-2. Agentic GraphRAG resolves duplicate mentions and writes the graph and its indexes to Neo4j.
+2. Agentic GraphRAG resolves duplicate mentions and writes the graph and its indexes to the graph database.
 3. You ask a question. The agent discovers and fetches evidence from the graph.
 4. The agent checks its citations against the fetched evidence and writes an answer with numbered sources.
 5. The agent records its messages, tool results, and decisions under a named task.

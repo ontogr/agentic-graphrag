@@ -91,7 +91,7 @@ The relations are `parent`, `children`, `siblings`, `previous`, `next`, and `tab
 
 ## Find entities and explore relations
 
-`find_entities` searches entity names by keyword and entity embeddings by meaning. Each hit carries up to `support_limit` passages that mention the entity. `explore` follows the relations of an entity outward.
+`find_entities` searches entity names by keyword and entity embeddings by similarity. Each hit carries up to `support_limit` passages that mention the entity. `explore` follows the relations of an entity outward.
 
 ```python
 from agrag.evidence import explore, find_entities

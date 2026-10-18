@@ -71,9 +71,9 @@ See [Entity resolution](../concepts/resolution.mdx) and [Consolidate duplicates]
 
 See [Ingestion](../concepts/ingestion.mdx) and [Update and delete documents](../guides/update-and-delete-documents.mdx).
 
-## Store everything in Neo4j
+## Keep the graph and its indexes in one database
 
-- **One database.** The graph, its vector indexes, and its keyword indexes live in a single Neo4j database, on Aura or a local server.
+- **One database.** The graph, its vector indexes, and its keyword indexes live in a single database. Neo4j is the supported database, on Aura or a local server.
 - **Efficient writes.** Records are written in batches, and each failed record is reported by identifier.
 - **Indexes and constraints are created for you.** Uniqueness constraints and native vector and keyword indexes are set up when a graph opens.
 - **Mismatched embeddings are caught early.** The embedder is checked against the existing vector indexes before anything is written.
@@ -88,7 +88,7 @@ See [Graph storage](../concepts/graph-storage.mdx).
 - **Keyword, meaning, or both.** Search finds passages by keyword, by meaning, or by both, and combines the two rankings.
 - **Only readable text is returned.** Results come from the current text of documents in the caller's scope. Older versions and rows from unfinished jobs stay out.
 - **Exact text on request.** Fetch returns the exact text behind a result, and says when the text was cut or covers only part of what was asked for.
-- **Entities lead back to passages.** Find entities by name and by meaning, and see the passages that mention each one.
+- **Entities lead back to passages.** Find entities by name and by embedding similarity, and see the passages that mention each one.
 - **Follow relations.** Walk outward from an entity a few steps, with relations that a passage supports kept apart from bare connections.
 - **Move around a passage.** Go from a passage to its parent section, its children, its siblings, the previous or next chunk, or the rows around a table cell.
 - **Incomplete results say so.** Failed search legs and cut-off results are reported, so an incomplete result is never mistaken for an empty one.
