@@ -116,11 +116,16 @@ for edge in graph_view.edges:
 `render_citations` replaces the valid ids in an answer with numbered references and adds a Sources list.
 
 ```python notest
+from agrag.common.data_models.evidence import CitationVerdict
 from agrag.evidence import render_citations
 
-answer = f"The document sets a deadline. [{ids[0]}]"
-rendered, sources = render_citations(answer, [ids[0]], outcomes)
-print(rendered)
+valid_ids = [check.cited_id for check in checks if check.verdict is CitationVerdict.VALID]
+if valid_ids:
+    answer = f"The document sets a deadline. [{valid_ids[0]}]"
+    rendered, sources = render_citations(answer, valid_ids, outcomes)
+    print(rendered)
+else:
+    print("No fetched citation passed validation.")
 ```
 
 Pass only ids that `check_citations` marked valid, together with the fetch outcomes of the same run.
