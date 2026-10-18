@@ -16,7 +16,8 @@ Record a decision that points to the passages it relies on. When a document behi
 
 - A running Neo4j and the `NEO4J_*` variables.
 - The extras for graph storage and local extraction: `uv pip install "agentic-graphrag[neo4j,extract]"`.
-- A Markdown file, which this guide calls `policy.md`.
+
+The script creates or replaces `policy.md` in the current folder with a sample vendor policy. Run it in a separate example folder.
 
 ## Add the document and record a decision
 
@@ -46,6 +47,12 @@ async def read(store, embedder, scope, query):
 
 async def main() -> None:
     document = Path("policy.md").resolve()
+    document.write_text(
+        "# Vendor policy\n\n"
+        "A purchasing manager may approve a vendor after the finance team "
+        "reviews the contract terms.\n",
+        encoding="utf-8",
+    )
     scope = frozenset({str(document)})
     store = build_graph_store("neo4j")
     embedder = build_embedder("ibm-granite/granite-embedding-small-english-r2")
@@ -90,7 +97,7 @@ asyncio.run(main())
 
 Add the next snippets to the `try` block of the script above. Edit `policy.md`, then add the file again. `Graph.add` finds the document by its key, which is the resolved path, and writes a new version when the content changed.
 
-```python
+```python notest
 document.write_text(document.read_text() + "\nVendors must also pass a security review.\n")
 await graph.add(document)
 
@@ -107,7 +114,7 @@ Read the current text of the document, then choose one of two actions.
 
 To keep the decision, reaffirm it with the evidence you just fetched. Agentic GraphRAG accepts a reaffirmation only when every document the decision cites has been fetched at its current version.
 
-```python
+```python notest
 current = await read(store, embedder, scope, "vendor approval rules")
 await decisions.reaffirm_decision(
     decision.id,
@@ -120,7 +127,7 @@ await decisions.reaffirm_decision(
 
 To change the conclusion, supersede the decision. The earlier revision and its evidence stay in the history.
 
-```python
+```python notest
 await decisions.supersede_decision(
     decision.id,
     "Approve the vendor after a security review.",

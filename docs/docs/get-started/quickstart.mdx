@@ -90,22 +90,7 @@ The `--torch-backend=auto` flag picks the PyTorch build for your machine, such a
 
 ## Step 3: Add a document
 
-Save a short document as `policy.md`:
-
-```markdown
-# Vendor policy
-
-## Approval
-
-A purchasing manager approves every vendor contract above 10,000 dollars.
-The finance team reviews the contract terms before the manager signs.
-
-## Renewal
-
-Contracts renew once a year. The manager must confirm each renewal in writing.
-```
-
-Save this script as `build_graph.py`. It opens a graph with the `operations` schema and adds the document with local GLiNER extraction:
+Save this script as `build_graph.py`. It creates or replaces `policy.md` with a short example document, opens a graph with the `operations` schema, and adds the document with local GLiNER extraction:
 
 ```python
 import asyncio
@@ -118,6 +103,15 @@ from agrag.ingestion import ExtractionSettings, Graph
 
 async def main() -> None:
     document = Path("policy.md").resolve()
+    document.write_text(
+        "# Vendor policy\n\n"
+        "## Approval\n\n"
+        "A purchasing manager approves every vendor contract above 10,000 dollars.\n"
+        "The finance team reviews the contract terms before the manager signs.\n\n"
+        "## Renewal\n\n"
+        "Contracts renew once a year. The manager must confirm each renewal in writing.\n",
+        encoding="utf-8",
+    )
     store = build_graph_store("neo4j")
     embedder = build_embedder("ibm-granite/granite-embedding-small-english-r2")
     try:
@@ -152,7 +146,7 @@ The script prints the number of documents, chunks, entities, and relations that 
 
 Save this script as `ask.py`. It builds the agent and limits it to the document you added. The scope uses the resolved path of the file, because a file document's key is its resolved path.
 
-```python
+```python fixture:llm_env
 import asyncio
 from pathlib import Path
 

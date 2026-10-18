@@ -72,7 +72,7 @@ asyncio.run(main())
 
 `navigate` takes an evidence id and a relation, and returns the neighbouring text. Add the snippets in this and the next two sections inside the `try` block of the example above.
 
-```python
+```python notest
 from agrag.common.data_models.navigation import NavigationRelation
 from agrag.evidence import navigate
 
@@ -94,7 +94,7 @@ The relations are `parent`, `children`, `siblings`, `previous`, `next`, and `tab
 
 `find_entities` searches entity names by keyword and entity embeddings by similarity. Each hit carries up to `support_limit` passages that mention the entity. `explore` follows the relations of an entity outward.
 
-```python
+```python notest
 from agrag.evidence import explore, find_entities
 
 entities = await find_entities(
@@ -115,7 +115,7 @@ for edge in graph_view.edges:
 
 `render_citations` replaces the valid ids in an answer with numbered references and adds a Sources list.
 
-```python
+```python notest
 from agrag.evidence import render_citations
 
 answer = f"The document sets a deadline. [{ids[0]}]"
