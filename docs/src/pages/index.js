@@ -83,12 +83,12 @@ function Lane({label, steps}) {
 export default function Home() {
   return (
     <Layout
-      title="Build context graphs for AI agents"
+      title="Context graphs that give AI agents memory they can trace to its sources"
       description="Agentic GraphRAG connects your documents, agent activity, and decisions in one graph, so agents can find evidence, continue work across sessions, and revisit decisions when their sources change.">
       <header className={styles.hero}>
         <div className={`container ${styles.heroInner}`}>
           <h1 className={styles.title}>
-            Build context graphs for <span className={styles.accent}>AI agents</span>.
+            Context graphs that give AI agents <span className={styles.accent}>memory</span> they can trace to its sources.
           </h1>
           <p className={styles.pitch}>
             Agentic GraphRAG connects your documents, agent activity, and decisions in one graph.

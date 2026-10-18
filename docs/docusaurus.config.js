@@ -23,7 +23,7 @@ const releases = JSON.parse(readFileSync(new URL('./versions.json', import.meta.
 /** @type {import('@docusaurus/types').Config} */
 const config = {
   title: 'Agentic GraphRAG',
-  tagline: 'Build a knowledge graph from your documents, then ask it questions',
+  tagline: 'Context graphs that give AI agents memory they can trace to its sources',
   favicon: 'img/favicon.ico',
 
   future: {
