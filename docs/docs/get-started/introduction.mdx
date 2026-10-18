@@ -9,11 +9,7 @@ Agentic GraphRAG is an open source Python framework that connects your documents
 
 ## What it keeps in the graph
 
-Agentic GraphRAG keeps three connected kinds of memory in one Neo4j graph.
-
-- Knowledge: your documents, with their sections, chunks, entities, relations, and community summaries.
-- Working memory: named tasks, an ordered log of what an agent said, called, and received, and the steps of each task.
-- Decisions: conclusions with their rationale and the passages, events, or other decisions they rely on.
+Agentic GraphRAG keeps three connected kinds of memory in one Neo4j graph. Knowledge holds your documents with their sections, chunks, entities, relations, and community summaries. Working memory holds named tasks, an ordered log of what an agent said and called, and the steps of each task. Decisions hold conclusions with their rationale and the passages, events, or other decisions they rely on.
 
 Add your documents and they become a knowledge graph shaped by your own schema. Agents search the graph, read the exact passage behind each result, and cite it. They record decisions that point to the passages they rely on. A later session picks a task up where it stopped, and a decision is flagged for review when a document behind it changes.
 
@@ -21,17 +17,15 @@ For example, a contract-review agent records a recommendation with passages from
 
 ## Three ways to use it
 
-- The Python library. Use `Graph` to add documents, the functions in `agrag.evidence` to search and cite, and `agrag.memory` to record tasks and decisions.
-- The built-in agent. `build_agent` returns a task-scoped agent that searches your documents, records its work, and answers with numbered sources.
-- The MCP server. `agrag-mcp` gives any MCP client tools to search, read, cite, and keep task and decision memory.
+Use the Python library when you want direct control. `Graph` adds documents, the functions in `agrag.evidence` search and cite, and `agrag.memory` records tasks and decisions. Use `build_agent` for a task-scoped agent that searches your documents, records its work, and answers with numbered sources. Run `agrag-mcp` to give any MCP client tools for search, citation, and task and decision memory.
 
 ## How it works
 
 ```mermaid
 flowchart LR
-    docs[Your documents] --> ingest[Ingest]
+    docs[Documents] --> ingest[Ingest]
     ingest --> graph[(Neo4j graph)]
-    question[Your question] --> agent[Agent or MCP client]
+    question[Question] --> agent[Agent or MCP client]
     agent -->|search and read| graph
     agent -->|tasks and decisions| graph
     agent --> answer[Cited answer]
@@ -47,12 +41,7 @@ flowchart LR
 
 ## Who it is for
 
-Use Agentic GraphRAG if you:
-
-- build agents that answer from documents that you own.
-- need answers that cite their sources.
-- want agents that continue a task across sessions.
-- want to define your own entity and relation types.
+Use Agentic GraphRAG if you build agents that answer from documents that you own, need answers that cite their sources, and want agents that continue a task across sessions. You can define your own entity and relation types.
 
 ## What you need
 
@@ -65,7 +54,7 @@ Use Agentic GraphRAG if you:
 - [Quickstart](./quickstart.mdx): build a graph from one document and ask the agent a question.
 - [Features](./features.mdx): the full list of what Agentic GraphRAG does.
 - [Installation](./installation.mdx): choose the extras that you need.
-- [Architecture](../concepts/architecture.mdx): how ingestion, retrieval, and memory fit together.
+- [Architecture](../concepts/architecture.mdx): how the parts fit together.
 - [Find and cite evidence](../guides/find-and-cite-evidence.mdx): search passages and check citations from Python.
 - [Run the MCP server](../guides/run-the-mcp-server.mdx): connect an MCP client.
 - [Record decisions and review them](../guides/connected-memory.mdx): tie a decision to its evidence.
