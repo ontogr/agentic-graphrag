@@ -208,7 +208,7 @@ BAML_LOG=off python ask.py
 
 `BAML_LOG=off` stops BAML from printing every LLM call. On Windows PowerShell, set `$env:BAML_LOG = "off"` first.
 
-The script prints the run status and the answer. The status is `answered` when the agent found evidence and its citations check out. The answer ends with a Sources list, and each number in the text refers to a passage the agent read. The wording of the answer varies with your model.
+The script prints the run status and the answer. The status says whether the run answered or reached a limit. The answer ends with a Sources list, and each number in the text refers to a passage the agent read. The wording of the answer varies with your model.
 
 Run the script again with the same `task_name`. Agentic GraphRAG continues the task from its recorded events and steps.
 
@@ -228,8 +228,7 @@ async def main() -> None:
     try:
         rows = await store.execute_read(
             "MATCH (e:_Node) "
-            "WHERE NOT e:Chunk AND NOT e:Document AND NOT e:Community "
-            "AND NOT e:ResolvedEntity "
+            "WHERE e.merge_key IS NOT NULL AND NOT e:ResolvedEntity "
             "RETURN [l IN labels(e) WHERE l <> '_Node'][0] AS label, "
             "e.name AS name ORDER BY label, name"
         )
@@ -248,7 +247,7 @@ Run it:
 python inspect_graph.py
 ```
 
-Every node that Agentic GraphRAG writes has the label `_Node`. The query skips chunk, document, community, and resolved-entity nodes, so only entities remain.
+Entity nodes carry the label `_Node` and a `merge_key` property. The query keeps nodes that have a `merge_key` and skips resolved entities.
 
 ## What you just built
 

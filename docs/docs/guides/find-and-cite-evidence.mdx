@@ -50,7 +50,7 @@ async def main() -> None:
             print(outcome.status, outcome.status_of_version, outcome.text)
 
         fetched = [o.evidence_id for o in outcomes if o.status is FetchStatus.OK]
-        checks = check_citations(ids, fetched, scope=scope)
+        checks = await check_citations(ids, fetched, scope=scope)
         print([(c.cited_id, c.verdict) for c in checks])
     finally:
         await store.close()
