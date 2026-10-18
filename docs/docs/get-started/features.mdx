@@ -1,0 +1,197 @@
+---
+sidebar_position: 4
+title: Features
+description: What Agentic GraphRAG does, from reading files to recording decisions that stay tied to their evidence.
+---
+
+# Features
+
+This page lists what Agentic GraphRAG does. Each group links to the page that explains it.
+
+## Read the files you already have
+
+- Add a file, a folder, a glob pattern, a list of paths, raw text, or prebuilt `Document` objects with `Graph.add`.
+- Read plain text, logs, XML, Markdown, HTML, AsciiDoc, Word, PowerPoint, and Excel files. PDF and image files need the `docling` extra.
+- Read CSV, TSV, JSON, and JSON Lines data. Each row, record, or array element becomes its own document, with an optional id column.
+- Read chat exports with the chat loader. Each message becomes a section.
+- Keep headings, sections, tables, and figures. PDF pages keep their page numbers and bounding boxes.
+- Detect the text encoding, remove the byte-order mark, and normalize line endings and Unicode form. You can change each of these.
+- Choose what happens to a source that fails: stop the run, skip the source, or set it aside with the reason.
+- Key each file document by its resolved path, so adding a changed file updates the stored document.
+
+See [Loading documents](../concepts/loading.mdx) and [Ingest documents](../guides/ingest-documents.mdx).
+
+## Split documents along their structure
+
+- Pack the sections of a document into chunks of up to 600 tokens by default, in reading order.
+- Carry a small chunk into the next section, so short sections do not each make a tiny chunk.
+- Keep a table whole when it fits. Split a larger table into row groups that each repeat the header row.
+- Keep tables and running text in separate chunks.
+- Record the heading path of each chunk, the sections it covers, its character offsets or page spans, and the graph node it hangs under.
+- Put the heading path in front of the chunk text when the chunk is embedded.
+- Link consecutive chunks with `NEXT_CHUNK` edges.
+- Stamp each chunk with the chunker name and a fingerprint of its settings, and chunk a document again when the settings change.
+
+See [Chunking](../concepts/chunking.mdx) and [Configure chunking](../guides/configure-chunking.mdx).
+
+## Build a graph around your own schema
+
+- Write a schema as a dict, a list of labels and `Source-LABEL->Target` triples, a YAML or JSON file, Pydantic classes, or an OWL or RDFS Turtle file.
+- Start from the default schema, with nine entity types and eight relation types, or from the `operations` and `legal` presets, and extend it with overrides, exclusions, and added relation patterns.
+- Export a schema to JSON Schema, SHACL, or JSON-LD.
+- Extract entities and relations with a local GLiNER model, without an LLM key.
+- Add an LLM in `hybrid` mode for the chunks the local model is least sure about, within a share of each batch that you set.
+- Send the chunks of entity types with properties to the LLM, which fills the property values.
+- Call an LLM through BAML with any of eight provider types, retries, and fallback or round-robin across several clients.
+- Tune the thresholds for each entity and relation label.
+- Save extracted items that the schema does not allow as candidates, with links to their source chunks.
+- List, search, approve, and reject candidates. Approving writes a schema patch for you to review, and your own schema file is never edited. Converting approved candidates turns them into entities, relations, or properties after you apply the patch.
+
+See [Define a graph schema](../guides/define-a-graph-schema.mdx), [Choose an extraction mode](../guides/choose-an-extraction-mode.mdx), and [Review candidates](../guides/review-candidates.mdx).
+
+## Merge duplicates without losing anything
+
+- Give mentions with the same label and normalized text one entity node that records its mention count and source chunks.
+- Match entities by similar spelling, by embedding, and by an LLM that reviews the hard pairs, most similar first, up to `max_llm_pairs` for each label.
+- Store each match as a `MATCHES` edge, so the raw entities and their relations stay in the graph.
+- Give each connected set of matches one derived `ResolvedEntity` node, linked to its members by `RESOLVED_AS` edges.
+- Leave a pair that no tier can decide unmatched.
+- Preview a graph-wide merge with `Graph.consolidate()`, which is a dry run until you pass `apply=True`.
+- Re-check the entities you name with `Graph.reevaluate`, and turn off one match with `Graph.deactivate_match`.
+- Keep the first value of a conflicting property, and summarize conflicting descriptions with an LLM, with a plain join as the fallback.
+- Resolve the entities of a committed job against everything already committed, so concurrent ingests end in one cluster.
+- Remove an entity and its match edges when a document update, delete, or purge removes its last evidence.
+
+See [Entity resolution](../concepts/resolution.mdx) and [Consolidate duplicates](../guides/consolidate-duplicates.mdx).
+
+## Keep the graph current
+
+- Add the same folder again to skip unchanged documents and replace the changed ones.
+- Replace a document by key with `Graph.update`. The old version closes when the new version commits.
+- Re-extract in place, keeping chunks and embeddings, when only extraction settings or descriptions change.
+- Write only the dates when only the publication or content dates change.
+- Remove a document from search with `Graph.delete_document` and keep its history, or remove every version with `Graph.purge_document`.
+- Run each write as a per-document job with a lease, and hide its rows from search until the job commits.
+- Roll back or finish a job that a crash left behind when `Graph.open` runs.
+- Read the status of any document with `source_status`: current, pending, failed, deleted, or unknown.
+- Receive an `AddResult` with counts for each stage, up to 200 failure records for each stage, and the true failure total.
+- Receive a partial `AddResult` after each batch of up to 100 documents through `on_progress`.
+
+See [Ingestion](../concepts/ingestion.mdx) and [Update and delete documents](../guides/update-and-delete-documents.mdx).
+
+## Store everything in Neo4j
+
+- Keep the graph, its vectors, and its full-text indexes in one Neo4j database over one Bolt connection, on Aura or a local server.
+- Write nodes and relationships in batches, and report each failed record by id.
+- Create uniqueness constraints and native vector and full-text indexes.
+- Check the embedder dimension against existing vector indexes when a graph opens.
+- Embed text on the CPU with a FastEmbed model by default, or with Sentence Transformers through the `embed-local` extra.
+- Keep node identity stable when labels change.
+- Send the database password only over an encrypted connection to a remote host.
+
+See [Graph storage](../concepts/graph-storage.mdx).
+
+## Search the graph and read the evidence
+
+- Find source passages by keyword, by meaning, or by both, fused with Reciprocal Rank Fusion.
+- Return only current passages in the caller's document scope. Older versions and rows from unfinished jobs stay out of search.
+- Fetch the exact text behind an evidence id. The result says when the text is cut or covers only part of the range.
+- Find entities by name and by meaning, with the passages that mention them.
+- Follow entity relations up to two steps out, and separate relations that a passage supports from bare graph connections.
+- Move from a passage to its parent section, children, siblings, previous or next chunk, or the rows around a table cell, within a character budget.
+- Report each failed search leg and each truncation, so an incomplete result is never mistaken for an empty one.
+- Run named recipes over entity, chunk, and community search with `SearchEngine`, with an optional graph walk and a cross-encoder or graph-distance reranker.
+
+See [Retrieval](../concepts/retrieval.mdx) and [Find and cite evidence](../guides/find-and-cite-evidence.mdx).
+
+## Cite a specific source version
+
+- Give each evidence id a reference to one version of one document.
+- Resolve a citation to an earlier version, and label it superseded.
+- Check that every cited id was fetched in scope, and report ids that were not fetched, that name another document, or that are malformed.
+- Render cited answers with numbered references and a Sources list. A source becomes a link when it has an absolute HTTP(S) address.
+
+## Answer broad questions with community summaries
+
+- Group the entity graph into communities with hierarchical Leiden clustering. Preview the groups before you write them with `apply=True`.
+- Weight each relation by the number of source chunks that support it.
+- Write a title, summary, rating, rating explanation, and findings with an LLM for each community above the weight threshold. Write a template report that names the top three members for the rest.
+- Embed each community report and search it directly with the `THEMATIC` recipe.
+- Add the reports of overlapping communities to entity and graph-walk results with the `HYBRID_RERANKED` and `GRAPH_EXPAND` recipes.
+- Store communities as `Community` nodes with `MEMBER_OF` edges, replacing the earlier partition in one transaction.
+
+Communities need the `community` extra, and LLM reports need the `llm` extra. See [Communities](../concepts/communities.mdx).
+
+## Remember tasks
+
+- Keep a named task with a goal, an append-only log of messages, tool calls, tool results, and notes, and named steps that are not started, in progress, completed, failed, or unknown.
+- Resume a task from a bounded view of its goal, step counts, active decisions, and decisions that need review.
+- Reuse completed steps on resume, and mark steps that were still running as unknown.
+- Repeat a write safely with a request id, which returns the saved result.
+- Redact one event body while keeping its position and payload hash, or delete a task with its events and steps.
+
+## Record decisions that stay tied to their evidence
+
+- Record a decision with a conclusion, rationale, assumptions, open questions, and supports that cite document passages, task events, or other active decisions.
+- Replace or reject a decision explicitly, keeping the earlier record and its support history.
+- Flag every active decision that cites a document when the document gets a new version or is removed, and record the reason.
+- Pass review along explicit decision dependencies, in bounded batches, with a queue in the graph so an interrupted run continues.
+- Reaffirm a decision after you fetch the current version of each cited document.
+- List active decisions that give different conclusions for the same choice key in different tasks.
+- Search active decisions in the same project as precedents.
+
+See [Record decisions and review them](../guides/connected-memory.mdx).
+
+## Use the built-in agent
+
+- Build one task-scoped agent with `build_agent`. It reads only the documents you give it.
+- Use evidence tools for discovery, entity search, relation exploration, navigation, and passage fetch.
+- Receive a status for each run: `answered`, `insufficient_evidence`, `partial`, `partial_retrieval`, `budget_exhausted`, or `recording_failed`.
+- Check citations against passages fetched in the same run, with one repair pass.
+- Save the messages, tool calls, and tool results of the run to the task log.
+- Set limits on LangGraph steps and tool calls.
+- Choose one client, a fallback chain, or round-robin over Anthropic, OpenAI, OpenAI-compatible, and Google AI models.
+
+See [Agent loop](../concepts/agent-loop.mdx).
+
+## Work with any MCP client
+
+- Run `agrag-mcp` as a local stdio server over the documents you configure.
+- Use separate tools for evidence search, exact fetch, navigation, entity search, exploration, and citation checks.
+- Read and write tasks and decisions in a configured project. The server starts read-only, and decision rejection has its own switch.
+- Cite only evidence that the same server process fetched in full.
+- Cap each result by size, report dropped items, and set a deadline for each read.
+- Reuse a request id when a client retries a write.
+
+See [Run the MCP server](../guides/run-the-mcp-server.mdx).
+
+## Show what happened
+
+- Pass an OpenTelemetry tracer to `Graph`, `build_agent`, the stores, the embedders, and the extractors. Without a tracer nothing is recorded.
+- Follow loading, chunking, extraction, resolution, merge, storage, search, and LLM calls in spans. Each LLM call has a call span, an attempt span, and a request span with token counts.
+- See agent tool and model calls as OpenInference spans under your active span.
+- Link each failure record to its trace and span.
+- Count dropped entities and relations by kind, label, and reason.
+- Send traces to a destination that fits your data controls, because spans carry the text of questions, prompts, and evidence.
+
+See [Observability](../concepts/observability.mdx) and [Trace spans](../reference/trace-spans.mdx).
+
+## Measure quality on your own data
+
+- Score answers for correctness, faithfulness, context precision, context recall, and citation accuracy with DeepEval metrics and a judge model you choose.
+- Check each cited sentence against the evidence it cites.
+- Score entity and relation extraction against gold annotations, with exact and overlap matching.
+- Score entity resolution clusters with B-cubed and pairwise metrics.
+- Score agent runs from OpenTelemetry spans.
+- Run the answer metrics on your own documents and questions with an example script that prints a score table.
+
+See [Score on your own questions](../guides/score-agrag-on-your-questions.mdx).
+
+## Fit your setup
+
+- Configure each component with environment variables or a `.env` file, with a prefix for each area.
+- Point extraction, the agent, and the judge at one OpenAI-compatible endpoint, or give each its own variables.
+- Detect changes in the schema structure and the extraction settings with stored fingerprints, so an update chunks again, re-extracts in place, or skips the work.
+- Install only the parts you use through extras: `neo4j`, `extract`, `llm`, `agents`, `mcp`, `docling`, `community`, `observability`, `eval`, `embed-local`, and `schema-formats`.
+
+See [Installation](./installation.mdx) and [Configuration](../reference/configuration.mdx).

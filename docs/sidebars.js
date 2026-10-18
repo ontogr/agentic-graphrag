@@ -28,6 +28,7 @@ const sidebars = {
       'get-started/introduction',
       'get-started/installation',
       'get-started/quickstart',
+      'get-started/features',
     ]),
     section('Core concepts', [
       'concepts/architecture',
