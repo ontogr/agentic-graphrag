@@ -90,36 +90,41 @@ See the [features page](https://ontogr.github.io/agentic-graphrag/latest/get-sta
 
 ## Quickstart
 
-Install graph storage, local extraction, and the built-in agent. This example uses the current `main` APIs:
+In this example you add one document, ask a question about it, and get an answer with numbered sources. You need Python 3.11 or newer, a running Neo4j database, and an LLM endpoint that works with the OpenAI API. See the [quickstart guide](https://ontogr.github.io/agentic-graphrag/latest/get-started/quickstart) for starting Neo4j with Docker or Neo4j Aura.
+
+### 1. Install
+
+Install the latest version from GitHub into a fresh virtual environment:
 
 ```bash
+uv venv
+source .venv/bin/activate
 uv pip install "agentic-graphrag[neo4j,extract,agents] @ git+https://github.com/ontogr/agentic-graphrag.git@main" --torch-backend=auto
 ```
 
-You need Python 3.11+, a configured Neo4j database, and an LLM endpoint. The [setup guide](https://ontogr.github.io/agentic-graphrag/latest/get-started/quickstart) covers database and model configuration.
+See [Installation](https://ontogr.github.io/agentic-graphrag/latest/get-started/installation) for other package managers and the optional parts you can add.
 
-<details>
-<summary>Connection settings</summary>
+### 2. Add your settings
 
-Set these variables in your environment or an existing `.env` file. Replace the database credentials and agent values with your own. Do not commit credentials.
+Create a file named `.env` in the folder where you will run the example. Replace the values with your own, and keep the file out of version control.
 
 ```dotenv
 NEO4J_URI=bolt://localhost:7687
 NEO4J_USERNAME=neo4j
-NEO4J_PASSWORD=agrag-quickstart
-NEO4J_DATABASE=neo4j
-AGENT_LLM_BASE_URL=https://your-endpoint.example.com/v1
+NEO4J_PASSWORD=your-neo4j-password
+AGENT_LLM_BASE_URL=https://api.openai.com/v1
 AGENT_LLM_API_KEY=your-api-key
 AGENT_LLM_MODEL_ID=your-model-id
 ```
 
-For a remote Neo4j instance, use its credentials and an encrypted URI such as `neo4j+s://`. The agent sends questions and retrieved evidence to the configured model endpoint.
+Use the address of your own endpoint if you do not use OpenAI. For a Neo4j database on another machine, see [Configuration](https://ontogr.github.io/agentic-graphrag/latest/reference/configuration).
 
-</details>
+### 3. Run the example
 
-Point the library at an existing document, then ask a question. Run this in an async function or a notebook that supports `await`:
+Put any Markdown or text file in the same folder and name it `your-document.md`. Save the following as `example.py` and run `python example.py`.
 
 ```python
+import asyncio
 from pathlib import Path
 
 from agrag.agents import AgentLLMSettings, build_agent
@@ -127,45 +132,85 @@ from agrag.embedding import build_embedder
 from agrag.graphdb import build_graph_store
 from agrag.ingestion import ExtractionSettings, Graph
 
+# Any Markdown or text file you have.
+DOCUMENT = Path("your-document.md").resolve()
 
-document = Path("your-document.md").resolve()
-store = build_graph_store("neo4j")
-embedder = build_embedder("ibm-granite/granite-embedding-small-english-r2")
 
-try:
-    graph = await Graph.open(
-        schema="operations",
-        graph_store=store,
-        embedder=embedder,
-        extraction_settings=ExtractionSettings(mode="gliner"),
-        max_llm_pairs=0,
-    )
-    await graph.add(document)
+async def main() -> None:
+    # Connect to the database and load the model that turns text into vectors.
+    store = build_graph_store("neo4j")
+    embedder = build_embedder("ibm-granite/granite-embedding-small-english-r2")
+    try:
+        # Read the document into the graph. This step runs on your machine.
+        graph = await Graph.open(
+            schema="operations",
+            graph_store=store,
+            embedder=embedder,
+            extraction_settings=ExtractionSettings(mode="gliner"),
+            max_llm_pairs=0,
+        )
+        await graph.add(DOCUMENT)
 
-    agent = build_agent(
-        graph_store=store,
-        embedder=embedder,
-        scope=frozenset({str(document)}),
-        project_id="my-project",
-        agent_id="researcher",
-        llm_settings=AgentLLMSettings.from_openai_compatible_env(),
-    )
-    result = await agent.ainvoke({
-        "task_name": "document-review",
-        "question": "What does this document require? Cite your sources.",
-    })
-    print(result["answer"])
-finally:
-    await store.close()
+        # Create an agent that may read only this document.
+        agent = build_agent(
+            graph_store=store,
+            embedder=embedder,
+            scope=frozenset({str(DOCUMENT)}),
+            project_id="my-project",
+            agent_id="researcher",
+            llm_settings=AgentLLMSettings.from_openai_compatible_env(),
+        )
+
+        # Ask a question about the document.
+        result = await agent.ainvoke({
+            "task_name": "first-question",
+            "question": "What are the main points of this document? Cite your sources.",
+        })
+        print(result["answer"])
+    finally:
+        await store.close()
+
+
+asyncio.run(main())
 ```
 
-Reuse the project and task name to continue from recorded progress. For explicit decisions and source-change review, see the [connected-memory guide](https://ontogr.github.io/agentic-graphrag/latest/guides/connected-memory/). It records a decision, changes a source document, and reviews the decision.
+The script prints an answer that ends with a numbered list of sources. Run it again with the same task name and the agent continues where it stopped.
+
+### Next steps
+
+- See [Record decisions and review them](https://ontogr.github.io/agentic-graphrag/latest/guides/connected-memory) for tying a decision to its evidence and reviewing it when a document changes.
+- See [Find and cite evidence](https://ontogr.github.io/agentic-graphrag/latest/guides/find-and-cite-evidence) for searching passages and checking citations from your own code.
+- See the [features page](https://ontogr.github.io/agentic-graphrag/latest/get-started/features) for everything else Agentic GraphRAG does.
 
 ## Use MCP
 
-Install the `neo4j,mcp` extras from the same source revision as your ingestion code, then configure `agrag-mcp` as a local stdio server in your MCP client. Use the same embedding model as ingestion for semantic search. See the [MCP server guide](https://ontogr.github.io/agentic-graphrag/latest/guides/run-the-mcp-server).
+Run `agrag-mcp` to give any MCP client tools that search your documents, read exact passages, check citations, and keep task and decision memory.
 
-The server starts read-only. Configure the permitted document keys, and enable task and decision writes only for trusted clients. Document scope controls evidence retrieval; it does not provide authentication or per-user authorization for memory records.
+Install the server in the same virtual environment as before:
+
+```bash
+uv pip install "agentic-graphrag[neo4j,mcp] @ git+https://github.com/ontogr/agentic-graphrag.git@main"
+```
+
+Then add the server to your MCP client. Replace the document path with the full path of a file you added to the graph.
+
+```json
+{
+  "mcpServers": {
+    "agrag": {
+      "command": "agrag-mcp",
+      "env": {
+        "NEO4J_URI": "bolt://localhost:7687",
+        "NEO4J_USERNAME": "neo4j",
+        "NEO4J_PASSWORD": "your-neo4j-password",
+        "AGRAG_MCP_SCOPE_DOCUMENT_KEYS": "/full/path/to/your-document.md"
+      }
+    }
+  }
+}
+```
+
+If your client cannot find `agrag-mcp`, use its full path inside the virtual environment, for example `/full/path/to/.venv/bin/agrag-mcp`. The server starts read-only and reads only the documents you list. Document scope applies to evidence reads, and task and decision tools act on the configured project. See the [MCP server guide](https://ontogr.github.io/agentic-graphrag/latest/guides/run-the-mcp-server) for the memory tools and the other settings.
 
 ## Contributing
 
