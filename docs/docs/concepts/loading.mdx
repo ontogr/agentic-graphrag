@@ -56,7 +56,7 @@ A prose source makes one document for each file. A record source makes one docum
 | JSON | `.json` | Core, one document per array element, or one for an object |
 | Chat files | `.jsonl`, `.ndjson`, `.json` | Chat loader, passed by you, one section per message |
 
-Docling reads Markdown, HTML, AsciiDoc, Word, PowerPoint and Excel files without a model, and the base install includes it. PDF and image files need the layout and table models, which the `docling` extra installs. Docling downloads those models the first time you read a PDF or image. Docling does not read CSV files, because a CSV row needs its own identity. The chat loader has no extension of its own, because `.jsonl` and `.json` already belong to the record loaders. You pass it for a single file.
+Docling reads Markdown, HTML, AsciiDoc, Word, PowerPoint and Excel files without a model, and the base install includes it. PDF and image files need the layout and table models, which the `docling` extra installs. Docling does not read CSV files, because a CSV row needs its own identity. The chat loader has no extension of its own, because `.jsonl` and `.json` already belong to the record loaders. You pass it for a single file.
 
 ### Sections
 

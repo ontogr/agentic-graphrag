@@ -20,7 +20,7 @@ uv pip install agentic-graphrag
 
 To install uv, see the [installation docs](https://docs.astral.sh/uv/getting-started/installation/).
 
-Agentic GraphRAG needs Python 3.11 or newer. It also needs a Neo4j database, version 5.23 or newer, to store the graph. The [Quickstart](./quickstart.mdx) lists the connection settings.
+Agentic GraphRAG needs Python 3.11 or newer. It also needs a Neo4j database to store the graph. The [Quickstart](./quickstart.mdx) lists the connection settings.
 
 The base install includes the loaders, the chunkers, the data models, and the default embedder. Storage, extraction, the agent, and the MCP server are extras.
 
@@ -65,7 +65,7 @@ The following table lists the extras. Install them with `pip install "agentic-gr
 | `llm` | Installs BAML, to extract entities and review matches with an LLM. |
 | `agents` | Installs LangGraph, DeepAgents, and the LangChain OpenAI client for the built-in agent. |
 | `mcp` | Installs the MCP SDK for the `agrag-mcp` server. |
-| `docling` | Installs the Docling layout and table models, to read PDF and image files. The models download on first use. |
+| `docling` | Installs the Docling layout and table models, to read PDF and image files. |
 | `observability` | Installs the OpenTelemetry SDK, the OTLP exporter, and the asyncio and LangChain instrumentation. |
 | `community` | Installs Leiden community detection. |
 | `eval` | Installs DeepEval, AgentEvals, `er-evaluation`, scikit-learn, and the LangChain OpenAI client for the metrics in `agrag.eval`. |

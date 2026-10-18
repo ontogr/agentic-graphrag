@@ -7,12 +7,12 @@ title: Quickstart
 
 In this tutorial, you build a knowledge graph from one document, look at what Agentic GraphRAG stored, and ask the built-in agent a question about the document. The agent answers with numbered sources.
 
-The tutorial takes about 10 minutes on a typical connection. Most of the time goes to the first download of libraries and models.
+The tutorial takes about 10 minutes on a typical connection. Most of the time goes to installing the libraries.
 
 ## What you need
 
 - Python 3.11 or newer, and [uv](https://docs.astral.sh/uv/) 0.6.9 or newer.
-- A Neo4j database, version 5.23 or newer. Step 1 shows two ways to get one.
+- A Neo4j database. Step 1 shows two ways to get one.
 - An OpenAI-compatible LLM endpoint and API key for the agent in step 4.
 
 ## What runs where
@@ -53,8 +53,6 @@ Choose one of the two options and create a file named `.env` in the folder.
 3. Download the credentials file when Aura shows the password. Aura shows the password one time.
 4. Wait until the instance is running.
 5. Copy the credentials file into the tutorial folder and rename it `.env`.
-
-The credentials file sets `NEO4J_URI`, `NEO4J_USERNAME`, `NEO4J_PASSWORD`, and `NEO4J_DATABASE`. The URI starts with `neo4j+s://`.
 
 </details>
 
@@ -157,7 +155,7 @@ Run it:
 python build_graph.py
 ```
 
-The first run downloads the embedding and extraction models. The script prints the number of documents, chunks, entities, and relations that this run produced. The document is one document with at least one chunk.
+The script prints the number of documents, chunks, entities, and relations that this run produced. The document is one document with at least one chunk.
 
 ## Step 4: Ask a question
 

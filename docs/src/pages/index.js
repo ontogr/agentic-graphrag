@@ -146,7 +146,7 @@ result = await graph.add(document)
 print("entities extracted:",
       result.extraction.entities_extracted)`}</CodeBlock>
                 <p className={styles.exampleNote}>
-                  Embeddings and extraction run on your machine. The first run downloads the models.
+                  Embeddings and extraction run on your machine.
                 </p>
               </div>
               <div className={styles.exampleCol}>
