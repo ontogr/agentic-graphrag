@@ -92,6 +92,10 @@ The memory layer records an agent's work and decisions as it runs, keeps them cu
 
 Use the agent that ships with the library, or connect your own through MCP.
 
+<p align="center">
+  <img src="https://raw.githubusercontent.com/ontogr/agentic-graphrag/main/docs/static/img/readme/full-flow.png" alt="Documents are loaded, chunked, extracted, and resolved into a graph with three layers: enterprise knowledge, conversation history, and decision traces. A changed document flags the decisions that cite it. An agent searches and reads the graph and records its events, steps, and decisions. Its answer passes a citation check and returns with numbered sources." width="860">
+</p>
+
 - **Answers cite numbered sources.** The built-in agent searches your documents, reads passages, and answers with numbered sources.
 - **Every citation is checked.** The passage must have been read during that run, it must belong to the documents the agent may use, and it must match the version cited. If a citation fails the check, the agent gets one chance to fix it.
 - **Every run ends with a status.** The status tells you whether the agent answered, found too little evidence, or reached a limit. You set how many steps and tool calls a run may use.
