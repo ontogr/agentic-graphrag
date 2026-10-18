@@ -61,8 +61,13 @@ const sidebars = {
     ]),
     section('Search and answer', [
       'concepts/retrieval',
+      'guides/find-and-cite-evidence',
       'guides/retrieve-and-answer',
       'concepts/agent-loop',
+    ]),
+    section('Agent memory', [
+      'guides/run-the-mcp-server',
+      'guides/connected-memory',
     ]),
     section('Operate', [
       'concepts/observability',

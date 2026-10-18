@@ -1,0 +1,132 @@
+---
+title: Find and cite evidence
+sidebar_position: 5
+description: Search document passages, fetch the exact text, and check citations from Python.
+---
+
+# Find and cite evidence
+
+Use the functions in `agrag.evidence` to search the passages of your documents, fetch the exact text behind a result, and check that a citation points to text you fetched. The built-in agent and the MCP server call the same functions.
+
+## Before you start
+
+- A graph that already holds your documents. See [Ingest documents](./ingest-documents.mdx).
+- The `neo4j` extra. The functions need no LLM.
+- The key of each document you want to read. A file document's key is its resolved absolute path.
+
+## Search, fetch, and check
+
+Every function takes a `scope`, a `frozenset` of the document keys that the caller may read. A function reads only the current text of documents in the scope.
+
+```python
+import asyncio
+from pathlib import Path
+
+from agrag.common.data_models.evidence import DiscoveryMode, FetchStatus
+from agrag.embedding import build_embedder
+from agrag.evidence import check_citations, discover, fetch
+from agrag.graphdb import build_graph_store
+
+
+async def main() -> None:
+    store = build_graph_store("neo4j")
+    embedder = build_embedder("ibm-granite/granite-embedding-small-english-r2")
+    scope = frozenset({str(Path("your-document.md").resolve())})
+    try:
+        found = await discover(
+            store,
+            embedder,
+            "What does the document require?",
+            mode=DiscoveryMode.HYBRID,
+            limit=5,
+            scope=scope,
+        )
+        for hit in found.hits:
+            print(hit.evidence_id, hit.snippet)
+
+        ids = [hit.evidence_id for hit in found.hits[:2]]
+        outcomes = await fetch(store, ids, scope=scope, max_chars=4000)
+        for outcome in outcomes:
+            print(outcome.status, outcome.status_of_version, outcome.text)
+
+        fetched = [o.evidence_id for o in outcomes if o.status is FetchStatus.OK]
+        checks = check_citations(ids, fetched, scope=scope)
+        print([(c.cited_id, c.verdict) for c in checks])
+    finally:
+        await store.close()
+
+
+asyncio.run(main())
+```
+
+`discover` returns a `DiscoveryResult`. Its `status` is `ok`, `partial`, `no_match`, `empty_scope`, `index_not_ready`, or `failed`. `partial` means that one search leg failed and the other returned hits, and `truncated` is `true` when the candidate list was cut. Each hit has an `evidence_id`, a `title`, a `location`, a `snippet` of up to 240 characters, and a `score`.
+
+`discover` takes three modes. `DiscoveryMode.LEXICAL` runs a keyword search, `DiscoveryMode.SEMANTIC` runs a vector search, and `DiscoveryMode.HYBRID` runs both and combines them. Use the embedder that you used for ingestion.
+
+`fetch` returns one `FetchOutcome` for each id. Its `text` is the exact stored text, cut to `max_chars`. The `status` is `ok`, `partial`, `truncated`, `unavailable`, `malformed`, `index_not_ready`, or `failed`, and `status_of_version` is `current` or `superseded`. An id from an earlier version of an updated document still returns its text and is labeled superseded.
+
+`check_citations` returns one verdict for each cited id. A verdict is `valid` when you fetched the id in scope. The other verdicts are `not_fetched`, `unavailable`, and `malformed`.
+
+## Move around a passage
+
+`navigate` takes an evidence id and a relation, and returns the neighbouring text. Add the snippets in this and the next two sections inside the `try` block of the example above.
+
+```python
+from agrag.common.data_models.navigation import NavigationRelation
+from agrag.evidence import navigate
+
+result = await navigate(
+    store,
+    ids[0],
+    NavigationRelation.PARENT,
+    scope=scope,
+    limit=5,
+    max_chars=4000,
+)
+for item in result.items:
+    print(item.heading_path, item.text)
+```
+
+The relations are `parent`, `children`, `siblings`, `previous`, `next`, and `table_context`. The last one returns the rows around a table cell. The result lists up to `limit` items and marks the first item that the `max_chars` budget cuts.
+
+## Find entities and explore relations
+
+`find_entities` searches entity names by keyword and entity embeddings by meaning. Each hit carries up to `support_limit` passages that mention the entity. `explore` follows the relations of an entity outward.
+
+```python
+from agrag.evidence import explore, find_entities
+
+entities = await find_entities(
+    store, embedder, "Charles Babbage", scope=scope, limit=5
+)
+hit = entities.hits[0]
+for passage in hit.support:
+    print(passage)
+
+graph_view = await explore(store, hit.entity_id, scope=scope, depth=1)
+for edge in graph_view.edges:
+    print(edge)
+```
+
+`explore` walks at most two steps from the entity. An edge is an assertion when a passage in scope supports it, and a path when the relation has no source passage. The result lists the bounds that cut the walk in `truncated_by`.
+
+## Render numbered references
+
+`render_citations` replaces the valid ids in an answer with numbered references and adds a Sources list.
+
+```python
+from agrag.evidence import render_citations
+
+answer = f"The document sets a deadline. [{ids[0]}]"
+rendered, sources = render_citations(answer, [ids[0]], outcomes)
+print(rendered)
+```
+
+Pass only ids that `check_citations` marked valid, together with the fetch outcomes of the same run.
+
+## Related
+
+- Explanation: [Retrieval](../concepts/retrieval.mdx).
+- Explanation: [Agent loop](../concepts/agent-loop.mdx).
+- How-to: [Run the MCP server](./run-the-mcp-server.mdx).
+- Reference: [Evidence API](../api/evidence/index.md).
