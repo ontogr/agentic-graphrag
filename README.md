@@ -90,7 +90,7 @@ See the [features page](https://ontogr.github.io/agentic-graphrag/latest/get-sta
 
 ## Quickstart
 
-In this example you add one document, ask a question about it, and get an answer with numbered sources. You need Python 3.11 or newer, a running Neo4j database, and an LLM endpoint that works with the OpenAI API. See the [quickstart guide](https://ontogr.github.io/agentic-graphrag/latest/get-started/quickstart) for starting Neo4j with Docker or Neo4j Aura.
+In this example you add one document, ask a question about it, and get an answer with numbered sources. You need Python 3.11 or newer, a running Neo4j database, and an OpenAI-compatible LLM endpoint. See the [quickstart guide](https://ontogr.github.io/agentic-graphrag/latest/get-started/quickstart) for starting Neo4j with Docker or Neo4j Aura.
 
 ### 1. Install
 
@@ -112,12 +112,12 @@ Create a file named `.env` in the folder where you will run the example. Replace
 NEO4J_URI=bolt://localhost:7687
 NEO4J_USERNAME=neo4j
 NEO4J_PASSWORD=your-neo4j-password
-AGENT_LLM_BASE_URL=https://api.openai.com/v1
+AGENT_LLM_BASE_URL=https://your-endpoint.example.com/v1
 AGENT_LLM_API_KEY=your-api-key
 AGENT_LLM_MODEL_ID=your-model-id
 ```
 
-Use the address of your own endpoint if you do not use OpenAI. For a Neo4j database on another machine, see [Configuration](https://ontogr.github.io/agentic-graphrag/latest/reference/configuration).
+The last three lines are the address, key, and model of your OpenAI-compatible LLM endpoint. For a Neo4j database on another machine, see [Configuration](https://ontogr.github.io/agentic-graphrag/latest/reference/configuration).
 
 ### 3. Run the example
 
