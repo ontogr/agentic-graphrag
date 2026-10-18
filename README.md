@@ -35,6 +35,13 @@ For example, a contract-review agent can record a recommendation with passages f
 
 Documents, agent work, and decisions live together, so every answer can be traced back to its source.
 
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/ontogr/agentic-graphrag/main/docs/static/img/readme/graph3d-dark.png">
+    <img src="https://raw.githubusercontent.com/ontogr/agentic-graphrag/main/docs/static/img/readme/graph3d.png" alt="Three stacked graph layers. Enterprise knowledge holds documents, sections, chunks and entities. Conversation history holds tasks, events and steps. Decision traces point up to the passages and events they rely on." width="860">
+  </picture>
+</p>
+
 - **Three connected layers.** The first layer holds your documents, with their sections, tables, and passages, and the people, organizations, products, and other entities found in them. The second holds named tasks, the steps agents take, and a log of what happened. The third holds the decisions agents make.
 - **Every passage knows where it came from.** A passage records its document, its place in the document's structure, and the exact version it came from, with page positions for PDFs.
 - **Every relation points to its evidence.** A relation between two entities links to the passages that support it, and a decision links to the text it was based on.
