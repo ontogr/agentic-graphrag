@@ -33,9 +33,9 @@ flowchart TD
 
 Community detection is an explicit, graph-wide operation. `Graph.add` does not run it automatically, because clustering reads the full graph and replaces the previous partition.
 
-When you call `Graph.detect_communities`, Agentic GraphRAG weights each entity relation by the number of source chunks that support it. Unsupported relations weigh zero. Leiden clustering creates a hierarchy, but the graph keeps only the broadest level and groups with at least two entities.
+When you call `Graph.detect_communities`, Agentic GraphRAG weights each entity relation by the number of source chunks that support it. Unsupported relations weigh zero. Leiden clustering creates a hierarchy, but the graph keeps only level 0 of the hierarchy and groups with at least two entities.
 
-For each group, the graph sums its internal relation weights. Groups with a total weight of at least 5 get an LLM report with a title, summary, rating, reason, and findings. Smaller groups get a simple report whose title lists the three top members and whose rating is half the internal weight, capped at 10. If no LLM is available or a call fails, the graph uses the simple report and records the failure.
+For each group, the graph sums its internal relation weights. Groups with a total weight of at least 5 get an LLM report with a title, summary, rating, reason, and findings. Smaller groups get a simple report whose title lists the three top members and whose rating is half the internal weight, capped at 10. If the `llm` extra is not installed, the graph uses the simple report and logs a warning. If an LLM call fails, the graph uses the simple report for that batch and records one failure for each community in it.
 
 The graph embeds each report title and summary for retrieval. Applying the result replaces the previous communities rather than merging two partitions.
 

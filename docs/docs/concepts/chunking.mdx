@@ -33,7 +33,7 @@ flowchart TD
 *The chunker fills a chunk with the units of a section, then starts a new one. A small chunk carries on into the next section.*
 
 1. Pack. The chunker walks the sections in reading order. A unit is a paragraph, list, code block or formula. The chunker adds units to a chunk until the next unit would pass `size` tokens. The default size is 600 tokens.
-2. Split. A unit that is over `size` on its own is cut at paragraph, sentence, clause or word boundaries. The cut keeps the exact text.
+2. Split. A unit that is over `size` on its own is cut at paragraph, sentence, clause or word boundaries.
 3. Merge. When a section ends and the open chunk has fewer than `min_size` tokens, the chunk carries on into the next section. The default `min_size` is a quarter of `size`. The next heading goes into the chunk text, so the text keeps its meaning.
 4. Tables. A table never mixes with text. A table that fits in `size` tokens is one chunk. A larger table becomes row groups. Each group repeats the header row, and the first group starts with the caption.
 
@@ -41,7 +41,7 @@ One `Chunker` serves every format. Each loader maps its source into sections and
 
 ### What a chunk carries
 
-- Location: a chunk from a text source keeps a character range in the normalized document text, and its text is an exact slice of that text. A chunk from a PDF, slide deck or spreadsheet keeps page numbers and a box on each page. A chunk from a Word, HTML or Markdown file has no page spans, because those formats have no pages.
+- Location: a chunk from a text source keeps a character range in the normalized document text. A chunk that holds one piece of the document has the same text as that range, and a chunk that joins several pieces separates them with a blank line. A chunk from a PDF, slide deck or spreadsheet keeps page numbers and a box on each page, including a table that fits in one chunk. A chunk from a Word, HTML or Markdown file has page numbers only when the format has pages.
 - Headings: a chunk keeps the headings above it in `heading_path`.
 - Sections: a chunk lists the sections whose text it holds in `section_ids`. In the graph it sits under the lowest section that holds all of that text. A table chunk sits under its table.
 - Origin: a chunk records the name of the chunker and a fingerprint of its settings.

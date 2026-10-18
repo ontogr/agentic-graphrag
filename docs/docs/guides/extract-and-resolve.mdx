@@ -262,7 +262,7 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
-`Graph.open` has no resolution configuration. Resolution uses the schema, the embedder, and the extractor that you pass to it. Inspect every run through the resolution stats on the returned `AddResult`. A pair that the LLM could not judge stays undecided. It is not a rejection, and it does not merge. Nonzero `failed_llm_requests`, `cap_truncated_pairs`, or `llm_unavailable_pairs` means that some pairs did not receive an LLM verdict. Fix the cause and run `consolidate()` to review them. Zero counts do not guarantee a decision for every pair, because the LLM can still return an uncertain answer. `in_batch_groups` counts only groups with at least two incoming mentions, not singletons or a lone mention joined to persisted candidates.
+`Graph.open` takes one resolution setting, `max_llm_pairs`, which caps the pairs that the LLM reviews for each label. Resolution uses the schema, the embedder, and the extractor that you pass to it. Inspect every run through the resolution stats on the returned `AddResult`. A pair that the LLM could not judge stays undecided. It is not a rejection, and it does not merge. Nonzero `failed_llm_requests`, `cap_truncated_pairs`, or `llm_unavailable_pairs` means that some pairs did not receive an LLM verdict. Fix the cause and run `consolidate()` to review them. Zero counts do not guarantee a decision for every pair, because the LLM can still return an uncertain answer. `in_batch_groups` counts only groups with at least two incoming mentions, not singletons or a lone mention joined to persisted candidates.
 
 ## Consolidate the whole graph
 
@@ -348,6 +348,8 @@ asyncio.run(main())
 There is no automatic trigger. A caller that learns something new calls `reevaluate()` explicitly. An edge in `matches_unverified` remains active because the resolver could not re-check its pair. See [Entity resolution](../concepts/resolution.mdx) for the difference between an undecided pair and a rejection.
 
 `Resolver.resolve()` also takes an optional `neighbors_by_index` map of per-entity neighboring-relationship strings, which batched `LLMVerify` calls send to the model as extra context. `Graph.add()` and `Graph.consolidate()` build one automatically from a batch's extracted relations and each persisted entity's stored graph edges.
+
+To turn off one match, call `await graph.deactivate_match(match_id)`. It deactivates the semantic match and embeds the replacement resolved entities.
 
 ## Define your own schema
 

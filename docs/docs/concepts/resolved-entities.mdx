@@ -43,7 +43,7 @@ sequenceDiagram
 
 Agentic GraphRAG reads members in an order based on their ids and keeps the first value it sees for each property, including the name. This rule makes recomputation from the same stored members repeatable, but it does not select the clearest name. Separate ingests can produce different names because their entity ids can differ.
 
-For the description, Agentic GraphRAG asks an LLM to write one summary of all different descriptions. If no LLM is available, or the call fails, Agentic GraphRAG joins the descriptions with " | " and records the failure. No description is dropped.
+For the description, Agentic GraphRAG asks an LLM to write one summary of all different descriptions. If no LLM is available, or the call fails, Agentic GraphRAG joins the descriptions with " | ". No description is dropped.
 
 ## Example
 

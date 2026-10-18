@@ -118,7 +118,7 @@ Class: `AgentLLMSettings`. Prefix: `AGENT_LLM_`.
 | `AGENT_LLM_API_KEY` | `LLM_API_KEY` | Read by `from_openai_compatible_env()`. |
 | `AGENT_LLM_MODEL_ID` | `LLM_MODEL_ID`, then `gpt-4o-mini` | Read by `from_openai_compatible_env()`. |
 
-The agent builds its chat model from the first client in `AGENT_LLM_CLIENTS`. It supports the providers `anthropic`, `openai`, `openai-generic`, and `google-ai`. The other providers in the client object table below raise `UnsupportedAgentProviderError` when the agent builds its model. Agentic GraphRAG does not retry the agent's own model calls. The retry settings apply to extraction, merging, resolution, and community reports.
+The agent builds its chat model from the first client in `AGENT_LLM_CLIENTS`. It supports the providers `anthropic`, `openai`, `openai-generic`, and `google-ai`. The retry settings apply to extraction, merging, resolution, and community reports.
 
 ### Evaluation judge
 
@@ -172,7 +172,7 @@ Class: `RetrievalSettings`. Prefix: `RETRIEVAL_`.
 | `RETRIEVAL_COMMUNITY_TOP_K` | `5` | Results per community search. |
 | `RETRIEVAL_TRAVERSAL_DEPTH` | `2` | The maximum hops of a graph expansion. |
 | `RETRIEVAL_TRAVERSAL_LIMIT` | `50` | The maximum nodes a graph expansion returns. |
-| `RETRIEVAL_RRF_K` | `60` | The reciprocal-rank-fusion constant of `SearchEngine`. Evidence discovery and entity search in `agrag.evidence` fuse with a fixed constant of `60` and do not read this variable. |
+| `RETRIEVAL_RRF_K` | `60` | The reciprocal-rank-fusion constant of `SearchEngine`. Evidence discovery and entity search in `agrag.evidence` fuse with a fixed constant of `60` and ignore this variable. |
 | `RETRIEVAL_RERANKER_MIN_SCORE` | none | Drop results below this score after reranking. None keeps all. |
 | `RETRIEVAL_NODE_DISTANCE_SEED_TOP_K` | `3` | How many top entity hits seed the node-distance reranker. |
 | `RETRIEVAL_CROSS_ENCODER_MODEL` | `cross-encoder/ms-marco-MiniLM-L-6-v2` | The cross-encoder for reranking. |
@@ -191,7 +191,7 @@ Class: `McpServerSettings`. Prefix: `AGRAG_MCP_`. The `agrag-mcp` server reads t
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `AGRAG_MCP_SCOPE_DOCUMENT_KEYS` | none | Required. A comma-separated list of the document keys the server may read. The server does not start with an empty list. A file document's key is its resolved absolute path. |
+| `AGRAG_MCP_SCOPE_DOCUMENT_KEYS` | none | Required. A comma-separated list with at least one document key that the server may read. A file document's key is its resolved absolute path. |
 | `AGRAG_MCP_READ_ONLY` | `true` | When `true`, the server registers no write tools. Set it to `false` to enable task and decision writes. |
 | `AGRAG_MCP_PROJECT_ID` | none | The project that task and decision tools read and write. Required when `AGRAG_MCP_READ_ONLY` is `false`. |
 | `AGRAG_MCP_AGENT_ID` | none | The author recorded on writes. Required when `AGRAG_MCP_READ_ONLY` is `false`. |

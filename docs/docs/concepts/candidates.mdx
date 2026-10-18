@@ -25,9 +25,9 @@ Review functions list, approve, reject, and prune candidates. Approval returns a
 
 See [Review candidates and grow your schema](../guides/review-candidates.mdx) for the workflow and the [Candidates reference](../reference/candidates.mdx) for API details.
 
-## Agent search
+## Search
 
-Ordinary retrieval excludes candidates. The optional `search_unreviewed_candidates` agent tool searches their text without embeddings. It is off by default, marks results as unreviewed, and cannot cite them as evidence. Scoped agents never receive the tool because candidate search cannot enforce their scope.
+Candidates stay outside ordinary retrieval. Read them with `list_candidates`.
 
 ## Related
 

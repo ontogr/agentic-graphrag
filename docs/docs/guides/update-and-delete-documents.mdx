@@ -208,7 +208,7 @@ What happens to entities:
 
 - An entity that only the old version mentioned is removed after the update or the delete.
 - An entity that the new version also mentions stays.
-- The document node stays, with the hash of its last content.
+- The document node stays. Its current content hash is cleared.
 
 A re-extraction that keeps the chunks works the same way for entities and relations. The document keeps its version, entities that only the old run produced are removed, and entities that the new run also finds stay. A relation loses this document's evidence from the old run, and it is removed when no evidence is left.
 
