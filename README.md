@@ -73,16 +73,20 @@ Agents find passages, read the exact text, and move around a document the way a 
 - **Follow entities back to text.** An agent can look up an entity, see the passages that mention it, and follow its relations a few steps out. Each relation is marked as backed by a passage or as a connection without direct text.
 - **Incomplete results say so.** Every result states when something was cut off or part of the search failed, so an incomplete result is never mistaken for an empty one.
 
-### Pick up a task where it stopped
+### Remember tasks and decisions
 
-Agents can name their work, come back to it later, and keep decisions tied to the evidence behind them.
+The memory layer records an agent's work and decisions as it runs, keeps them current when sources change, and recalls them to inform later decisions.
 
-- **Resume with the full picture.** When a task resumes, the agent sees the goal, the progress so far, and the decisions already made. It reuses finished work that is still valid.
-- **Interrupted work is run again.** A step that was interrupted is marked as unknown so that it can be run again. Repeating a write after a failure never records it twice.
-- **Decisions carry their reasons.** A decision records a conclusion, the reasoning, the assumptions, and the open questions, along with the passages, events, or earlier decisions it relies on.
+<p align="center">
+  <img src="https://raw.githubusercontent.com/ontogr/agentic-graphrag/main/docs/static/img/readme/task-resume.png" alt="The agent records events, steps, and decisions in the memory layer as it works. A decision cites passages, events, and earlier decisions. When a cited document changes, the decision is flagged for review. The agent recalls the task and searches past decisions to inform new ones." width="860">
+</p>
+
+- **Work is recorded as it happens.** The built-in agent saves each message, tool call, and tool result as a task event, and it tracks progress as steps. Repeating a write after a failure never records it twice.
+- **Decisions are saved as traces.** A decision records a conclusion, the reasoning, the assumptions, and the open questions, along with the passages, events, or earlier decisions it relies on.
 - **Source changes flag decisions.** When a document behind a decision is updated or removed, the decision is flagged for review, and so are the decisions that depend on it.
 - **Reviews end in a clear action.** A reviewer can reaffirm a decision after reading the current text, or replace it with a new one that explains the change. The earlier version stays in the history.
-- **Past decisions work as precedent.** Agents can search earlier decisions in the same project.
+- **Tasks resume with the full picture.** When a task resumes, the agent sees the goal, the progress so far, and the decisions already made, including any that need review. It reuses finished work that is still valid, and a step that was interrupted is marked as unknown so that it can be run again.
+- **Past decisions inform new ones.** Agents can search earlier decisions in the same project. The built-in agent's search leaves out decisions that need review, and the agent cannot cite one as support.
 
 ### Use the built-in agent or any MCP client
 
