@@ -2,11 +2,15 @@
 sidebar_position: 3
 ---
 
+import Diagram from '@site/src/components/Diagram';
+
 # Choose an extraction mode
 
 Choose an extraction mode based on where you want models to run and how much text you want an LLM to read. Extraction finds entities and relations in your documents. The graph splits documents into chunks, and the mode controls how each chunk is read.
 
 ## Pick a mode for your workload
+
+<Diagram folder="docs" name="extraction-mode" alt="If you do not need property values or LLM review of the results, use gliner. Otherwise, if you want a local model too, use hybrid, the default. If you do not want to run a local model, use llm." />
 
 | Mode | Choose it when | Tradeoff |
 |---|---|---|

@@ -63,9 +63,9 @@ for warning in result.warnings:
 | Property enum | A `Literal` or an `Enum` |
 | Property required | A field with no default that is not `Optional` |
 | Property description | `Field(description=...)` |
-| Relation label | The field name in upper case |
-| Relation pattern | The class and the type of the field. A list or `Optional` is read through. |
-| Relation `max_per_source` | `1` for a single field. `max_length` for a list field. |
+| Relation label | The field name with non-alphanumeric runs replaced by `_`, leading and trailing `_` removed, then uppercased |
+| Relation pattern | The class and the type of the field. `Optional` and `list`, `set`, `frozenset` or `Sequence` wrappers are read through. |
+| Relation `max_per_source` | `1` for a single field. `max_length` for a collection field. |
 
 A class cannot hold `max_per_target` or `symmetric`. Use a dict, YAML or JSON for those.
 

@@ -1,26 +1,45 @@
 /**
  * Custom brand palette, type, radius, and shadows.
  * Overrides Infima, the CSS framework the classic theme bundles.
+ *
+ * The palette is warm neutrals with an ink primary. Blue is for links. Four tones carry
+ * meaning and match the diagrams: blue for knowledge, green for conversation history,
+ * amber for decisions, and violet for agents. Each tone has a text colour and a tint.
  */
 
 :root {
-  --ifm-color-primary: #1260f7;
-  --ifm-color-primary-dark: #074bcf;
-  --ifm-color-primary-darker: #0642b6;
-  --ifm-color-primary-darkest: #05399e;
-  --ifm-color-primary-light: #4381f9;
-  --ifm-color-primary-lighter: #5c92f9;
-  --ifm-color-primary-lightest: #75a2fa;
+  --agrag-ink: #1f2937;
+  --agrag-on-ink: #ffffff;
+  --agrag-blue: #1d4ed8;
+  --agrag-blue-bg: #eaf0fe;
+  --agrag-green: #047857;
+  --agrag-green-bg: #e6f5ee;
+  --agrag-amber: #b45309;
+  --agrag-amber-bg: #fcf1dd;
+  --agrag-violet: #6d28d9;
+  --agrag-violet-bg: #f0ebfa;
+  --agrag-stone: #57534e;
+  --agrag-stone-bg: #f3f0e9;
+
+  --ifm-color-primary: #1f2937;
+  --ifm-color-primary-dark: #111827;
+  --ifm-color-primary-darker: #0b1220;
+  --ifm-color-primary-darkest: #060a12;
+  --ifm-color-primary-light: #374151;
+  --ifm-color-primary-lighter: #4b5563;
+  --ifm-color-primary-lightest: #6b7280;
+  --ifm-link-color: var(--agrag-blue);
+  --ifm-link-hover-color: #1e40af;
 
   --ifm-background-color: #ffffff;
   --ifm-background-surface-color: #ffffff;
   --ifm-font-color-base: rgba(0, 0, 0, 0.87);
   --ifm-heading-color: rgba(0, 0, 0, 0.87);
   --ifm-color-content-secondary: rgba(0, 0, 0, 0.55);
-  --ifm-toc-border-color: #e4eaf2;
-  --ifm-table-border-color: #e4eaf2;
-  --ifm-hr-border-color: #e4eaf2;
-  --ifm-navbar-shadow: 0 1px 2px rgba(16, 32, 56, 0.04);
+  --ifm-toc-border-color: #e7e3da;
+  --ifm-table-border-color: #e7e3da;
+  --ifm-hr-border-color: #e7e3da;
+  --ifm-navbar-shadow: 0 1px 2px rgba(28, 25, 23, 0.04);
 
   --ifm-font-family-base: "Inter", -apple-system, BlinkMacSystemFont, Helvetica, Arial,
     sans-serif;
@@ -29,10 +48,10 @@
   --ifm-heading-font-weight: 700;
   --ifm-code-font-size: 95%;
   --ifm-global-radius: 7px;
-  --ifm-global-shadow-lw: 0 1px 2px rgba(16, 32, 56, 0.04), 0 8px 24px rgba(16, 32, 56, 0.06);
-  --ifm-global-shadow-md: 0 2px 4px rgba(16, 32, 56, 0.05), 0 24px 60px rgba(16, 32, 56, 0.12);
+  --ifm-global-shadow-lw: 0 1px 2px rgba(28, 25, 23, 0.04), 0 8px 24px rgba(28, 25, 23, 0.06);
+  --ifm-global-shadow-md: 0 2px 4px rgba(28, 25, 23, 0.05), 0 24px 60px rgba(28, 25, 23, 0.12);
   --ifm-global-shadow-tl: var(--ifm-global-shadow-md);
-  --docusaurus-highlighted-code-line-bg: rgba(18, 96, 247, 0.08);
+  --docusaurus-highlighted-code-line-bg: rgba(87, 83, 78, 0.1);
 }
 
 /* Inter reads best with slightly tight tracking, as in the Docling docs. */
@@ -53,10 +72,10 @@ h2 {
   --ifm-navbar-padding-horizontal: 1.5rem;
   --ifm-navbar-shadow: none;
   --ifm-navbar-background-color: rgba(255, 255, 255, 0.92);
-  --agrag-border: #e0e0e0;
-  --agrag-border-strong: #c6c6c6;
-  --ifm-menu-color-active: var(--ifm-color-primary);
-  --ifm-menu-color-background-active: rgba(18, 96, 247, 0.08);
+  --agrag-border: #e4e0d6;
+  --agrag-border-strong: #cbc6b9;
+  --ifm-menu-color-active: var(--ifm-font-color-base);
+  --ifm-menu-color-background-active: var(--agrag-stone-bg);
 }
 
 .navbar {
@@ -178,29 +197,13 @@ h2 {
   display: none;
 }
 
-.navbar__items--right > .navbar-cta {
-  align-self: center;
-  margin-left: 0.5rem;
-  padding: 0.4rem 1rem;
-  border: 0;
-  border-radius: 6px;
-  background: var(--ifm-color-primary);
-  color: #fff;
-  font-size: 0.8rem;
-  font-weight: 600;
-  letter-spacing: 0.04em;
+/* The PyPI mark keeps the blue of its logo. */
+.navbar__items--right > .navbar-icon.navbar-icon--pypi {
+  color: #3775a9;
 }
 
-.navbar__items--right > .navbar-cta:hover,
-.navbar__items--right > .navbar-cta.navbar__link--active {
-  border: 0;
-  background: var(--ifm-color-primary-dark);
-  color: #fff;
-  font-weight: 600;
-}
-
-.navbar-cta::after {
-  display: none;
+[data-theme="dark"] .navbar__items--right > .navbar-icon.navbar-icon--pypi {
+  color: #6aa9d9;
 }
 
 /* The version selector is a pill with a chevron. The bold-copy trick above would hide
@@ -240,41 +243,56 @@ h2 {
 }
 
 [data-theme="dark"] {
-  --ifm-color-primary: #5aa4ff;
-  --ifm-color-primary-dark: #2788ff;
-  --ifm-color-primary-darker: #0e7aff;
-  --ifm-color-primary-darkest: #006df3;
-  --ifm-color-primary-light: #8dc0ff;
-  --ifm-color-primary-lighter: #a7ceff;
-  --ifm-color-primary-lightest: #c0dcff;
+  --agrag-ink: #e5e7eb;
+  --agrag-on-ink: #111827;
+  --agrag-blue: #7aa7ff;
+  --agrag-blue-bg: rgba(59, 130, 246, 0.14);
+  --agrag-green: #34d399;
+  --agrag-green-bg: rgba(16, 185, 129, 0.13);
+  --agrag-amber: #fbbf24;
+  --agrag-amber-bg: rgba(245, 158, 11, 0.13);
+  --agrag-violet: #b79cff;
+  --agrag-violet-bg: rgba(139, 92, 246, 0.15);
+  --agrag-stone: #d6d3d1;
+  --agrag-stone-bg: rgba(255, 255, 255, 0.07);
 
-  --ifm-navbar-background-color: rgba(10, 22, 38, 0.85);
-  --agrag-border: #223d5e;
-  --agrag-border-strong: #35557d;
-  --ifm-menu-color-background-active: rgba(90, 164, 255, 0.15);
+  --ifm-color-primary: #e5e7eb;
+  --ifm-color-primary-dark: #d1d5db;
+  --ifm-color-primary-darker: #c4c8cf;
+  --ifm-color-primary-darkest: #9ca3af;
+  --ifm-color-primary-light: #f3f4f6;
+  --ifm-color-primary-lighter: #f9fafb;
+  --ifm-color-primary-lightest: #ffffff;
+  --ifm-link-color: var(--agrag-blue);
+  --ifm-link-hover-color: #a7c4ff;
 
-  --ifm-background-color: #0a1626;
-  --ifm-background-surface-color: #13263e;
-  --ifm-font-color-base: #e9f2fd;
-  --ifm-heading-color: #e9f2fd;
-  --ifm-color-content-secondary: #a3b8d0;
-  --ifm-toc-border-color: #223d5e;
-  --ifm-table-border-color: #223d5e;
-  --ifm-hr-border-color: #223d5e;
+  --ifm-navbar-background-color: rgba(15, 17, 21, 0.85);
+  --agrag-border: #2a2e36;
+  --agrag-border-strong: #3a404b;
+  --ifm-menu-color-background-active: var(--agrag-stone-bg);
 
-  --docusaurus-highlighted-code-line-bg: rgba(90, 164, 255, 0.15);
+  --ifm-background-color: #0f1115;
+  --ifm-background-surface-color: #171a20;
+  --ifm-font-color-base: #eceef2;
+  --ifm-heading-color: #eceef2;
+  --ifm-color-content-secondary: #a1a8b5;
+  --ifm-toc-border-color: #2a2e36;
+  --ifm-table-border-color: #2a2e36;
+  --ifm-hr-border-color: #2a2e36;
+
+  --docusaurus-highlighted-code-line-bg: rgba(255, 255, 255, 0.08);
 }
 
 /* Mermaid: the built-in neutral and dark themes set text and line contrast in each
-   colour mode. These rules tint only the node shapes with the brand palette. */
+   colour mode. These rules tint only the node shapes with the stone surface. */
 :root {
-  --agrag-diagram-node-fill: #e8effe;
-  --agrag-diagram-node-stroke: #1260f7;
+  --agrag-diagram-node-fill: var(--agrag-stone-bg);
+  --agrag-diagram-node-stroke: #78716c;
 }
 
 [data-theme="dark"] {
-  --agrag-diagram-node-fill: #13263e;
-  --agrag-diagram-node-stroke: #5aa4ff;
+  --agrag-diagram-node-fill: #171a20;
+  --agrag-diagram-node-stroke: #8b93a1;
 }
 
 .docusaurus-mermaid-container svg .node rect,
@@ -288,6 +306,11 @@ h2 {
   stroke: var(--agrag-diagram-node-stroke) !important;
 }
 
+.docusaurus-mermaid-container svg .cluster rect {
+  fill: var(--agrag-stone-bg) !important;
+  stroke: var(--agrag-border-strong) !important;
+}
+
 /* Edge labels sit on the page background in both colour modes. */
 .docusaurus-mermaid-container svg .edgeLabel,
 .docusaurus-mermaid-container svg .edgeLabel p,
@@ -298,13 +321,13 @@ h2 {
 }
 
 /* Collapsible sections. Docusaurus renders <details> as an "alert" block. The look
-   follows the Docling docs: a light blue box with no border, a bold summary with an
+   follows the Docling docs: a stone box with no border, a bold summary with an
    icon on the left, and a chevron on the right that turns when the box opens. */
 details.alert {
-  --ifm-alert-background-color: rgba(68, 138, 255, 0.1);
+  --ifm-alert-background-color: var(--agrag-stone-bg);
   --ifm-alert-border-color: transparent;
   --ifm-alert-foreground-color: var(--ifm-font-color-base);
-  --agrag-details-accent: #448aff;
+  --agrag-details-accent: var(--agrag-stone);
   --agrag-details-icon: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' stroke='currentColor' stroke-linecap='round' stroke-linejoin='round' stroke-width='2' viewBox='0 0 24 24'%3E%3Cpath d='m16 6-8.414 8.586a2 2 0 0 0 2.829 2.829l8.414-8.586a4 4 0 1 0-5.657-5.657l-8.379 8.551a6 6 0 1 0 8.485 8.485l8.379-8.551'/%3E%3C/svg%3E");
   --agrag-details-chevron: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' stroke='currentColor' stroke-linecap='round' stroke-linejoin='round' stroke-width='2' viewBox='0 0 24 24'%3E%3Cpath d='m9 18 6-6-6-6'/%3E%3C/svg%3E");
   display: flow-root;
@@ -381,21 +404,45 @@ details.alert [class*="collapsibleContent"] > :last-child {
 /* Infima tints inline code in an alert through this variable. Keep a plain grey chip,
    as the Docling docs do. */
 details.alert {
-  --ifm-code-background: #f5f5f5;
+  --ifm-code-background: rgba(28, 25, 23, 0.07);
 }
 
 [data-theme="dark"] details.alert {
   --ifm-code-background: rgba(255, 255, 255, 0.1);
 }
 
+/* Admonitions take the tones of the palette: note is stone, info is blue, tip is green,
+   warning and the unreleased-version banner are amber. Danger keeps Infima's red. */
+.alert--secondary,
+.alert--info,
+.alert--success,
+.alert--warning {
+  --ifm-alert-foreground-color: var(--ifm-font-color-base);
+}
+
+.alert--secondary {
+  --ifm-alert-background-color: var(--agrag-stone-bg);
+  --ifm-alert-border-color: var(--agrag-stone);
+}
+
+.alert--info {
+  --ifm-alert-background-color: var(--agrag-blue-bg);
+  --ifm-alert-border-color: var(--agrag-blue);
+}
+
+.alert--success {
+  --ifm-alert-background-color: var(--agrag-green-bg);
+  --ifm-alert-border-color: var(--agrag-green);
+}
+
+.alert--warning {
+  --ifm-alert-background-color: var(--agrag-amber-bg);
+  --ifm-alert-border-color: var(--agrag-amber);
+}
+
 /* A category's own landing page opens from the category link, so it is not listed twice. */
 .menu__list-item.agrag-hidden {
   display: none;
-}
-
-[data-theme="dark"] .navbar__items--right > .navbar-cta,
-[data-theme="dark"] .navbar__items--right > .navbar-cta:hover {
-  color: #0a1626;
 }
 
 /* Docs pages: the active sidebar link is a tinted pill, and the table of contents

@@ -8,7 +8,7 @@ sidebar_class_name: agrag-hidden
 
 This page lists the objects that most programs use. Each row gives the import line and links to the full reference for that package.
 
-The top-level `agrag` package exports nothing. Import each name from the package in the table.
+The top-level `agrag` package exports only `__version__`. Import each other name from the package in the table.
 
 ## Entry points
 
@@ -21,21 +21,21 @@ The top-level `agrag` package exports nothing. Import each name from the package
 | Extractors | `from agrag.ingestion import GlinerExtractor, BAMLExtractor` | Read one chunk and return entities and relations. GLiNER runs locally. BAML calls an LLM. `Graph` selects extractors by mode and can build an LLM extractor from environment settings. See [Choose an extraction mode](../guides/choose-an-extraction-mode.mdx). |
 | `ErrorPolicy` | `from agrag.loaders import ErrorPolicy` | The action for a source that fails: `RAISE`, `SKIP`, or `QUARANTINE`. See [agrag.loaders](loaders/index.md). |
 | `SearchEngine`, `RetrievalSettings` | `from agrag.retrieval import SearchEngine, RetrievalSettings` | Runs retrieval recipes over the graph. See [agrag.retrieval](retrieval/index.md). |
-| `source_status` | `from agrag.evidence import source_status` | Reports a document's current, pending, failed, deleted, or unknown state, its activation and version, active job lease, and discovery index population. |
+| Evidence functions | `from agrag.evidence import discover, fetch, navigate, find_entities, explore, check_citations, render_citations, source_status` | Find passages, fetch the exact text behind an evidence id, move between passages, find entities, and check citations. `source_status` reports a document's current, pending, failed, deleted, or unknown state. See [agrag.evidence](evidence/index.md). |
+| `TaskMemory`, `DecisionMemory` | `from agrag.memory import TaskMemory, DecisionMemory` | Record task events and steps, and record, replace, review, and search decisions. See [agrag.memory](memory/index.md). |
 | `build_agent` | `from agrag.agents import build_agent` | Builds the task-scoped evidence agent. Accessing it needs the `agents` extra. See [agrag.agents](agents/index.md). |
 | `get_tracer` | `from agrag.observability import get_tracer` | Returns the tracer you pass, or a no-op tracer. See [agrag.observability](observability/index.md). |
 
 ## Tracing
 
-Every component takes an OpenTelemetry `Tracer` in a `tracer=` argument. When you pass `None`, the component records no spans.
+Components that record spans accept an OpenTelemetry `Tracer` in a `tracer=` argument. `None` uses a no-op tracer, so the component records no spans. Components do not all expose tracing.
 
 ## Results and settings
 
 | Object | Import | Role |
 | --- | --- | --- |
 | `AddResult` | `from agrag.ingestion import AddResult` | The counts and failures that `Graph.add` returns. |
-| `AgentRunResult` | `from agrag.agents import AgentRunResult` | The messages and the citation ledger that an agent run returns. |
-| `Ledger` | `from agrag.agents import Ledger` | Maps citation keys such as `E1` and `C3` to the evidence behind them. |
+| `AgentRunResult` | `from agrag.agents import AgentRunResult` | What an agent run returns: the answer with numbered sources, the status, the validated citations, the invalid citations, any recording failures, the task name with its last event number, and the messages. |
 | `AgentLLMSettings` | `from agrag.agents import AgentLLMSettings` | The LLM clients that the agent uses. |
 | `SearchFilters` | `from agrag.retrieval import SearchFilters` | Limits a search to labels, documents, or properties. |
 

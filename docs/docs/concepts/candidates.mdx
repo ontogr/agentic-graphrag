@@ -3,15 +3,19 @@ title: Candidates
 description: Extraction items that do not fit the current schema.
 ---
 
+import Diagram from '@site/src/components/Diagram';
+
 # Candidates
 
 Candidates preserve extraction results that do not qualify as trusted graph facts. A result can miss a confidence threshold, fall outside the schema, or refer to an unresolved endpoint. Keeping it separate lets you review useful schema gaps without allowing unreviewed data into ordinary entity search or graph traversal.
+
+<Diagram folder="docs" name="candidates" alt="An extraction result that misses a threshold or falls outside the schema is saved as a pending candidate. You approve or reject it. Approval returns a schema patch that you apply. Conversion then turns the approved candidate into an entity, a relation, or a property. A rejected candidate stays, so later runs do not create it again." />
 
 Each candidate records its kind, label, confidence, rejection reason, and source chunk. An `EVIDENCED_BY` edge links it to the source chunk. Relation candidates link to resolved endpoints through `SOURCE` and `TARGET`. Property candidates link to their entity through `SOURCE`. An unresolved endpoint retains its text without an entity link.
 
 Equal candidates in one document run become one record. Its `count` records the number of sightings in that run, and its confidence is the highest score. The record retains one source chunk. Candidate IDs change when a document is re-extracted. The content `key` groups equal candidates across runs.
 
-Candidate lists group records by content key and review state. Their displayed counts reflect repeated sightings within each run, not the number of times a person reviewed a candidate.
+Candidate lists group records by content key and review state. A group's count adds the sighting counts from its records across runs. Review actions do not increase it.
 
 ## Document changes
 
@@ -25,9 +29,9 @@ Review functions list, approve, reject, and prune candidates. Approval returns a
 
 See [Review candidates and grow your schema](../guides/review-candidates.mdx) for the workflow and the [Candidates reference](../reference/candidates.mdx) for API details.
 
-## Agent search
+## Search
 
-Ordinary retrieval excludes candidates. The optional `search_unreviewed_candidates` agent tool searches their text without embeddings. It is off by default, marks results as unreviewed, and cannot cite them as evidence. Scoped agents never receive the tool because candidate search cannot enforce their scope.
+Candidates stay outside ordinary retrieval. Read them with `list_candidates`.
 
 ## Related
 

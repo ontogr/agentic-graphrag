@@ -13,7 +13,7 @@ For how the pipeline works, see [Ingestion pipeline](../concepts/ingestion.mdx).
 
 This guide assumes that you finished the [Quickstart](../get-started/quickstart.mdx): you have a Neo4j database, its `NEO4J_*` variables in a `.env` file, and the `neo4j` and `extract` extras installed. Each code block on this page is complete. It opens its own graph and closes it at the end.
 
-Markdown, HTML, AsciiDoc, Word, PowerPoint, and Excel files need no extra. For PDF and image support, install the docling extra. The first PDF downloads about 500 MB of models:
+Markdown, HTML, AsciiDoc, Word, PowerPoint, and Excel files need no extra. For PDF and image support, install the docling extra:
 
 ```bash
 uv pip install "agentic-graphrag[docling]"
@@ -58,7 +58,7 @@ asyncio.run(main())
 
 ## Add many files
 
-Add a directory, a glob, or a list of paths the same way:
+Add a directory, a glob, or a list of paths the same way. The error policy decides what happens to a file whose extension no loader reads. Pass `error_policy=ErrorPolicy.SKIP` to skip such files, as shown under [Handle errors per source](#handle-errors-per-source):
 
 ```python
 import asyncio
@@ -85,7 +85,7 @@ async def main() -> None:
             root = Path(folder)
             (root / "a.txt").write_text("Charles Babbage designed the Analytical Engine.")
             (root / "b.md").write_text("# Engine\n\nThe engine was never finished.")
-            result = await graph.add(source=folder)  # every supported file
+            result = await graph.add(source=folder)  # every file in the folder
             print(result.ingestion.documents)
             result = await graph.add(source=f"{folder}/**/*.md")  # glob pattern
             print(result.ingestion.documents)
@@ -190,7 +190,7 @@ For most callers, `source=` or `text=` is simpler. Use `documents=` when you alr
 
 ## Choose how documents are chunked
 
-`Graph.open` takes a `chunking` argument that decides which chunker splits each document. Loaders also normalize the text of each file. They remove the byte-order mark, change line endings to LF, and apply NFKC. Pass `read_options=ReadOptions(normalization=...)` to `Graph.add` to change this. PDF and Office documents chunk at up to 1024 tokens by default. See [Configure chunking](./configure-chunking.mdx) for both.
+`Graph.open` takes a `chunker` argument that decides how each document is split. Loaders also normalize the text of each file. They remove the byte-order mark, change line endings to LF, and apply NFKC. Pass `read_options=ReadOptions(normalization=...)` to `Graph.add` to change this. PDF and Office documents chunk at up to 1024 tokens by default. See [Configure chunking](./configure-chunking.mdx) for both.
 
 ## Add a chat file
 
@@ -201,7 +201,7 @@ For most callers, `source=` or `text=` is simpler. Use `documents=` when you alr
 {"role": "assistant", "content": "Hello! How can I help?", "id": 2}
 ```
 
-The document text has one `[role] content` block for each message, with a blank line between blocks. `Document.turns` records the role, the id, and the character span of each block. Pass the loader for one file:
+The document text has one `[role] content` block for each message, with a blank line between blocks. Each message is a section at depth 1. The role is the heading of the section. Pass the loader for one file:
 
 ```python
 import asyncio
@@ -284,7 +284,7 @@ asyncio.run(main())
 - `ErrorPolicy.SKIP` drops the failing source and continues.
 - `ErrorPolicy.QUARANTINE` sets the failing source aside and continues.
 
-With `SKIP` or `QUARANTINE`, the walk buffers one source's documents until its loader finishes successfully. A malformed row therefore discards the whole source, even after enough rows to fill a batch. Successful sources still yield bounded batches with resume cursors. Buffering uses memory proportional to the documents in one source; `RAISE` keeps streaming batches as they fill.
+With `SKIP` or `QUARANTINE`, the walk buffers one source's documents until its loader finishes successfully. A malformed row therefore discards the whole source, even after enough rows to fill a batch. Successful sources still yield bounded batches. Buffering uses memory in proportion to the documents in one source, while `RAISE` streams batches as they fill.
 
 Read the outcome from the returned `AddResult`:
 

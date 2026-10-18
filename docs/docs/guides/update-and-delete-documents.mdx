@@ -3,13 +3,17 @@ title: Update and delete documents
 description: Replace a changed document, remove a document from search, and see what stays in the graph.
 ---
 
+import Diagram from '@site/src/components/Diagram';
+
 # Update and delete documents
 
 Use `Graph.update` to replace a document that changed. Use `Graph.delete_document` to remove a document from search. Both work on a document key, which is the identity of a document across edits.
 
+<Diagram folder="docs" name="document-lifecycle" alt="Graph.add makes a document searchable. Graph.update closes the links of the old version and makes the new version searchable, while old evidence ids stay readable as superseded. Graph.delete_document removes the document from search and keeps its text and history. Graph.purge_document removes the text of every version, so old evidence ids become unavailable. Update, delete, and purge flag the decisions that cite the document." />
+
 ## Before you start
 
-1. Run Neo4j 5.23 or newer, and set `NEO4J_URI`, `NEO4J_USERNAME` and `NEO4J_PASSWORD`. The [Quickstart](../get-started/quickstart.mdx) shows how.
+1. Run Neo4j, and set `NEO4J_URI`, `NEO4J_USERNAME` and `NEO4J_PASSWORD`. The [Quickstart](../get-started/quickstart.mdx) shows how.
 2. Install the extras that the example uses:
 
    ```bash
@@ -208,7 +212,7 @@ What happens to entities:
 
 - An entity that only the old version mentioned is removed after the update or the delete.
 - An entity that the new version also mentions stays.
-- The document node stays, with the hash of its last content.
+- The document node stays. Its current content hash is cleared.
 
 A re-extraction that keeps the chunks works the same way for entities and relations. The document keeps its version, entities that only the old run produced are removed, and entities that the new run also finds stay. A relation loses this document's evidence from the old run, and it is removed when no evidence is left.
 

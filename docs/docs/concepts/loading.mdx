@@ -4,36 +4,25 @@ title: Loading documents
 description: How Agentic GraphRAG picks a loader for each source and what a loader gives back.
 ---
 
+import Diagram from '@site/src/components/Diagram';
+
 # Loading documents
 
-A loader converts a source into documents with normalized text, identity, and structure. The loader registry usually selects a parser by extension, while record formats can produce one document per row or record.
+A loader converts a source into documents with text, identity, and structure. Text and record loaders normalize decoded text. Docling loaders use the structure returned by Docling. The loader registry selects a default parser by extension, while record formats can produce one document per row or record.
 
 ## Why it exists
 
-Later ingestion stages need a consistent document model, even when sources differ. The loader preserves useful structure such as headings and tables while recording a stable identity for updates. Parser choice affects that identity and the source locations available to citations.
+Later ingestion stages need a consistent document model, even when sources differ. The loader preserves useful structure such as headings and tables. A document's key identifies it for updates; parser choice can change its text and the source locations available to citations.
 
 ## How it works
 
-```mermaid
-flowchart TD
-    A[Source] --> B{Loader given?}
-    B -- Yes --> E[Use that loader]
-    B -- No --> C[Find loader by extension]
-    C --> D{Found and installed?}
-    D -- Yes --> E
-    D -- No --> F{Error policy}
-    F -- RAISE --> G[Stop the run]
-    F -- SKIP --> H[Drop and count]
-    F -- QUARANTINE --> I[Set aside with reason]
-    E --> J[Read and normalize text]
-    J --> K[Document]
-```
+<Diagram folder="docs" name="loading" alt="A source uses the loader you pass in. Without one, Agentic GraphRAG looks up the loader for the file extension. If no loader is found, an optional extra is missing, or an eligible source read fails, the error policy applies: RAISE stops the run, SKIP drops and counts the source, and QUARANTINE records the failure. A missing import from a base parser is an installation error, not a source error." />
 
 *The loader comes from you or from the extension. A source that fails follows the error policy.*
 
-1. Pick. You can pass a loader for a single file. Otherwise Agentic GraphRAG looks up the extension. When two loaders claim an extension, the preferred one wins. If that loader needs a package that is not installed, Agentic GraphRAG uses another loader for the extension when one exists. If none exists, the source fails with a missing-package error.
-2. Read. The loader detects the text encoding. It removes the byte-order mark, changes line endings to LF, and applies Unicode form NFKC. You can change each of these values.
-3. Build. The loader makes a document. A document holds the text, the source location, the format, a content hash, the loader name and its sections. A section holds a heading, its depth and the units of content under it: paragraphs, lists, tables and figures.
+1. Pick. You can pass a loader for a single file. Otherwise Agentic GraphRAG looks up the extension in its registry, which maps each extension to one loader. A missing optional extra is reported as a missing-extra error. A missing import from a base parser is an installation error and is not handled as a source error by the error policy.
+2. Read. Text and record loaders detect the text encoding. They remove a byte-order mark, change line endings to LF, and apply Unicode form NFKC by default. `ReadOptions.normalization` can change each setting. Docling loaders parse the source through Docling instead of this text-decoding pipeline.
+3. Build. The loader makes a document. A document holds the text, the source location, the format, a content hash, the loader name and its sections. A section holds a heading, its depth and the units of content under it: paragraphs, lists, code, formulas, footnotes, tables and figures when the parser supplies them.
 
 ### Prose and record sources
 
@@ -56,11 +45,11 @@ A prose source makes one document for each file. A record source makes one docum
 | JSON | `.json` | Core, one document per array element, or one for an object |
 | Chat files | `.jsonl`, `.ndjson`, `.json` | Chat loader, passed by you, one section per message |
 
-Docling reads Markdown, HTML, AsciiDoc, Word, PowerPoint and Excel files without a model, and the base install includes it. PDF and image files need the layout and table models, which the `docling` extra installs. The first PDF you add downloads about 500 MB of models. Docling does not read CSV files, because a CSV row needs its own identity. The chat loader has no extension of its own, because `.jsonl` and `.json` already belong to the record loaders. You pass it for a single file.
+The base install includes `docling-slim` for Markdown, HTML, AsciiDoc, Word, PowerPoint and Excel files; these formats need no model. PDF and image files need the full `docling` package and its layout and table models, installed by the `docling` extra. Agentic GraphRAG routes CSV and TSV to the core loader, which can make one document per row or one prose document for the whole source. The chat loader uses `.jsonl`, `.ndjson` and `.json`, but is not registered by default because the record loaders already claim those extensions. Pass it for a single file.
 
 ### Sections
 
-A section is a heading and the content under it. A PDF gets its heading depth from its bookmarks. A PDF without bookmarks gets it from numbered headings, such as "3.2 Results", but only when it has at least three headings and at least half are numbered; otherwise its headings stay at depth 1. A document with no headings has one section with an empty heading. A record row has no sections. A file in Markdown, HTML or Word has no page numbers, so its chunks have no page spans.
+A section is a heading and the content under it. A PDF gets heading depth from its outline when Docling reports it. Without outline depths, Agentic GraphRAG reads dotted heading numbers such as "3.2 Results" only when Docling reports every heading at depth 1, the document has at least three headings, and at least half are numbered. Otherwise it keeps the heading depths reported by Docling. A nonblank prose document with stored text and no headings has one section with an empty heading. A record row has no sections. Chunks have page spans only when the loader supplies page provenance.
 
 ## Example
 
@@ -69,13 +58,13 @@ You add `report.pdf` and `notes.md` in one call. The registry sends both files t
 <details>
 <summary>Design choices</summary>
 
-Why does a document hash depend on the loader? A text loader hashes the decoded text. A docling loader hashes the raw file bytes, because docling can parse the same file differently between versions or machines. A raw hash keeps the identity stable.
+Why does a document keep two hashes? The content hash is the hash of the document text, and it decides whether a document changed. A Docling document also records `source_hash`, the hash of the raw file bytes. Because Docling can export the same file as different text between versions, a Docling upgrade can change the content hash of an unchanged file and create a new version of it.
 
-Why do offsets point into the normalized text? Every chunk offset counts characters in the text after normalization. If you need offsets in the raw source, choose no normalization.
+Why do offsets point into the normalized text? Every chunk offset counts characters in the text after normalization. If you need offsets that match the raw source, keep the text as it is with `Normalization(bom="keep", newline="keep", unicode_form="none")`.
 
-Why does the registry prefer a format-specific loader? Different parsers preserve different structure. Docling reads AsciiDoc, Markdown, and HTML structure, while the core CSV loader gives each row its own identity. Choosing by extension and declared preference avoids treating every installed parser as an equally good fit.
+Why does each extension have its own loader? Different parsers preserve different structure. Docling reads AsciiDoc, Markdown, and HTML structure, while the core CSV loader gives each row its own identity. Choosing by extension avoids treating every installed parser as an equally good fit.
 
-Why is docling an extra? Optional formats ship behind extras. A text-only install stays small.
+Why do PDF and image files need the `docling` extra? The base install includes `docling-slim` for the other listed document formats. The full `docling` package supplies the models used to parse PDF and image files.
 
 </details>
 
