@@ -217,14 +217,10 @@ We welcome bug fixes, new features, documentation improvements, and other contri
 
 Agentic GraphRAG builds on the work behind these papers and projects.
 
-- [Microsoft GraphRAG](https://arxiv.org/abs/2404.16130) for hierarchical communities and community reports
 - [Graphiti](https://github.com/getzep/graphiti) for layered graph search and entity-aware retrieval
 - [Cognee](https://github.com/topoteretes/cognee) for data pipelines, graph memory, and consolidation
-- [KG-Gen](https://github.com/stair-lab/kg-gen) for knowledge-graph extraction and alias deduplication
 - [FalkorDB GraphRAG SDK](https://github.com/FalkorDB/GraphRAG-SDK) for graph-native retrieval and entity resolution
 - [Neo4j GraphRAG](https://github.com/neo4j/neo4j-graphrag-python) for Neo4j retrieval and vector integration
-- [LightRAG](https://github.com/HKUDS/LightRAG) for graph and vector retrieval
-- [PathRAG](https://github.com/BUPT-GAMMA/PathRAG) for relational-path retrieval
 - [GLiNER](https://arxiv.org/abs/2311.08526) for generalist zero-shot information extraction
 - [BAML](https://boundaryml.com/), [Docling](https://github.com/docling-project/docling), and [Chonkie](https://github.com/chonkie-inc/chonkie) for typed LLM calls, document parsing, and chunk splitting
 
