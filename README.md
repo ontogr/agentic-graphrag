@@ -94,12 +94,12 @@ In this example you add one document, ask a question about it, and get an answer
 
 ### 1. Install
 
-Install the latest version from GitHub into a fresh virtual environment:
+Install the package from PyPI into a fresh virtual environment:
 
 ```bash
 uv venv
 source .venv/bin/activate
-uv pip install "agentic-graphrag[neo4j,extract,agents] @ git+https://github.com/ontogr/agentic-graphrag.git@main" --torch-backend=auto
+uv pip install "agentic-graphrag[neo4j,extract,agents]" --torch-backend=auto
 ```
 
 See [Installation](https://ontogr.github.io/agentic-graphrag/latest/get-started/installation) for other package managers and the optional parts you can add.
@@ -189,7 +189,7 @@ Run `agrag-mcp` to give any MCP client tools that search your documents, read ex
 Install the server in the same virtual environment as before:
 
 ```bash
-uv pip install "agentic-graphrag[neo4j,mcp] @ git+https://github.com/ontogr/agentic-graphrag.git@main"
+uv pip install "agentic-graphrag[neo4j,mcp]"
 ```
 
 Then add the server to your MCP client. Replace the document path with the full path of a file you added to the graph.
