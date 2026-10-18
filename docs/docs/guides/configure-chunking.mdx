@@ -29,7 +29,7 @@ print(chunker.fingerprint)
 | `splitter` | `chonkie-<installed version>` | The version of the installed splitter package that cuts text. The value depends on your environment. |
 | `tables` | `1` | The version of the table rendering rules. |
 
-`size` and `min_size` count the text of the units. The blank lines that join units are not counted, so a chunk can pass `size` by a few tokens. `min_size` must be smaller than `size`.
+`size` and `min_size` count the tokens of each unit plus the blank lines that join them. The chunker adds those counts, so a chunk can hold a few tokens more than `size`. `min_size` must be smaller than `size`, and `min_size=0` turns merging off.
 
 ## Set the size
 
@@ -137,8 +137,8 @@ for size in (50, 200):
 
 ## Chat and record files
 
-A chat file has one section for each message. Short neighbouring messages can share a chunk, and a long message is cut at sentence boundaries. A record row has no sections and is one chunk. A row that is over `size` is cut at sentence boundaries.
+A chat file has one section for each message. Pass `loader=ChatLoader()` for a single chat file, because no extension selects the chat loader. Short neighbouring messages can share a chunk, and a long message is cut at sentence boundaries. A record row has no sections and is one chunk. A row that is over `size` is cut at sentence boundaries.
 
 ## Tables
 
-A table that fits in `size` tokens is one chunk. A larger table becomes row groups, and each group starts with the header row. A row that is over `size` on its own becomes its own group.
+A table that fits in `size` tokens is one chunk. A larger table becomes row groups, and each group starts with the header row. A row that is over `size` on its own becomes its own group with the header row.

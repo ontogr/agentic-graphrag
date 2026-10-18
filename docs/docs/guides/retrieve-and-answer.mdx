@@ -17,7 +17,7 @@ pip install 'agentic-graphrag[neo4j,extract]'
 pip install 'agentic-graphrag[agents]'
 ```
 
-Each code block on this page is complete. It opens a graph with `DEFAULT_SCHEMA`, adds two sentences, and closes the graph at the end. The agent examples read `LLM_BASE_URL`, `LLM_MODEL_ID`, and `LLM_API_KEY` from the environment or from `.env`.
+Each code block on this page is complete. It opens a graph with `DEFAULT_SCHEMA`, adds two sentences, and closes the graph at the end. The agent examples read `AGENT_LLM_BASE_URL`, `AGENT_LLM_MODEL_ID`, and `AGENT_LLM_API_KEY`, and fall back to `LLM_BASE_URL`, `LLM_MODEL_ID`, and `LLM_API_KEY`, from the environment or from `.env`. The default model id is `gpt-4o-mini`.
 
 ## Search directly
 
@@ -130,7 +130,7 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
-The result contains the answer, fetched evidence, citation validation, and task event sequence. The agent stores task state under the supplied `project_id`, `agent_id`, and `task_name`.
+The result has the `answer`, a `status` that says whether the agent answered or reached a limit, the `citations` it fetched, the `invalid_citations`, any `recording_failures`, the `task` name with its last event number, and the `messages`. See [Agent loop](../concepts/agent-loop.mdx#result-status) for the statuses. The agent stores task state under the supplied `project_id`, `agent_id`, and `task_name`.
 
 Render `result["answer"]` with your application's Markdown renderer to show clickable HTTP(S) source references. The example uses an inline source URI, so its references are readable text rather than links. Keep `result["citations"]` for canonical evidence IDs and fetched passage text.
 
@@ -205,8 +205,8 @@ Set the scope when your application builds the agent. The tools enforce the
 scope. The model cannot see or change it.
 
 Use the standalone `SearchEngine` API for recipes and graph retrieval methods.
-The task-scoped agent uses evidence discovery and fetch operations rather than
-the legacy retrieval tools described in earlier releases.
+The task-scoped agent uses evidence discovery and fetch operations. To call
+them from your own code, see [Find and cite evidence](./find-and-cite-evidence.mdx).
 
 ## Available recipes
 
@@ -233,3 +233,5 @@ RETRIEVAL_TRAVERSAL_DEPTH=2
 `RETRIEVAL_ENTITY_LABELS` (or the `entity_labels` argument) names the schema
 entity labels that entity search runs against. Ingestion creates one native
 vector index per label, so search needs the labels themselves.
+
+When you pass `graph_schema` to `SearchEngine`, the schema's entity labels are used and `RETRIEVAL_ENTITY_LABELS` is not read.

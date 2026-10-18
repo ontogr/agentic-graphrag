@@ -57,6 +57,10 @@ The edges connect them:
 - `RESOLVED_AS` joins an entity to its resolved entity.
 - `MEMBER_OF` joins an entity to its community.
 
+### Task and decision memory
+
+Agent memory lives in the same graph, beside the documents. A task has `HAS_EVENT` edges to its ordered events and `HAS_STEP` edges to its named steps. A task has `MADE` edges to the decisions it recorded. A decision has `HAS_SUPPORT` edges to the supports it relies on, and `DEPENDS_ON` and `SUPERSEDES` edges to other decisions. A document support names a document, the first characters of the content hash of one version, and a chunk or character span, so it keeps pointing to the same text after the document changes.
+
 ## Example
 
 Take a note with two sentences about Ada Lovelace, Charles Babbage and the Analytical Engine. With `DEFAULT_SCHEMA`, one run writes the document, the section, the chunk, one entity node for each distinct person, place, product or event it finds, and a relation edge when the text states one of the eight relations. A schema for your domain gives the extractor more specific targets.

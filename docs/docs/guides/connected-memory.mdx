@@ -1,35 +1,141 @@
 ---
-title: Validate connected memory against the full fixture
+title: Record decisions and review them
+sidebar_label: Record and review decisions
+description: Record a decision with the passages it rests on, change a source document, and review the decision.
 ---
 
-# Run the connected-memory workflow
+# Record decisions and review them
 
-Run the pinned fixture through real graph ingestion, the configured agent, task memory, source-version review, and a local MCP client. The exercise writes structured JSON with answers, citations, expected semantic facts, and assertion outcomes. Read semantic facts and citations together. A passing source identity check does not prove that the answer is entailed by the cited text.
+Record a decision that points to the passages it relies on. When a document behind the decision changes, Agentic GraphRAG flags the decision for review. You then reaffirm the decision against the current text, or replace it.
 
-## Prepare an isolated graph
+## Before you start
 
-Use a disposable Neo4j database or instance. Set `NEO4J_URI`, `NEO4J_USERNAME`, `NEO4J_PASSWORD`, and `NEO4J_DATABASE` in the repository environment. The workflow does not supply a database default and does not clear data. `Graph.open()` prepares schema indexes and constraints. The `exercise` stage writes task and decision memory, then changes the Keep source with the production `Graph.add` path. Do not run it against a shared database.
+- A running Neo4j and the `NEO4J_*` variables.
+- The extras for graph storage and local extraction: `uv pip install "agentic-graphrag[neo4j,extract]"`.
+- A Markdown file, which this guide calls `policy.md`.
 
-Set the repository's extraction variables for the selected extractor. Configure the agent model with `AGENT_LLM_BASE_URL`, `AGENT_LLM_API_KEY`, and `AGENT_LLM_MODEL_ID`, or use the shared `LLM_BASE_URL`, `LLM_API_KEY`, and `LLM_MODEL_ID` values already used by extraction. The workflow reads the existing environment and never prints credentials. It uses the embedding model configured in the example code. The pinned LegalBench-RAG and BEAM sources are fetched and hash-checked when the local dataset cache does not contain them. Review attribution and terms in `benchmarks/fixtures/connected_memory/NOTICE`.
+## Add the document and record a decision
 
-## Run each stage
+Memory belongs to a project. Open `TaskMemory` and `DecisionMemory` with the same `project_id` and an `agent_id` that identifies the author. A decision needs a task, so create the task first.
 
-Run these commands from the repository root, in order:
+```python
+import asyncio
+from pathlib import Path
 
-```bash
-uv run python -m examples.connected_memory.workflow ingest --output .amp/in/artifacts/connected-memory-ingest.json
-uv run python -m examples.connected_memory.workflow exercise --output .amp/in/artifacts/connected-memory-exercise.json
-uv run --extra mcp python -m examples.connected_memory.workflow mcp --output .amp/in/artifacts/connected-memory-mcp.json
+from agrag.common.data_models.decision import DocumentSupportInput
+from agrag.common.data_models.evidence import DiscoveryMode, FetchStatus
+from agrag.embedding import build_embedder
+from agrag.evidence import discover, fetch
+from agrag.graphdb import build_graph_store
+from agrag.ingestion import ExtractionSettings, Graph
+from agrag.memory import DecisionMemory, TaskMemory
+
+
+async def read(store, embedder, scope, query):
+    found = await discover(
+        store, embedder, query, mode=DiscoveryMode.HYBRID, limit=3, scope=scope
+    )
+    ids = [hit.evidence_id for hit in found.hits]
+    outcomes = await fetch(store, ids, scope=scope, max_chars=4000)
+    return [o for o in outcomes if o.status is FetchStatus.OK]
+
+
+async def main() -> None:
+    document = Path("policy.md").resolve()
+    scope = frozenset({str(document)})
+    store = build_graph_store("neo4j")
+    embedder = build_embedder("ibm-granite/granite-embedding-small-english-r2")
+    try:
+        graph = await Graph.open(
+            schema="operations",
+            graph_store=store,
+            embedder=embedder,
+            extraction_settings=ExtractionSettings(mode="gliner"),
+            max_llm_pairs=0,
+        )
+        await graph.add(document)
+
+        tasks = TaskMemory(store, project_id="demo", agent_id="reviewer")
+        decisions = DecisionMemory(store, project_id="demo", agent_id="reviewer")
+        await tasks.create_task(
+            "vendor-review", "Decide whether to approve the vendor.", request_id="task-1"
+        )
+
+        evidence = await read(store, embedder, scope, "vendor approval rules")
+        recorded = await decisions.record_decision(
+            "vendor-review",
+            "vendor-approval",
+            "Approve the vendor.",
+            "The policy allows approval under the stated conditions.",
+            supports=[DocumentSupportInput(evidence_id=e.evidence_id) for e in evidence],
+            fetched_evidence=evidence,
+            request_id="decision-1",
+        )
+        decision = recorded.decision
+        print(decision.id, decision.review_state)
+    finally:
+        await store.close()
+
+
+asyncio.run(main())
 ```
 
-`ingest` adds the five manifest documents with the configured real extractor. Do not rerun it while another ingestion process is active. `exercise` runs source-span, multi-source, insufficient-evidence, cross-session recall, interruption/resume, and source-change review cases with the configured LLM. It also runs fresh-task recall controls and prewritten holdout question variations. M1 replaces the manifest's exact source text and passes the changed document to `Graph.add`. The workflow checks its pinned hash, the old passage's superseded status, refusal to reaffirm with stale support, and the review flag. It then asks the agent to supersede the outdated conclusion and checks that the original evidence remains available in support history. Historical passages remain fetchable while retained; they are not current support. The holdout answers are recorded for review rather than scored with exact string matching.
+`record_decision` takes the evidence ids that support the decision and the fetch outcomes that prove you read them. Each support names one version of one document. The `request_id` makes a retry safe, because a repeated request returns the saved result. The new decision has the review state `clear`.
 
-`mcp` launches the configured server over stdio, searches and fetches evidence within the fixture document scope, records a supported decision, and calls the decision reaffirmation operation. The client sets project, agent, and write access for this example process. Do not expose this local write-enabled configuration to untrusted clients.
+## Change the source and see the flag
 
-Each stage writes one JSON artifact to the requested path. Use a fresh isolated database when repeating the exercise because fixed project and task names make memory writes durable. The workflow never resets a database. Use unique isolated database names rather than deleting existing graph contents.
+Add the next snippets to the `try` block of the script above. Edit `policy.md`, then add the file again. `Graph.add` finds the document by its key, which is the resolved path, and writes a new version when the content changed.
 
-## Scope and limits
+```python
+document.write_text(document.read_text() + "\nVendors must also pass a security review.\n")
+await graph.add(document)
 
-The agent can read only the five fixture document keys. MCP memory reads and writes are bound to the example's configured project and agent identity. MCP write tools are enabled only in the child server started for this example. The document scope does not provide authentication for a remote service, and project IDs are trusted local configuration rather than user identity.
+review = await decisions.list_review(task_name="vendor-review")
+for flagged in review.decisions:
+    print(flagged.choice_key, flagged.review_state, flagged.review_reason)
+```
 
-The six cases are internal workflow checks, not a benchmark score or proof of broad model quality. Human review is still needed for semantic support, including whether a citation entails each answer. The fresh-state controls isolate prior task state, but they do not establish that memory improves correctness. The final variations are a small overfitting check. The example does not claim complete model reproducibility or protection against an incorrect extractor, retrieval miss, or model interpretation.
+The decision now has the review state `needs_review` and the reason `source_changed`. A decision that depends on it through a decision support is flagged too, and decisions that cite other documents stay clear. If the document is deleted or purged, the reason is `source_removed`. Passages from the earlier version stay readable and are labeled superseded, so you can still see what the decision rested on.
+
+## Reaffirm or replace the decision
+
+Read the current text of the document, then choose one of two actions.
+
+To keep the decision, reaffirm it with the evidence you just fetched. Agentic GraphRAG accepts a reaffirmation only when every document the decision cites has been fetched at its current version.
+
+```python
+current = await read(store, embedder, scope, "vendor approval rules")
+await decisions.reaffirm_decision(
+    decision.id,
+    [DocumentSupportInput(evidence_id=e.evidence_id) for e in current],
+    fetched_evidence=current,
+    explanation="The new security review does not change the approval.",
+    request_id="reaffirm-1",
+)
+```
+
+To change the conclusion, supersede the decision. The earlier revision and its evidence stay in the history.
+
+```python
+await decisions.supersede_decision(
+    decision.id,
+    "Approve the vendor after a security review.",
+    "The updated policy adds a security review.",
+    explanation="The policy changed.",
+    supports=[DocumentSupportInput(evidence_id=e.evidence_id) for e in current],
+    fetched_evidence=current,
+    request_id="supersede-1",
+)
+```
+
+Use `decisions.search_decisions("vendor")` to find earlier decisions in the same project, and `decisions.list_conflicts()` to find choices that different tasks decided differently. The same operations are available as tools in the [MCP server](./run-the-mcp-server.mdx).
+
+## Run the full example
+
+The repository includes an end-to-end workflow in `examples/connected_memory`. It ingests a small set of documents, runs the built-in agent, records and reviews decisions, and calls the MCP server. Run it from a repository checkout with a disposable Neo4j database, because it writes task and decision memory. Its fixture documents live in the repository and are not part of the installed package.
+
+## Related
+
+- Explanation: [Agent loop](../concepts/agent-loop.mdx) shows how the built-in agent records tasks and decisions.
+- How-to: [Find and cite evidence](./find-and-cite-evidence.mdx).
+- How-to: [Update and delete documents](./update-and-delete-documents.mdx).

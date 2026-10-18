@@ -28,6 +28,7 @@ const sidebars = {
       'get-started/introduction',
       'get-started/installation',
       'get-started/quickstart',
+      'get-started/features',
     ]),
     section('Core concepts', [
       'concepts/architecture',
@@ -61,24 +62,20 @@ const sidebars = {
     ]),
     section('Search and answer', [
       'concepts/retrieval',
+      'guides/find-and-cite-evidence',
       'guides/retrieve-and-answer',
       'concepts/agent-loop',
+    ]),
+    section('Agent memory', [
+      'guides/run-the-mcp-server',
+      'guides/connected-memory',
     ]),
     section('Operate', [
       'concepts/observability',
       'guides/trace-an-agent-run',
       'guides/configure-storage-backends',
       'guides/troubleshoot-common-errors',
-    ]),
-    section('Benchmarks', [
-      'benchmarks/index',
-      'benchmarks/run-benchmarks',
       'guides/score-agrag-on-your-questions',
-      'benchmarks/legal',
-      'benchmarks/graphrag-general',
-      'benchmarks/financial',
-      'benchmarks/memory',
-      'benchmarks/healthcare',
     ]),
   ],
   referenceSidebar: [

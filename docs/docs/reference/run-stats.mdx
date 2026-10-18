@@ -4,7 +4,51 @@ title: Run statistics
 
 # Run statistics
 
-`Graph.add` returns an `AddResult`. `Graph.update` returns an `UpdateResult` whose `add_result` contains the extraction and merge summaries. This page describes discarded-item counts and candidate writes. See the [Python API](../api/index.md) for other fields.
+`Graph.add` returns an `AddResult`. `Graph.update` returns an `UpdateResult` whose `add_result` contains the same summaries. This page lists the fields of `AddResult`, the failure records that its stages return, and the counts of discarded items. See the [Python API](../api/index.md) for the types.
+
+## Add result
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `ingestion` | `IngestStats` | `documents`, `sources`, `skipped`, `unchanged`, and `quarantined` counts, and `quarantined_items`, the failure records of the quarantined sources. |
+| `chunking` | `ChunkingStats` | `chunks`, `sections`, `tables`, and `figures` counts. |
+| `extraction` | `ExtractionStats` | The counts in [Extraction statistics](#extraction-statistics). |
+| `escalation` | `EscalationReport` | How many chunks the LLM extractor read and how many it left to the first extractor. See [Escalation report](#escalation-report). |
+| `resolution` | `ResolutionStats` | `exact_match_hits`, `in_batch_groups`, `ambiguous_count`, `failed_llm_requests`, `cap_truncated_pairs`, and `llm_unavailable_pairs`. |
+| `merge` | `MergeStats` | `nodes_created`, `nodes_updated`, `conflicts_resolved`, `dropped`, and the failure fields. |
+| `storage` | `StorageStats` | `nodes_written`, `relationships_written`, and the failure fields. |
+| `chunks` | list of `Chunk` | Every chunk the call produced. Empty unless you pass `return_chunks=True`. |
+
+## Failure records
+
+The extraction, merge, and storage stats each have `failures`, `failures_total`, and `failures_truncated`. A stage keeps the first 200 failure records. `failures_total` counts every failure, and `failures_truncated` is `true` when the list was cut.
+
+Each record in `failures` is a `StageFailure`.
+
+| Field | Meaning |
+| --- | --- |
+| `item_id` | The chunk id, mention id, or batch id that the stage failed on. |
+| `error_type` | The class name of the exception. |
+| `error_message` | The message of the exception. |
+| `trace_id` | The OpenTelemetry trace id of the failure, when you pass a tracer. |
+| `span_id` | The span id within that trace. |
+
+## Escalation report
+
+`AddResult.escalation` counts the chunks of one run. The first extractor reads every chunk. A chunk is eligible when that first result is weak, and the escalation budget caps how many eligible chunks the LLM extractor reads, weakest first.
+
+| Field | Meaning |
+| --- | --- |
+| `mode` | The effective extraction mode. A run with no LLM extractor reports `gliner`. |
+| `total` | The chunks the run extracted from. |
+| `skipped_short` | In `llm` mode, the chunks under `EXTRACTION_MIN_ESCALATION_WORDS` words that went to no model. Zero in other modes. |
+| `eligible` | The chunks whose first result was weak enough to escalate. Zero in `llm` mode. |
+| `escalated` | The chunks the LLM extractor was called on. |
+| `left_for_gliner` | The eligible chunks that kept the first result because the budget ran out. |
+| `lowest_score_left` | The lowest span score among those chunks, or `None`. |
+| `failed` | The escalated chunks that kept the first result because the LLM call raised or its answer was unusable. Counted inside `escalated`. |
+| `budget_needed` | The smallest `EXTRACTION_ESCALATION_BUDGET` that would have escalated every eligible chunk. |
+| `primary_seconds`, `escalation_seconds` | Seconds spent in the first extractor and in the LLM extractor, summed over batches. |
 
 ## Extraction statistics
 

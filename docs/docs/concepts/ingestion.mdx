@@ -42,18 +42,17 @@ The extraction summary also counts the discarded items. See [Run statistics](../
 
 ### Crash safety
 
-`add`, `update` and `delete_document` each run as a job. A job is one call. The job tags every write with its own id, and search skips tagged writes. Nothing becomes visible until the job commits.
+`add`, `update`, `delete_document` and `purge_document` each run as a job. A job is one call. The job tags every write with its own id, and search skips tagged writes. Nothing becomes visible until the job commits.
 
 ```mermaid
 stateDiagram-v2
     [*] --> Pending
     Pending --> Committed: commit
     Pending --> RollingBack: rollback under lease token
-    RollingBack --> RolledBack: delete pending writes
+    RollingBack --> [*]: delete pending writes and the job
     Committed --> Cleaning
     Cleaning --> Done
     Done --> [*]
-    RolledBack --> [*]
 ```
 
 *A job that stops before its commit rolls back. A job that stops after it rolls forward.*
@@ -80,7 +79,7 @@ The values come from the document and its chunks:
 | Value | What changes it |
 |---|---|
 | Content hash | An edit to the text of the document. |
-| Chunker fingerprint | A change to the chunk size, the minimum chunk size or the tokenizer. |
+| Chunker fingerprint | A change to the chunk size, the minimum chunk size, the tokenizer, the table rules or the installed version of the splitter package. |
 | Schema fingerprint | A change to the structure of the schema: entity types, parents, properties, relations, patterns, cardinality or symmetry. The schema name, the schema version and the descriptions do not change it. |
 | Extraction fingerprint | A change to a description, an extraction setting, the extraction mode, the LLM model name or the heading path option of `BAMLExtractor`. |
 | Open chunk | A deleted document has none. |
@@ -91,7 +90,7 @@ The escalation budget is not part of the extraction fingerprint, so a change of 
 
 `Graph.add` applies this same table to each document whose key already has a current version. A key without a current version is added as a new document.
 
-Each change that a job commits also adds a `DocumentActivation` node to the document, linked by a `HAS_ACTIVATION` edge. The node records the verb (`add`, `update` or `delete`), the content hash of the new version, the content hash that it replaces, the version id and the job id. The Document node counts its records in `activation_seq`, so the history of a document stays in order even when an earlier version comes back. A re-extraction in place, a date-only update and an unchanged `add` write no record.
+Each change that a job commits also adds a `DocumentActivation` node to the document, linked by a `HAS_ACTIVATION` edge. The node records the verb (`add`, `update`, `delete` or `purge`), the content hash of the new version, the content hash that it replaces, the version id and the job id. The Document node counts its records in `activation_seq`, so the history of a document stays in order even when an earlier version comes back. A re-extraction in place, a date-only update and an unchanged `add` write no record.
 
 ## Example
 

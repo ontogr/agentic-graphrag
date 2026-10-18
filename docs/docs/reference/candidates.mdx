@@ -25,11 +25,11 @@ Import the public functions and models from `agrag.candidates`.
 
 | Function | Behavior |
 | --- | --- |
-| `list_candidates(store, query=None, *, limit=100, skip=0, schema=None, include_covered=False)` | Lists groups, most frequent first. `CandidateQuery` filters by `kind`, `label`, `state`, and `min_count`. Its default state is `pending`. Pass a schema to hide pending candidates that it already covers. |
-| `approve_candidates(store, schema, *, ids=None, query=None, output=None, overwrite=False)` | Approves matching pending records and builds a schema patch. Pass exactly one of `ids` or `query`. An output path writes the patch file. |
-| `reject_candidates(store, *, keys=None, query=None)` | Rejects matching pending or approved groups. Pass exactly one of `keys` or `query`. |
-| `candidate_patch(store, schema, *, ids)` | Builds a patch for approved candidate IDs. |
-| `prune_candidates(store, *, rejected=False, pending_older_than_days=None, pending_below_count=None, apply=False)` | Reports groups matching any supplied criterion. Deletes them only when `apply=True`. Never deletes approved records. |
+| `list_candidates(graph_store, query=None, *, limit=100, skip=0, schema=None, include_covered=False)` | Lists groups, most frequent first. `CandidateQuery` filters by `kind`, `label`, `state`, and `min_count`. Its default state is `pending`. Pass a schema to hide pending candidates that it already covers. |
+| `approve_candidates(graph_store, schema, *, ids=None, query=None, output=None, overwrite=False)` | Approves matching pending records and builds a schema patch. Pass exactly one of `ids` or `query`. An output path writes the patch file. |
+| `reject_candidates(graph_store, *, keys=None, query=None)` | Rejects matching pending or approved groups. Pass exactly one of `keys` or `query`. |
+| `candidate_patch(graph_store, schema, *, ids=None)` | Builds a patch for approved candidates. Pass `ids` to limit the patch to those candidates. |
+| `prune_candidates(graph_store, *, rejected=False, pending_older_than_days=None, pending_below_count=None, apply=False)` | Reports groups matching any supplied criterion. Deletes them only when `apply=True`. Never deletes approved records. |
 | `read_patch(path)` and `write_patch(patch, path, *, overwrite=False)` | Read and write JSON patch files. `write_patch` does not replace an existing file unless `overwrite=True`. |
 
 By default, `list_candidates` does not hide candidates based on schema coverage. Pass `schema` to hide pending candidates that the schema already covers. Coverage is computed during the read and does not change candidate state. Use `include_covered=True` to include covered candidates.

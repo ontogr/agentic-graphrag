@@ -9,53 +9,52 @@ const features = [
     body: 'One Graph.add() call reads text, Markdown, HTML, CSV, JSON, Word, PowerPoint, and Excel files. PDF and images need the docling extra.',
   },
   {
-    title: 'Extracts with a schema you define',
-    body: 'You name the entity types, the relation types, and the valid patterns. A local GLiNER model runs first, and an LLM takes over only for weak chunks.',
+    title: 'Builds a graph around your schema',
+    body: 'You name the entity types, the relation types, and the valid patterns. A local GLiNER model runs first, and an LLM reads the chunks it is least sure about.',
   },
   {
-    title: 'Merges duplicates with care',
-    body: 'Exact, fuzzy, embedding, and LLM-checked tiers compare mentions. An uncertain or failed comparison never merges, and matches are stored as edges so both entities stay in the graph.',
+    title: 'Merges duplicates without losing anything',
+    body: 'Exact, fuzzy, embedding, and LLM-checked tiers compare mentions. Matches are stored as edges, so both entities stay in the graph.',
   },
   {
-    title: 'Retrieves across graph and vectors',
-    body: 'Entity, chunk, community, text-to-Cypher, and graph-expansion search run together. Reciprocal rank fusion and reranking order the results.',
+    title: 'Finds passages and cites a version',
+    body: 'Search by keyword, meaning, or both, fetch the exact text behind a result, and cite the document version it came from.',
   },
   {
-    title: 'Answers with citations',
-    body: 'An agent plans sub-questions, researches them, and verifies the evidence. Each claim points to a source, and OpenTelemetry records the run.',
+    title: 'Remembers tasks and decisions',
+    body: 'A named task keeps its events and steps. A decision keeps its rationale and the passages it relies on, and it is flagged for review when a source changes.',
   },
   {
-    title: 'Scores itself on your questions',
-    body: 'Judged evals measure extraction, resolution, answers, and agent trajectories against your own gold sets, so regressions surface before your users see them.',
+    title: 'Works from Python, the agent, or MCP',
+    body: 'Use the library, the built-in task-scoped agent, or the agrag-mcp server with any MCP client. OpenTelemetry records the run.',
   },
 ];
 
-// Each pull request that adds a section adds its card here, so every link resolves.
 const paths = [
   {
     title: 'Build your first graph',
-    body: 'Free Neo4j Aura, two models, about ten minutes to a working graph.',
-    to: '/stable/get-started/quickstart',
+    body: 'Add a document, ask the agent a question, and look at the graph.',
+    to: '/latest/get-started/quickstart',
   },
   {
-    title: 'Concepts',
-    body: 'See how the pipeline turns documents into answers.',
-    to: '/stable/concepts/architecture',
+    title: 'Features',
+    body: 'The full list of what Agentic GraphRAG does.',
+    to: '/latest/get-started/features',
   },
   {
-    title: 'Ingest your own corpus',
-    body: 'Chunking, schema-guided extraction, and duplicate resolution over your files.',
-    to: '/stable/guides/ingest-documents',
+    title: 'Find and cite evidence',
+    body: 'Search passages, fetch exact text, and check citations from Python.',
+    to: '/latest/guides/find-and-cite-evidence',
   },
   {
-    title: 'Run the citing agent',
-    body: 'Plan, research, verify — an answer where every claim carries an evidence key.',
-    to: '/stable/guides/retrieve-and-answer',
+    title: 'Connect an MCP client',
+    body: 'Run agrag-mcp to search documents and keep task and decision memory.',
+    to: '/latest/guides/run-the-mcp-server',
   },
 ];
 
-const ingestSteps = ['Sources', 'Load and chunk', 'Extract', 'Resolve', 'Graph and vector stores'];
-const askSteps = ['Question', 'Plan', 'Retrieve', 'Verify', 'Cited answer'];
+const ingestSteps = ['Sources', 'Load and chunk', 'Extract', 'Resolve', 'Neo4j graph'];
+const askSteps = ['Question', 'Discover', 'Fetch', 'Check citations', 'Cited answer'];
 
 function Lane({label, steps}) {
   return (
@@ -84,16 +83,16 @@ function Lane({label, steps}) {
 export default function Home() {
   return (
     <Layout
-      title="Give your agents answers they can prove"
-      description="Agentic GraphRAG builds a typed knowledge graph from your documents. An agent plans, researches, and verifies each answer, and cites its sources.">
+      title="Build context graphs for AI agents"
+      description="Agentic GraphRAG connects your documents, agent activity, and decisions in one graph, so agents can find evidence, continue work across sessions, and revisit decisions when their sources change.">
       <header className={styles.hero}>
         <div className={`container ${styles.heroInner}`}>
           <h1 className={styles.title}>
-            Give your agents answers they can <span className={styles.accent}>prove</span>.
+            Build context graphs for <span className={styles.accent}>AI agents</span>.
           </h1>
           <p className={styles.pitch}>
-            Build a knowledge graph from your documents. Then ask it questions.
-            Agentic GraphRAG plans, researches, and verifies each answer, and cites its sources.
+            Agentic GraphRAG connects your documents, agent activity, and decisions in one graph.
+            Your agents can find evidence, continue work across sessions, and revisit decisions when their sources change.
           </p>
           <div className={styles.install}>
             <div className={styles.terminalBar} aria-hidden="true">
@@ -104,7 +103,7 @@ export default function Home() {
             <CodeBlock language="bash">uv pip install agentic-graphrag</CodeBlock>
           </div>
           <div className={styles.buttons}>
-            <Link className="button button--primary button--lg" to="/stable/get-started/introduction">
+            <Link className="button button--primary button--lg" to="/latest/get-started/introduction">
               Get started
             </Link>
             <Link
@@ -114,7 +113,7 @@ export default function Home() {
             </Link>
           </div>
           <p className={styles.facts}>
-            Python 3.11+ &nbsp;·&nbsp; Apache-2.0 &nbsp;·&nbsp; Works with Neo4j, Qdrant, and Weaviate
+            Python 3.11+ &nbsp;·&nbsp; Apache-2.0 &nbsp;·&nbsp; Stores everything in Neo4j
           </p>
         </div>
         <div className="container">
@@ -123,7 +122,7 @@ export default function Home() {
             <Lane label="Ask" steps={askSteps} />
           </div>
           <p className={styles.pipelineNote}>
-            Both flows read and write the same graph and vector indexes.
+            Both flows read and write the same Neo4j graph.
           </p>
         </div>
       </header>
@@ -133,28 +132,21 @@ export default function Home() {
             <h2 className={`${styles.h2} ${styles.sectionTitle}`}>See it work</h2>
             <div className={styles.example}>
               <div className={styles.exampleCol}>
-                <CodeBlock language="python" title="build_graph.py">{`schema = GraphSchema(...)  # you name the
-# entities, relations, and patterns
+                <CodeBlock language="python" title="build_graph.py">{`document = Path("policy.md").resolve()
 
 graph = await Graph.open(
-    schema=schema,
+    schema="operations",
     graph_store=build_graph_store("neo4j"),
     embedder=build_embedder(
         "ibm-granite/granite-embedding-small-english-r2"),
-    extractor=GlinerExtractor(),
+    extraction_settings=ExtractionSettings(mode="gliner"),
+    max_llm_pairs=0,
 )
-result = await graph.add(text=(
-    "Satya Nadella works at Microsoft. "
-    "Bill Gates founded Microsoft. "
-    "Microsoft is headquartered in Redmond."
-))
+result = await graph.add(document)
 print("entities extracted:",
       result.extraction.entities_extracted)`}</CodeBlock>
-                <pre className={styles.output} aria-label="build_graph.py output">
-                  {'entities extracted: 6\nrelations extracted: 3'}
-                </pre>
                 <p className={styles.exampleNote}>
-                  The first run downloads two local models, about 385 MB.
+                  Embeddings and extraction run on your machine.
                 </p>
               </div>
               <div className={styles.exampleCol}>
@@ -162,31 +154,25 @@ print("entities extracted:",
     graph_store=build_graph_store("neo4j"),
     embedder=build_embedder(
         "ibm-granite/granite-embedding-small-english-r2"),
-    scope=frozenset({"company-notes"}),
+    scope=frozenset({str(document)}),
     project_id="ask",
-    agent_id="ask-agent",
+    agent_id="researcher",
     llm_settings=AgentLLMSettings.from_openai_compatible_env(),
 )
-question = (
-    "Who founded the company "
-    "that Satya Nadella works at?"
-)
-result = await agent.ainvoke(
-    {"task_name": "founder", "question": question}
-)
+result = await agent.ainvoke({
+    "task_name": "document-review",
+    "question": "What does this document require?",
+})
+print(result["status"])
 print(result["answer"])`}</CodeBlock>
-                <pre className={styles.output} aria-label="ask.py example output">
-                  {'Satya Nadella works at Microsoft (E1, E3), which was\nfounded by Bill Gates (E2, E3, C1).\nevidence keys: E1, E2, E3, E4, C1, V1'}
-                </pre>
                 <p className={styles.exampleNote}>
-                  Example output; answers vary with your model. Every claim cites its
-                  evidence: E keys are entities, C keys chunks, V keys graph-query values.
+                  The answer ends with a numbered Sources list. Wording varies with your model.
                 </p>
               </div>
             </div>
             <p className={styles.exampleCta}>
-              <Link to="/stable/get-started/quickstart">Run the full Quickstart</Link> — a free
-              Neo4j Aura instance, two models, and about ten minutes.
+              <Link to="/latest/get-started/quickstart">Run the full Quickstart</Link> to build
+              a graph and ask a question in about ten minutes.
             </p>
           </div>
         </section>
@@ -217,7 +203,7 @@ print(result["answer"])`}</CodeBlock>
           <div className="container">
             <div className={styles.ctaPanel}>
               <h2 className={styles.h2}>Ready to try it?</h2>
-              <Link className="button button--primary button--lg" to="/stable/get-started/introduction">
+              <Link className="button button--primary button--lg" to="/latest/get-started/introduction">
                 Get started
               </Link>
             </div>

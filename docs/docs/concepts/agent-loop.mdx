@@ -6,15 +6,15 @@ description: How one task-scoped agent turns a question into a cited answer.
 
 # Agent loop
 
-The agent loop turns one question into a cited answer. A single agent works on a named task. It discovers evidence in the graph, fetches the exact text it needs, and writes an answer that cites only the evidence it fetched. A citation check runs after the answer, and one repair pass removes or replaces citations that do not check out.
+The agent loop turns one question into a cited answer. A single agent works on a named task. It discovers evidence in the graph, fetches the exact text it needs, and writes an answer that cites only the evidence it fetched. A citation check runs after the answer, and one repair pass asks the agent to remove or fetch the citations that do not check out.
 
 ## Why it exists
 
 One search can miss part of a multi-part question. "Who worked with Charles Babbage, and where?" needs two facts that may sit in different passages. The agent runs several evidence calls for one task, and it keeps the task state between calls.
 
-The agent can also resume a task. Each task has a name. A run with the same task name reloads the evidence fetched earlier and the events recorded for that task.
+The agent can also resume a task. Each task has a name. A run with the same task name reads the events recorded for that task and reuses its completed steps. The agent fetches again the passages it cites, so each citation comes from a fetch in the current run.
 
-Citations make claims traceable. They do not make the source correct.
+Citations make claims traceable to the passages behind them.
 
 ## How it works
 
@@ -38,15 +38,19 @@ flowchart LR
 5. The run checks every cited id against the ids that were fetched in scope. If some are invalid and the tool budget has room, one repair pass asks the agent to remove or fetch them.
 6. The run returns the answer, a status, the valid citations, and any invalid ids.
 
+## Tasks and resuming
+
+The run records the agent's messages, each tool call, and each tool result or error as task events, in order, without any call from the agent. A repeated write returns the saved result. The first run of a task stores the question as its goal, and a later run appends its question as a message. When a run resumes, steps that were still in progress become `unknown`, and the task view lists each completed step as reusable or not. The agent uses the first client in `AGENT_LLM_CLIENTS`, and you pass a `tracer` to `build_agent` to record spans for the run.
+
 The agent can also record progress with `set_step` and record decisions with `record_decision`. It reads earlier decisions with `search_decisions`. A decision counts only when its write tool confirms that the record was saved.
 
 ## Result status
 
 | Status | Meaning |
 |---|---|
-| `answered` | The answer has no invalid citations and no limit was hit. |
+| `answered` | The agent returned a structured answer with no invalid citations, and no limit was hit. |
 | `insufficient_evidence` | The answer says that the evidence is insufficient. |
-| `partial` | Some cited ids failed the citation check after the repair pass. |
+| `partial` | Some cited ids failed the citation check after the repair pass, or the agent returned no structured answer. |
 | `partial_retrieval` | A retrieval call failed during the run. |
 | `budget_exhausted` | The run hit the step limit or the tool-call limit. |
 | `recording_failed` | A task event or decision could not be recorded. |

@@ -17,7 +17,7 @@ Group the connected entities of your graph into communities. Read the report tha
 uv pip install "agentic-graphrag[neo4j,extract,llm,community]"
 ```
 
-- An LLM endpoint for the reports. Set `LLM_BASE_URL`, `LLM_API_KEY`, and `LLM_MODEL_ID`. Without them, every community gets a simple report and the call records a failure.
+- An LLM endpoint for the reports. Set `LLM_BASE_URL`, `LLM_API_KEY`, and `LLM_MODEL_ID`. Without them, the report call uses the default OpenAI model of the BAML function and needs `OPENAI_API_KEY`.
 
 ## 1. Add documents and detect communities
 
@@ -134,7 +134,7 @@ An LLM report can contain a mistake. Compare its `findings` with the relations t
 
 ## 3. Handle a missing LLM
 
-If the `llm` extra is missing or a call fails, Agentic GraphRAG writes the simple report for that community. `report.failures` holds one item for each community that needed the LLM report. The call still ends with `applied` set to `True`.
+If the `llm` extra is missing, Agentic GraphRAG writes the simple report for every community and logs a warning. If an LLM call fails, it writes the simple report for the communities in that batch, and `report.failures` holds one item for each of them. The call still ends with `applied` set to `True`.
 
 ## 4. Change the grouping
 

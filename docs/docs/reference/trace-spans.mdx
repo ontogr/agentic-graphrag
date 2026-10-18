@@ -6,7 +6,7 @@ sidebar_position: 1
 # Trace Spans
 
 This page is the reference for the spans Agentic GraphRAG records when you pass it a
-`tracer`. The library emits every span name, attribute, and provider value below.
+`tracer`. It lists the span names, attributes, and provider values that ingestion, extraction, resolution, retrieval, the agent, and the judge record.
 
 Tracing is opt-in per object. A `tracer` of `None` opens no recorded span and
 costs nothing. Agentic GraphRAG never installs a global provider. You inject
@@ -74,7 +74,7 @@ attempt fails. The `call` span reports `ERROR` when the call as a whole fails.
 
 | Span | Attributes |
 |---|---|
-| `agrag.ingestion.load_document` | `agrag.source_uri`, `agrag.loader_name`, `agrag.normalization` (JSON) |
+| `agrag.ingestion.load_document` | `agrag.source_uri`, `agrag.loader_name`, `agrag.normalization` (JSON), `agrag.loader_exhausted` (when the loader has no document left) or `agrag.document_key` (when it yields one) |
 | `agrag.ingestion.chunk_document` | `agrag.document_key`, `agrag.chunker.hash`, `agrag.chunker.settings` (JSON), `agrag.chunks_produced` |
 | `agrag.storage.embed_chunks` | `agrag.embedding.heading_context` (bool, whether the embedder got the heading path) |
 
@@ -89,10 +89,13 @@ Every public `Graph` call opens one root span. The spans in the sections below n
 | `agrag.ingestion.add` | `Graph.add` runs | none |
 | `agrag.ingestion.update` | `Graph.update` runs | none |
 | `agrag.ingestion.delete_document` | `Graph.delete_document` runs | none |
+| `agrag.ingestion.purge_document` | `Graph.purge_document` runs | none |
 | `agrag.ingestion.consolidate` | `Graph.consolidate` runs | none |
 | `agrag.ingestion.detect_communities` | `Graph.detect_communities` runs | none |
 | `agrag.ingestion.reevaluate` | `Graph.reevaluate` runs | `agrag.entity_count` |
 | `agrag.ingestion.deactivate_match` | `Graph.deactivate_match` runs | `agrag.match_id` |
+| `agrag.ingestion.reconcile_created_entities` | New entities are checked against existing ones after a commit | `agrag.created_entity_count` |
+| `agrag.candidates.convert` | `Graph.convert_candidates` runs | `agrag.candidate_count` |
 | `agrag.ingestion.cutover_job` | An add, update, or delete runs as one document job | `agrag.verb`, `agrag.document_key`, `agrag.job_id` |
 | `agrag.ingestion.ingest_chunks` | The shared step that resolves, merges, and stores extracted chunks | none |
 
@@ -107,7 +110,7 @@ agrag.ingestion.add
   agrag.extraction.extract_chunk          one per chunk (first phase)
     agrag.extraction.gliner               or agrag.extraction.baml
       agrag.extraction.model_load         first call only
-  agrag.extraction.escalate               once per batch, only with an LLM extractor
+  agrag.extraction.escalate               once per batch, in hybrid mode with an LLM extractor
     agrag.extraction.extract_chunk        one per escalated chunk
       agrag.extraction.baml
   agrag.extraction.remap_relations        only when a relation remap fails and the error policy is not RAISE
@@ -162,7 +165,7 @@ agrag.ingestion.add
 
 ## Graph store spans
 
-The Neo4j store opens these spans. Reads and writes carry the query text and the value of every parameter except vectors. A trace shows what each query asked for.
+The Neo4j store opens these spans. Reads and writes carry the query text and the value of every parameter except vectors and the full-text search terms. A trace shows what each query asked for.
 
 | Span | Attributes |
 |---|---|
@@ -170,9 +173,10 @@ The Neo4j store opens these spans. Reads and writes carry the query text and the
 | `agrag.graphdb.execute_read` | `db.system.name`, `db.namespace`, `db.query.text`, `db.query.parameter.<name>` for each non-vector parameter, `agrag.transactional` (inside a transaction) |
 | `agrag.graphdb.execute_write` | the same as `execute_read` |
 | `agrag.graphdb.transaction` | none |
-| `agrag.graphdb.upsert_nodes` | `db.collection.name` (the label), `agrag.record_count`, `agrag.written`, `agrag.failures_count`, `db.operation.batch.size` (only for a write of more than one record) |
-| `agrag.graphdb.upsert_relations` | `agrag.record_count`, `agrag.written`, `agrag.failures_count`, `db.operation.batch.size` (only for a write of more than one record) |
+| `agrag.graphdb.upsert_nodes` | `db.collection.name` (the label), `agrag.record_count`, `agrag.written`, `agrag.failures_count`, `db.operation.batch.size` (`0` for an empty write, absent for a write of one record) |
+| `agrag.graphdb.upsert_relations` | `agrag.record_count`, `agrag.written`, `agrag.failures_count`, `db.operation.batch.size` (`0` for an empty write, absent for a write of one record) |
 | `agrag.graphdb.load_entities` | `agrag.requested_count`, `agrag.loaded_count` |
+| `agrag.graphdb.upsert_candidates` | `agrag.record_count` |
 | `agrag.graphdb.vector_search` | `db.collection.name` (the label), `agrag.limit`, `agrag.k_final`, `agrag.index_missing` (when the index does not exist. The search then returns no hits) |
 
 ## Embedding spans
@@ -197,7 +201,7 @@ Each LLM path also opens one small domain span carrying its own ids and counts.
 
 | Path | Domain span | Attributes |
 |---|---|---|
-| Extraction, BAML | `agrag.extraction.baml` | `agrag.chunk_id`, `agrag.entities_extracted`, `agrag.relations_extracted`, `agrag.candidates_extracted`, `agrag.extraction.heading_context` (bool, whether a section line was sent) |
+| Extraction, BAML | `agrag.extraction.baml` | `agrag.chunk_id`, `agrag.entities_extracted`, `agrag.relations_extracted`, `agrag.candidates_extracted`, `agrag.extraction.heading_context` (bool, whether a section line was sent), `agrag.extraction.unparsable` (bool, set when the reply held no usable answer) |
 | Extraction, GLiNER | `agrag.extraction.gliner`, and `agrag.extraction.model_load` around the one-time model build | `agrag.chunk_id`, `agrag.entities_extracted`, `agrag.relations_extracted`, `agrag.candidates_extracted`. `agrag.model` is on the load span |
 | Extraction, escalate | `agrag.extraction.escalate` | `agrag.chunks_total`, `agrag.chunks_eligible`, `agrag.chunks_escalated` |
 | Resolution | `agrag.resolution.llm_verify` | `agrag.pair_count`, `agrag.match_count`, `agrag.uncertain_count`, `agrag.request_failed` (bool), `agrag.llm_unavailable` (bool) |
@@ -254,8 +258,8 @@ of the tool call that made it.
 | Span | Attributes |
 |---|---|
 | `agrag.retrieval.search` | `agrag.recipe.methods`, `agrag.recipe.limit`, `agrag.recipe.bfs`, `agrag.recipe.community_expand`, `agrag.recipe.reranker`, `agrag.failed_methods` (when a method failed) |
-| retrievers (`entity`, `chunk`, `community`, `bfs`) | `agrag.limit`. `bfs` also `agrag.seed_count`, `agrag.depth`, `agrag.direction`. |
-| `agrag.retrieval.find_entity` / `traverse` | `agrag.seed_ids`, `agrag.relation_type`, `agrag.direction`, `agrag.depth`, `agrag.limit`, `agrag.community_expand` on `traverse` |
+| retrievers (`entity`, `chunk`, `community`, `bfs`) | `agrag.limit`. `chunk` also `agrag.requested_count`, `agrag.loaded_count`, `agrag.invalid_count`. `entity` also `agrag.passes`, `agrag.hit_count`. `bfs` also `agrag.seed_count`, `agrag.depth`, `agrag.direction`. |
+| `agrag.retrieval.find_entity` / `traverse` | `agrag.seed_ids`, `agrag.relation_type`, `agrag.direction`, `agrag.depth`, `agrag.limit`, `agrag.filters`, `agrag.community_expand` on `traverse` |
 | `agrag.retrieval.list_relationship_types` | `agrag.seed_ids`, `agrag.relation_type_filter`, `agrag.direction`, `agrag.result_count`, `agrag.result_types` |
 | `agrag.retrieval.vector_search` | `agrag.labels`, `agrag.limit`, `agrag.hit_count`, `agrag.hit_ids`, `agrag.hit_scores` |
 | `agrag.retrieval.entity_search` / `resolved_entity_search` | `agrag.limit`, `agrag.passes`, `agrag.hit_count` |
@@ -358,14 +362,14 @@ change any span, on any path. To record less, scrub attributes in a
 
 No span records two things: the request headers, which carry the
 provider key, and the request URL. Graph store spans record the query text and the
-value of every parameter except vectors. A parameter can hold source text or entity
+value of every parameter except vectors and full-text search terms. A parameter can hold source text or entity
 names.
 
 ## Known limits
 
-- An unparsable reply looks successful: BAML coerces a reply it cannot
-  parse into an empty result rather than raising. The span's status is therefore
-  `UNSET`. `output.value` is the evidence that the reply was not usable.
+- An unparsable extraction reply raises `UnparsableExtractionError`. The
+  `agrag.extraction.baml` span sets `agrag.extraction.unparsable` and ends with
+  an error status.
 - Retries below BAML are invisible: LangChain and the provider SDKs retry
   internally, and one agent or judge LLM span can cover several HTTP requests.
   The `agrag.llm.request` spans, read from BAML's collector, are exact for the
@@ -376,6 +380,7 @@ names.
 - The SDK caps attributes at 128 by default. A long agent run can reach that
   limit. The SDK then drops attributes without a warning. Raise `SpanLimits.max_attributes` on
   your provider. Use a sampling processor in production.
-- BAML error text includes the request URL: it reaches `output.value`,
-  exception events and `StageFailure.error_message`. Never put a provider key
-  in a `base_url` query string.
+- BAML error text includes the request URL. It reaches exception events and
+  `StageFailure.error_message`. `output.value` holds only a response body, so a
+  connection failure leaves it empty. Never put a provider key in a `base_url`
+  query string.

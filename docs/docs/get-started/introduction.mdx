@@ -5,69 +5,57 @@ title: Introduction
 
 # Introduction
 
-Agentic GraphRAG turns your documents into a knowledge graph. It then answers questions from that graph and cites its evidence.
+Agentic GraphRAG is an open source Python framework that connects your documents, agent activity, and decisions in one graph. Your agents can find evidence, continue work across sessions, and revisit decisions when their sources change.
 
-## The problem
+## What it keeps in the graph
 
-A plain vector search finds passages that look like your question. It cannot join a fact in one document to a fact in another.
+Agentic GraphRAG keeps three connected kinds of memory in one Neo4j graph. Knowledge holds your documents with their sections, chunks, entities, relations, and community summaries. Working memory holds named tasks, an ordered log of what an agent said and called, and the steps of each task. Decisions hold conclusions with their rationale and the passages, events, or other decisions they rely on.
 
-Take the question "Who founded the company that Satya Nadella works at?" One passage says that Satya Nadella works at Microsoft. A different passage says that Bill Gates founded Microsoft. No single passage answers the question. A system must join the two facts.
+Add your documents and they become a knowledge graph shaped by your own schema. Agents search the graph, read the exact passage behind each result, and cite it. They record decisions that point to the passages they rely on. A later session picks a task up where it stopped, and a decision is flagged for review when a document behind it changes.
 
-A knowledge graph stores those joins. Each entity is a node. Each fact is an edge. Agentic GraphRAG builds the graph from your text and follows the edges to find the answer.
+For example, a contract-review agent records a recommendation with passages from a contract and a policy. A later session retrieves the task and its decision. When the policy changes, the decision is flagged for review against the new text.
 
-## What Agentic GraphRAG does
+## Three ways to use it
 
-- It reads your files and splits them into chunks.
-- It finds entities and relations in each chunk, with a schema that you define.
-- It merges mentions of the same thing into one entity.
-- It stores the graph and its vector indexes in Neo4j.
-- It answers questions with an agent that plans, searches, and reviews its own evidence.
-- It cites the evidence for every answer.
+Use the Python library when you want direct control. `Graph` adds documents, the functions in `agrag.evidence` search and cite, and `agrag.memory` records tasks and decisions. Use `build_agent` for a task-scoped agent that searches your documents, records its work, and answers with numbered sources. Run `agrag-mcp` to give any MCP client tools for search, citation, and task and decision memory.
 
 ## How it works
 
-Agentic GraphRAG has two flows. Ingestion builds the graph. Querying reads it.
-
 ```mermaid
 flowchart LR
-    docs[Your documents] --> ingest[Ingest]
-    ingest --> graphdb[(Neo4j graph)]
-    ingest --> vectors[(Vector indexes)]
-    question[Your question] --> agent[Agent]
-    agent -->|search| graphdb
-    agent -->|search| vectors
+    docs[Documents] --> ingest[Ingest]
+    ingest --> graph[(Neo4j graph)]
+    question[Question] --> agent[Agent or MCP client]
+    agent -->|search and read| graph
+    agent -->|tasks and decisions| graph
     agent --> answer[Cited answer]
 ```
 
-*Ingestion writes the stores. The agent reads them and returns a cited answer.*
+*Ingestion builds the graph. The agent or MCP client reads it and records tasks and decisions in it.*
 
 1. You add documents. Agentic GraphRAG loads them, splits them into chunks, and extracts entities and relations.
-2. Agentic GraphRAG resolves duplicate mentions, then writes the graph and its vector indexes.
-3. You ask a question. The agent discovers and fetches evidence from the stores.
-4. The agent checks its citations against the fetched evidence, then writes an answer with citations.
+2. Agentic GraphRAG resolves duplicate mentions and writes the graph and its indexes to Neo4j.
+3. You ask a question. The agent discovers and fetches evidence from the graph.
+4. The agent checks its citations against the fetched evidence and writes an answer with numbered sources.
+5. The agent records its messages, tool results, and decisions under a named task.
 
 ## Who it is for
 
-Use Agentic GraphRAG if you:
-
-- build question answering over documents that you own.
-- need answers that cite their sources.
-- want to define your own entity and relation types.
-
-Agentic GraphRAG is pre-1.0. Its API can change between releases.
+Use Agentic GraphRAG if you build agents that answer from documents that you own, need answers that cite their sources, and want agents that continue a task across sessions. You can define your own entity and relation types.
 
 ## What you need
 
 - Python 3.11 or newer.
-- A Neo4j database, version 5.23 or newer. The [Quickstart](./quickstart.mdx) uses the free Neo4j Aura tier.
-- An OpenAI-compatible LLM endpoint. You need it only to ask questions with the agent, or to extract with an LLM.
+- A Neo4j database.
+- An OpenAI-compatible LLM endpoint for the built-in agent. Embeddings and local extraction run on your machine.
 
 ## Where to go next
 
-- [Quickstart](./quickstart.mdx): build and inspect your first graph in about 10 minutes.
+- [Quickstart](./quickstart.mdx): build a graph from one document and ask the agent a question.
+- [Features](./features.mdx): the full list of what Agentic GraphRAG does.
 - [Installation](./installation.mdx): choose the extras that you need.
-- [Architecture](../concepts/architecture.mdx): how ingestion and querying fit together.
-- [Knowledge graph](../concepts/knowledge-graph.mdx): what Agentic GraphRAG stores.
-- [Ingest documents](../guides/ingest-documents.mdx): add files, text, and prebuilt documents.
-- [Retrieve and answer](../guides/retrieve-and-answer.mdx): search the graph and get cited answers.
+- [Architecture](../concepts/architecture.mdx): how the parts fit together.
+- [Find and cite evidence](../guides/find-and-cite-evidence.mdx): search passages and check citations from Python.
+- [Run the MCP server](../guides/run-the-mcp-server.mdx): connect an MCP client.
+- [Record decisions and review them](../guides/connected-memory.mdx): tie a decision to its evidence.
 - [API reference](../api/index.md): every class and function.
