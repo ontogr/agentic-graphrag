@@ -62,7 +62,11 @@ You decide which things matter, and the graph is built around them.
 
 Agents find passages, read the exact text, and move around a document the way a person would.
 
-- **Search by keyword, by meaning, or both.** A search returns short previews, each with an identifier for its passage. A separate step fetches the exact text.
+<p align="center">
+  <img src="https://raw.githubusercontent.com/ontogr/agentic-graphrag/main/docs/static/img/readme/search-evidence.png" alt="A query runs full-text, semantic, or hybrid search over the chunks of the documents you allow. Hits carry evidence ids, and a fetch returns the exact passage text with a citation. Optional steps navigate the document tree, search entities, and explore relationships." width="860">
+</p>
+
+- **Full-text, semantic, and hybrid search.** Full-text search matches keywords, semantic search compares embeddings, and hybrid search fuses both rankings with reciprocal rank fusion. A search returns short previews, each with an evidence id for its passage, and a separate step fetches the exact text.
 - **You set the boundary outside the model.** You decide which documents an agent may read, and the model can only work inside that choice.
 - **Source text stays findable.** Search reads the passages directly, so a passage is still found when extraction missed the fact it contains.
 - **Move around a passage.** From any passage, an agent can reach the surrounding section, the neighboring passages, or the rows around a table cell, which keep their column headers.
