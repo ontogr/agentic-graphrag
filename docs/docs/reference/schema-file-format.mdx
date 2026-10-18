@@ -15,9 +15,11 @@ This page lists every key and every short form that `load_schema` accepts. For a
 | A `GraphSchema` | `load_schema(schema)` |
 | A dict | `load_schema({"entities": ["Person"]})` |
 | A list of labels and relations | `load_schema(["Person", "Vendor", "Person-WORKS_FOR->Vendor"])` |
+| A Pydantic class or list of classes | `load_schema([Organization, Person])` |
 | JSON text | `load_schema('{"entities": ["Person"]}')` |
 | A `.json`, `.yaml` or `.yml` file | `load_schema("schema.yaml")` |
 | A Turtle `.ttl` file (install the `schema-formats` extra) | `load_schema("ontology.ttl")` |
+| A shipped schema name | `load_schema("default")`, `load_schema("operations")` or `load_schema("legal")` |
 
 ## Top-level keys
 
@@ -90,11 +92,12 @@ A relation object has these keys:
 
 | Key | Meaning | Default |
 | --- | --- | --- |
-| `label` | The label. Letters, digits and underscores only. | required |
+| `label` | The label. It starts with a letter or underscore and contains only letters, digits and underscores. | required |
 | `description` | One short sentence. | empty |
 | `patterns` | The allowed pairs. Write `"Source->Target"` or `[source, target]`. | required |
 | `add_patterns` | Pairs to add to a base relation. | none |
-| `cardinality`, `symmetric` | The limits that the schema model defines. | model default |
+| `cardinality` | An object with optional `max_per_source` and `max_per_target` positive integer limits. | both limits unset |
+| `symmetric` | Whether each allowed relation is also allowed in reverse. Symmetric relations require equal source and target limits. | `false` |
 | `override` | `true` replaces a base relation of the same label. | `false` |
 
 ## Build on a base schema

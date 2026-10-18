@@ -25,14 +25,15 @@ pip install "agentic-graphrag[schema-formats]"
 | `owl:FunctionalProperty` | Relation `max_per_source: 1` |
 | `owl:InverseFunctionalProperty` | Relation `max_per_target: 1` |
 | `owl:SymmetricProperty` | Relation patterns in both directions, with the same source and target limit |
-| `rdfs:comment`, `rdfs:label` | Not used. The class or relation name is the description, and a warning says so |
+| `rdfs:comment` | Not used as a description. When present, a warning reports that it was ignored. Classes use the class name as their description. Relations and properties use their local name when a comment is present. |
+| `rdfs:label` | Ignored for classes. For relations and properties without a comment, the first sorted label is the description; without a label, the local name is used. |
 | XSD `string`, `integer`, `decimal`, `float`, `double`, `boolean`, `date` | Property type |
 | `owl:unionOf` in domains or ranges | Declared endpoint types |
 | `owl:oneOf` with literal values | Property enum |
 | Unqualified `owl:maxCardinality`, `owl:cardinality` | Relation source limit |
 | Positive datatype `owl:minCardinality`, `owl:cardinality` | Required property |
 
-The importer maps multiple domains or ranges to all source and target pairs. Class-specific relation limits use the loosest limit across source classes. A source class without a limit prevents a global limit. The importer reports loss of class-specific constraints, relation minimums, and datatype maximums above one.
+For an object property, one domain and one range can each be a class or an `owl:unionOf`. The importer expands union members into all source and target pairs. Multiple separate domain or range statements are conjunctive, so the importer drops that relation. Class-specific relation limits use the loosest limit across source classes. A source class without a limit prevents a global limit. The importer reports loss of class-specific constraints, relation minimums, and datatype maximums above one.
 
 The importer does not infer triples or follow `owl:imports`. Unsupported restrictions, equivalence, property chains, alternative labels, and individuals produce warnings. Unknown parents and endpoint classes are ignored with warnings. Invalid or colliding local class names fail the import. The schema validator rejects reserved labels, cycles, and invalid relation patterns.
 

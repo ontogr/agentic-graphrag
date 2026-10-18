@@ -77,6 +77,14 @@ Agentic GraphRAG keeps bookkeeping nodes beside the graph, such as merge aliases
 
 To start over, delete every node in the database and drop the vector indexes. This removes all data in the database, so use it only when the database holds nothing but Agentic GraphRAG data. See the last section for the commands.
 
+## An add call reports duplicate document keys
+
+`Graph.add` raises `ValueError: Each add call requires distinct document keys; duplicate: '<key>'.` when two documents in one call share a key. A file document's key is its resolved path, so a repeated path causes the error. Remove the repeated source. For prebuilt `Document` objects, give each one a distinct `uri`.
+
+## Another job holds the document lease
+
+`CutoverJobLeaseError` means that another live job holds the lease on the document. A job renews a lease of 60 seconds, and another process can take the document over only after the lease runs out. Wait for the other call to finish, or for the lease to expire, and run the call again. `CUTOVER_JOB_LEASE_TTL_SECONDS` sets the lease length.
+
 ## A package extra is missing
 
 The message names the extra to install. The command in the message is correct.
@@ -216,7 +224,7 @@ The vector index does not exist. A search in the Neo4j vector indexes returns no
 
 The engine uses another embedder than the graph. A query vector of another size makes each Neo4j vector search fail, so `search` raises `AllRetrievalMethodsFailedError` instead of returning results. Pass `SearchEngine` the embedder that you pass to `Graph.open`. To change the model of the graph, see the next section.
 
-When a search returns nothing, the agent has no evidence to cite. Its answer says that the evidence is insufficient.
+When a search returns nothing, the agent has no evidence to cite.
 
 ## The embedding dimension does not match
 

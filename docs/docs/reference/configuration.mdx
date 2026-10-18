@@ -4,7 +4,7 @@ title: Configuration
 
 # Configuration
 
-Agentic GraphRAG reads its configuration from environment variables. This page lists every variable, its default, and the settings class that reads it.
+Agentic GraphRAG reads its configuration from environment variables. This page lists the variables of each settings class, with their defaults.
 
 ## How configuration loads
 
@@ -55,7 +55,7 @@ Class: `ExtractionSettings`. Prefix: `EXTRACTION_`.
 | `EXTRACTION_BAND_FLOOR` | `0.3` | Minimum entity score in the band below `EXTRACTION_ENTITY_THRESHOLD`. When candidates are enabled, a second model call reports spans in this band that overlap no kept entity. It cannot exceed `EXTRACTION_ENTITY_THRESHOLD`. |
 | `EXTRACTION_LABEL_THRESHOLDS` | `{}` | JSON object mapping entity or relation labels to their own thresholds. An entity label's threshold replaces `EXTRACTION_ENTITY_THRESHOLD` for that label. A relation label's threshold replaces `EXTRACTION_RELATION_THRESHOLD` as the cut for kept relations, and the model reads that relation at the lower of the threshold and `EXTRACTION_RELATION_FLOOR`. A label not in the schema has no effect. |
 | `EXTRACTION_ESCALATION_THRESHOLD` | `0.75` | A chunk is eligible for the LLM in `hybrid` mode when one of its entities scores below this value. |
-| `EXTRACTION_ESCALATION_BUDGET` | `0.2` | The share of the chunks in a batch that the LLM extractor can read, from `0` to `1`, or `all`. The value is rounded up. `all` sets no limit, and `0` means no chunk goes to the LLM. |
+| `EXTRACTION_ESCALATION_BUDGET` | `0.2` | The share of the chunks in a batch that the LLM extractor can read, from `0` to `1`, or `all`. The count is the share of the batch rounded up, and at least one chunk goes to the LLM when the budget is above `0` and any chunk is eligible. `all` sets no limit, and `0` means no chunk goes to the LLM. |
 | `EXTRACTION_MIN_ESCALATION_WORDS` | `8` | Minimum words in a chunk with no entities for the LLM to read it. Used in `llm` mode and for the empty-result case in `hybrid` mode. |
 | `EXTRACTION_CANDIDATES_ENABLED` | `true` | Set to `false` to stop writing candidates. The dropped counts stay on. Disabling candidates also skips GLiNER's second model call for band entities. |
 
@@ -102,6 +102,8 @@ Class: `ExtractionLLMSettings`. Prefix: `EXTRACTION_LLM_`.
 
 `ExtractionLLMSettings.from_openai_compatible_env()` builds one `openai-generic` client from `LLM_BASE_URL`, `LLM_API_KEY`, and `LLM_MODEL_ID`. It raises `RuntimeError` when `LLM_BASE_URL` or `LLM_MODEL_ID` is missing.
 
+`Graph` falls back to the same shared variables when `EXTRACTION_LLM_CLIENTS` is not set. Because the default mode is `hybrid`, setting `LLM_BASE_URL` and `LLM_MODEL_ID` for the agent also lets extraction send low-confidence chunks to that model. Set `EXTRACTION_MODE=gliner` to keep extraction local.
+
 `ExtractionLLMSettings` also configures the LLM calls that summarize merged descriptions, verify entity matches, and write community reports. All of them read the same clients, strategy and retry values.
 
 ### Agent
@@ -115,6 +117,8 @@ Class: `AgentLLMSettings`. Prefix: `AGENT_LLM_`.
 | `AGENT_LLM_BASE_URL` | `LLM_BASE_URL` | Read by `from_openai_compatible_env()`. |
 | `AGENT_LLM_API_KEY` | `LLM_API_KEY` | Read by `from_openai_compatible_env()`. |
 | `AGENT_LLM_MODEL_ID` | `LLM_MODEL_ID`, then `gpt-4o-mini` | Read by `from_openai_compatible_env()`. |
+
+The agent builds its chat model from the first client in `AGENT_LLM_CLIENTS`. It supports the providers `anthropic`, `openai`, `openai-generic`, and `google-ai`. `AgentLLMSettings` has no retry settings. The retry settings under [Extraction](#extraction) configure extraction, merge-description, resolution-verification, and community-report calls.
 
 ### Evaluation judge
 
@@ -135,7 +139,7 @@ Each entry in a `*_CLIENTS` list has these keys.
 | Key | Meaning |
 | --- | --- |
 | `name` | A unique name for the client. |
-| `provider` | One of `anthropic`, `aws-bedrock`, `google-ai`, `vertex-ai`, `openai`, `openai-responses`, `azure-openai`, `openai-generic`. |
+| `provider` | One of `anthropic`, `aws-bedrock`, `google-ai`, `vertex-ai`, `openai`, `openai-responses`, `azure-openai`, `openai-generic`. Extraction accepts all of them. The agent accepts the four listed under [Agent](#agent). |
 | `model` | The model identifier the provider expects. |
 | `api_key` | The API key, when the provider needs one directly. |
 | `base_url` | A custom endpoint. Required for `openai-generic`. |
@@ -161,14 +165,14 @@ Class: `RetrievalSettings`. Prefix: `RETRIEVAL_`.
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `RETRIEVAL_ENTITY_LABELS` | `[]` | A JSON list of graph labels for native entity search. |
+| `RETRIEVAL_ENTITY_LABELS` | `[]` | A JSON list of graph labels for native entity search. `SearchEngine` reads it only when the caller passes neither `entity_labels` nor a `graph_schema`. With a schema, the schema's entity labels are used. |
 | `RETRIEVAL_ENTITY_TOP_K` | `10` | Results per entity search. |
 | `RETRIEVAL_RESOLVED_ENTITY_TOP_K` | `10` | Results per resolved-entity search. |
 | `RETRIEVAL_CHUNK_TOP_K` | `10` | Results per chunk search. |
 | `RETRIEVAL_COMMUNITY_TOP_K` | `5` | Results per community search. |
 | `RETRIEVAL_TRAVERSAL_DEPTH` | `2` | The maximum hops of a graph expansion. |
 | `RETRIEVAL_TRAVERSAL_LIMIT` | `50` | The maximum nodes a graph expansion returns. |
-| `RETRIEVAL_RRF_K` | `60` | The reciprocal-rank-fusion constant. |
+| `RETRIEVAL_RRF_K` | `60` | The reciprocal-rank-fusion constant of `SearchEngine`. Evidence discovery and entity search in `agrag.evidence` fuse with a fixed constant of `60` and ignore this variable. |
 | `RETRIEVAL_RERANKER_MIN_SCORE` | none | Drop results below this score after reranking. None keeps all. |
 | `RETRIEVAL_NODE_DISTANCE_SEED_TOP_K` | `3` | How many top entity hits seed the node-distance reranker. |
 | `RETRIEVAL_CROSS_ENCODER_MODEL` | `cross-encoder/ms-marco-MiniLM-L-6-v2` | The cross-encoder for reranking. |
@@ -180,6 +184,26 @@ Class: `CutoverJobSettings`. Prefix: `CUTOVER_JOB_`.
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `CUTOVER_JOB_LEASE_TTL_SECONDS` | `60` | Seconds a worker's lease on a document stays valid before another worker can take it. Must be greater than zero. |
+
+## MCP server
+
+Class: `McpServerSettings`. Prefix: `AGRAG_MCP_`. The `agrag-mcp` server reads these variables at start. See [Run the MCP server](../guides/run-the-mcp-server.mdx) for how to use them.
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `AGRAG_MCP_SCOPE_DOCUMENT_KEYS` | none | Required. A comma-separated list with at least one document key that the server may read. A file document's key is its resolved absolute path. |
+| `AGRAG_MCP_READ_ONLY` | `true` | When `true`, the server registers no write tools. Set it to `false` to enable task and decision writes. |
+| `AGRAG_MCP_PROJECT_ID` | none | The project that task and decision tools read and write. Required when `AGRAG_MCP_READ_ONLY` is `false`. |
+| `AGRAG_MCP_AGENT_ID` | none | The author recorded on writes. Required when `AGRAG_MCP_READ_ONLY` is `false`. |
+| `AGRAG_MCP_ALLOW_REJECT` | `false` | Set to `true` to register `reject_decision`. |
+| `AGRAG_MCP_MAX_HITS` | `10` | The most hits one search returns. |
+| `AGRAG_MCP_MAX_SNIPPET_CHARS` | `240` | The most characters of one hit snippet. |
+| `AGRAG_MCP_MAX_FETCH_CHARS` | `4000` | The most characters returned for each fetched evidence id. |
+| `AGRAG_MCP_MAX_FETCH_IDS` | `20` | The most evidence ids one fetch or citation check takes. |
+| `AGRAG_MCP_MAX_RESPONSE_CHARS` | `60000` | The most characters of one result as sent. Search and fetch results send their JSON twice, so they count at twice their JSON length. |
+| `AGRAG_MCP_REQUEST_DEADLINE_SECONDS` | `30.0` | The timeout of each store read. |
+
+The server also reads the `NEO4J_*` and `EMBEDDING_*` variables. Set `EMBEDDING_MODEL` to the model you used for ingestion.
 
 ## Related
 

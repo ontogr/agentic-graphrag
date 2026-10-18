@@ -69,6 +69,7 @@ Set these variables instead of passing `EmbeddingSettings` fields in code.
 | `EMBEDDING_DEVICE` | The device to load the model on. Only `SentenceTransformerEmbedder` uses it. |
 | `EMBEDDING_NORMALIZE` | Whether to normalize output vectors. |
 | `EMBEDDING_BATCH_SIZE` | The number of texts per encode call. |
+| `EMBEDDING_CACHE_FOLDER` | Where the embedder caches downloaded model files. |
 
 ## Set up a graph store
 
@@ -99,6 +100,7 @@ asyncio.run(main())
 | `NEO4J_USERNAME` | The database username. |
 | `NEO4J_PASSWORD` | The database password. |
 | `NEO4J_DATABASE` | The target database name. |
+| `NEO4J_MAX_CONNECTION_LIFETIME` | Seconds a pooled connection lives. The default is `240`. |
 
 Neo4j always authenticates with a password. If `NEO4J_URI` uses a plaintext scheme (`bolt://` or `neo4j://`) and
 points at a non-local host, Agentic GraphRAG raises an error. Use `neo4j+s://` (or `bolt+s://`) for a remote

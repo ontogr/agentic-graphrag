@@ -12,7 +12,7 @@ Record OpenTelemetry spans to see which tools and model calls an agent used. Sta
 Install the agent and observability extras:
 
 ```bash
-pip install 'agentic-graphrag[neo4j,agents,observability]'
+uv pip install "agentic-graphrag[neo4j,agents,observability]"
 ```
 
 Without the `observability` extra, `build_agent(tracer=...)` raises `AgentMissingExtraError` that names `agentic-graphrag[observability]`.
@@ -25,6 +25,7 @@ The example stores spans in memory, runs the agent with that tracer, and prints 
 
 ```python
 import asyncio
+import hashlib
 
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
@@ -33,11 +34,14 @@ from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanE
 from agrag.agents.build import build_agent
 from agrag.agents.settings import AgentLLMSettings
 from agrag.common.data_models import DEFAULT_SCHEMA
+from agrag.common.data_models.document import Document, DocumentFamily, SourceFormat
 from agrag.embedding import build_embedder
 from agrag.graphdb import build_graph_store
 from agrag.ingestion import Graph
 from agrag.ingestion.extract import GlinerExtractor
-from agrag.retrieval.search_engine import SearchEngine
+
+TEXT = "Aspirin treats headaches. Ibuprofen also treats headaches."
+DOCUMENT_KEY = "aspirin-notes"
 
 exporter = InMemorySpanExporter()
 provider = TracerProvider()
@@ -46,20 +50,37 @@ tracer = provider.get_tracer("my-app")
 
 
 async def main() -> None:
-    graph_store = build_graph_store("neo4j")
-    embedder = build_embedder("ibm-granite/granite-embedding-small-english-r2")
+    graph_store = build_graph_store("neo4j", tracer=tracer)
+    embedder = build_embedder(
+        "ibm-granite/granite-embedding-small-english-r2", tracer=tracer
+    )
     graph = await Graph.open(
         schema=DEFAULT_SCHEMA,
         graph_store=graph_store,
         embedder=embedder,
-        extractor=GlinerExtractor(),
+        extractor=GlinerExtractor(tracer=tracer),
+        tracer=tracer,
     )
     try:
-        await graph.add(text="Aspirin treats headaches. Ibuprofen also treats headaches.")
+        await graph.add(
+            documents=[
+                Document(
+                    text=TEXT,
+                    title="Aspirin notes",
+                    uri="notes://aspirin",
+                    document_key=DOCUMENT_KEY,
+                    source_format=SourceFormat.TXT,
+                    family=DocumentFamily.PROSE,
+                    content_hash=hashlib.sha256(TEXT.encode()).hexdigest(),
+                    loader_name="manual",
+                    char_count=len(TEXT),
+                )
+            ]
+        )
         agent = build_agent(
             graph_store=graph_store,
             embedder=embedder,
-            scope=frozenset({"aspirin-notes"}),
+            scope=frozenset({DOCUMENT_KEY}),
             project_id="headache-research",
             agent_id="research-agent",
             llm_settings=AgentLLMSettings.from_openai_compatible_env(),
@@ -120,9 +141,7 @@ Spans hold the question, the tool inputs, and the evidence text. The agent path 
 
 ## Trace the rest of the library with the same tracer
 
-The same tracer traces every other component that calls an LLM, so one run of an ingestion or retrieval pipeline produces a single connected trace. For a connected retrieval trace, pass one tracer to four: `SearchEngine`, `GraphStore`, `Embedder` and `build_agent`. The engine does not push its tracer into its stores, so a store built without the tracer exports adapter spans that no retrieval span connects to. Pass it wherever a component takes `tracer=`:
-
-Pass the same tracer to `Graph.open`. When the graph has an LLM extractor, it opens one `agrag.extraction.escalate` span for each batch.
+Components record spans only when they receive a tracer. `SearchEngine` does not pass its tracer to the graph store or embedder, so give the same tracer to all three when you want their spans connected. Also pass it to `build_agent` for agent and model spans. Pass it to `Graph.open` for ingestion and resolution spans. When you supply a custom extractor, give it the tracer too; `Graph.open` does not replace an injected extractor. A default extractor built by `Graph` receives the graph tracer.
 
 The next block is a reference. `tracer`, `chunks_by_id`, `graph_store`, `schema`, and `chat_model` stand for objects that your application already builds.
 
@@ -154,7 +173,7 @@ verifier = LLMVerify(chunks_by_id=chunks_by_id, tracer=tracer)
 judge = ChatModelJudge(chat_model, "gpt-4o-mini", tracer=tracer)
 ```
 
-`Graph` passes its own tracer down to the resolution and merge steps it runs, and community report generation reads the same tracer. A `Graph.open(...)` or `Graph.add(...)` built with a tracer needs nothing extra.
+`Graph` passes its tracer to its resolution and merge steps, and community report generation uses it. A custom extractor must receive the tracer separately. A tracer on `Graph.open` does not change the tracer already set on the graph store or embedder.
 
 Inside an agent run, every retrieval span nests under the `TOOL` span of the tool call that made it. A trace answers which tool call produced a given graph query or embedding call. Retrieval spans hold the full result text. The arrays `agrag.result_texts` and `agrag.result_ids` record every result, uncapped.
 

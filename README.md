@@ -1,284 +1,117 @@
 <h1 align="center"><a href="https://github.com/ontogr/agentic-graphrag">Agentic GraphRAG</a></h1>
 
+<h3 align="center">Context graphs that give AI agents memory they can trace to its sources.</h3>
+<h4 align="center"><a href="https://ontogr.github.io/agentic-graphrag/">Documentation</a> · <a href="https://ontogr.github.io/agentic-graphrag/stable/get-started/quickstart">Quickstart</a> · <a href="https://ontogr.github.io/agentic-graphrag/stable/concepts/architecture">Concepts</a> · <a href="https://ontogr.github.io/agentic-graphrag/stable/guides/ingest-documents">Guides</a> · <a href="https://ontogr.github.io/agentic-graphrag/stable/api/">API reference</a></h4>
+
+
 <div align="center">
 
-[![DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/ontogr/agentic-graphrag)
-[![CI](https://img.shields.io/github/actions/workflow/status/ontogr/agentic-graphrag/ci.yml?branch=main&label=CI&logo=githubactions)](https://github.com/ontogr/agentic-graphrag/actions/workflows/ci.yml)
-[![Ruff](https://img.shields.io/github/actions/workflow/status/ontogr/agentic-graphrag/ci.yml?branch=main&label=Ruff&logo=ruff)](https://github.com/ontogr/agentic-graphrag/actions/workflows/ci.yml)
-[![ty](https://img.shields.io/github/actions/workflow/status/ontogr/agentic-graphrag/ci.yml?branch=main&label=ty&logo=python)](https://github.com/ontogr/agentic-graphrag/actions/workflows/ci.yml)
-[![Unit tests](https://img.shields.io/github/actions/workflow/status/ontogr/agentic-graphrag/ci.yml?branch=main&label=unit%20tests&logo=pytest)](https://github.com/ontogr/agentic-graphrag/actions/workflows/ci.yml)
-[![Integration tests](https://img.shields.io/github/actions/workflow/status/ontogr/agentic-graphrag/integration.yml?branch=main&label=integration%20tests&logo=pytest)](https://github.com/ontogr/agentic-graphrag/actions/workflows/integration.yml)
-[![Codecov](https://codecov.io/gh/ontogr/agentic-graphrag/branch/main/graph/badge.svg)](https://codecov.io/gh/ontogr/agentic-graphrag)
 [![PyPI](https://img.shields.io/pypi/v/agentic-graphrag.svg)](https://pypi.org/project/agentic-graphrag/)
 [![Python](https://img.shields.io/badge/python-3.11%2B-blue)](https://pypi.org/project/agentic-graphrag/)
 [![Downloads](https://static.pepy.tech/badge/agentic-graphrag)](https://pepy.tech/project/agentic-graphrag)
 [![Docs](https://img.shields.io/badge/docs-GitHub%20Pages-blue?logo=readthedocs)](https://ontogr.github.io/agentic-graphrag/)
-[![License](https://img.shields.io/github/license/ontogr/agentic-graphrag?color=green)](LICENSE)
-
-[Documentation](https://ontogr.github.io/agentic-graphrag/) · [Quickstart](#quickstart) · [Concepts](https://ontogr.github.io/agentic-graphrag/stable/concepts/architecture) · [Guides](https://ontogr.github.io/agentic-graphrag/stable/guides/ingest-documents) · [API reference](https://ontogr.github.io/agentic-graphrag/stable/api)
+[![DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/ontogr/agentic-graphrag)
+[![License](https://img.shields.io/github/license/ontogr/agentic-graphrag?color=green)](https://github.com/ontogr/agentic-graphrag/blob/main/LICENSE)
 
 </div>
 
-Agentic GraphRAG builds schema-defined knowledge graphs from documents and structured data. It stores source text alongside entities and relations, retrieves evidence from the graph's native vector indexes, and can answer questions with citations to that evidence.
+<div align="center">
 
-A plain vector search finds passages that look like your question. It cannot join a fact in one document to a fact in another. "Who founded the company that Satya Nadella works at?" needs two facts from two places. A graph joins them.
+[![CI](https://img.shields.io/github/actions/workflow/status/ontogr/agentic-graphrag/ci.yml?branch=main&label=CI&logo=githubactions)](https://github.com/ontogr/agentic-graphrag/actions/workflows/ci.yml)
+[![Integration tests](https://img.shields.io/github/actions/workflow/status/ontogr/agentic-graphrag/integration.yml?branch=main&label=integration%20tests&logo=pytest)](https://github.com/ontogr/agentic-graphrag/actions/workflows/integration.yml)
+[![Codecov](https://codecov.io/gh/ontogr/agentic-graphrag/branch/main/graph/badge.svg)](https://codecov.io/gh/ontogr/agentic-graphrag)
 
-<p align="center">
-  <img src="https://raw.githubusercontent.com/ontogr/agentic-graphrag/main/docs/static/img/readme/pipeline.png" alt="Agentic GraphRAG pipeline. Sources are loaded, chunked, extracted, and resolved into a Neo4j graph and vector indexes. A task-scoped agent retrieves evidence and returns a cited answer. OpenTelemetry traces every layer." width="900">
-</p>
+</div>
 
-- One ingestion API for raw text, files, directories, globs, and prebuilt documents.
-- Structure-aware loading with Docling for rich documents and core readers for text, XML, and records. Sections, tables, and figures go into the graph, and one section-aware chunker packs every format.
-- Schema-driven extraction with runtime-defined entity types, relation types, and valid graph patterns.
-- Local extraction with GLiNER 2.5. In `hybrid` mode, pass an LLM extractor to `Graph` to review selected chunks up to a budget. The local model still runs on every chunk. A graph can be built without an extraction LLM, but GLiNER runs locally and needs its model dependencies.
-- Tiered entity resolution combining exact, fuzzy, embedding, and LLM-verified matching. An unsure comparison never matches.
-- Non-destructive matching. Fuzzy, embedding, and LLM matches write `MATCHES` edges and a derived `ResolvedEntity`. The original entities and their provenance stay in the graph.
-- Neo4j as the single store for graph data and native vector search.
-- Layered retrieval across entities, chunks, community reports, and graph neighborhoods, with rank fusion and reranking.
-- Evidence discovery and fetch across active document sources, with citation checks.
-- Task-scoped agent that reads only authorized document keys, records task events and decisions, and returns citation-checked answers.
-- OpenTelemetry-native observability across loading, chunking, extraction, resolution, storage, retrieval, and agent turns.
+Agentic GraphRAG is an open source Python framework that connects your documents, agent activity, and decisions in one graph. Your agents can find evidence, continue work across sessions, and revisit decisions when their sources change.
 
-The system uses:
+Turn documents into searchable knowledge shaped by your own schema. Give agents tools to follow relationships, read source passages, and cite what they use. Keep decisions linked to the evidence behind them. Use the Python library, connect your agent through MCP, or start with the built-in agent.
 
-- [Docling](https://github.com/docling-project/docling) for document parsing and [Chonkie](https://github.com/chonkie-inc/chonkie) to split long paragraphs.
-- [GLiNER 2.5](https://github.com/urchade/GLiNER) for local schema-guided entity and relation extraction.
-- [BAML](https://boundaryml.com/) for typed LLM functions and provider-independent client routing.
-- [Neo4j](https://neo4j.com/) for the property graph and native vector search.
-- [FastEmbed](https://github.com/qdrant/fastembed) for dense embeddings, and [Sentence Transformers](https://www.sbert.net/) as an optional dense embedder.
-- [OpenTelemetry](https://opentelemetry.io/) for vendor-neutral traces and metrics.
+For example, a contract-review agent can record a recommendation with passages from a contract and a policy. A later session retrieves the task and its decision. When the policy changes, the decision is flagged for review against the new evidence.
 
-## Knowledge Graph
+## Features
 
-Agentic GraphRAG stores source material, extracted knowledge, and graph summaries in one typed property graph:
+### One graph for documents, tasks, and decisions
 
-```text
-(:Document)-[:HAS_CHILD]->(:Section)
-(:Section)-[:HAS_CHILD]->(:Section|:Chunk|:Table|:Figure)
-(:Table)-[:HAS_CHILD]->(:Chunk)
-(:Document)-[:HAS_PART]->(:Section|:Chunk|:Table|:Figure)
-(:Source)-[:HAS_DOCUMENT]->(:Document)
-(:Chunk)-[:NEXT_CHUNK]->(:Chunk)
-(:Chunk)-[:MENTIONED_IN]->(entity)
-(entity)-[:<RELATION_TYPE>]->(entity)
-(entity)-[:MATCHES]->(entity)
-(entity)-[:RESOLVED_AS]->(:ResolvedEntity)
-(entity)-[:MEMBER_OF]->(:Community)
-```
-
-An entity node carries its schema type as a label, for example `:Person`. You can walk from any answer back to its source document.
-
-### Documents, sections, and chunks
-
-Documents keep their source URI, format, loader, content hash, and record identity. Text formats use content-based identities. Binary Docling formats use raw-byte hashes. A document holds a tree of sections, tables, and figures. Chunks keep stable links into that tree and source provenance:
-
-A section keeps its heading, depth, and a stable `section_key`, and it holds no text. Text chunks record character spans plus their heading path, and they are exact slices of the document text. Chunks from PDF and slides record page numbers and bounding boxes. Record formats such as CSV, TSV, JSON, and JSON Lines preserve row identity. A new document version writes a new tree, and the old tree stays as history.
-
-### Entities and relations
-
-Extraction produces mentions first, not graph nodes. Each mention keeps its source chunk, label, text span, confidence, and extractor provenance. Resolution then decides which mentions name the same thing. Mentions with the same label and the same normalized text share one entity node.
-
-Relations are directed subject-predicate-object triples. The active schema constrains valid source type, relation type, and target type combinations. Validation removes invalid triples before they reach the graph.
-
-### Matches and resolved entities
-
-A fuzzy, embedding, or LLM match does not rewrite or delete anything. It writes a `MATCHES` edge with its tier, score, and reason. Agentic GraphRAG then derives one `ResolvedEntity` for each group of linked entities and links each member to it with `RESOLVED_AS`. A later run can undo a decision, because the original entities are still there. Retrieval can search resolved entities.
-
-### Communities
-
-Leiden clustering groups related entities into communities. `Graph.detect_communities` keeps the broadest groups of two or more entities. A group with enough supporting relations gets an LLM-written report with a title, summary, findings, and a rating from 0 to 10. A smaller group gets a simple report with no LLM call. Community reports provide broad context without forcing retrieval to return every low-level edge.
-
-### Runtime schemas
-
-`GraphSchema` is a first-class runtime value. It defines:
-
-- entity types and their descriptions.
-- relation types and their descriptions.
-- valid `(source, relation, target)` patterns.
-- the vocabulary injected into local and LLM extractors.
-
-Load OWL and RDFS Turtle ontologies with `load_schema("ontology.ttl")` after installing the `schema-formats` extra. See the [OWL and RDFS Turtle import reference](https://ontogr.github.io/agentic-graphrag/stable/reference/owl-import).
-
-Use `DEFAULT_SCHEMA` for general text, or provide a schema for a specific domain. The schema guides extraction and validation, and supplies type information to retrieval.
-
-Write a schema as a short dict, a list of labels or a YAML file. `extends` builds on the default schema:
-
-```python
-from agrag.schema import load_schema
-
-schema = load_schema(
-    {
-        "extends": "default",
-        "entities": [
-            {
-                "label": "Vendor",
-                "description": "An organization that sells to others.",
-                "parents": ["Organization"],
-            }
-        ],
-        "relations": ["Vendor-SELLS_TO->Organization"],
-    }
-)
-```
-
-### Default schema and presets
-
-`DEFAULT_SCHEMA` has nine entity types: Person, Organization, Location, Event, Product, Software, Publication, Dataset, and Project. It has eight relation types: WORKS_FOR, PART_OF, LOCATED_IN, OWNS, AUTHORED, PARTICIPATED_IN, DEPENDS_ON, and SUPPLIES. Each relation allows only the source and target types that it names.
-
-Presets add entity types to a base schema. `OPERATIONS` adds Facility, Service, and Occupation. `LEGAL` adds Contract and Regulation. A preset adds types only. The default relations do not accept preset types, so define a relation in your own schema to connect them.
-
-Use `extends` to build a schema on a base, such as `DEFAULT_SCHEMA` or a preset. A child type that redeclares a base type must use `override`. Use `exclude` to remove base types or relations.
-
-### Extraction modes
-
-Set `EXTRACTION_MODE` to choose how the graph reads text. The default is `hybrid`.
-
-| Mode | What runs on each chunk | Use it when |
-|---|---|---|
-| `gliner` | The local GLiNER model. No extraction LLM runs. | You want no extraction LLM cost. |
-| `hybrid` | GLiNER on every chunk, then an LLM on the weakest eligible chunks within the budget. | You have an LLM and want it to review GLiNER's result. |
-| `llm` | An LLM on every chunk that meets `min_escalation_words` (8 by default). GLiNER does not run. | You want LLM extraction without GLiNER. The LLM may use a hosted or local endpoint. |
-
-For the default extractors, install `extract` for `gliner`, both `extract` and `llm` for `hybrid`, or `llm` for `llm` mode. Custom extractors use their own dependencies.
-
-When `hybrid` has no extraction LLM available, `Graph` selects GLiNER mode and logs a warning. `Graph` can build a BAML extractor from environment settings in either `hybrid` or `llm` mode, so a configured LLM may be used even when you do not pass `llm_extractor`. Set `EXTRACTION_MODE=gliner` to disable LLM extraction explicitly. Check `graph.effective_mode` to see the selected mode. See [Choose an extraction mode](https://ontogr.github.io/agentic-graphrag/stable/guides/choose-an-extraction-mode) for the tradeoffs.
-
-## Architecture
-
-Agentic GraphRAG has two main data flows:
-
-Ingestion turns a source into a document, then into chunks, mentions, a matched graph, and indexes. A query turns a question into a plan, research, verification, and a cited answer.
-
-## Ingestion Pipeline
-
-`Graph.add()` is the single entry point for adding content. The pipeline has six stages:
-
-1. Load: Select a loader by format. Decode or parse the source. Preserve source metadata. Apply `RAISE`, `SKIP`, or `QUARANTINE` as the error policy for each source.
-2. Chunk: Pack the sections of every document into chunks with one section-aware chunker, using 600 tokens as the packing budget. Tokenizer context around the joined units can add a few tokens past it. A table becomes its own chunks, and a small chunk carries on into the next section.
-3. Extract: Use the selected extraction mode. `gliner` runs GLiNER locally on every chunk; `hybrid` also sends the weakest eligible chunks to an LLM within the budget; `llm` sends eligible chunks to an LLM without running GLiNER. Validation drops entities and triples that do not conform to the schema.
-4. Resolve: Apply exact, fuzzy, embedding, and LLM-verified comparison tiers. Ambiguous or failed comparisons do not match.
-5. Merge: Combine the mentions of exact matches into one entity. Decide each property value and join the chunk ids that mention it. Fuzzy, embedding, and LLM matches are stored as `MATCHES` edges, not merged.
-6. Store: Upsert nodes and relations, then populate the Neo4j vector indexes.
-
-`Graph` combines the LLM result with the local result as a union. An LLM entity with the name of a local entity keeps the local span and score. A chunk is eligible when one entity scores below 0.75, when the local model finds no entities in a chunk of at least eight words, or when an entity has a type with properties. The LLM reads the weakest eligible chunks first, up to 20% of the chunks in a batch by default, and each run reports what it left to the local model. Exact matches use global store-backed lookup. More expensive fuzzy and LLM comparisons run on a smaller candidate set.
+Documents, agent work, and decisions live together, so every answer can be traced back to its source.
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/ontogr/agentic-graphrag/main/docs/static/img/readme/resolution.png" alt="Entity resolution tiers. A pair of mentions with the same label passes an exact tier, a fuzzy tier, an embedding tier, and an LLM tier. An unsure pair is never matched. A match writes MATCHES edges and a derived ResolvedEntity, and the original entities stay." width="900">
+  <img src="https://raw.githubusercontent.com/ontogr/agentic-graphrag/main/docs/static/img/readme/graph3d.png" alt="Three stacked graph layers. Enterprise knowledge holds documents, sections, chunks and entities. Conversation history holds tasks, events and steps. Decision traces point up to the passages and events they rely on." width="860">
 </p>
 
-The pipeline compares only mentions with the same label, so a city and a company with the same name stay apart. A wrong match mixes the facts of two things, and a missed match can be fixed later. Uncertain comparisons stay undecided rather than becoming matches or rejections.
+- **Three connected layers.** The first layer holds your documents, with their sections, tables, and passages, and the people, organizations, products, and other entities found in them. The second holds named tasks, the steps agents take, and a log of what happened. The third holds the decisions agents make.
+- **Every passage knows where it came from.** A passage records its document, its place in the document's structure, and the exact version it came from, with page positions for PDFs.
+- **Relations can point to their evidence.** A relation links to the passages that support it when evidence exists, and a decision links to the text it was based on.
+- **Old citations keep working.** The graph keeps the history of each document, so a citation to an older version still leads to the text that was cited.
 
-`Graph.consolidate()` provides a separate whole-graph reconciliation pass for duplicates found across ingestion runs. It runs as a dry run by default, so applications can inspect proposed matches before they apply them.
+### Build the graph around your own schema
 
-`Graph.update()` replaces a document that changed, and an unchanged document is a no-op. `Graph.delete_document()` removes a document from search and prunes entities that lose their last evidence. Both work on a document key, and each runs as one job, so a crash leaves the document whole.
-
-## Embeddings and Storage
-
-The async `Embedder` and `GraphStore` interfaces keep model and database choices outside graph-construction logic.
-
-### Embeddings
-
-- Dense embeddings through FastEmbed, with Sentence Transformers as an option.
-- Batch-first async APIs with optional content-addressed caching by text and model.
-- Dimension checks before collections or indexes accept vectors. `Graph.open` raises an error when the embedder does not match the stored vector dimensions.
-
-### Graph storage
-
-The Neo4j backend supports local Neo4j and Aura over Bolt, managed read/write transactions, node and relation upserts, constraints, indexes, and native dense vector search. The query builders validate dynamic labels and relation types before they interpolate them into Cypher.
-
-### Vector search
-
-Every entity label, resolved entity, community, and chunk has a Neo4j native vector index. Filters use exact scalar matches, OR within a list value, and AND across keys.
-
-## Retrieval Pipeline
-
-Retrieval composes small search methods into retrievers, runs them concurrently, and fuses their results through data-only recipes.
-
-- Entity retrieval finds entities and resolved entities by dense search and can expand matched seeds with bounded graph traversal.
-- Chunk retrieval returns source passages with document and span provenance.
-- Community retrieval searches community reports for thematic and corpus-wide questions.
-- Graph traversal uses bounded breadth-first search to collect connected evidence.
-
-| Recipe | Search methods | Extra steps |
-| --- | --- | --- |
-| `ENTITY` | Entity | none |
-| `CHUNK` | Chunk | none |
-| `HYBRID` | Entity + chunk | none |
-| `HYBRID_RERANKED` | Entity + chunk | Community reports, cross-encoder rerank |
-| `GRAPH_EXPAND` | Entity | Graph walk, community reports |
-| `THEMATIC` | Community | none |
-
-Reciprocal Rank Fusion merges the ranked lists, so no method's score scale takes over. A cross-encoder or graph-distance reranker can then set a new order. A recipe can ignore a failed or empty search branch and still return evidence from the remaining methods.
-
-```python
-from agrag.retrieval import HYBRID, SearchEngine
-
-engine = SearchEngine(graph_store=graph_store, embedder=embedder, graph_schema=schema)
-results = await engine.search("What treats headaches?", HYBRID)
-```
-
-## Task-scoped Agent
+You decide which things matter, and the graph is built around them.
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/ontogr/agentic-graphrag/main/docs/static/img/readme/agent-loop.png" alt="A task-scoped agent reads authorized evidence, records task events, and returns an answer with validated evidence references." width="900">
+  <img src="https://raw.githubusercontent.com/ontogr/agentic-graphrag/main/docs/static/img/readme/schema-pipeline.png" alt="Extraction reads each chunk with a local model, sends uncertain chunks to an LLM, and checks the result against your schema. Entities and relationships outside the schema are saved for review. Resolution then compares entities in steps, from cheap checks to an LLM, and stores each match as a link." width="860">
 </p>
 
-Build an agent with a graph store, embedder, explicit document scope, project identity, and agent identity. Invoke it with a task name and question. The result includes the answer, fetched evidence, invalid citations, and the latest task event sequence. Task events and decisions persist under the project and task names.
+- **Describe your own entities and relations.** Name the kinds of things that matter to you, such as people, contracts, or products, and the relations between them. Write the schema in code or in a configuration file, or start from a ready-made preset and extend it.
+- **Extraction runs on your machine first.** You can build a graph without an LLM. When the local model is unsure about a passage, an LLM can read it, and you decide how much of each batch the LLM may read.
+- **Nothing outside your schema is lost.** Anything the models find that your schema does not cover is saved for review. Approved items become part of your schema and your graph.
+- **Duplicates are merged with care.** Agentic GraphRAG recognizes that "Acme Corp" and "Acme Corporation" are the same company. It starts with cheap checks and asks an LLM only about the pairs that remain unclear.
+- **Every match can be undone.** A match is stored as a link between two entities, so the originals stay in the graph. You can preview a cleanup of the whole graph before you apply it.
 
-## Structured LLM Output
+### Search your documents and read the evidence
 
-BAML defines typed contracts for entity and relation extraction, entity-match verification, community reports, and description summaries. Runtime client registries support a single provider, fallback chains, or round-robin routing. They route across OpenAI, Anthropic, AWS Bedrock, Google AI, Vertex AI, Azure OpenAI, and OpenAI-compatible endpoints. The agent uses an OpenAI-compatible endpoint that you set with `LLM_BASE_URL`, `LLM_API_KEY`, and `LLM_MODEL_ID`.
+Agents find passages, read the exact text, and move around a document the way a person would.
 
-## Observability and Failure Handling
+<p align="center">
+  <img src="https://raw.githubusercontent.com/ontogr/agentic-graphrag/main/docs/static/img/readme/search-evidence.png" alt="A query runs full-text, semantic, or hybrid search over the chunks of the documents you allow. Hits carry evidence ids, and a fetch returns the exact passage text with a citation. Optional steps navigate the document tree, search entities, and explore relationships." width="860">
+</p>
 
-OpenTelemetry API support is part of the core package. Exporters and the SDK are optional. You pass the tracer, and Agentic GraphRAG never installs a global one. Applications can send traces to any OTLP-compatible backend. Spans cover loading, chunking, extraction, model calls, resolution, storage writes, searches, and agent turns.
+- **Full-text, semantic, and hybrid search.** Full-text search matches keywords, semantic search compares embeddings, and hybrid search fuses both rankings with reciprocal rank fusion. A search returns short previews, each with an evidence id for its passage, and a separate step fetches the exact text.
+- **You set the boundary outside the model.** You decide which documents an agent may read, and the model can only work inside that choice.
+- **Source text stays findable.** Search reads the passages directly, so a passage is still found when extraction missed the fact it contains.
+- **Move around a passage.** From any passage, an agent can reach the surrounding section, the neighboring passages, or the rows around a table cell, which keep their column headers.
+- **Follow entities back to text.** An agent can look up an entity, see the passages that mention it, and follow its relations a few steps out. Each relation is marked as backed by a passage or as a connection without direct text.
+- **Incomplete results say so.** Every result states when something was cut off or part of the search failed, so an incomplete result is never mistaken for an empty one.
 
-Long-running graph builds report bounded, structured stage statistics for ingestion, extraction, resolution, merging, and storage. Failures include the affected item, error type, message, and trace/span IDs. Full detail remains in the trace backend so result objects stay bounded on large corpora.
+### Remember tasks and decisions
 
-`agrag.eval` (the `eval` extra) holds metrics that score answers, retrieval, extraction, resolution, and agent runs on your own documents and questions. See [Score Agentic GraphRAG on your questions](https://ontogr.github.io/agentic-graphrag/stable/guides/score-agrag-on-your-questions).
+The memory layer records an agent's work and decisions as it runs, keeps them current when sources change, and recalls them to inform later decisions.
 
-## Installation
+<p align="center">
+  <img src="https://raw.githubusercontent.com/ontogr/agentic-graphrag/main/docs/static/img/readme/task-resume.png" alt="The agent records events, steps, and decisions in the memory layer as it works. A decision cites passages, events, and earlier decisions. When a cited document changes, the decision is flagged for review. The agent recalls the task and searches past decisions to inform new ones." width="860">
+</p>
 
-Agentic GraphRAG requires Python 3.11 or newer.
+- **Work is recorded as it happens.** The built-in agent saves each message, tool call, and tool result as a task event, and it tracks progress as steps. Repeating a write after a failure never records it twice.
+- **Decisions are saved as traces.** A decision records a conclusion, the reasoning, the assumptions, and the open questions, along with the passages, events, or earlier decisions it relies on.
+- **Source changes flag decisions.** When a document behind a decision is updated or removed, the decision is flagged for review, and so are the decisions that depend on it.
+- **Reviews end in a clear action.** A reviewer can reaffirm a decision after reading the current text, or replace it with a new one that explains the change. The earlier version stays in the history.
+- **Tasks resume with the full picture.** When a task resumes, the agent sees the goal, the progress so far, and the decisions already made, including any that need review. It reuses finished work that is still valid, and a step that was interrupted is marked as unknown so that it can be run again.
+- **Past decisions inform new ones.** Agents can search earlier decisions in the same project. The built-in agent's search leaves out decisions that need review, and the agent cannot cite one as support.
 
-```bash
-uv pip install agentic-graphrag
-```
+### Use the built-in agent or any MCP client
 
-Install only the integrations you use:
+Use the agent that ships with the library, or connect your own through MCP.
 
-```bash
-# Rich documents and local extraction
-uv pip install "agentic-graphrag[docling,extract]"
+<p align="center">
+  <img src="https://raw.githubusercontent.com/ontogr/agentic-graphrag/main/docs/static/img/readme/full-flow.png" alt="Documents are loaded, chunked, extracted, and resolved into a graph with three layers: enterprise knowledge, conversation history, and decision traces. A changed document flags the decisions that cite it. An agent searches and reads the graph and records its events, steps, and decisions. Its answer passes a citation check and returns with numbered sources." width="860">
+</p>
 
-# LLM extraction
-uv pip install "agentic-graphrag[llm]"
+- **Answers cite numbered sources.** The built-in agent searches your documents, reads passages, and answers with numbered sources.
+- **Every citation is checked.** The passage must have been read during that run, it must belong to the documents the agent may use, and it must match the version cited. If a citation fails the check, the agent gets one chance to fix it.
+- **Every run ends with a status.** The status tells you whether the agent answered, found too little evidence, or reached a limit. You set how many steps and tool calls a run may use.
+- **Choose your model.** Use Anthropic, OpenAI, Google, or any OpenAI-compatible model, with fallback between them.
+- **The same tools work through MCP.** A local MCP server gives other agents the same tools. It starts read-only and shows only the documents you choose, and you decide whether a client may record tasks and decisions.
+- **Trace and evaluate your runs.** Runs can be traced with OpenTelemetry, and the evaluation tools score answers, citations, and agent runs on your own questions.
 
-# Neo4j with OTLP tracing
-uv pip install "agentic-graphrag[neo4j,observability]"
-
-# The question-answering agent
-uv pip install "agentic-graphrag[agents]"
-
-# Hierarchical community detection
-uv pip install "agentic-graphrag[community]"
-```
-
-| Extra | Adds |
-| --- | --- |
-| `docling` | The layout and table models for PDF and image files |
-| `extract` | Local GLiNER 2.5 extraction |
-| `llm` | BAML-powered extraction and match verification |
-| `agents` | The LangGraph runtime for the question-answering agent |
-| `embed-local` | Sentence Transformers, to embed with models that the default embedder does not support |
-| `neo4j` | Neo4j graph storage and native vector search |
-| `observability` | OpenTelemetry SDK and OTLP export |
-| `community` | Leiden community detection |
-| `eval` | The DeepEval and AgentEvals metrics in `agrag.eval` |
+See the [features page](https://ontogr.github.io/agentic-graphrag/stable/get-started/features) for the complete list, including supported file formats, chunking, keeping the graph current as documents change, and community summaries.
 
 ## Quickstart
 
-You need a Neo4j database, version 5.23 or newer. The free [Neo4j Aura](https://ontogr.github.io/agentic-graphrag/stable/get-started/quickstart) tier works, and the full [Quickstart](https://ontogr.github.io/agentic-graphrag/stable/get-started/quickstart) shows the setup. Install the extras for this page with uv 0.6.9 or newer. Create and activate a virtual environment, then install the package. Save your credentials as `.env` in the working directory. The file sets `NEO4J_URI`, `NEO4J_USERNAME`, and `NEO4J_PASSWORD`.
+In this example you add one document, ask a question about it, and get an answer with numbered sources. You need Python 3.11 or newer, a running Neo4j database, and an OpenAI-compatible LLM endpoint. See the [quickstart guide](https://ontogr.github.io/agentic-graphrag/stable/get-started/quickstart) for starting Neo4j with Docker or Neo4j Aura.
+
+### 1. Install
+
+Install the package from PyPI into a fresh virtual environment:
 
 ```bash
 uv venv
@@ -286,264 +119,133 @@ source .venv/bin/activate
 uv pip install "agentic-graphrag[neo4j,extract,agents]" --torch-backend=auto
 ```
 
-### Build a graph
+See [Installation](https://ontogr.github.io/agentic-graphrag/stable/get-started/installation) for other package managers and the optional parts you can add.
 
-Save this script as `build_graph.py`. It needs no LLM key.
+### 2. Add your settings
 
-The example passes `GlinerExtractor` directly, so GLiNER always runs. If an extraction LLM is configured in the environment, the default `hybrid` mode can also use it to review selected chunks. To make the mode explicit and prevent extraction LLM use, set `EXTRACTION_MODE=gliner` in `.env` or the shell.
+Create a file named `.env` in the folder where you will run the example. Replace the values with your own, and keep the file out of version control.
+
+```dotenv
+NEO4J_URI=bolt://localhost:7687
+NEO4J_USERNAME=neo4j
+NEO4J_PASSWORD=your-neo4j-password
+AGENT_LLM_BASE_URL=https://your-endpoint.example.com/v1
+AGENT_LLM_API_KEY=your-api-key
+AGENT_LLM_MODEL_ID=your-model-id
+```
+
+The last three lines are the address, key, and model of your OpenAI-compatible LLM endpoint. For a Neo4j database on another machine, see [Configuration](https://ontogr.github.io/agentic-graphrag/stable/reference/configuration).
+
+### 3. Run the example
+
+Put any Markdown or text file in the same folder and name it `your-document.md`. Save the following as `example.py` and run `python example.py`.
 
 ```python
 import asyncio
-
-from agrag.common.data_models import EntityType, GraphSchema, RelationType
-from agrag.embedding import build_embedder
-from agrag.graphdb import build_graph_store
-from agrag.ingestion import GlinerExtractor, Graph
-
-schema = GraphSchema(
-    name="company-facts",
-    version="1",
-    entities=[
-        EntityType(label="Person", description="A named individual."),
-        EntityType(label="Organization", description="A company or institution."),
-        EntityType(label="Location", description="A city or country."),
-    ],
-    relations=[
-        RelationType(
-            label="FOUNDED",
-            description="A person founded an organization.",
-            patterns=[("Person", "Organization")],
-        ),
-        RelationType(
-            label="WORKS_AT",
-            description="A person works at an organization.",
-            patterns=[("Person", "Organization")],
-        ),
-        RelationType(
-            label="HEADQUARTERED_IN",
-            description="An organization has its headquarters in a location.",
-            patterns=[("Organization", "Location")],
-        ),
-    ],
-)
-
-TEXT = (
-    "Satya Nadella works at Microsoft. Bill Gates founded Microsoft. "
-    "Microsoft is headquartered in Redmond."
-)
-
-async def main() -> None:
-    graph_store = build_graph_store("neo4j")
-    graph = await Graph.open(
-        schema=schema,
-        graph_store=graph_store,
-        embedder=build_embedder("ibm-granite/granite-embedding-small-english-r2"),
-        extractor=GlinerExtractor(),
-    )
-    try:
-        result = await graph.add(text=TEXT, return_chunks=True)
-        print("documents:", result.ingestion.documents)
-        print("chunks:", len(result.chunks))
-        print("entities extracted:", result.extraction.entities_extracted)
-        print("relations extracted:", result.extraction.relations_extracted)
-    finally:
-        await graph_store.close()
-
-if __name__ == "__main__":
-    asyncio.run(main())
-```
-
-The script prints the counts below. The first run downloads two models, about 850 MB in total.
-
-```text
-documents: 1
-chunks: 1
-entities extracted: 6
-relations extracted: 3
-```
-
-Run the script from the directory that contains `build_graph.py` and `.env`:
-
-```bash
-python build_graph.py
-```
-
-### Ask a question
-
-This step needs an OpenAI-compatible LLM endpoint. Add `LLM_BASE_URL`, `LLM_API_KEY`, and `LLM_MODEL_ID` to `.env`. Then save this script as `ask.py`:
-
-```python
-import asyncio
+from pathlib import Path
 
 from agrag.agents import AgentLLMSettings, build_agent
 from agrag.embedding import build_embedder
 from agrag.graphdb import build_graph_store
+from agrag.ingestion import ExtractionSettings, Graph
 
-from build_graph import schema
+# Any Markdown or text file you have.
+DOCUMENT = Path("your-document.md").resolve()
 
-QUESTION = "Who founded the company that Satya Nadella works at?"
 
 async def main() -> None:
-    graph_store = build_graph_store("neo4j")
-    await graph_store.connect()
+    # Connect to the database and load the model that turns text into vectors.
+    store = build_graph_store("neo4j")
+    embedder = build_embedder("ibm-granite/granite-embedding-small-english-r2")
     try:
-        embedder = build_embedder("ibm-granite/granite-embedding-small-english-r2")
-        agent = build_agent(
-            graph_store=graph_store,
+        # Read the document into the graph. This step runs on your machine.
+        graph = await Graph.open(
+            schema="operations",
+            graph_store=store,
             embedder=embedder,
-            scope=frozenset({"company-notes.md"}),
-            project_id="quickstart",
-            agent_id="quickstart-agent",
+            extraction_settings=ExtractionSettings(mode="gliner"),
+            max_llm_pairs=0,
+        )
+        await graph.add(DOCUMENT)
+
+        # Create an agent that may read only this document.
+        agent = build_agent(
+            graph_store=store,
+            embedder=embedder,
+            scope=frozenset({str(DOCUMENT)}),
+            project_id="my-project",
+            agent_id="researcher",
             llm_settings=AgentLLMSettings.from_openai_compatible_env(),
         )
-        result = await agent.ainvoke(
-            {"task_name": "company-founder", "question": QUESTION}
-        )
+
+        # Ask a question about the document.
+        result = await agent.ainvoke({
+            "task_name": "first-question",
+            "question": "What are the main points of this document? Cite your sources.",
+        })
         print(result["answer"])
-        print("evidence ids:", ", ".join(item.evidence_id for item in result["citations"]))
     finally:
-        await graph_store.close()
+        await store.close()
+
 
 asyncio.run(main())
 ```
 
-```bash
-BAML_LOG=off uv run python ask.py
-```
+The script prints an answer that ends with a numbered list of sources. Run it again with the same task name and the agent continues where it stopped.
 
-The answer varies with your model. This is an example:
+### Next steps
 
-```text
-Satya Nadella works at Microsoft, which was founded by Bill Gates.
-evidence ids: ev_...
-```
+- See [Record decisions and review them](https://ontogr.github.io/agentic-graphrag/stable/guides/connected-memory) for tying a decision to its evidence and reviewing it when a document changes.
+- See [Find and cite evidence](https://ontogr.github.io/agentic-graphrag/stable/guides/find-and-cite-evidence) for searching passages and checking citations from your own code.
+- See the [features page](https://ontogr.github.io/agentic-graphrag/stable/get-started/features) for everything else Agentic GraphRAG does.
 
-The agent needed two facts from two sentences. It joined them through the `Microsoft` node. Each key points to stored evidence.
+## Use MCP
 
-### Add more content
+Run `agrag-mcp` to give any MCP client tools that search your documents, read exact passages, check citations, and keep task and decision memory.
 
-`Graph.add()` accepts exactly one of:
-
-- `source=`: a file, directory, glob, or list of paths.
-- `text=`: raw text as one document.
-- `documents=`: prebuilt `Document` objects.
-
-```python
-files = await graph.add(source="./corpus/**/*.md", return_chunks=True)
-print(files.ingestion.documents, len(files.chunks))
-```
-
-### Handle source failures
-
-```python
-from agrag.loaders import ErrorPolicy
-
-result = await graph.add(
-    source="./corpus",
-    error_policy=ErrorPolicy.QUARANTINE,
-)
-
-for item in result.ingestion.quarantined_items:
-    print(item.item_id, item.error_message)
-```
-
-`RAISE` stops the run, `SKIP` drops the source and counts it, and `QUARANTINE` sets it aside with the reason.
-
-### Update and delete documents
-
-```python
-await graph.update("notes/q3.md", text=new_text)
-await graph.delete_document("notes/q3.md")
-```
-
-See the [documentation](https://ontogr.github.io/agentic-graphrag/) for guides and the generated API reference.
-
-## Supported Formats
-
-| Format | Extension(s) | Loader |
-| --- | --- | --- |
-| Plain text and logs | `.txt`, `.log` | Core |
-| XML | `.xml` | Core |
-| Markdown | `.md`, `.markdown` | Docling |
-| AsciiDoc | `.adoc`, `.asciidoc` | Docling |
-| HTML | `.html`, `.htm` | Docling |
-| CSV / TSV | `.csv`, `.tsv` | Core, one document per row or one for the table |
-| JSON | `.json` | Core, record-aware |
-| JSON Lines | `.jsonl`, `.ndjson` | Core, one document per row |
-| PDF | `.pdf` | Docling, needs the `docling` extra |
-| Word | `.docx` | Docling |
-| PowerPoint | `.pptx` | Docling |
-| Excel | `.xlsx` | Docling |
-| Images | `.png`, `.jpg`, `.jpeg`, `.tif`, `.tiff`, `.bmp` | Docling, needs the `docling` extra |
-| Chat exports | `.json`, `.jsonl`, `.ndjson` | Chat loader, which you pass for a single file |
-
-Docling reads every rich format. The core readers keep plain text, XML, and the record formats, so a CSV row keeps its identity. Docling without the `docling` extra reads Markdown, HTML, AsciiDoc, Word, PowerPoint, and Excel files. The extra adds the layout and table models for PDF and image files.
-
-## Project Structure
-
-```text
-agrag/
-├── common/data_models/   # documents, chunks, schemas, extraction and storage records
-├── chunking/             # the section chunker
-├── loaders/              # core corpus readers and the Docling loaders
-├── ingestion/            # Graph API, extraction, resolution, community detection and pipeline stages
-├── embedding/            # dense embedding interfaces
-├── graphdb/              # graph-store interface and Neo4j backend
-├── cypher/               # validated Cypher builders
-├── retrieval/            # search methods, retrievers, recipes and rerankers
-├── agents/               # task-scoped agent, tools, and task event handling
-├── eval/                 # metrics for answers, retrieval, extraction, resolution and agent runs
-├── llm/                  # BAML sources, generated client and provider routing
-└── observability.py      # OpenTelemetry helpers
-
-tests/
-├── unit/                 # isolated tests with external services mocked
-└── integration/          # live backend tests against Docker services
-```
-
-## Development
+Install the server in the same virtual environment as before:
 
 ```bash
-git clone https://github.com/ontogr/agentic-graphrag.git
-cd agentic-graphrag
-make sync
-make lint-check
-make lint-typing
-make test
+uv pip install "agentic-graphrag[neo4j,mcp]"
 ```
 
-Integration tests run against a local Neo4j service:
+Then add the server to your MCP client. Replace the document path with the full path of a file you added to the graph.
 
-```bash
-make dev-services-up
-make test-integration
-make dev-services-down
+```json
+{
+  "mcpServers": {
+    "agrag": {
+      "command": "agrag-mcp",
+      "env": {
+        "NEO4J_URI": "bolt://localhost:7687",
+        "NEO4J_USERNAME": "neo4j",
+        "NEO4J_PASSWORD": "your-neo4j-password",
+        "AGRAG_MCP_SCOPE_DOCUMENT_KEYS": "/full/path/to/your-document.md",
+        "AGRAG_MCP_PROJECT_ID": "my-project",
+        "AGRAG_MCP_AGENT_ID": "researcher"
+      }
+    }
+  }
+}
 ```
+
+If your client cannot find `agrag-mcp`, use its full path inside the virtual environment, for example `/full/path/to/.venv/bin/agrag-mcp`. The server starts read-only and reads only the documents you list. The project and agent IDs enable task and decision memory tools; writes remain disabled until you change the server settings. See the [MCP server guide](https://ontogr.github.io/agentic-graphrag/stable/guides/run-the-mcp-server) for the other settings.
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the development workflow, test conventions, and pull request guidelines.
+We welcome bug fixes, new features, documentation improvements, and other contributions. Please read our [Contributing guide](CONTRIBUTING.md) before submitting a pull request.
 
-## References
+## Acknowledgements
 
-The work below shaped the design of Agentic GraphRAG.
+Agentic GraphRAG builds on the work behind these papers and projects.
 
-<details>
-<summary>Papers and projects</summary>
-
-- [Microsoft GraphRAG](https://arxiv.org/abs/2404.16130): hierarchical communities and community reports
-- [Graphiti](https://github.com/getzep/graphiti): layered graph search and entity-aware retrieval
-- [Cognee](https://github.com/topoteretes/cognee): data pipelines, graph memory, and consolidation
-- [KG-Gen](https://github.com/stair-lab/kg-gen): knowledge-graph extraction and alias deduplication
-- [FalkorDB GraphRAG SDK](https://github.com/FalkorDB/GraphRAG-SDK): graph-native retrieval and entity resolution
-- [Neo4j GraphRAG](https://github.com/neo4j/neo4j-graphrag-python): Neo4j retrieval and vector integration
-- [LightRAG](https://github.com/HKUDS/LightRAG): graph and vector retrieval
-- [PathRAG](https://github.com/BUPT-GAMMA/PathRAG): relational-path retrieval
-- [GLiNER](https://arxiv.org/abs/2311.08526): generalist zero-shot information extraction
-- [BAML](https://boundaryml.com/), [Docling](https://github.com/docling-project/docling), and [Chonkie](https://github.com/chonkie-inc/chonkie)
-
-</details>
+- [Graphiti](https://github.com/getzep/graphiti) for layered graph search and entity-aware retrieval
+- [Cognee](https://github.com/topoteretes/cognee) for data pipelines, graph memory, and consolidation
+- [FalkorDB GraphRAG SDK](https://github.com/FalkorDB/GraphRAG-SDK) for graph-native retrieval and entity resolution
+- [Neo4j GraphRAG](https://github.com/neo4j/neo4j-graphrag-python) for Neo4j retrieval and vector integration
+- [GLiNER](https://arxiv.org/abs/2311.08526) for generalist zero-shot information extraction
+- [BAML](https://boundaryml.com/), [Docling](https://github.com/docling-project/docling), and [Chonkie](https://github.com/chonkie-inc/chonkie) for typed LLM calls, document parsing, and chunk splitting
 
 ## License
 
-This project is licensed under the [Apache License 2.0](LICENSE).
+Agentic GraphRAG is licensed under the [Apache License 2.0](https://github.com/ontogr/agentic-graphrag/blob/main/LICENSE).

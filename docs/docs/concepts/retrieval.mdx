@@ -4,36 +4,41 @@ title: Retrieval
 description: How Agentic GraphRAG finds evidence for a query with several search methods, fusion, and re-ranking.
 ---
 
+import Diagram from '@site/src/components/Diagram';
+
 # Retrieval
 
-Retrieval gathers ranked evidence from chunks, entities, communities, or graph queries. A recipe selects the search methods and optional expansion or re-ranking steps, then returns a bounded list of results.
+Agentic GraphRAG has two ways to retrieve. The evidence functions in `agrag.evidence` find passages, fetch their exact text, move between neighbouring passages, explore entity relations, and check citations. The built-in agent and the MCP server use them. `SearchEngine` runs named recipes that combine search methods over entities, chunks, and community reports, for code that wants ranked results from the graph.
 
 ## Why it exists
 
 Graph data answers questions in different ways. A fact can sit in a source passage, on an entity, in a relation between entities, or in a summary of a whole topic. No single search finds all four. A name lookup works for "Ada Lovelace". It does not work for "the main themes in this corpus".
 
-Each evidence type needs a different search. A recipe chooses which searches to combine, and Reciprocal Rank Fusion (RRF) combines their rankings without assuming that their raw scores use the same scale. More expansion can improve coverage, but it also adds work and can introduce less direct evidence.
+An answer that cites its sources needs more than a ranked list. The evidence functions give every passage an id that names one version of one document, return the exact text behind an id, and check each citation against what was fetched. A caller fixes the set of readable documents once, and every function applies that scope inside its queries.
 
-## How it works
+## Evidence retrieval
 
-```mermaid
-flowchart TD
-    Q[Query] --> M[Run the methods]
-    M --> F[Fuse the results]
-    F --> B{Walk the graph?}
-    B -->|yes| X[Walk from entity hits]
-    X --> F2[Fuse again]
-    B -->|no| C
-    F2 --> C{Add communities?}
-    C -->|yes| G[Add community reports]
-    C -->|no| R
-    G --> R{Re-rank?}
-    R -->|yes| RR[Re-rank]
-    R -->|no| T
-    RR --> T[Keep the top results]
-```
+<Diagram folder="docs" name="evidence-tools" alt="A query goes to discover, or to find_entities and then explore. Both return evidence ids. fetch turns an id into its exact text. navigate moves from a passage to neighbouring passages and returns more ids. check_citations compares cited ids with the ids that were fetched, and render_citations makes numbered references." />
 
-*The engine runs these steps in order. A diamond step runs only when the recipe asks.*
+*Search and entity functions return evidence ids. Fetch returns the text behind an id. Citations are checked against the ids that were fetched.*
+
+1. Discover. `discover` searches the text of the current document versions in scope. It runs a keyword search, a vector search, or both, and combines hybrid results with Reciprocal Rank Fusion. Each hit has an evidence id, a snippet, a title, and a location. The result carries a status, and it says when a search leg failed or the candidate list was cut.
+2. Fetch. `fetch` returns the exact text for each id. A chunk id returns the stored chunk text. A span id returns the requested character range, and a result that covers only part of the range is marked partial. The result says whether the version is current or superseded, so an id keeps working after the document is updated.
+3. Navigate. `navigate` moves from a passage to its parent section, its children, its siblings, the previous or next chunk, or the cells around a table.
+4. Find entities. `find_entities` searches entity names by keyword and entity embeddings by similarity, and returns each entity with up to three supporting passages. `explore` follows relations outward from an entity and marks each edge as an assertion that a visible passage supports, or as a path between entities.
+5. Check. `check_citations` compares cited ids with the ids that were fetched in scope. A valid citation was fetched. `render_citations` turns valid ids into numbered references with a Sources list.
+
+An evidence id names a document, a prefix of the content hash of one version, and a chunk or character span. The agent calls these functions as tools, and the MCP server exposes them as `search_evidence`, `fetch_evidence`, `navigate`, `find_entities`, `explore`, and `check_citations`. See [Find and cite evidence](../guides/find-and-cite-evidence.mdx) to call them from Python.
+
+## Recipe search
+
+`SearchEngine` runs a recipe over the graph.
+
+### How a recipe runs
+
+<Diagram folder="docs" name="recipe" alt="The engine runs the recipe's methods at the same time and fuses the ranked lists. A recipe can then walk the graph from entity hits and fuse again, add community reports, and re-rank. The engine keeps the top results up to the limit of the recipe." />
+
+*The engine runs these steps in order. The steps in the box run only when the recipe asks.*
 
 1. Run the methods. The recipe names one or more methods. The engine runs them at the same time. If one method fails, the others still return results.
 2. Fuse. The engine merges the ranked lists into one list and removes duplicates.
@@ -42,59 +47,17 @@ flowchart TD
 5. Re-rank (optional). A cross-encoder model, or the graph distance to the top entity hits, sets a new order.
 6. Cut. The engine keeps the top results, up to the limit of the recipe.
 
-```mermaid
-sequenceDiagram
-    participant U as Caller
-    participant E as Search engine
-    participant M as Methods
-    participant S as Stores
-    U->>E: query and recipe
-    E->>M: run all methods
-    loop each method
-        M->>S: embed and search
-        S-->>M: ranked hits
-    end
-    M-->>E: ranked lists
-    E->>E: fuse lists
-```
-
-*One query, part 1: the engine runs the methods and fuses their ranked lists.*
-
-```mermaid
-sequenceDiagram
-    participant E as Search engine
-    participant S as Stores
-    participant R as Re-ranker
-    participant U as Caller
-    opt recipe walks the graph
-        E->>S: walk from entity hits
-        S-->>E: neighbours
-        E->>E: fuse again
-    end
-    opt recipe adds communities
-        E->>S: fetch overlapping communities
-        S-->>E: reports
-    end
-    opt recipe re-ranks
-        E->>R: candidates
-        R-->>E: new order
-    end
-    E-->>U: top results
-```
-
-*One query, part 2: optional steps widen and re-order the fused list. Then the engine returns the top results.*
-
-## Methods
+### Methods
 
 | Method | What it finds |
 |---|---|
-| `entity` | Entities whose name and description match the meaning of the query. |
+| `entity` | Entities and resolved entities whose embedding is closest to the query. |
 | `chunk` | Passages of source text. Each hit is one chunk, with the headings above it. |
 | `community` | Reports on topics. |
 
 The graph walk is a step, not a method. A recipe switches it on.
 
-## Recipes
+### Recipes
 
 A recipe is a named list of configuration values. It is data, so you can read it and copy it.
 
@@ -107,17 +70,17 @@ A recipe is a named list of configuration values. It is data, so you can read it
 | `GRAPH_EXPAND` | entity | graph walk, community reports | 20 |
 | `THEMATIC` | community | none | 5 |
 
-## Fusion
+### Fusion
 
-Reciprocal Rank Fusion scores an item by its rank in each list, not by its raw score. An item found by multiple methods can outrank an item found by one method. Each method gives an item one vote at its best rank, so duplicate hits from one method do not add weight.
+Reciprocal Rank Fusion scores an item by its rank in each list, not by its raw score. `RETRIEVAL_RRF_K` sets the constant for `SearchEngine`, and evidence discovery uses a fixed constant of 60. An item found by multiple methods can outrank an item found by one method. Each method gives an item one vote at its best rank, so duplicate hits from one method do not add weight.
 
 Fusion runs even when a recipe has one method. It also removes duplicates, so the re-ranker never sees the same item twice.
 
-## Filters
+### Filters
 
-A filter limits a search to matching items. It can match entity label, document, property value, or relation type. Labels apply to entity search only. Relation types limit the graph walk. The other filters apply to entity, chunk, and community search.
+A filter limits a search to matching items. It can match entity label, document, property value, or relation type. Labels apply to entity search only. Relation types limit the graph walk. Document and property filters apply to entity, chunk, and community search.
 
-## A worked example
+### A worked example
 
 The query is "Who worked with Babbage?" and the recipe is `HYBRID`. Entity search ranks the entities Charles Babbage and Ada Lovelace. Chunk search returns the chunk that names both. Fusion merges the two lists. The caller gets five results: four entities and one chunk. The chunk carries its heading path, so the caller can show where it came from.
 
@@ -126,7 +89,7 @@ The query is "Who worked with Babbage?" and the recipe is `HYBRID`. Entity searc
 
 Why fuse ranks and not scores? A vector search, a keyword search, and a graph walk score on different scales. Ranks compare across methods. Scores do not.
 
-How do community reports survive the re-rank? The cross-encoder orders only the passages and entities. After it runs, the recipe keeps up to three slots for community reports. The re-rank cannot push every report out of the results.
+How do community reports survive the re-rank? With the cross-encoder, the recipe keeps up to three slots for community reports after the re-rank, so the re-rank cannot push every report out of the results.
 
 Why does one failed method not fail the search? A timeout in one method must not hide good results from another. The engine logs the failure and records it on the trace. If every method fails, the engine raises an error. Every method follows one rule. With a positive limit, it returns an empty list only when the search ran and found nothing. It raises on any failure it cannot recover from.
 
@@ -134,6 +97,7 @@ Why does one failed method not fail the search? A timeout in one method must not
 
 ## Related
 
-- Guide: [Retrieve and answer](../guides/retrieve-and-answer.mdx)
+- Guide: [Find and cite evidence](../guides/find-and-cite-evidence.mdx), [Retrieve and answer](../guides/retrieve-and-answer.mdx)
+- Guide: [Run the MCP server](../guides/run-the-mcp-server.mdx)
 - Concepts: [Chunking](./chunking.mdx), [Communities](./communities.mdx), [Graph storage](./graph-storage.mdx), [Agent loop](./agent-loop.mdx)
 - Reference: [Retrieval API](../api/retrieval/index.md), [Configuration](../reference/configuration.mdx)

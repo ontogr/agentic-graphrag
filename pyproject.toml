@@ -5,12 +5,12 @@ build-backend = "uv_build"
 [project]
 name = "agentic-graphrag"
 version = "0.0.6"
-description = "Agentic GraphRAG: graph-based retrieval-augmented generation with agentic reasoning."
+description = "Context graphs that give AI agents memory they can trace to its sources."
 readme = "README.md"
 requires-python = ">=3.11"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
-keywords = ["graphrag", "rag", "knowledge-graph", "agents", "retrieval"]
+keywords = ["agent-memory", "context-graph", "knowledge-graph", "graphrag", "ai-agents", "mcp", "neo4j", "provenance"]
 authors = [
   { name = "Ashwin Mathur", email = "ashwinm400@gmail.com" },
   { name = "Varun Mathur", email = "varunm500@gmail.com" },

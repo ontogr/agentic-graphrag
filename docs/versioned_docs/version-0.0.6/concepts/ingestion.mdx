@@ -4,6 +4,8 @@ title: Ingestion pipeline
 description: The stages that turn sources into a graph, and how a failed run recovers.
 ---
 
+import Diagram from '@site/src/components/Diagram';
+
 # Ingestion pipeline
 
 `Graph.add` turns sources into graph records through loading, chunking, extraction, resolution, merging, and storage. All input forms converge on this pipeline after loading, so later stages treat them consistently.
@@ -16,16 +18,7 @@ These stages include slow model calls and writes that can fail independently. A 
 
 ## How it works
 
-```mermaid
-flowchart TD
-    A[Sources] --> B[Load]
-    B --> C[Chunk]
-    C --> D[Extract]
-    D --> E[Resolve]
-    E --> F[Merge]
-    F --> G[Store]
-    G --> H[AddResult]
-```
+<Diagram folder="docs" name="ingestion-stages" alt="Each document runs as its own job. Sources are loaded into documents, chunked, extracted into entities and relations, resolved, merged, and stored. The writes are tagged and hidden from search until that job commits. The call returns an AddResult with one summary for each stage." />
 
 *Each stage hands its output to the next. The result reports every stage.*
 
@@ -42,23 +35,13 @@ The extraction summary also counts the discarded items. See [Run statistics](../
 
 ### Crash safety
 
-`add`, `update` and `delete_document` each run as a job. A job is one call. The job tags every write with its own id, and search skips tagged writes. Nothing becomes visible until the job commits.
+Each document mutation runs under a Cutover Job. `Graph.add` uses one job per document; `update`, `delete_document` and `purge_document` each operate on one document per job. The job tags every write with its own id, and search skips tagged writes. Nothing becomes visible until the job commits.
 
-```mermaid
-stateDiagram-v2
-    [*] --> Pending
-    Pending --> Committed: commit
-    Pending --> RollingBack: rollback under lease token
-    RollingBack --> RolledBack: delete pending writes
-    Committed --> Cleaning
-    Cleaning --> Done
-    Done --> [*]
-    RolledBack --> [*]
-```
+<Diagram folder="docs" name="cutover-job" alt="A job starts as pending, with its writes hidden from search. A commit makes the writes visible, then the job cleans up and is done. A job that stops before its commit rolls back, and its writes and the job are deleted." />
 
 *A job that stops before its commit rolls back. A job that stops after it rolls forward.*
 
-If a process stops during a call, the next `Graph.open` finds the unfinished job. It removes the tagged writes of a job that had not committed. It finishes the cleanup of a job that had. A running job renews a lease of 60 seconds by default. Another process takes over only after the lease runs out. A new job on a document whose earlier job is still pending or rolling back first rolls that earlier job back, so no rows from a crashed run remain. Only a job that has already finished is taken over directly.
+If a process stops during a call, a later `Graph.open` attempts to recover the unfinished job. It rolls back a pending or rolling-back job after its lease expires, and reruns cleanup for a committed or cleaning job after its lease expires. A live lease is not taken over. Jobs renew a lease that lasts 60 seconds by default. A new job on a document first rolls back an expired pending or rolling-back job for that document. It takes over a previous job directly only when that job is done or rolled back.
 
 Rollback starts only while the job is still pending under the worker's lease token. The job enters `rolling_back` before its staged vectors and graph rows are deleted. If the worker stops during rollback, `Graph.open` finishes it after the lease expires. If a commit fails with an unclear result, the worker reads the job. A committed job is never rolled back; the worker finishes its cleanup instead. Commit and rollback find a job's rows through an index on the pending tag, so their cost follows the size of the job, not the size of the graph. Two documents that add the same relation at the same time each create their own copy. The commit step merges the copies, so one relation remains and keeps the evidence from both documents.
 
@@ -70,7 +53,7 @@ Workers that share a graph must run the same version during an upgrade. Use the 
 
 | What differs | What `Graph.update` does |
 |---|---|
-| The content hash, chunker fingerprint or schema fingerprint differs, or no chunk is open | It writes a new version with new chunks and embeddings. The old version closes when the job commits. |
+| The content hash, section structure, chunker fingerprint or schema fingerprint differs, or no chunk is open | It writes a new version with new chunks and embeddings. The old version closes when the job commits. |
 | `force=True`, or only the extraction fingerprint differs | It extracts entities again on the existing chunks. The chunks and embeddings stay the same. Entities that only the old run produced are removed. |
 | Only `published_at` or `content_date` differs | It writes the dates without chunking or extraction. |
 | All compared values match | Nothing runs. The call returns `no_op=True`. |
@@ -80,9 +63,9 @@ The values come from the document and its chunks:
 | Value | What changes it |
 |---|---|
 | Content hash | An edit to the text of the document. |
-| Chunker fingerprint | A change to the chunk size, the minimum chunk size or the tokenizer. |
+| Chunker fingerprint | A change to the chunk size, the minimum chunk size, the tokenizer, the table rules or the installed version of the splitter package. |
 | Schema fingerprint | A change to the structure of the schema: entity types, parents, properties, relations, patterns, cardinality or symmetry. The schema name, the schema version and the descriptions do not change it. |
-| Extraction fingerprint | A change to a description, an extraction setting, the extraction mode, the LLM model name or the heading path option of `BAMLExtractor`. |
+| Extraction fingerprint | A change to a description, a tracked extraction setting, the effective extraction mode, the LLM model or prompt identity, or the heading path option of `BAMLExtractor`. |
 | Open chunk | A deleted document has none. |
 
 The Document node stores the schema name, the schema version, the schema fingerprint and the extraction fingerprint. Each chunk stores the chunker fingerprint, the schema fingerprint and the extraction fingerprint. The job writes these values at its commit. A job that fails leaves the old values in place.
@@ -91,7 +74,7 @@ The escalation budget is not part of the extraction fingerprint, so a change of 
 
 `Graph.add` applies this same table to each document whose key already has a current version. A key without a current version is added as a new document.
 
-Each change that a job commits also adds a `DocumentActivation` node to the document, linked by a `HAS_ACTIVATION` edge. The node records the verb (`add`, `update` or `delete`), the content hash of the new version, the content hash that it replaces, the version id and the job id. The Document node counts its records in `activation_seq`, so the history of a document stays in order even when an earlier version comes back. A re-extraction in place, a date-only update and an unchanged `add` write no record.
+Each change that a job commits also adds a `DocumentActivation` node to the document, linked by a `HAS_ACTIVATION` edge. The node records the verb (`add`, `update`, `delete` or `purge`), the content hash of the new version, the content hash that it replaces, the version id and the job id. The Document node counts its records in `activation_seq`, so the history of a document stays in order even when an earlier version comes back. A re-extraction in place, a date-only update and an unchanged `add` write no record.
 
 ## Example
 

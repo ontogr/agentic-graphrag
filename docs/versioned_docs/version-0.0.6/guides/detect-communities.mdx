@@ -17,7 +17,7 @@ Group the connected entities of your graph into communities. Read the report tha
 uv pip install "agentic-graphrag[neo4j,extract,llm,community]"
 ```
 
-- An LLM endpoint for the reports. Set `LLM_BASE_URL`, `LLM_API_KEY`, and `LLM_MODEL_ID`. Without them, every community gets a simple report and the call records a failure.
+- An LLM endpoint for the reports. Set `LLM_BASE_URL`, `LLM_API_KEY`, and `LLM_MODEL_ID`. Without them, the report call uses the default OpenAI model of the BAML function and needs `OPENAI_API_KEY`.
 
 ## 1. Add documents and detect communities
 
@@ -134,13 +134,11 @@ An LLM report can contain a mistake. Compare its `findings` with the relations t
 
 ## 3. Handle a missing LLM
 
-If the `llm` extra is missing or a call fails, Agentic GraphRAG writes the simple report for that community. `report.failures` holds one item for each community that needed the LLM report. The call still ends with `applied` set to `True`.
+If the `llm` extra is missing, Agentic GraphRAG writes the simple report for every community and logs a warning. If an LLM call fails, it writes the simple report for the communities in that batch, and `report.failures` holds one item for each of them. The call still ends with `applied` set to `True`.
 
 ## 4. Change the grouping
 
-Pass these arguments to `detect_communities`. A higher `resolution` gives smaller groups. The default is 1.0. On the example graph, 1.0 gives groups of 3, 3, and 5 members, and 5.0 gives groups of 2, 2, 2, and 3 members. `seed` is the random seed. Keep the default for repeatable groups.
-
-The argument `max_cluster_size` does not shrink the groups that Agentic GraphRAG keeps. Leave it at the default of 10.
+Pass these arguments to `detect_communities`. A higher `resolution` tends to give smaller groups. The default is 1.0. `max_cluster_size` sets the size limit used by hierarchical Leiden at each level. `seed` is the random seed. Keep the default for repeatable groups.
 
 Each call with `apply=True` deletes every earlier community and writes new ones.
 

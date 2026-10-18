@@ -8,7 +8,8 @@
       "items": [
         "get-started/introduction",
         "get-started/installation",
-        "get-started/quickstart"
+        "get-started/quickstart",
+        "get-started/features"
       ]
     },
     {
@@ -66,8 +67,19 @@
       "collapsed": false,
       "items": [
         "concepts/retrieval",
+        "guides/find-and-cite-evidence",
         "guides/retrieve-and-answer",
         "concepts/agent-loop"
+      ]
+    },
+    {
+      "type": "category",
+      "label": "Agent memory",
+      "collapsible": false,
+      "collapsed": false,
+      "items": [
+        "guides/run-the-mcp-server",
+        "guides/connected-memory"
       ]
     },
     {
@@ -79,23 +91,8 @@
         "concepts/observability",
         "guides/trace-an-agent-run",
         "guides/configure-storage-backends",
-        "guides/troubleshoot-common-errors"
-      ]
-    },
-    {
-      "type": "category",
-      "label": "Benchmarks",
-      "collapsible": false,
-      "collapsed": false,
-      "items": [
-        "benchmarks/index",
-        "benchmarks/run-benchmarks",
-        "guides/score-agrag-on-your-questions",
-        "benchmarks/legal",
-        "benchmarks/graphrag-general",
-        "benchmarks/financial",
-        "benchmarks/memory",
-        "benchmarks/healthcare"
+        "guides/troubleshoot-common-errors",
+        "guides/score-agrag-on-your-questions"
       ]
     }
   ],

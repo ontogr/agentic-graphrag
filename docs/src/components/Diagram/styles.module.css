@@ -1,0 +1,19 @@
+.scroller {
+  margin-block: 1.5rem;
+  overflow-x: auto;
+}
+
+.diagram {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: var(--ifm-global-radius);
+}
+
+/* On a phone the text of a diagram would shrink below a readable size. The diagram keeps a
+   minimum width and the reader scrolls sideways. */
+@media (max-width: 640px) {
+  .diagram {
+    min-width: 560px;
+  }
+}

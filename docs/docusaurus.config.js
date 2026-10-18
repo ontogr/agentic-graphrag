@@ -23,7 +23,7 @@ const releases = JSON.parse(readFileSync(new URL('./versions.json', import.meta.
 /** @type {import('@docusaurus/types').Config} */
 const config = {
   title: 'Agentic GraphRAG',
-  tagline: 'Build a knowledge graph from your documents, then ask it questions',
+  tagline: 'Context graphs that give AI agents memory they can trace to its sources',
   favicon: 'img/favicon.ico',
 
   future: {
@@ -159,13 +159,7 @@ const config = {
             href: 'https://pypi.org/project/agentic-graphrag/',
             html: iconLinkHtml('pypi', 'PyPI'),
             'aria-label': 'PyPI',
-            className: 'navbar-icon',
-            position: 'right',
-          },
-          {
-            to: '/stable/get-started/quickstart',
-            label: 'Quickstart',
-            className: 'navbar-cta',
+            className: 'navbar-icon navbar-icon--pypi',
             position: 'right',
           },
         ],
@@ -188,7 +182,6 @@ const config = {
               {label: 'Installation', to: '/stable/get-started/installation'},
               {label: 'Quickstart', to: '/stable/get-started/quickstart'},
               {label: 'Architecture', to: '/stable/concepts/architecture'},
-              {label: 'Benchmarks', to: '/stable/benchmarks'},
             ],
           },
           {

@@ -4,6 +4,8 @@ title: Observability
 description: How Agentic GraphRAG records what it does as OpenTelemetry traces, and how you connect a tracer.
 ---
 
+import Diagram from '@site/src/components/Diagram';
+
 # Observability
 
 Agentic GraphRAG records operations as OpenTelemetry traces when you provide a tracer. Traces connect the duration, inputs, outputs, and failures of related work across ingestion, retrieval, and agent runs.
@@ -16,19 +18,7 @@ OpenTelemetry is a vendor-neutral standard. Any tool that reads it can show an A
 
 ## How it works
 
-```mermaid
-flowchart TD
-    A[add] --> L[load document]
-    A --> C[chunk document]
-    A --> E[extract chunk]
-    E --> X[gliner or baml extraction]
-    A --> J[cutover job]
-    J --> I[ingest chunks]
-    J --> M[rebuild components]
-    I --> R[resolve tiers]
-    I --> G[merge group]
-    I --> S[storage writes]
-```
+<Diagram folder="docs" name="observability" alt="The add span holds load document, chunk document, extract chunk, and cutover job. Extract chunk holds the GLiNER or BAML extraction. The cutover job holds ingest chunks and rebuild components. Ingest chunks holds resolve tiers, merge group, and storage writes." />
 
 *The main spans of one `add` call. `load document` appears only for file sources. Store and embedding spans nest below the step that calls them.*
 
@@ -41,11 +31,11 @@ flowchart TD
 
 A span is one timed step. Each span has a name, a start and end time, a status, and attributes. The attributes hold counts, ids, and the text of the step. The Trace spans reference lists every span and attribute.
 
-Spans can hold full text, including questions, evidence, model requests and responses, and graph queries with parameter values. They omit vectors and model request headers. Because traces can contain source text and query data, choose a destination and retention policy that fit your data controls.
+Spans can hold full text, including questions, evidence, model requests and responses, and graph queries with parameter values. They omit vectors, full-text search terms, and model request headers. Because traces can contain source text and query data, choose a destination and retention policy that fit your data controls.
 
 ## Failures
 
-A failed stage marks its span as an error and records the exception. The failure record that the ingestion result returns holds the trace id and the span id. You can jump from the record to the trace.
+A failed stage marks its span as an error and records the exception. The failure record that the ingestion result returns holds the trace id and the span id when a recording span is active, and both are empty otherwise. With a tracer, you can jump from the record to the trace.
 
 Some steps fall back and continue. They record the exception on the span but leave the status unchanged, because the call still succeeded.
 

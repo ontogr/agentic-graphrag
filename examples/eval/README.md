@@ -54,5 +54,4 @@ Each row is one question. Each score is from 0 to 1. A higher score is better.
 | `context_recall` | The evidence that the agent read covers your reference answer. |
 | `citation_accuracy` | Each cited sentence is supported by the item it cites. |
 
-Each score is one judge run. The agent makes 8 to 21 LLM calls per question. The judge adds about 1 call per metric plus 1 per cited sentence. Cost grows
-with the number of questions.
+The scoring script runs each non-citation metric once when its required inputs are present. Citation accuracy uses a judge call for each eligible cited sentence. Call counts depend on the documents, questions, and agent response. In the current FinQA integration gate, the agent made 8 to 25 LLM calls per question, and the judge added about 15 calls. Cost grows with the number of questions.

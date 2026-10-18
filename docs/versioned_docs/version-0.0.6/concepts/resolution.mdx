@@ -4,6 +4,8 @@ title: Entity resolution
 description: How Agentic GraphRAG decides which mentions name the same real-world thing.
 ---
 
+import Diagram from '@site/src/components/Diagram';
+
 # Entity resolution
 
 Entity resolution decides whether extracted mentions refer to the same real-world entity. The ingestion pipeline records those decisions and derives resolved entities without rewriting the original entities' facts. See [Matching and resolved entities](./resolved-entities.mdx) for how those records work.
@@ -16,22 +18,7 @@ A wrong match can mix facts from two entities, while a missed match can be recon
 
 ## How it works
 
-```mermaid
-flowchart TD
-    A[Same-label pair] --> B{Same text?}
-    B -- Yes --> M1[Match: exact]
-    B -- No --> C{Names almost equal?}
-    C -- Yes --> M2[Match: fuzzy]
-    C -- No --> D{Name similarity}
-    D -- "0.95 or more" --> M3[Match: embedding]
-    D -- "below 0.80" --> N[No match]
-    D -- "0.80 to 0.95" --> E{Tight group?}
-    E -- Yes --> M4[Match: cluster]
-    E -- No --> F[LLM review]
-    F -- Match --> M5[Match: LLM]
-    F -- No match --> N
-    F -- "Uncertain or request failed" --> U[Undecided]
-```
+<Diagram folder="docs" name="resolution" alt="A pair of mentions with the same label goes down five tiers: exact, fuzzy, embedding, cluster, and LLM review. The first tier that is sure decides. A match is stored as a link. A pair that no tier can decide stays undecided." />
 
 *A pair goes down the tiers. The first tier that is sure decides.*
 
@@ -40,7 +27,7 @@ flowchart TD
 3. Fuzzy tier. The tier compares the words of both names and ignores their order. A score of 0.97 or more is a match. A lower score is not a rejection. It only means that the fast path does not apply.
 4. Embedding tier. Each name becomes a vector. A cosine similarity of 0.95 or more is a match. A similarity below 0.80 drops the pair. A similarity from 0.80 to 0.95 makes the pair ambiguous.
 5. Cluster tier. Ambiguous pairs are grouped by average similarity. A tight group is a match without an LLM call.
-6. LLM tier. An LLM reads each remaining pair with its context. It answers match, no match, or uncertain. Only a match merges. A failed request also leaves the pair undecided. The LLM sees at most 500 pairs for each label, most similar first; entity indices break ties. Pairs over the cap stay undecided and are counted in the resolution result.
+6. LLM tier. An LLM reads each remaining pair with its context. For an entity that is already in the graph, the context is the entity name and its neighboring relations. It answers match, no match, or uncertain. Only a match merges. A failed request also leaves the pair undecided. The LLM sees at most 500 pairs for each label, most similar first; entity indices break ties. Pairs over the cap stay undecided and are counted in the resolution result.
 
 The tier thresholds trade speed and cost against judgment quality. Cheap exact and name-based checks handle clear cases first; only ambiguous pairs reach the LLM, and the per-label cap leaves some pairs undecided rather than allowing unbounded calls. If no LLM is configured, the remaining pairs stay undecided. A resolution call logs one warning, and `reevaluate` keeps existing match edges for those pairs.
 
