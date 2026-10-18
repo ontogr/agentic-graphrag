@@ -1,7 +1,7 @@
 <h1 align="center"><a href="https://github.com/ontogr/agentic-graphrag">Agentic GraphRAG</a></h1>
 
 <h3 align="center">Context graphs that give AI agents memory they can trace to its sources.</h3>
-<h4 align="center"><a href="https://ontogr.github.io/agentic-graphrag/latest/get-started/quickstart">Quickstart</a> | <a href="https://ontogr.github.io/agentic-graphrag/">Documentation</a> | <a href="CONTRIBUTING.md">Contributing</a></h4>
+<h4 align="center"><a href="https://ontogr.github.io/agentic-graphrag/">Documentation</a> · <a href="https://ontogr.github.io/agentic-graphrag/latest/get-started/quickstart">Quickstart</a> · <a href="https://ontogr.github.io/agentic-graphrag/latest/concepts/architecture">Concepts</a> · <a href="https://ontogr.github.io/agentic-graphrag/latest/guides/ingest-documents">Guides</a> · <a href="https://ontogr.github.io/agentic-graphrag/latest/api/">API reference</a></h4>
 
 
 <div align="center">
