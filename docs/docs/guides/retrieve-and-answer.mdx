@@ -12,9 +12,9 @@ Use `SearchEngine` when your application needs retrieved entities or chunks. Use
 Install the storage, embedding, and extraction extras. The agent layer needs the `agents` extra:
 
 ```bash
-pip install 'agentic-graphrag[neo4j,extract]'
+uv pip install "agentic-graphrag[neo4j,extract]"
 # For the agent layer:
-pip install 'agentic-graphrag[agents]'
+uv pip install "agentic-graphrag[agents]"
 ```
 
 Each code block on this page is complete. It opens a graph with `DEFAULT_SCHEMA`, adds two sentences, and closes the graph at the end. The agent examples read `AGENT_LLM_BASE_URL`, `AGENT_LLM_MODEL_ID`, and `AGENT_LLM_API_KEY`, and fall back to `LLM_BASE_URL`, `LLM_MODEL_ID`, and `LLM_API_KEY`, from the environment or from `.env`. The default model id is `gpt-4o-mini`.

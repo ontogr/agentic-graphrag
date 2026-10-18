@@ -16,7 +16,7 @@ Use the functions in `agrag.evidence` to search the passages of your documents, 
 
 ## Search, fetch, and check
 
-Every function takes a `scope`, a `frozenset` of the document keys that the caller may read. A function reads only the current text of documents in the scope.
+Evidence search and read functions take a `scope`, a `frozenset` of the document keys that the caller may read. Search returns current document text. Fetch can also return retained text from a superseded version while the source remains live.
 
 ```python
 import asyncio
@@ -30,6 +30,7 @@ from agrag.graphdb import build_graph_store
 
 async def main() -> None:
     store = build_graph_store("neo4j")
+    await store.connect()
     embedder = build_embedder("ibm-granite/granite-embedding-small-english-r2")
     scope = frozenset({str(Path("your-document.md").resolve())})
     try:

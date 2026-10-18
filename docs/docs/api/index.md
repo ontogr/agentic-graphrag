@@ -8,7 +8,7 @@ sidebar_class_name: agrag-hidden
 
 This page lists the objects that most programs use. Each row gives the import line and links to the full reference for that package.
 
-The top-level `agrag` package exports nothing. Import each name from the package in the table.
+The top-level `agrag` package exports only `__version__`. Import each other name from the package in the table.
 
 ## Entry points
 
@@ -28,7 +28,7 @@ The top-level `agrag` package exports nothing. Import each name from the package
 
 ## Tracing
 
-Every component takes an OpenTelemetry `Tracer` in a `tracer=` argument. When you pass `None`, the component records no spans.
+Components that record spans accept an OpenTelemetry `Tracer` in a `tracer=` argument. `None` uses a no-op tracer, so the component records no spans. Components do not all expose tracing.
 
 ## Results and settings
 

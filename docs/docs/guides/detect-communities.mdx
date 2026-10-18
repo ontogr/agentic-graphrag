@@ -138,9 +138,7 @@ If the `llm` extra is missing, Agentic GraphRAG writes the simple report for eve
 
 ## 4. Change the grouping
 
-Pass these arguments to `detect_communities`. A higher `resolution` gives smaller groups. The default is 1.0. On the example graph, 1.0 gives groups of 3, 3, and 5 members, and 5.0 gives groups of 2, 2, 2, and 3 members. `seed` is the random seed. Keep the default for repeatable groups.
-
-The argument `max_cluster_size` does not shrink the groups that Agentic GraphRAG keeps. Leave it at the default of 10.
+Pass these arguments to `detect_communities`. A higher `resolution` tends to give smaller groups. The default is 1.0. `max_cluster_size` sets the size limit used by hierarchical Leiden at each level. `seed` is the random seed. Keep the default for repeatable groups.
 
 Each call with `apply=True` deletes every earlier community and writes new ones.
 

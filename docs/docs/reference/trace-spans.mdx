@@ -10,8 +10,8 @@ import Diagram from '@site/src/components/Diagram';
 This page is the reference for the spans Agentic GraphRAG records when you pass it a
 `tracer`. It lists the span names, attributes, and provider values that ingestion, extraction, resolution, retrieval, the agent, and the judge record.
 
-Tracing is opt-in per object. A `tracer` of `None` opens no recorded span and
-costs nothing. Agentic GraphRAG never installs a global provider. You inject
+Tracing is opt-in per object. A `tracer` of `None` opens no recorded span.
+Agentic GraphRAG never installs a global provider. You inject
 the tracer you want. See [Trace an agent run](../guides/trace-an-agent-run.mdx) for
 how to build and pass one.
 
@@ -261,7 +261,7 @@ of the tool call that made it.
 
 ### Result attributes
 
-Every span that returns a list records its results in full:
+Every retrieval span that returns a list of `SearchResult` records its results in full:
 
 - `agrag.result_count`, and arrays `agrag.result_ids`, `agrag.result_scores`,
   `agrag.result_kinds` and `agrag.result_texts` holding every result, with

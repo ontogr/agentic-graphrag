@@ -25,7 +25,7 @@ uv pip install "agentic-graphrag[neo4j,mcp]"
 
 ## Choose the documents the server can read
 
-Set `AGRAG_MCP_SCOPE_DOCUMENT_KEYS` to a comma-separated list of document keys. The server reads only those documents, and a tool call cannot widen the list. A document you added from a file has the resolved absolute path as its key, for example `/home/you/notes/policy.md`. A document you added with `graph.add(text=...)` has a key of the form `inline://<hash>`. To choose a readable key, add a `Document` with your own `uri`, because the key of a document is its `uri`.
+Set `AGRAG_MCP_SCOPE_DOCUMENT_KEYS` to a comma-separated list of document keys. The server reads only those documents, and a tool call cannot widen the list. A document you added from a file has the resolved absolute path as its key, for example `/home/you/notes/policy.md`. A document you added with `graph.add(text=...)` has a key of the form `inline://<16-hex-hash>`. A prebuilt `Document` uses its `uri` as the key unless you set `document_key` yourself. To choose a readable key, give the document a stable `uri` or set `document_key` explicitly.
 
 ## Add the server to your client
 
@@ -70,7 +70,7 @@ Set `AGRAG_MCP_PROJECT_ID` and `AGRAG_MCP_AGENT_ID` to turn on the memory tools.
 
 The read tools are `get_task`, `list_events`, `fetch_event`, `list_steps`, `search_decisions`, `list_conflicts`, `get_decision`, `list_support_history`, `list_decisions`, and `list_needing_review`.
 
-To let the client write, set `AGRAG_MCP_READ_ONLY=false`. The write tools are `create_task`, `record_event`, `set_step`, `record_decision`, `supersede_decision`, `reaffirm_decision`, and `continue_review_propagation`. Each write takes a `request_id`, and a repeated request returns the saved result. A decision lists the evidence it rests on, and the server accepts document evidence that the same session fetched. Set `AGRAG_MCP_ALLOW_REJECT=true` to add `reject_decision`.
+To let the client write, set `AGRAG_MCP_READ_ONLY=false`. The write tools are `create_task`, `record_event`, `set_step`, `record_decision`, `supersede_decision`, `reaffirm_decision`, and `continue_review_propagation`. The request-based writes take a `request_id`, and a retry with the same id returns the saved result. `continue_review_propagation` takes a bounded `limit` instead. A decision lists the evidence it rests on, and the server accepts document evidence that the same session fetched. Set `AGRAG_MCP_ALLOW_REJECT=true` to add `reject_decision`.
 
 Document scope applies to evidence reads. Task and decision tools act on the configured project.
 

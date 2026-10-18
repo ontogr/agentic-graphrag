@@ -35,7 +35,7 @@ A knowledge graph that a caller can open and add content to.
 
 **Parameters:**
 
-- **schema** (<code>SchemaSource</code>) – The schema the extractor receives. A `GraphSchema` is
+- **schema** (<code>[SchemaSource](../../schema/loader/SchemaSource.md)</code>) – The schema the extractor receives. A `GraphSchema` is
   used as given. Any other value goes through `load_schema`: a
   `Preset`, a shipped name (`"default"`, `"operations"` or
   `"legal"`), a file path, a dict, a list of strings, a Pydantic
@@ -349,7 +349,7 @@ index that evidence discovery reads, before this call returns.
 
 **Parameters:**
 
-- **schema** (<code>SchemaSource</code>) – The schema the extractor receives. A `GraphSchema` is
+- **schema** (<code>[SchemaSource](../../schema/loader/SchemaSource.md)</code>) – The schema the extractor receives. A `GraphSchema` is
   used as given. Any other value goes through `load_schema`: a
   `Preset`, a shipped name (`"default"`, `"operations"` or
   `"legal"`), a file path, a dict, a list of strings, a Pydantic

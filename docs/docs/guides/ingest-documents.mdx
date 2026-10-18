@@ -190,7 +190,7 @@ For most callers, `source=` or `text=` is simpler. Use `documents=` when you alr
 
 ## Choose how documents are chunked
 
-`Graph.open` takes a `chunking` argument that decides which chunker splits each document. Loaders also normalize the text of each file. They remove the byte-order mark, change line endings to LF, and apply NFKC. Pass `read_options=ReadOptions(normalization=...)` to `Graph.add` to change this. PDF and Office documents chunk at up to 1024 tokens by default. See [Configure chunking](./configure-chunking.mdx) for both.
+`Graph.open` takes a `chunker` argument that decides how each document is split. Loaders also normalize the text of each file. They remove the byte-order mark, change line endings to LF, and apply NFKC. Pass `read_options=ReadOptions(normalization=...)` to `Graph.add` to change this. PDF and Office documents chunk at up to 1024 tokens by default. See [Configure chunking](./configure-chunking.mdx) for both.
 
 ## Add a chat file
 

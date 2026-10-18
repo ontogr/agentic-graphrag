@@ -64,7 +64,7 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
-A smaller size gives sharper search results and more entities for each token of text. A larger size needs fewer extraction calls. Check the embedder: a chunk must fit in its input limit. The default embedder reads 8,192 tokens.
+A smaller size can improve search precision, but it can also separate related facts. A larger size needs fewer extraction calls. Check the embedding model and backend input limits before increasing the chunk size. The default [Granite model](https://huggingface.co/ibm-granite/granite-embedding-small-english-r2) supports up to 8,192 tokens; the effective limit also depends on the backend's tokenizer settings.
 
 ## Check what the chunker made
 

@@ -37,7 +37,7 @@ The edges connect them:
 
 - `HAS_CHILD` builds the tree. It joins a document or section to its sections, tables, figures and chunks, and a table to its chunks. It carries an `order`, the reading order of the child.
 - `HAS_DOCUMENT` joins the source file of a record file, such as a CSV file, to each of its row documents.
-- `HAS_PART` joins a document to each of its sections, tables, figures and chunks. It has a start time and an end time. The edge is open while the node belongs to the current version of the document. `HAS_CHILD` gives the reading order. `HAS_PART` says which document version owns a node.
+- `HAS_PART` joins a document to each of its sections, tables, figures and chunks. It records `valid_at` and `invalid_at` timestamps. The edge is open while `invalid_at` is null and the node belongs to the current version of the document. `HAS_CHILD` gives the reading order. `HAS_PART` says which document version owns a node.
 - `NEXT_CHUNK` joins two neighbouring chunks of one document.
 - `MENTIONED_IN` joins a chunk to each entity it mentions.
 - A schema relation joins two entities, for example `WORKED_WITH`. Only the patterns that your schema allows can exist.

@@ -41,7 +41,7 @@ Documents, agent work, and decisions live together, so every answer can be trace
 
 - **Three connected layers.** The first layer holds your documents, with their sections, tables, and passages, and the people, organizations, products, and other entities found in them. The second holds named tasks, the steps agents take, and a log of what happened. The third holds the decisions agents make.
 - **Every passage knows where it came from.** A passage records its document, its place in the document's structure, and the exact version it came from, with page positions for PDFs.
-- **Every relation points to its evidence.** A relation between two entities links to the passages that support it, and a decision links to the text it was based on.
+- **Relations can point to their evidence.** A relation links to the passages that support it when evidence exists, and a decision links to the text it was based on.
 - **Old citations keep working.** The graph keeps the history of each document, so a citation to an older version still leads to the text that was cited.
 
 ### Build the graph around your own schema
@@ -220,14 +220,16 @@ Then add the server to your MCP client. Replace the document path with the full 
         "NEO4J_URI": "bolt://localhost:7687",
         "NEO4J_USERNAME": "neo4j",
         "NEO4J_PASSWORD": "your-neo4j-password",
-        "AGRAG_MCP_SCOPE_DOCUMENT_KEYS": "/full/path/to/your-document.md"
+        "AGRAG_MCP_SCOPE_DOCUMENT_KEYS": "/full/path/to/your-document.md",
+        "AGRAG_MCP_PROJECT_ID": "my-project",
+        "AGRAG_MCP_AGENT_ID": "researcher"
       }
     }
   }
 }
 ```
 
-If your client cannot find `agrag-mcp`, use its full path inside the virtual environment, for example `/full/path/to/.venv/bin/agrag-mcp`. The server starts read-only and reads only the documents you list. Document scope applies to evidence reads, and task and decision tools act on the configured project. See the [MCP server guide](https://ontogr.github.io/agentic-graphrag/latest/guides/run-the-mcp-server) for the memory tools and the other settings.
+If your client cannot find `agrag-mcp`, use its full path inside the virtual environment, for example `/full/path/to/.venv/bin/agrag-mcp`. The server starts read-only and reads only the documents you list. The project and agent IDs enable task and decision memory tools; writes remain disabled until you change the server settings. See the [MCP server guide](https://ontogr.github.io/agentic-graphrag/latest/guides/run-the-mcp-server) for the other settings.
 
 ## Contributing
 

@@ -118,7 +118,7 @@ Class: `AgentLLMSettings`. Prefix: `AGENT_LLM_`.
 | `AGENT_LLM_API_KEY` | `LLM_API_KEY` | Read by `from_openai_compatible_env()`. |
 | `AGENT_LLM_MODEL_ID` | `LLM_MODEL_ID`, then `gpt-4o-mini` | Read by `from_openai_compatible_env()`. |
 
-The agent builds its chat model from the first client in `AGENT_LLM_CLIENTS`. It supports the providers `anthropic`, `openai`, `openai-generic`, and `google-ai`. The retry settings apply to extraction, merging, resolution, and community reports.
+The agent builds its chat model from the first client in `AGENT_LLM_CLIENTS`. It supports the providers `anthropic`, `openai`, `openai-generic`, and `google-ai`. `AgentLLMSettings` has no retry settings. The retry settings under [Extraction](#extraction) configure extraction, merge-description, resolution-verification, and community-report calls.
 
 ### Evaluation judge
 

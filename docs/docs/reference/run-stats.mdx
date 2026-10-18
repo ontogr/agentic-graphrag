@@ -30,8 +30,8 @@ Each record in `failures` is a `StageFailure`.
 | `item_id` | The chunk id, mention id, or batch id that the stage failed on. |
 | `error_type` | The class name of the exception. |
 | `error_message` | The message of the exception. |
-| `trace_id` | The OpenTelemetry trace id of the failure, when you pass a tracer. |
-| `span_id` | The span id within that trace. |
+| `trace_id` | The OpenTelemetry trace id when a recording span is active for the failure. |
+| `span_id` | The active recording span's id, when available. |
 
 ## Escalation report
 
@@ -46,8 +46,8 @@ Each record in `failures` is a `StageFailure`.
 | `escalated` | The chunks the LLM extractor was called on. |
 | `left_for_gliner` | The eligible chunks that kept the first result because the budget ran out. |
 | `lowest_score_left` | The lowest span score among those chunks, or `None`. |
-| `failed` | The escalated chunks that kept the first result because the LLM call raised or its answer was unusable. Counted inside `escalated`. |
-| `budget_needed` | The smallest `EXTRACTION_ESCALATION_BUDGET` that would have escalated every eligible chunk. |
+| `failed` | The escalated chunks that kept the first result because the LLM call raised, its answer did not parse, or it returned no entities when the first result had some. Counted inside `escalated`. |
+| `budget_needed` | The smallest batch share that would have escalated every eligible chunk in each batch. For a run with several batches, this is the largest per-batch share needed. |
 | `primary_seconds`, `escalation_seconds` | Seconds spent in the first extractor and in the LLM extractor, summed over batches. |
 
 ## Extraction statistics

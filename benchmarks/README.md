@@ -1,6 +1,6 @@
 # Benchmarks
 
-Benchmarks run agrag on public datasets and commit a record and a trace for each run.
+Benchmarks run agrag on public datasets and write a run record with a trace. A run from a clean worktree with complete usage goes under `benchmarks/results/` for commit. Other completed runs go under the ignored `reports/benchmarks/` directory. Full runs with complete usage upload their trace to the configured Hugging Face dataset repository. Lite runs keep the trace beside the record.
 
 ```bash
 make bench-dry DOMAIN=<name> MODE=lite   # bound the calls and tokens, no model

@@ -33,7 +33,7 @@ The result is a string, not a dict. Each entity type becomes a `sh:NodeShape` wi
 | Relation description | `rdfs:comment` on the relation property |
 | Relation patterns | `x-agrag:pattern` annotations with the declared pairs; endpoint shapes cover every pair `GraphSchema.allows` accepts |
 
-Relation limits appear twice: as `sh:maxCount` on the endpoint shapes, which validators enforce, and as `x-agrag:` annotations for pipelines. Patterns and symmetry appear only as annotations that validators ignore.
+Relation limits appear twice: as `sh:maxCount` on the endpoint shapes, which validators enforce, and as `x-agrag:` annotations for pipelines. The annotations preserve the declared pattern pairs and symmetry, but validators ignore them. The endpoint shapes also constrain allowed endpoint types and include descendants and symmetric reversals.
 
 | Schema element | Annotation |
 | --- | --- |
