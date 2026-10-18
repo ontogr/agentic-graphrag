@@ -76,16 +76,19 @@ asyncio.run(main())
 from agrag.common.data_models.navigation import NavigationRelation
 from agrag.evidence import navigate
 
-result = await navigate(
-    store,
-    ids[0],
-    NavigationRelation.PARENT,
-    scope=scope,
-    limit=5,
-    max_chars=4000,
-)
-for item in result.items:
-    print(item.heading_path, item.text)
+if ids:
+    result = await navigate(
+        store,
+        ids[0],
+        NavigationRelation.PARENT,
+        scope=scope,
+        limit=5,
+        max_chars=4000,
+    )
+    for item in result.items:
+        print(item.heading_path, item.text)
+else:
+    print("No passages matched the search.")
 ```
 
 The relations are `parent`, `children`, `siblings`, `previous`, `next`, and `table_context`. The last one returns the rows around a table cell. The result lists up to `limit` items and marks the first item that the `max_chars` budget cuts.
@@ -100,13 +103,16 @@ from agrag.evidence import explore, find_entities
 entities = await find_entities(
     store, embedder, "Charles Babbage", scope=scope, limit=5
 )
-hit = entities.hits[0]
-for passage in hit.support:
-    print(passage)
+if entities.hits:
+    hit = entities.hits[0]
+    for passage in hit.support:
+        print(passage)
 
-graph_view = await explore(store, hit.entity_id, scope=scope, depth=1)
-for edge in graph_view.edges:
-    print(edge)
+    graph_view = await explore(store, hit.entity_id, scope=scope, depth=1)
+    for edge in graph_view.edges:
+        print(edge)
+else:
+    print("No entities matched the search.")
 ```
 
 `explore` walks at most two steps from the entity. An edge is an assertion when a passage in scope supports it, and a path when the relation has no source passage. The result lists the bounds that cut the walk in `truncated_by`.
