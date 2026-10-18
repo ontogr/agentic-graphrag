@@ -86,7 +86,7 @@ Use the agent that ships with the library, or connect your own through MCP.
 - **The same tools work through MCP.** A local MCP server gives other agents the same tools. It starts read-only and shows only the documents you choose, and you decide whether a client may record tasks and decisions.
 - **Trace and evaluate your runs.** Runs can be traced with OpenTelemetry, and the evaluation tools score answers, citations, and agent runs on your own questions.
 
-The [full feature list](https://ontogr.github.io/agentic-graphrag/latest/get-started/features) covers the rest.
+See the [features page](https://ontogr.github.io/agentic-graphrag/latest/get-started/features) for the complete list, including supported file formats, chunking, keeping the graph current as documents change, and community summaries.
 
 ## Quickstart
 
