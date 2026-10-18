@@ -36,15 +36,15 @@ For example, a contract-review agent can record a recommendation with passages f
 
 ### Build a graph around your domain
 
-Define the people, organizations, products, and relationships that matter to your application. Extract them with local GLiNER models, add an LLM for harder cases, and review candidates outside your schema. Connect matching entities without discarding the originals, using a schema from Python, YAML, JSON, Pydantic models, or an OWL or RDFS ontology.
+Load prose, office documents, structured records, and chat exports. Section-aware chunking preserves heading paths and table context. Define the people, organizations, products, and relationships that matter to your application with a schema from Python, YAML, JSON, or Pydantic models. Extract them with local GLiNER models, add an LLM for harder cases, and review candidates outside your schema. Connect matching entities without discarding the originals. Embeddings and GLiNER extraction run locally, and each LLM-backed role is configured separately.
 
 ### Search the graph. Read the evidence.
 
-Search source passages by keyword, meaning, or both. Follow entity relationships and move between passages and surrounding sections. Direct passage search keeps source text accessible even when extraction misses a fact.
+Search source passages by keyword, meaning, or both. Follow entity relationships and move between passages and surrounding sections. Direct passage search keeps source text accessible even when extraction misses a fact. Community summaries are available through the retrieval API, but the built-in agent's evidence tools do not use them.
 
 ### Cite a specific source version
 
-Fetch the text behind a result and cite the document version it came from. The built-in agent checks references against fetched evidence and renders valid citations as numbered sources. These checks establish where the evidence came from, not whether it proves a conclusion; retained older passages are marked as superseded after an update.
+Fetch the text behind a result and cite the document version it came from. The built-in agent checks references against fetched evidence and renders valid citations as numbered sources. The checks establish where the evidence came from. They do not show that the evidence proves a conclusion. After an update, retained older passages are marked as superseded.
 
 ### Continue work across sessions
 
@@ -52,18 +52,11 @@ Save task progress, messages, tool results, and decisions. Resume a named task f
 
 ### Revisit decisions when evidence changes
 
-Record decisions with their rationale, assumptions, and supporting evidence. Source updates flag dependent decisions for review, including decisions linked through explicit dependencies. Reaffirm or replace a decision explicitly while preserving its history.
+Record decisions with their rationale, assumptions, and supporting evidence. Source updates flag dependent decisions for review, including decisions linked through explicit dependencies. Reaffirm or replace a decision explicitly. A replaced decision stays readable until you delete its task.
 
 ### Use your own agent, or start with ours
 
-Use the same evidence and task operations from Python or through the local MCP server. The built-in agent combines document research, task recording, and numbered citations, with limits on steps and tool calls. Choose Anthropic, OpenAI, OpenAI-compatible, or Google models, with fallback or round-robin routing.
-
-### Also included
-
-- Read prose, office documents, structured records, and chat exports. Section-aware chunking preserves heading paths and table context; PDF and image loading needs the `docling` extra.
-- Generate community summaries with the `community` extra and use them through the retrieval API. Community retrieval is separate from the built-in agent's evidence tools.
-- Pass an OpenTelemetry tracer to inspect supported operations, and use evaluation tools with your own data and judge model. Traces can contain full prompts, questions, and evidence, so review your telemetry handling before enabling them.
-- Run embeddings and GLiNER extraction locally, or configure LLM-backed roles separately. Settings use environment variables and `.env` files where supported; schemas, document scope, and component choices can also be supplied in Python.
+Use the same evidence and task operations from Python or through the local MCP server. The built-in agent combines document research, task recording, and numbered citations, with limits on steps and tool calls. Choose Anthropic, OpenAI, OpenAI-compatible, or Google models, with fallback or round-robin routing. Pass an OpenTelemetry tracer to inspect supported operations, and use evaluation tools with your own data and judge model. Traces can contain full prompts, questions, and evidence, so review your telemetry handling before enabling them. Settings come from environment variables and `.env` files where supported, and you can also supply schemas, document scope, and component choices in Python.
 
 ## Quickstart
 
@@ -73,7 +66,7 @@ Install graph storage, local extraction, and the built-in agent. This example us
 uv pip install "agentic-graphrag[neo4j,extract,agents] @ git+https://github.com/ontogr/agentic-graphrag.git@main" --torch-backend=auto
 ```
 
-You need Python 3.11+, a configured Neo4j database, and an LLM endpoint. The [setup guide](https://ontogr.github.io/agentic-graphrag/latest/get-started/quickstart) covers database and model configuration. Local models download on first use; the agent sends retrieved evidence to your chosen LLM.
+You need Python 3.11+, a configured Neo4j database, and an LLM endpoint. The [setup guide](https://ontogr.github.io/agentic-graphrag/latest/get-started/quickstart) covers database and model configuration. Local models download on first use.
 
 <details>
 <summary>Connection settings</summary>
@@ -136,7 +129,7 @@ finally:
     await store.close()
 ```
 
-Reuse the project and task name to continue from recorded progress. For explicit decisions and source-change review, see the [connected workflow example](docs/docs/guides/connected-memory.mdx), which runs from a repository checkout with its fixture dependencies.
+Reuse the project and task name to continue from recorded progress. For explicit decisions and source-change review, see the [connected-memory guide](https://ontogr.github.io/agentic-graphrag/latest/guides/connected-memory/). It runs the workflow against a pinned fixture from a repository checkout.
 
 ## Use MCP
 
