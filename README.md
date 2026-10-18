@@ -38,22 +38,23 @@ For example, a contract-review agent can record a recommendation with passages f
 
 The graph keeps three connected layers. The knowledge layer holds your documents, their passages, and the entities and relations extracted from them. The task layer holds the tasks, steps, and events of your agents. The decision layer holds their decisions and the supports that tie them to passages, events, and other decisions. Provenance connects the layers, so each fact and each decision records what supports it.
 
-- **Documents and passages.** Loaders read prose, office documents, structured records, and chat exports. Each document keeps a section tree of `Section`, `Table`, and `Figure` nodes. Section-aware chunking creates `Chunk` nodes in reading order, linked by `NEXT_CHUNK`.
-- **Provenance on every passage.** A chunk stores its heading path, its content hash, and either character spans or page spans with bounding boxes.
-- **Knowledge.** Entities carry the labels from your schema, and a `MENTIONED_IN` edge joins each chunk to the entities it mentions. Each relation lists the chunks that support it, and each match edge between similar entities records the comparator, the score, and the reasoning.
-- **Versions.** Each document keeps an activation log, and an update creates a new version of its passages.
-- **Tasks and decisions.** A decision support records the passage and the document version it was fetched from, as described under memory below.
+- **Documents keep their structure.** Loaders read prose, office documents, structured records, and chat exports into a `Document` node with a tree of `Section`, `Table`, and `Figure` nodes. A section records its heading, depth, and range. A table keeps its column names, row count, and caption, and a figure keeps its caption and location.
+- **Passages follow reading order.** Section-aware chunking creates `Chunk` nodes linked by `NEXT_CHUNK`. Each chunk carries its heading path and the sections it covers, so a passage shows where it sits in the document.
+- **Every passage records where it came from.** A chunk stores its content hash and either character spans or page spans with bounding boxes.
+- **Knowledge links back to passages.** Entities carry the labels from your schema, and a `MENTIONED_IN` edge joins each chunk to the entities it mentions. Each relation lists the chunks that support it, and each match edge between similar entities records the comparator, the score, and the reasoning.
+- **Versions are logged.** `HAS_PART` edges record which version each part belongs to. Each add, update, and delete writes a `DocumentActivation` node with the verb and the content hash.
+- **Tasks and decisions build on the knowledge layer.** A decision support records the passage and the document version it was fetched from, as described under memory below.
 
 <details>
 <summary>Diagram prompt: the three layers of the graph</summary>
 
 Draw a layered graph diagram with three horizontal bands, labeled from bottom to top: "Knowledge layer", "Task layer", and "Decision layer". Use one color per band and a legend for solid edges and dashed property references.
 
-Knowledge layer, documents and passages: a `Document` node with edges `HAS_CHILD` to `Section` nodes. `Section` nodes nest through `HAS_CHILD` and also have `Table` and `Figure` children. `Chunk` nodes hang under sections or tables through `HAS_CHILD`, and consecutive chunks are joined by `NEXT_CHUNK`. Show a `HAS_PART` edge from `Document` to a `Chunk`, with the properties `valid_at`, `invalid_at`, and `version_id` written on the edge. Show a `DocumentActivation` node joined to `Document` by `HAS_ACTIVATION`. Annotate one `Chunk` with its stored fields: heading path, content hash, character span or page span with bounding box.
+Knowledge layer, documents and passages: a `Document` node with `HAS_CHILD {order}` edges to `Section` nodes. `Section` nodes nest through `HAS_CHILD` and have `Table` and `Figure` children. Annotate `Section` with "heading, depth, range", `Table` with "columns, row count, caption", and `Figure` with "caption, location". `Chunk` nodes hang under sections or tables through `HAS_CHILD`, and consecutive chunks are joined by `NEXT_CHUNK`. Annotate one `Chunk` with its stored fields: heading path, section ids, content hash, and character span or page span with bounding box. Show a `HAS_PART` edge from `Document` to a `Chunk`, with `valid_at`, `invalid_at`, and `version_id` written on the edge. Show a `DocumentActivation` node joined to `Document` by `HAS_ACTIVATION`, annotated with `activation_seq`, `verb` (add, update, delete), `content_hash`, and `version_id`.
 
 Knowledge layer, entities: two entity nodes with schema labels, for example `Organization` and `Product`, joined by a relation edge that carries `source_chunk_ids`. A `MENTIONED_IN` edge runs from a `Chunk` to each entity it mentions. Two similar entities are joined by a `MATCHES` edge with `comparator`, `score`, and `reasoning`, and both are joined to a `ResolvedEntity` node by `RESOLVED_AS`.
 
-Task layer: `MemoryTask` with `HAS_EVENT` to `MemoryEvent` and `HAS_STEP` to `MemoryStep`. Decision layer: `MemoryDecision` nodes, reached from `MemoryTask` by `MADE` (this edge crosses the band boundary). `MemoryDecision` has `HAS_SUPPORT` to `MemorySupport`, and `DEPENDS_ON` and `SUPERSEDES` edges to other decisions. Draw one dashed line, not an edge, from `MemorySupport` down to the `Document` node, labeled "property reference: document_node_id, chunk_id or char span, content_hash, recorded_activation_seq".
+Task layer: `MemoryTask` with `HAS_EVENT` to `MemoryEvent` and `HAS_STEP` to `MemoryStep`. Annotate `MemoryStep` with "state, result event". Decision layer: `MemoryDecision` nodes, reached from `MemoryTask` by `MADE` (this edge crosses the band boundary). `MemoryDecision` has `HAS_SUPPORT` to `MemorySupport`, and `DEPENDS_ON` and `SUPERSEDES` edges to other decisions. Draw one dashed line, not an edge, from `MemorySupport` down to the `Document` node, labeled "property reference: document_node_id, chunk_id or char span, content_hash, recorded_activation_seq". Draw two more dashed lines from `MemorySupport`, one to `MemoryEvent` labeled "event_id" and one to another `MemoryDecision` labeled "target_decision_id".
 
 Show only the elements named above.
 
@@ -63,11 +64,14 @@ Show only the elements named above.
 
 Extraction starts with a local GLiNER model and calls an LLM only for the chunks that need one. Resolution then connects duplicate entities in tiers, and the LLM judges only the pairs that cheaper tiers cannot settle.
 
-- **Your schema sets the boundary.** Define it in Python, YAML, JSON, or Pydantic models, or start from a shipped preset. Entities with declared labels enter the graph, and relations and properties outside the schema become candidates that you can review.
-- **Escalation is selective.** The default mode, `hybrid`, runs GLiNER on every chunk. A chunk goes to the LLM when its lowest kept score is below the threshold, when one of its labels declares properties, or when a chunk of eight words or more yields no entity. Each batch caps how many chunks escalate, and the LLM result is combined with the GLiNER result. With no LLM configured, `hybrid` runs on GLiNER alone.
-- **Approved candidates become schema patches.** Approving a candidate produces a schema patch that you apply to your schema.
-- **Resolution runs in tiers.** It tries an exact match, then fuzzy string matching, then embedding similarity, then clustering, and last an LLM check. The `max_llm_pairs` setting caps the LLM pairs per label.
-- **Matches are reversible.** Exact matches merge. Other matches become match edges, and a resolved entity groups the matched entities. You can deactivate a match, and the original entities stay in the graph.
+- **Three extraction modes.** Set `EXTRACTION_MODE` to `gliner` to run extraction locally, `hybrid` for local first with an LLM on weak chunks, or `llm` to send every chunk of eight words or more to the LLM. The default is `hybrid`.
+- **Escalation follows a budget.** In `hybrid` mode a chunk is eligible for the LLM when its lowest kept score is below `escalation_threshold` (0.75), when a label declares properties, or when a chunk of eight or more words yields no entity. The weakest chunks go first, and `escalation_budget` (default 0.2, or `"all"`) caps the share of each batch. The run log reports the budget that would cover every eligible chunk.
+- **The LLM builds on the local result.** It receives the GLiNER entities, and its answer is combined with the GLiNER result. With no LLM configured, `hybrid` runs on GLiNER alone.
+- **Your schema governs the result.** Define it in Python, YAML, JSON, or Pydantic models, start from a preset such as `operations` or `legal`, or extend a base schema. Entities with declared labels enter the graph.
+- **Candidates capture the rest.** Relations, properties, and borderline entities outside the schema are saved as candidates. List, approve, or reject them, and approval writes a schema patch that you apply to your schema. Then `convert_candidates` turns the approved candidates into graph data.
+- **Resolution runs in tiers.** It tries an exact match, then fuzzy matching, then embedding similarity, then clustering of tight groups, and last an LLM check. The `max_llm_pairs` setting (default 500) caps the LLM pairs per label.
+- **Matches are reversible.** Exact matches merge. Other matches become `MATCHES` edges, and a `ResolvedEntity` groups the matched entities. `deactivate_match` undoes a match, and the original entities stay in the graph.
+- **Graph-wide passes preview first.** `consolidate()` previews a pass over the whole graph, and `consolidate(apply=True)` writes it.
 - **Local by default.** GLiNER extraction and embeddings run on your machine.
 
 <details>
@@ -75,9 +79,9 @@ Extraction starts with a local GLiNER model and calls an LLM only for the chunks
 
 Draw a left to right flowchart with two swim lanes, "Extraction" and "Resolution".
 
-Extraction lane: "Schema load" feeds "Chunks". Chunks go to "GLiNER primary pass (every chunk)", then to "Schema validation". Add a decision diamond "Escalate?" with three labeled inputs: "lowest kept score below threshold", "label declares properties", and "no entity found in a chunk of 8 or more words". A "Per-batch budget" box limits the "yes" branch. The "yes" branch goes to "LLM extraction", then "Combine with GLiNER result", then back into "Schema validation". The "no" branch skips the LLM. Show a side note "No LLM configured: hybrid runs as gliner". From "Schema validation", draw two outputs: "Entities and relations" and "Candidates (off-schema relations, undeclared properties, borderline entities)". Candidates go to "Review" and then "Schema patch for you to apply". Drop undeclared entity labels at validation with a small "dropped" arrow.
+Extraction lane: "Schema load" feeds "Chunks". A mode switch with three labeled outputs follows: "gliner (local)", "hybrid (default)", and "llm (chunks of 8 or more words)". The gliner and hybrid paths go to "GLiNER primary pass (every chunk)", then to "Schema validation". For hybrid, add a decision diamond "Escalate?" with three labeled inputs: "lowest kept score below 0.75", "label declares properties", and "no entity found in a chunk of 8 or more words". A "Budget (default 20% of each batch), weakest first" box limits the yes branch. The yes branch goes to "LLM extraction, given the GLiNER entities", then "Combine with GLiNER result", then back into "Schema validation". Add a side note "No LLM configured: hybrid runs on GLiNER alone". From "Schema validation", draw two outputs: "Entities and relations" and "Candidates (relations, properties, and borderline entities outside the schema)". Candidates go to "List, approve, or reject", then "Schema patch file", then "You apply the patch to your schema", then "convert_candidates writes graph data".
 
-Resolution lane: "Entities and relations" enter a ladder of tiers: "Exact match", "Fuzzy match (0.97 or more)", "Embedding similarity (0.95 or more matches, below 0.80 dropped)", "Cluster cut", and "LLM check (capped by max_llm_pairs per label)". Each tier has an arrow "matched" to a box "Match edge (comparator, score, reasoning)" and an arrow "undecided" to the next tier. Only the exact tier also points to "Merge raw entity". Finish with "ResolvedEntity groups matched entities" and a note "Deactivate a match without losing originals".
+Resolution lane: "Entities and relations" enter a ladder of tiers: "Exact match", "Fuzzy match (0.97 or more)", "Embedding similarity (0.95 or more matches, 0.80 to 0.95 continues)", "Cluster tight groups", and "LLM check (up to max_llm_pairs per label)". Each tier has an arrow "matched" to a box "MATCHES edge (comparator, score, reasoning)" and an arrow "undecided" to the next tier. Only the exact tier also points to "Merge entity". Finish with "ResolvedEntity groups matched entities". Add two side paths: "deactivate_match undoes a match, originals stay" and "consolidate() previews a graph-wide pass, apply=True writes it".
 
 Show only the elements named above.
 
@@ -92,7 +96,7 @@ The agent and the MCP server use one evidence path. Search finds passages within
 - **Search reads the source directly.** Passages are searched as written, so source text stays findable even when extraction missed a fact.
 - **The caller fixes the scope.** The caller binds the document scope outside the model, so the model works only inside it.
 - **Fetch reads the source.** Fetch returns the exact text behind an evidence id, up to a size limit, with a ready citation. An id names the document, the version, and the span or chunk, so a citation points to one place in one version.
-- **Navigate around a passage.** `navigate` moves from a passage to its parent section, to other passages in the same section, to neighboring sections, to the previous or next passage, or to the surrounding table rows. Table results repeat the header rows, so a cell never appears alone. Results are bounded, and each result says if a limit applied.
+- **Navigate around a passage.** `navigate` moves from a passage to its parent section, to other passages in the same section, to neighboring sections, to the previous or next passage, or to the surrounding table rows. Table results repeat the header rows, so each cell appears with its header. Results are bounded, and each result says if a limit applied.
 - **Follow entities back to text.** `find_entities` finds entities by name or meaning, can filter by label, and returns the passages that support each one. `explore` follows relations up to two steps. Each edge is an assertion with supporting passages or a path, and the result names any limit that applied.
 
 <details>
@@ -108,11 +112,14 @@ Show only the elements named above.
 
 The task and decision layers sit on top of the knowledge layer. A named task keeps an append-only log of events, a list of steps, and decisions. A resumed task starts from that record instead of starting over.
 
-- **Resuming returns a bounded view.** The view lists the goal, step counts, active decisions, and decisions that need review. Completed step results are reused unless their support is no longer current, was redacted, or is outside the scope.
+- **Name a task and return to it.** Resuming returns a bounded view with the goal, the step counts by state, the active decisions, the decisions that need review, and any conflicts. The events themselves are available on demand through `list_events` and `get_event`.
+- **Steps save progress.** A step has a state and points to the event that holds its result. A completed result is reused when its supports are still current and in scope. A step that was running when the run stopped is marked unknown, so the agent can run it again.
 - **Fresh evidence on resume.** A resumed agent fetches the passages it cites in the new run, so each citation is checked against evidence from that run.
-- **Each decision links back to the knowledge layer.** A support stores the document id, the span or chunk, the content hash, and the activation sequence of the version the agent fetched. These values let the graph detect when the text behind a decision has changed.
+- **Decisions carry their evidence.** A decision stores a conclusion, a rationale, assumptions, and open questions. Each document support stores the document id, the span or chunk, the content hash, and the activation sequence of the version the agent fetched, which links the decision back to the knowledge layer.
 - **Source changes flag decisions.** When a cited document is updated or deleted, the decisions that cite it are flagged for review in the same transaction. The flag spreads along explicit dependencies between decisions.
-- **Reviews end in a decision.** Reaffirm a decision at the current version, replace it with an explanation, or reject it. A replaced decision remains in its task's history.
+- **Reviews end in an explicit action.** Reaffirm a flagged decision after fetching the current text, or supersede it with a new revision and an explanation. MCP clients can also reject a decision when the operator enables it. Reaffirming keeps the earlier supports as history, and a replaced decision remains in its task's history.
+- **Precedent is searchable.** `search_decisions` searches the decisions of the project and returns each with the goal of its task.
+- **Retries are safe.** Every write takes a `request_id`, so a retry returns the stored result.
 - **Recording differs by client.** The built-in agent records messages, tool calls, and tool results automatically. MCP clients record events through explicit tools. Access is scoped to the project.
 
 <details>
@@ -120,9 +127,9 @@ The task and decision layers sit on top of the knowledge layer. A named task kee
 
 Draw two connected panels.
 
-Panel 1, "Resume a task", as a numbered vertical sequence: 1 "Load task by name (create it if new)", 2 "Reset in-progress steps to unknown", 3 "Work through a batch of pending review flags", 4 "Read the bounded view: goal, step counts, active decisions, decisions needing review", 5 "Append the new question as a message event", 6 "Show completed step results, marking any with outdated, redacted, or out-of-scope support as not reusable", 7 "Start with empty evidence state, so the agent fetches evidence again before citing".
+Panel 1, "Resume a task", as a numbered vertical sequence: 1 "Load the task by name, or create it from the question", 2 "Mark interrupted steps unknown so the agent can run them again", 3 "Work through a batch of pending review flags", 4 "Read the bounded view: goal, step counts by state, active decisions, decisions needing review, conflicts", 5 "Append the new question as a message event", 6 "Show completed step results with their reuse status", 7 "Start with empty evidence state, so the agent fetches evidence in the new run before citing".
 
-Panel 2, "Source change review", as a flow: "Document update or delete commits" leads to "Decisions with a support on that document are flagged (same transaction)". Then "Flag spreads along DEPENDS_ON edges to dependent decisions". Then three exits from a flagged decision: "Reaffirm at current version", "Supersede with explanation", and "Reject".
+Panel 2, "Source change review", as a flow: "Document update or delete commits" leads to "Decisions with a support on that document are flagged (same transaction)". Then "Flag spreads along DEPENDS_ON edges to dependent decisions". Then three exits from a flagged decision: "Reaffirm after fetching the current text (earlier supports kept as history)", "Supersede with explanation (new revision, SUPERSEDES edge)", and "Reject (when the operator enables it)".
 
 Between the panels draw a small graph inset using the labels `MemoryTask`, `MemoryEvent`, `MemoryStep`, `MemoryDecision`, `MemorySupport`, `HAS_EVENT`, `HAS_STEP`, `MADE`, `HAS_SUPPORT`, and `DEPENDS_ON`. Draw `MemorySupport` pointing to a `Document` node with a dashed line, not an edge, labeled "property reference: document_node_id, chunk_id or span, content_hash, recorded_activation_seq".
 
@@ -134,23 +141,26 @@ Show only the elements named above.
 
 The built-in agent and the MCP server expose the same evidence tools over the graph built from your schema. Answers cite passages by evidence id, and the tools check each citation before the answer is returned.
 
+- **Evidence tools.** `discover_evidence` (named `search_evidence` on MCP), `fetch_evidence`, `navigate`, `find_entities`, `explore`, and `check_citations`. The `find_entities` tool filters by schema label.
+- **Memory tools.** The agent reads tasks and decisions with `get_task`, `list_steps`, `list_events`, `get_event`, `get_decision`, `list_decisions`, `search_decisions`, `list_support_history`, and `list_decisions_for_review`. It records work with `set_step`, `record_decision`, `supersede_decision`, `reaffirm_decision`, and `continue_decision_review`.
 - **Each valid citation traces to its source.** A citation is valid when the passage was fetched in the current run, lies in scope, and matches the cited content hash.
 - **Citations are repaired once.** If a check fails, the agent gets one repair turn. Valid citations render as numbered sources.
-- **Bounded runs.** The agent stops at 50 steps or 20 tool calls by default. Choose Anthropic, OpenAI, OpenAI-compatible, or Google models, with fallback or round-robin routing. The agent records tasks and decisions directly.
-- **MCP starts read-only.** Write tools are registered only when you enable them, and rejecting a decision needs its own flag. The server runs locally over stdio, requires a document scope at startup, and fixes that scope for the whole session.
-- **Governance by configuration.** The operator sets the document scope, the project, and the read-only flag. Evidence reads follow the document scope, and memory reads follow the project.
-- **Runs expose their provenance.** A result includes the fetched evidence for each valid citation, the invalid citations, recording failures, and the task position.
-- **Observe and evaluate.** Pass an OpenTelemetry tracer to record agent runs. Traces include the full prompts, questions, and evidence, so apply your telemetry controls. Evaluation tools score runs with your own data and judge model.
+- **Bounded runs.** The agent stops at 50 steps or 20 tool calls by default, and one evidence fetch returns up to 12,000 characters. The `AGENT_` environment variables change these limits.
+- **Model choice.** Choose Anthropic, OpenAI, OpenAI-compatible, or Google models, with fallback or round-robin routing.
+- **MCP starts read-only.** Set `AGRAG_MCP_READ_ONLY=false` together with `AGRAG_MCP_PROJECT_ID` and `AGRAG_MCP_AGENT_ID` to enable `create_task`, `record_event`, `set_step`, `record_decision`, `supersede_decision`, `reaffirm_decision`, and `continue_review_propagation`. Add `AGRAG_MCP_ALLOW_REJECT=true` to enable `reject_decision`.
+- **Governance by configuration.** The operator sets the document scope with `AGRAG_MCP_SCOPE_DOCUMENT_KEYS`, along with the project and the read-only flag. The server runs locally over stdio and fixes the scope for the whole session. Evidence reads follow the document scope, and memory reads follow the project.
+- **Runs expose their provenance.** A result includes the answer, a status, the fetched evidence for each valid citation, the invalid citations, recording failures, and the task name with its last event.
+- **Observe and evaluate.** Pass an OpenTelemetry tracer to record one trace per run with model and tool spans. Traces include the full prompts, questions, and evidence, so apply your telemetry controls. Evaluation tools score answer correctness, faithfulness, context precision and recall, citation accuracy, and tool trajectories with your own data and judge model.
 - **Configuration.** Settings come from environment variables and `.env` files where supported. You can also pass schemas, document scope, and components in Python.
 
 <details>
 <summary>Diagram prompt: agent run with trust boundaries</summary>
 
-Draw a flow with a dashed rectangle labeled "Trusted: operator settings and code" around the boxes "Document scope", "project_id and agent_id", "read_only flag", the "Graph store", and "Citation checker". Outside it, draw a dashed rectangle labeled "Untrusted data: model output, source passages, task events, tool results".
+Draw a flow with a dashed rectangle labeled "Operator-controlled: settings and code" around the boxes "Document scope", "project_id and agent_id", "read_only flag", the "Graph store", and "Citation checker". Outside it, draw a dashed rectangle labeled "Model and data: model output, source passages, task events, tool results".
 
-Inside the flow, in order: "Question", "Load or create task", "Agent loop (up to 50 steps and 20 tool calls)" containing the tools "discover_evidence", "fetch_evidence", "navigate", "find_entities", "explore", "check_citations", the memory tools "get_task", "list_decisions", "record_decision", "set_step", and a side box "Each message and tool result is recorded as a task event". Then "Parse citations", "Check citations" with the verdicts "valid", "unavailable", "not fetched", and "malformed", then a decision diamond "Any invalid?" whose "yes" branch goes to "One repair turn" and back to "Check citations". The "no" branch goes to "Render numbered sources" and "Result: answer, status, valid citations with fetched evidence, invalid citations, recording failures, task position".
+Inside the flow, in order: "Question", "Load or create the task", "Mark interrupted steps unknown", "Agent loop (up to 50 steps and 20 tool calls)" containing the evidence tools "discover_evidence", "fetch_evidence", "navigate", "find_entities", "explore", "check_citations", the memory tools "get_task", "list_decisions", "search_decisions", "record_decision", "set_step", and a side box "Each message and tool result is recorded as a task event". Then "Parse citations", "Check citations" with the verdicts "valid", "unavailable", "not fetched", and "malformed", then a decision diamond "Any invalid?" whose "yes" branch goes to "One repair turn" and back to "Check citations". The "no" branch goes to "Render numbered sources" and "Result: answer, status, fetched evidence for valid citations, invalid citations, recording failures, task name and last event".
 
-Add a second small panel "MCP server" with a client box on the left. Show three groups of tools: "Evidence reads (always)", "Memory reads (need project_id and agent_id)", and "Writes (only when read_only is off, reject needs a separate flag)". Mark the client as a separate trust boundary and label the server "document scope fixed at startup".
+Add a second small panel "MCP server" with a client box on the left. Show three groups of tools: "Evidence reads (always on)", "Memory reads (need project_id and agent_id)", and "Writes (read_only=false, reject needs allow_reject)". Label the server "document scope fixed at startup".
 
 Show only the elements named above.
 
