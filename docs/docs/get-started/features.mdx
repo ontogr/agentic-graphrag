@@ -53,7 +53,7 @@ See [Define a graph schema](../guides/define-a-graph-schema.mdx), [Choose an ext
 ## Merge duplicates without losing anything
 
 - **Same name, same entity.** Mentions with the same label and text share one entity that records how often and where it appears.
-- **Looser matches become links.** Similar spellings, similar meanings, and LLM-reviewed pairs are stored as links between entities. The originals and their relations stay in the graph.
+- **Looser matches become links.** Similar spellings, close embeddings, and LLM-reviewed pairs are stored as links between entities. The originals and their relations stay in the graph.
 - **Matched entities are grouped.** Each connected set of matches gets one combined entity that links to its members.
 - **Unclear pairs are left alone.** A pair that no check can decide stays unmatched. It is never treated as a rejection.
 - **The LLM sees only the hard pairs.** The most similar unclear pairs go to the LLM first, up to a limit that you set for each label.
