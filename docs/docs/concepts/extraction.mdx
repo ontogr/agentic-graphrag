@@ -4,6 +4,8 @@ title: Extraction
 description: How Agentic GraphRAG turns chunk text into typed entity and relation mentions.
 ---
 
+import Diagram from '@site/src/components/Diagram';
+
 # Extraction
 
 Extraction turns a chunk into entity and relation mentions, not graph nodes. The schema defines which types and relation patterns the extractor can return; later resolution decides which mentions share an entity.
@@ -18,15 +20,7 @@ The trade-off is coverage against cost. A local model can screen every chunk wit
 
 ## How it works
 
-```mermaid
-flowchart TD
-    A[Chunk and schema] --> B[Local model reads chunk]
-    B --> C{Weak and within budget?}
-    C -- No --> E[Schema check]
-    C -- Yes --> D[LLM reads same chunk]
-    D --> E
-    E --> F[Mentions and relations]
-```
+<Diagram folder="docs" name="extraction" alt="The local model reads every chunk. In hybrid mode, a chunk with a kept entity below the escalation threshold, no kept entities but enough words, or a kept entity whose type has declared properties goes to an LLM while the budget lasts. The LLM entities combine with the local ones. A schema check keeps allowed mentions and relations and reports rejected items as candidates." />
 
 *The local model reads every chunk. The LLM reads the weakest chunks, up to a budget, and its entities combine with the local entities.*
 

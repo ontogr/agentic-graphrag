@@ -4,6 +4,8 @@ title: Architecture
 description: How Agentic GraphRAG turns documents into a knowledge graph and answers questions from it.
 ---
 
+import Diagram from '@site/src/components/Diagram';
+
 # Architecture
 
 Agentic GraphRAG has two connected flows: ingestion builds a graph from source documents, and agents use that graph to find evidence, answer questions, and record their work. The graph keeps links between facts and their source text, so an answer can use both structure and passages. Tasks and decisions live in the same graph and point back to the passages they rely on.
@@ -18,25 +20,9 @@ The components separate source parsing, graph construction, search, and memory. 
 
 ## How it works
 
-```mermaid
-flowchart TD
-    subgraph Ingestion
-        S[Sources] --> L[Load]
-        L --> C[Chunk]
-        C --> X[Extract]
-        X --> R[Resolve]
-    end
-    R -->|store| G[(Graph store)]
-    subgraph Agents
-        Q[Question] --> AG[Search, fetch, cite]
-        AG --> A[Cited answer]
-        AG --> M[Tasks and decisions]
-    end
-    G --> AG
-    M -->|store| G
-```
+<Diagram folder="docs" name="architecture" alt="Graph.add calls ingestion, which writes the graph store. The built-in agent and the MCP server call evidence, which reads the graph store, and memory, which reads and writes it. A document change makes ingestion flag decisions in memory. You pass in the embedder, the schema, and the LLM." />
 
-*The ingestion flow writes to the graph store. Agents read from it, answer with citations, and write their tasks and decisions back to it. The Agent loop page shows the steps in detail.*
+*Graph.add runs ingestion, which writes the graph store. The agent and the MCP server read it through evidence and read and write it through memory. The Agent loop page shows the steps in detail.*
 
 Ingestion loads each source as a document, chunks its text, extracts and resolves entity mentions, then stores the graph and embeddings. The [Ingestion pipeline](./ingestion.mdx) page explains how these stages handle updates and failures.
 

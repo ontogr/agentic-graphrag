@@ -4,6 +4,8 @@ title: Communities
 description: How Agentic GraphRAG groups connected entities and writes a short report for each group.
 ---
 
+import Diagram from '@site/src/components/Diagram';
+
 # Communities
 
 A community is a cluster of related entities summarized for broad questions. The report complements source chunks and individual relations; it does not replace them as evidence.
@@ -16,18 +18,7 @@ A community report gives a compact view of one cluster through a title, summary,
 
 ## How it works
 
-```mermaid
-flowchart TD
-    A[Entity relations] --> B[Weight relations]
-    B --> C[Leiden clustering]
-    C --> D[Keep 2+ member groups]
-    D --> E{Weight at least 5?}
-    E -- Yes --> F[LLM report]
-    E -- No --> G[Simple report]
-    F --> H[Embed report]
-    G --> H
-    H --> I[Store communities]
-```
+<Diagram folder="docs" name="communities" alt="Each entity relation is weighted by the chunks that support it. Leiden clustering groups the entities, and the graph keeps groups of two or more. A group with a total weight of 5 or more gets an LLM report. A smaller group gets a simple report. The graph embeds each report and stores the communities." />
 
 *Groups with many attested relations get an LLM report. Small groups get a simple one.*
 

@@ -4,6 +4,8 @@ title: Entity resolution
 description: How Agentic GraphRAG decides which mentions name the same real-world thing.
 ---
 
+import Diagram from '@site/src/components/Diagram';
+
 # Entity resolution
 
 Entity resolution decides whether extracted mentions refer to the same real-world entity. The ingestion pipeline records those decisions and derives resolved entities without rewriting the original entities' facts. See [Matching and resolved entities](./resolved-entities.mdx) for how those records work.
@@ -16,22 +18,7 @@ A wrong match can mix facts from two entities, while a missed match can be recon
 
 ## How it works
 
-```mermaid
-flowchart TD
-    A[Same-label pair] --> B{Same text?}
-    B -- Yes --> M1[Match: exact]
-    B -- No --> C{Names almost equal?}
-    C -- Yes --> M2[Match: fuzzy]
-    C -- No --> D{Name similarity}
-    D -- "0.95 or more" --> M3[Match: embedding]
-    D -- "below 0.80" --> N[No match]
-    D -- "0.80 to 0.95" --> E{Tight group?}
-    E -- Yes --> M4[Match: cluster]
-    E -- No --> F[LLM review]
-    F -- Match --> M5[Match: LLM]
-    F -- No match --> N
-    F -- "Uncertain or request failed" --> U[Undecided]
-```
+<Diagram folder="docs" name="resolution" alt="A pair of mentions with the same label goes down five tiers: exact, fuzzy, embedding, cluster, and LLM review. The first tier that is sure decides. A match is stored as a link. A pair that no tier can decide stays undecided." />
 
 *A pair goes down the tiers. The first tier that is sure decides.*
 

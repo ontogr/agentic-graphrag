@@ -3,9 +3,13 @@ title: Update and delete documents
 description: Replace a changed document, remove a document from search, and see what stays in the graph.
 ---
 
+import Diagram from '@site/src/components/Diagram';
+
 # Update and delete documents
 
 Use `Graph.update` to replace a document that changed. Use `Graph.delete_document` to remove a document from search. Both work on a document key, which is the identity of a document across edits.
+
+<Diagram folder="docs" name="document-lifecycle" alt="Graph.add makes a document searchable. Graph.update closes the links of the old version and makes the new version searchable, while old evidence ids stay readable as superseded. Graph.delete_document removes the document from search and keeps its text and history. Graph.purge_document removes the text of every version, so old evidence ids become unavailable. Update, delete, and purge flag the decisions that cite the document." />
 
 ## Before you start
 

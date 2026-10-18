@@ -4,6 +4,8 @@ title: Retrieval
 description: How Agentic GraphRAG finds evidence for a query with several search methods, fusion, and re-ranking.
 ---
 
+import Diagram from '@site/src/components/Diagram';
+
 # Retrieval
 
 Agentic GraphRAG has two ways to retrieve. The evidence functions in `agrag.evidence` find passages, fetch their exact text, move between neighbouring passages, explore entity relations, and check citations. The built-in agent and the MCP server use them. `SearchEngine` runs named recipes that combine search methods over entities, chunks, and community reports, for code that wants ranked results from the graph.
@@ -16,20 +18,7 @@ An answer that cites its sources needs more than a ranked list. The evidence fun
 
 ## Evidence retrieval
 
-```mermaid
-flowchart LR
-    Q[Query] --> D[discover]
-    D --> I[Evidence ids]
-    I --> F[fetch]
-    F --> T[Exact text]
-    T --> N[navigate]
-    N --> I
-    Q --> E[find_entities]
-    E --> X[explore]
-    X --> I
-    T --> C[check_citations]
-    C --> R[render_citations]
-```
+<Diagram folder="docs" name="evidence-tools" alt="A query goes to discover, or to find_entities and then explore. Both return evidence ids. fetch turns an id into its exact text. navigate moves from a passage to neighbouring passages and returns more ids. check_citations compares cited ids with the ids that were fetched, and render_citations makes numbered references." />
 
 *Search and entity functions return evidence ids. Fetch returns the text behind an id. Citations are checked against the ids that were fetched.*
 
@@ -47,24 +36,9 @@ An evidence id names a document, a prefix of the content hash of one version, an
 
 ### How a recipe runs
 
-```mermaid
-flowchart TD
-    Q[Query] --> M[Run the methods]
-    M --> F[Fuse the results]
-    F --> B{Walk the graph?}
-    B -->|yes| X[Walk from entity hits]
-    X --> F2[Fuse again]
-    B -->|no| C
-    F2 --> C{Add communities?}
-    C -->|yes| G[Add community reports]
-    C -->|no| R
-    G --> R{Re-rank?}
-    R -->|yes| RR[Re-rank]
-    R -->|no| T
-    RR --> T[Keep the top results]
-```
+<Diagram folder="docs" name="recipe" alt="The engine runs the recipe's methods at the same time and fuses the ranked lists. A recipe can then walk the graph from entity hits and fuse again, add community reports, and re-rank. The engine keeps the top results up to the limit of the recipe." />
 
-*The engine runs these steps in order. A diamond step runs only when the recipe asks.*
+*The engine runs these steps in order. The steps in the box run only when the recipe asks.*
 
 1. Run the methods. The recipe names one or more methods. The engine runs them at the same time. If one method fails, the others still return results.
 2. Fuse. The engine merges the ranked lists into one list and removes duplicates.
@@ -72,48 +46,6 @@ flowchart TD
 4. Add communities (optional). The engine adds the reports of communities that overlap the entities found.
 5. Re-rank (optional). A cross-encoder model, or the graph distance to the top entity hits, sets a new order.
 6. Cut. The engine keeps the top results, up to the limit of the recipe.
-
-```mermaid
-sequenceDiagram
-    participant U as Caller
-    participant E as Search engine
-    participant M as Methods
-    participant S as Stores
-    U->>E: query and recipe
-    E->>M: run all methods
-    loop each method
-        M->>S: embed and search
-        S-->>M: ranked hits
-    end
-    M-->>E: ranked lists
-    E->>E: fuse lists
-```
-
-*One query, part 1: the engine runs the methods and fuses their ranked lists.*
-
-```mermaid
-sequenceDiagram
-    participant E as Search engine
-    participant S as Stores
-    participant R as Re-ranker
-    participant U as Caller
-    opt recipe walks the graph
-        E->>S: walk from entity hits
-        S-->>E: neighbours
-        E->>E: fuse again
-    end
-    opt recipe adds communities
-        E->>S: fetch overlapping communities
-        S-->>E: reports
-    end
-    opt recipe re-ranks
-        E->>R: candidates
-        R-->>E: new order
-    end
-    E-->>U: top results
-```
-
-*One query, part 2: optional steps widen and re-order the fused list. Then the engine returns the top results.*
 
 ### Methods
 

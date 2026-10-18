@@ -4,6 +4,8 @@ title: Chunking
 description: How Agentic GraphRAG packs the sections of a document into chunks and records where each chunk came from.
 ---
 
+import Diagram from '@site/src/components/Diagram';
+
 # Chunking
 
 Chunking divides a document into pieces that extraction and search can process. Each chunk keeps its source location and section context, so smaller search units remain traceable to the original document.
@@ -16,21 +18,9 @@ A document already has structure: headings, paragraphs, and tables. The chunker 
 
 ## How it works
 
-```mermaid
-flowchart TD
-    D[Document sections] --> U{Next unit}
-    U -- Table --> T[Table chunks]
-    U -- Text --> S{Fits in the open chunk?}
-    S -- Yes --> P[Add to the open chunk]
-    S -- No --> F[Close the chunk]
-    F --> P
-    P --> E{Section ends and chunk is small?}
-    E -- Yes --> N[Carry on into the next section]
-    E -- No --> C[Chunk]
-    T --> C
-```
+<Diagram folder="docs" name="chunking" alt="With a size of 600 tokens and a min_size of 150, a short first section carries on into the next section, so the two share one chunk. A table never mixes with text and becomes row groups that each repeat the header row. A paragraph over the size is cut at sentence boundaries." />
 
-*The chunker fills a chunk with the units of a section, then starts a new one. A small chunk carries on into the next section.*
+*An example with the default size of 600 tokens and a min_size of 150.*
 
 1. Pack. The chunker walks the sections in reading order. A unit is a paragraph, list, code block or formula. The chunker adds units to a chunk until the next unit would pass `size` tokens. The default size is 600 tokens.
 2. Split. A unit that is over `size` on its own is cut at paragraph, sentence, clause or word boundaries.

@@ -4,9 +4,13 @@ title: Features
 description: What Agentic GraphRAG does, from reading files to recording decisions that stay tied to their evidence.
 ---
 
+import Diagram from '@site/src/components/Diagram';
+
 # Features
 
 The groups below list what Agentic GraphRAG does. Most groups link to the page that explains the group in detail.
+
+<Diagram name="graph3d" alt="Three stacked graph layers. Enterprise knowledge holds documents, sections, chunks and entities. Conversation history holds tasks, events and steps. Decision traces point up to the passages and events they rely on." />
 
 ## Read the files you already have
 
@@ -32,6 +36,8 @@ See [Loading documents](../concepts/loading.mdx) and [Ingest documents](../guide
 See [Chunking](../concepts/chunking.mdx) and [Configure chunking](../guides/configure-chunking.mdx).
 
 ## Build a graph around your own schema
+
+<Diagram name="schema-pipeline" alt="Extraction reads each chunk with a local model, sends uncertain chunks to an LLM, and checks the result against your schema. Entities and relationships outside the schema are saved for review. Resolution then compares entities in steps, from cheap checks to an LLM, and stores each match as a link." />
 
 - **Describe your domain.** Write the schema in code, in a YAML or JSON file, with Pydantic classes, or by importing an OWL or RDFS ontology.
 - **Start from a preset.** Begin with the default schema or a ready-made preset for operations or legal documents, then override, exclude, or add to it. A schema can also be exported to JSON Schema, SHACL, or JSON-LD.
@@ -85,7 +91,9 @@ See [Graph storage](../concepts/graph-storage.mdx).
 
 ## Search the graph and read the evidence
 
-- **Keyword, meaning, or both.** Search finds passages by keyword, by meaning, or by both, and combines the two rankings.
+<Diagram name="search-evidence" alt="A query runs full-text, semantic, or hybrid search over the chunks of the documents you allow. Hits carry evidence ids, and a fetch returns the exact passage text with a citation. Optional steps navigate the document tree, search entities, and explore relationships." />
+
+- **Full-text, semantic, or hybrid.** Full-text search matches keywords, semantic search compares embeddings, and hybrid search combines the two rankings.
 - **Only readable text is returned.** Results come from the current text of documents in the caller's scope. Older versions and rows from unfinished jobs stay out.
 - **Exact text on request.** Fetch returns the exact text behind a result, and says when the text was cut or covers only part of what was asked for.
 - **Entities lead back to passages.** Find entities by name and by embedding similarity, and see the passages that mention each one.
@@ -115,6 +123,8 @@ See [Communities](../concepts/communities.mdx).
 
 ## Remember tasks
 
+<Diagram name="task-resume" alt="The agent records events, steps, and decisions in the memory layer as it works. A decision cites passages, events, and earlier decisions. When a cited document changes, the decision is flagged for review. The agent recalls the task and searches past decisions to inform new ones." />
+
 - **Named tasks.** A task has a goal, an ordered log of messages, tool calls, results, and notes, and named steps.
 - **Step states.** A step is not started, in progress, completed, failed, or unknown.
 - **Resume with a short summary.** A resumed task starts from the goal, step counts, active decisions, and decisions that need review.
@@ -135,6 +145,8 @@ See [Communities](../concepts/communities.mdx).
 See [Record decisions and review them](../guides/connected-memory.mdx).
 
 ## Use the built-in agent
+
+<Diagram name="full-flow" alt="Documents are loaded, chunked, extracted, and resolved into a graph with three layers: knowledge, conversation history, and decision traces. A changed document flags the decisions that cite it. An agent searches and reads the graph and records its events, steps, and decisions. Its answer passes a citation check and returns with numbered sources." />
 
 - **Scoped to your documents.** The agent is built for a fixed set of documents, a project, and an author, and it reads nothing else.
 - **Evidence tools.** It discovers passages, finds entities, explores relations, moves between passages, and fetches exact text.

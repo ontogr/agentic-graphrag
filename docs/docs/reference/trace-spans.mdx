@@ -3,6 +3,8 @@ title: Trace Spans
 sidebar_position: 1
 ---
 
+import Diagram from '@site/src/components/Diagram';
+
 # Trace Spans
 
 This page is the reference for the spans Agentic GraphRAG records when you pass it a
@@ -15,22 +17,7 @@ how to build and pass one.
 
 ## How the span families nest
 
-```mermaid
-flowchart TD
-    G[Graph call root] --> X[Extraction spans]
-    G --> J[Cutover job]
-    G --> C[Community spans]
-    J --> R[Resolution spans]
-    J --> M[Merge spans]
-    J --> S[Storage spans]
-    T[Agent tool call] --> Q[Search root]
-    Q --> RT[Retriever spans]
-    X --> L[LLM spans]
-    R --> L
-    C --> L
-    S --> D[Store and embedding spans]
-    RT --> D
-```
+<Diagram folder="docs" name="trace-families" alt="A graph call root holds extraction spans, a cutover job, and community spans. The cutover job holds resolution, merge, and storage spans. LLM spans nest below extraction, resolution, and community spans. An agent tool call holds the search root, which holds the retriever spans. Store and embedding spans nest below storage and retriever spans." />
 
 *Each box is a span family. An arrow points from a parent span to the spans that nest below it.*
 

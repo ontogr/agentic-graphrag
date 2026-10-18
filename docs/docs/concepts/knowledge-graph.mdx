@@ -4,6 +4,8 @@ title: Knowledge graph
 description: The node and edge kinds Agentic GraphRAG writes to the graph, and why it keeps them.
 ---
 
+import Diagram from '@site/src/components/Diagram';
+
 # Knowledge graph
 
 The knowledge graph stores source structure, searchable chunks, extracted entities, and links between them in the graph database. This lets retrieval move from a match to related facts and back to the text that supports them.
@@ -16,21 +18,7 @@ Agentic GraphRAG keeps both text and structure in one graph. An entity links to 
 
 ## How it works
 
-```mermaid
-flowchart LR
-    D[Document] -->|HAS_CHILD| S[Section]
-    S -->|HAS_CHILD| S
-    S -->|HAS_CHILD| C[Chunk]
-    S -->|HAS_CHILD| T[Table]
-    T -->|HAS_CHILD| C
-    D -->|HAS_PART| C
-    C -->|NEXT_CHUNK| C
-    C -->|MENTIONED_IN| E[Entity]
-    E -->|schema relation| E
-    E -->|MATCHES| E
-    E -->|RESOLVED_AS| R[ResolvedEntity]
-    E -->|MEMBER_OF| M[Community]
-```
+<Diagram folder="docs" name="knowledge-graph" alt="A document has sections, and sections have chunks and tables. A table has chunks. A chunk is MENTIONED_IN an entity. Entities are joined by schema relations and MATCHES links. An entity is RESOLVED_AS a resolved entity when a group matches, and is a MEMBER_OF a community." />
 
 *The node kinds and their edges. Entity nodes use your schema's type names as labels. `HAS_PART` also joins a document to each section, table and figure.*
 

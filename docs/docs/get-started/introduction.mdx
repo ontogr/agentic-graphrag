@@ -3,6 +3,8 @@ sidebar_position: 1
 title: Introduction
 ---
 
+import Diagram from '@site/src/components/Diagram';
+
 # Introduction
 
 Agentic GraphRAG is an open source Python framework that connects your documents, agent activity, and decisions in one graph. Your agents can find evidence, continue work across sessions, and revisit decisions when their sources change.
@@ -21,15 +23,7 @@ Use the Python library when you want direct control. `Graph` adds documents, the
 
 ## How it works
 
-```mermaid
-flowchart LR
-    docs[Documents] --> ingest[Ingest]
-    ingest --> graph[(Neo4j graph)]
-    question[Question] --> agent[Agent or MCP client]
-    agent -->|search and read| graph
-    agent -->|tasks and decisions| graph
-    agent --> answer[Cited answer]
-```
+<Diagram folder="docs" name="introduction" alt="Documents are ingested into one graph that holds documents, entities, tasks, and decisions. An agent or MCP client searches and reads the graph, records its tasks and decisions in it, and returns a cited answer to a question." />
 
 *Ingestion builds the graph. The agent or MCP client reads it and records tasks and decisions in it.*
 

@@ -4,9 +4,13 @@ sidebar_label: Record and review decisions
 description: Record a decision with the passages it rests on, change a source document, and review the decision.
 ---
 
+import Diagram from '@site/src/components/Diagram';
+
 # Record decisions and review them
 
 Record a decision that points to the passages it relies on. When a document behind the decision changes, Agentic GraphRAG flags the decision for review. You then reaffirm the decision against the current text, or replace it.
+
+<Diagram folder="docs" name="decision-lifecycle" alt="A decision starts active and clear. When a document it cites changes or is removed, or a decision it depends on is flagged, it needs review. You can reaffirm it after fetching the current text, replace it with a new revision that explains the change, or reject it when rejection is enabled." />
 
 ## Before you start
 

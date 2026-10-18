@@ -4,9 +4,13 @@ sidebar_position: 6
 description: Give an MCP client tools to search your documents, read exact passages, check citations, and record tasks and decisions.
 ---
 
+import Diagram from '@site/src/components/Diagram';
+
 # Run the MCP server
 
 The `agrag-mcp` command runs a local stdio server. An MCP client such as an IDE assistant or a desktop chat app uses it to search the documents in your graph, read the exact text behind each result, check citations, and keep task and decision memory.
+
+<Diagram folder="docs" name="mcp-server" alt="An MCP client reaches three tool groups. The evidence tools are always on and read the documents in the server's scope. The memory read tools need a project id and an agent id and read tasks and decisions. The write tools need read_only to be false and write tasks and decisions. reject_decision also needs allow_reject." />
 
 ## Before you start
 

@@ -16,13 +16,6 @@ Keeping both in Neo4j means a write is one transaction. Graph data and embedding
 
 ## How it works
 
-```mermaid
-flowchart TD
-    A[Graph add] --> N[(Neo4j graph and vector indexes)]
-    Q[Search engine] --> I[Dense search in Neo4j vector indexes]
-    I --> W[Read and walk the graph in Neo4j]
-```
-
 1. Write. `Graph.add` writes documents with their sections, tables and figures, chunks, entities, and relations to Neo4j. It also writes an embedding onto each entity, resolved entity, community, and chunk node.
 2. Search. The engine runs dense search in the Neo4j vector index of each label that the search covers.
 3. Read. The engine reads the full items back from Neo4j and walks the graph when the recipe asks for it.

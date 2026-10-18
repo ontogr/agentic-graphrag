@@ -4,6 +4,8 @@ title: Ingestion pipeline
 description: The stages that turn sources into a graph, and how a failed run recovers.
 ---
 
+import Diagram from '@site/src/components/Diagram';
+
 # Ingestion pipeline
 
 `Graph.add` turns sources into graph records through loading, chunking, extraction, resolution, merging, and storage. All input forms converge on this pipeline after loading, so later stages treat them consistently.
@@ -16,16 +18,7 @@ These stages include slow model calls and writes that can fail independently. A 
 
 ## How it works
 
-```mermaid
-flowchart TD
-    A[Sources] --> B[Load]
-    B --> C[Chunk]
-    C --> D[Extract]
-    D --> E[Resolve]
-    E --> F[Merge]
-    F --> G[Store]
-    G --> H[AddResult]
-```
+<Diagram folder="docs" name="ingestion-stages" alt="Each document runs as its own job. Sources are loaded into documents, chunked, extracted into entities and relations, resolved, merged, and stored. The writes are tagged and hidden from search until that job commits. The call returns an AddResult with one summary for each stage." />
 
 *Each stage hands its output to the next. The result reports every stage.*
 
@@ -44,16 +37,7 @@ The extraction summary also counts the discarded items. See [Run statistics](../
 
 `add`, `update`, `delete_document` and `purge_document` each run as a job. A job is one call. The job tags every write with its own id, and search skips tagged writes. Nothing becomes visible until the job commits.
 
-```mermaid
-stateDiagram-v2
-    [*] --> Pending
-    Pending --> Committed: commit
-    Pending --> RollingBack: rollback under lease token
-    RollingBack --> [*]: delete pending writes and the job
-    Committed --> Cleaning
-    Cleaning --> Done
-    Done --> [*]
-```
+<Diagram folder="docs" name="cutover-job" alt="A job starts as pending, with its writes hidden from search. A commit makes the writes visible, then the job cleans up and is done. A job that stops before its commit rolls back, and its writes and the job are deleted." />
 
 *A job that stops before its commit rolls back. A job that stops after it rolls forward.*
 

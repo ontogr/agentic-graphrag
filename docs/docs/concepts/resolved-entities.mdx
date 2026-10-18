@@ -4,6 +4,8 @@ title: Matching and resolved entities
 description: How Agentic GraphRAG records a match without changing the matched entities, and derives one resolved entity per group.
 ---
 
+import Diagram from '@site/src/components/Diagram';
+
 # Matching and resolved entities
 
 When resolution decides that entities match, Agentic GraphRAG records the decision and derives a resolved entity for the connected group. The original entities and their relations stay in the graph, so a match can be reconsidered without reconstructing discarded facts.
@@ -18,17 +20,7 @@ Exact matches are the one exception. Two mentions with the same label and the sa
 
 ## How it works
 
-```mermaid
-sequenceDiagram
-    participant R as Resolution
-    participant G as Graph store
-    R->>G: Match confirmed
-    G->>G: Store match evidence
-    G->>G: Collect linked entities
-    G->>G: Compute group fields
-    G->>G: Store resolved entity
-    G->>G: Link each member
-```
+<Diagram folder="docs" name="resolved-entities" alt="Three entities that name the same person are joined by MATCHES links. Each entity has a RESOLVED_AS link to one ResolvedEntity that groups them. No entity changes, and the relations stay on the members." />
 
 *A match adds links and one derived node. It changes no existing entity.*
 

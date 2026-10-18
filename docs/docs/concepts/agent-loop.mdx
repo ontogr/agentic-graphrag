@@ -4,6 +4,8 @@ title: Agent loop
 description: How one task-scoped agent turns a question into a cited answer.
 ---
 
+import Diagram from '@site/src/components/Diagram';
+
 # Agent loop
 
 The agent loop turns one question into a cited answer. A single agent works on a named task. It discovers evidence in the graph, fetches the exact text it needs, and writes an answer that cites only the evidence it fetched. A citation check runs after the answer, and one repair pass asks the agent to remove or fetch the citations that do not check out.
@@ -18,18 +20,7 @@ Citations make claims traceable to the passages behind them.
 
 ## How it works
 
-```mermaid
-flowchart LR
-    Q[Question and task view] --> A[Task agent]
-    A -->|discover_evidence, find_entities, explore| E[Evidence ids]
-    E -->|fetch_evidence| T[Exact passage text]
-    T --> A
-    A --> Ans[Answer]
-    Ans --> C{check_citations}
-    C -->|all valid| R[Result]
-    C -->|invalid ids, budget left| F[One repair pass]
-    F --> R
-```
+<Diagram folder="docs" name="agent-loop" alt="A run creates or resumes the task and builds its task view. The agent calls evidence tools to find ids and fetch exact text, and writes an answer. The run records every message and tool result as task events. A citation check compares the cited ids with the fetched ids. If all are valid the run returns the result. If some are invalid and tool budget is left, the agent gets one repair pass." />
 
 1. The run creates or resumes the task and builds its task view. The view is data, and the agent reads it before it acts.
 2. The agent calls evidence tools. `discover_evidence` returns evidence ids for passages in scope. `find_entities` and `explore` search the graph. `navigate` moves from one passage to related text.

@@ -4,6 +4,8 @@ title: Loading documents
 description: How Agentic GraphRAG picks a loader for each source and what a loader gives back.
 ---
 
+import Diagram from '@site/src/components/Diagram';
+
 # Loading documents
 
 A loader converts a source into documents with normalized text, identity, and structure. The loader registry usually selects a parser by extension, while record formats can produce one document per row or record.
@@ -14,20 +16,7 @@ Later ingestion stages need a consistent document model, even when sources diffe
 
 ## How it works
 
-```mermaid
-flowchart TD
-    A[Source] --> B{Loader given?}
-    B -- Yes --> E[Use that loader]
-    B -- No --> C[Find loader by extension]
-    C --> D{Found and installed?}
-    D -- Yes --> E
-    D -- No --> F{Error policy}
-    F -- RAISE --> G[Stop the run]
-    F -- SKIP --> H[Drop and count]
-    F -- QUARANTINE --> I[Set aside with reason]
-    E --> J[Read and normalize text]
-    J --> K[Document]
-```
+<Diagram folder="docs" name="loading" alt="A source uses the loader you pass in. Without one, Agentic GraphRAG looks up the loader for the file extension. If no loader is found, an optional extra is missing, or an eligible source read fails, the error policy applies: RAISE stops the run, SKIP drops and counts the source, and QUARANTINE records the failure. A missing import from a base parser is an installation error, not a source error." />
 
 *The loader comes from you or from the extension. A source that fails follows the error policy.*
 

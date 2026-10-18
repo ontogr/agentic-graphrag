@@ -3,6 +3,8 @@ sidebar_position: 3
 title: Quickstart
 ---
 
+import Diagram from '@site/src/components/Diagram';
+
 # Quickstart
 
 In this tutorial, you build a knowledge graph from one document, look at what Agentic GraphRAG stored, and ask the built-in agent a question about the document. The agent answers with numbered sources.
@@ -19,18 +21,7 @@ The tutorial takes about 10 minutes on a typical connection. Most of the time go
 
 Your script runs on your machine, together with the embedding and extraction models. The graph lives in Neo4j. Only the agent calls an LLM.
 
-```mermaid
-flowchart LR
-    subgraph you[Local machine]
-        script[Python script]
-        models[Local models]
-    end
-    db[(Neo4j graph)]
-    llm[LLM endpoint]
-    script --> models
-    script --> db
-    script -.->|Step 4 only| llm
-```
+<Diagram folder="docs" name="quickstart-where" alt="Your Python script and the local embedding and extraction models run on your machine. The script reads and writes the graph in Neo4j. Only step 4, the agent, calls your LLM endpoint." />
 
 *The script and the models run locally. The agent step calls your LLM endpoint.*
 
