@@ -1,0 +1,152 @@
+---
+title: Record decisions and review them
+sidebar_label: Record and review decisions
+description: Record a decision with the passages it rests on, change a source document, and review the decision.
+---
+
+import Diagram from '@site/src/components/Diagram';
+
+# Record decisions and review them
+
+Record a decision that points to the passages it relies on. When a document behind the decision changes, Agentic GraphRAG flags the decision for review. You then reaffirm the decision against the current text, or replace it.
+
+<Diagram folder="docs" name="decision-lifecycle" alt="A decision starts active and clear. When a document it cites changes or is removed, or a decision it depends on is flagged, it needs review. You can reaffirm it after fetching the current text, replace it with a new revision that explains the change, or reject it when rejection is enabled." />
+
+## Before you start
+
+- A running Neo4j and the `NEO4J_*` variables.
+- The extras for graph storage and local extraction: `uv pip install "agentic-graphrag[neo4j,extract]"`.
+
+The script creates or replaces `policy.md` in the current folder with a sample vendor policy. Run it in a separate example folder.
+
+## Add the document and record a decision
+
+Memory belongs to a project. Open `TaskMemory` and `DecisionMemory` with the same `project_id` and an `agent_id` that identifies the author. A decision needs a task, so create the task first.
+
+```python
+import asyncio
+from pathlib import Path
+
+from agrag.common.data_models.decision import DocumentSupportInput
+from agrag.common.data_models.evidence import DiscoveryMode, FetchStatus
+from agrag.embedding import build_embedder
+from agrag.evidence import discover, fetch
+from agrag.graphdb import build_graph_store
+from agrag.ingestion import ExtractionSettings, Graph
+from agrag.memory import DecisionMemory, TaskMemory
+
+
+async def read(store, embedder, scope, query):
+    found = await discover(
+        store, embedder, query, mode=DiscoveryMode.HYBRID, limit=3, scope=scope
+    )
+    ids = [hit.evidence_id for hit in found.hits]
+    outcomes = await fetch(store, ids, scope=scope, max_chars=4000)
+    return [o for o in outcomes if o.status is FetchStatus.OK]
+
+
+async def main() -> None:
+    document = Path("policy.md").resolve()
+    document.write_text(
+        "# Vendor policy\n\n"
+        "A purchasing manager may approve a vendor after the finance team "
+        "reviews the contract terms.\n",
+        encoding="utf-8",
+    )
+    scope = frozenset({str(document)})
+    store = build_graph_store("neo4j")
+    embedder = build_embedder("ibm-granite/granite-embedding-small-english-r2")
+    try:
+        graph = await Graph.open(
+            schema="operations",
+            graph_store=store,
+            embedder=embedder,
+            extraction_settings=ExtractionSettings(mode="gliner"),
+            max_llm_pairs=0,
+        )
+        await graph.add(document)
+
+        tasks = TaskMemory(store, project_id="demo", agent_id="reviewer")
+        decisions = DecisionMemory(store, project_id="demo", agent_id="reviewer")
+        await tasks.create_task(
+            "vendor-review", "Decide whether to approve the vendor.", request_id="task-1"
+        )
+
+        evidence = await read(store, embedder, scope, "vendor approval rules")
+        recorded = await decisions.record_decision(
+            "vendor-review",
+            "vendor-approval",
+            "Approve the vendor.",
+            "The policy allows approval under the stated conditions.",
+            supports=[DocumentSupportInput(evidence_id=e.evidence_id) for e in evidence],
+            fetched_evidence=evidence,
+            request_id="decision-1",
+        )
+        decision = recorded.decision
+        print(decision.id, decision.review_state)
+    finally:
+        await store.close()
+
+
+asyncio.run(main())
+```
+
+`record_decision` takes the evidence ids that support the decision and the fetch outcomes that prove you read them. Each support names one version of one document. The `request_id` makes a retry safe, because a repeated request returns the saved result. The new decision has the review state `clear`.
+
+## Change the source and see the flag
+
+Add the next snippets to the `try` block of the script above. Edit `policy.md`, then add the file again. `Graph.add` finds the document by its key, which is the resolved path, and writes a new version when the content changed.
+
+```python notest
+document.write_text(document.read_text() + "\nVendors must also pass a security review.\n")
+await graph.add(document)
+
+review = await decisions.list_review(task_name="vendor-review")
+for flagged in review.decisions:
+    print(flagged.choice_key, flagged.review_state, flagged.review_reason)
+```
+
+The decision now has the review state `needs_review` and the reason `source_changed`. A decision that depends on it through a decision support is flagged too, and decisions that cite other documents stay clear. If the document is deleted or purged, the reason is `source_removed`. Passages from the earlier version stay readable and are labeled superseded, so you can still see what the decision rested on.
+
+## Reaffirm or replace the decision
+
+Read the current text of the document, then choose one of two actions.
+
+To keep the decision, reaffirm it with the evidence you just fetched. Agentic GraphRAG accepts a reaffirmation only when every document the decision cites has been fetched at its current version.
+
+```python notest
+current = await read(store, embedder, scope, "vendor approval rules")
+await decisions.reaffirm_decision(
+    decision.id,
+    [DocumentSupportInput(evidence_id=e.evidence_id) for e in current],
+    fetched_evidence=current,
+    explanation="The new security review does not change the approval.",
+    request_id="reaffirm-1",
+)
+```
+
+To change the conclusion, supersede the decision. The earlier revision and its evidence stay in the history.
+
+```python notest
+await decisions.supersede_decision(
+    decision.id,
+    "Approve the vendor after a security review.",
+    "The updated policy adds a security review.",
+    explanation="The policy changed.",
+    supports=[DocumentSupportInput(evidence_id=e.evidence_id) for e in current],
+    fetched_evidence=current,
+    request_id="supersede-1",
+)
+```
+
+Use `decisions.search_decisions("vendor")` to find earlier decisions in the same project, and `decisions.list_conflicts()` to find choices that different tasks decided differently. The same operations are available as tools in the [MCP server](./run-the-mcp-server.mdx).
+
+## Run the full example
+
+The repository includes an end-to-end workflow in `examples/connected_memory`. It ingests a small set of documents, runs the built-in agent, records and reviews decisions, and calls the MCP server. Run it from a repository checkout with a disposable Neo4j database, because it writes task and decision memory. Its fixture documents live in the repository and are not part of the installed package.
+
+## Related
+
+- Explanation: [Agent loop](../concepts/agent-loop.mdx) shows how the built-in agent records tasks and decisions.
+- How-to: [Find and cite evidence](./find-and-cite-evidence.mdx).
+- How-to: [Update and delete documents](./update-and-delete-documents.mdx).

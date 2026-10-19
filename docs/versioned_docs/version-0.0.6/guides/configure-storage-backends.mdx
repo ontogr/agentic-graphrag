@@ -1,0 +1,263 @@
+---
+sidebar_position: 2
+title: Configure storage backends
+---
+
+# Configure storage backends
+
+Every graph needs an embedder and a graph store. The graph store is Neo4j, which also holds the native vector indexes. Choose an embedder model first. The vector dimensions must match the embedder.
+
+## Before you start
+
+Each code block on this page is complete. It opens and closes its own connections. The blocks read the `NEO4J_*` variables. See the [Quickstart](../get-started/quickstart.mdx) for a Neo4j database.
+
+## Install
+
+Install the core package and the extras for the features you use. You need `neo4j` for the graph store.
+
+```bash
+uv pip install agentic-graphrag
+uv pip install "agentic-graphrag[embed-local]"   # sentence-transformers embedding models
+uv pip install "agentic-graphrag[neo4j]"         # Neo4j graph store
+```
+
+Install `embed-local` only for Sentence Transformers models. The default FastEmbed model does not need it.
+
+## Set up the embedder
+
+`build_embedder` takes a FastEmbed model name. It returns a ready-to-use embedder
+that runs the model on the CPU with ONNX Runtime. The default model is
+`ibm-granite/granite-embedding-small-english-r2`.
+
+```python
+import asyncio
+
+from agrag.embedding import build_embedder
+
+
+async def main() -> None:
+    embedder = build_embedder("ibm-granite/granite-embedding-small-english-r2")
+    vectors = await embedder.embed(["first passage", "second passage"])
+    print(await embedder.dimensions())  # the vector length this model produces
+
+
+asyncio.run(main())
+```
+
+To use another model that FastEmbed supports, pass its name to `build_embedder`. To use
+a sentence-transformers model, or to set the device, build a
+`SentenceTransformerEmbedder` yourself. It needs the `embed-local` extra. Pass its own
+`EmbeddingSettings`.
+
+{/* pmd-metadata: notest */}
+
+```python
+from agrag.embedding import EmbeddingSettings, SentenceTransformerEmbedder
+
+embedder = SentenceTransformerEmbedder(
+    settings=EmbeddingSettings(model="BAAI/bge-small-en-v1.5", device="cuda"),
+)
+```
+
+### Set embedder configuration with environment variables
+
+Set these variables instead of passing `EmbeddingSettings` fields in code.
+
+| Variable | Meaning |
+| --- | --- |
+| `EMBEDDING_MODEL` | The model name. |
+| `EMBEDDING_DEVICE` | The device to load the model on. Only `SentenceTransformerEmbedder` uses it. |
+| `EMBEDDING_NORMALIZE` | Whether to normalize output vectors. |
+| `EMBEDDING_BATCH_SIZE` | The number of texts per encode call. |
+| `EMBEDDING_CACHE_FOLDER` | Where the embedder caches downloaded model files. |
+
+## Set up a graph store
+
+Build a `Neo4jGraphStore` with `Neo4jSettings`. Call `connect` before you use
+it.
+
+```python
+import asyncio
+
+from agrag.graphdb.neo4j import Neo4jGraphStore
+from agrag.graphdb.settings import Neo4jSettings
+
+
+async def main() -> None:
+    store = Neo4jGraphStore(settings=Neo4jSettings())
+    await store.connect()
+    await store.close()
+
+
+asyncio.run(main())
+```
+
+### Set graph store credentials with environment variables
+
+| Variable | Meaning |
+| --- | --- |
+| `NEO4J_URI` | The Bolt connection URI. Use `neo4j+s://...` for Aura. |
+| `NEO4J_USERNAME` | The database username. |
+| `NEO4J_PASSWORD` | The database password. |
+| `NEO4J_DATABASE` | The target database name. |
+| `NEO4J_MAX_CONNECTION_LIFETIME` | Seconds a pooled connection lives. The default is `240`. |
+
+Neo4j always authenticates with a password. If `NEO4J_URI` uses a plaintext scheme (`bolt://` or `neo4j://`) and
+points at a non-local host, Agentic GraphRAG raises an error. Use `neo4j+s://` (or `bolt+s://`) for a remote
+instance.
+
+### Write nodes
+
+Write nodes with `upsert_nodes`. Each record needs an id, its labels, and a
+properties map. Call `setup_constraints` after your first write of a label,
+so Neo4j knows which labels to constrain.
+
+```python
+import asyncio
+
+from uuid import uuid4
+
+from agrag.common.data_models.graph_record import NodeRecord
+from agrag.graphdb.neo4j import Neo4jGraphStore
+from agrag.graphdb.settings import Neo4jSettings
+
+
+async def main() -> None:
+    store = Neo4jGraphStore(settings=Neo4jSettings())
+    await store.connect()
+    try:
+        node = NodeRecord(
+            id=uuid4(),
+            labels=["Note"],
+            properties={"text": "first passage"},
+        )
+        await store.upsert_nodes("Note", [node])
+        await store.setup_constraints()
+    finally:
+        await store.close()
+
+
+asyncio.run(main())
+```
+
+A node can carry more than one label. List every label that the node must have in
+`labels`. `upsert_nodes` writes all of them, not only the `label` argument.
+Records with different label sets in the same call are grouped and written
+separately.
+
+```python
+import asyncio
+
+from uuid import uuid4
+
+from agrag.common.data_models.graph_record import NodeRecord
+from agrag.graphdb.neo4j import Neo4jGraphStore
+from agrag.graphdb.settings import Neo4jSettings
+
+
+async def main() -> None:
+    store = Neo4jGraphStore(settings=Neo4jSettings())
+    await store.connect()
+    try:
+        tagged_node = NodeRecord(
+            id=uuid4(),
+            labels=["Note", "Draft"],
+            properties={"text": "sepsis protocol"},
+        )
+        await store.upsert_nodes("Note", [tagged_node])
+    finally:
+        await store.close()
+
+
+asyncio.run(main())
+```
+
+Labels only ever accumulate. If a later upsert of the same node id lists
+fewer labels, the labels already on the node are kept, not removed.
+
+### Handle partial write failures
+
+`upsert_nodes` and `upsert_relations` return an `UpsertResult`. Read
+`failures` for records that did not write. The rest of the call still lands.
+
+```python
+import asyncio
+
+from uuid import uuid4
+
+from agrag.common.data_models.graph_record import NodeRecord
+from agrag.graphdb.neo4j import Neo4jGraphStore
+from agrag.graphdb.settings import Neo4jSettings
+
+
+async def main() -> None:
+    store = Neo4jGraphStore(settings=Neo4jSettings())
+    await store.connect()
+    try:
+        nodes = [
+            NodeRecord(id=uuid4(), labels=["Note"], properties={"text": "example"})
+        ]
+        result = await store.upsert_nodes("Note", nodes)
+        if result.failures:
+            for failure in result.failures:
+                print(f"{failure.id} failed: {failure.error_message}")
+        print(f"{result.written} of {len(nodes)} nodes written")
+    finally:
+        await store.close()
+
+
+asyncio.run(main())
+```
+
+A connectivity or authentication failure still raises instead of returning a
+partial result. Only a failure specific to one record's data is isolated and
+reported this way.
+
+### Search vectors stored in the graph
+
+You can search vectors stored as node properties, without a separate vector
+store. First create a vector index on the property. Then search it.
+
+```python
+import asyncio
+
+from uuid import uuid4
+
+from agrag.common.data_models.graph_record import NodeRecord
+from agrag.common.data_models.vector_record import Distance
+from agrag.embedding import build_embedder
+from agrag.graphdb.neo4j import Neo4jGraphStore
+from agrag.graphdb.settings import Neo4jSettings
+
+
+async def main() -> None:
+    embedder = build_embedder("ibm-granite/granite-embedding-small-english-r2")
+    vectors = await embedder.embed(["first passage"])
+    store = Neo4jGraphStore(settings=Neo4jSettings())
+    await store.connect()
+    try:
+        node = NodeRecord(
+            id=uuid4(),
+            labels=["Note"],
+            properties={"text": "first passage", "embedding": vectors[0]},
+        )
+        await store.upsert_nodes("Note", [node])
+        await store.ensure_vector_index(
+            label="Note",
+            vector_property="embedding",
+            dimensions=await embedder.dimensions(),
+            distance=Distance.COSINE,
+        )
+        hits = await store.vector_search(
+            label="Note", vector_property="embedding", query_vector=vectors[0], limit=5
+        )
+    finally:
+        await store.close()
+
+
+asyncio.run(main())
+```
+
+## Next steps
+
+See the [API Reference](../api/index.md) for every parameter.

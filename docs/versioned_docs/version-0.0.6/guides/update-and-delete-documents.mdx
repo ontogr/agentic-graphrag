@@ -1,0 +1,231 @@
+---
+title: Update and delete documents
+description: Replace a changed document, remove a document from search, and see what stays in the graph.
+---
+
+import Diagram from '@site/src/components/Diagram';
+
+# Update and delete documents
+
+Use `Graph.update` to replace a document that changed. Use `Graph.delete_document` to remove a document from search. Both work on a document key, which is the identity of a document across edits.
+
+<Diagram folder="docs" name="document-lifecycle" alt="Graph.add makes a document searchable. Graph.update closes the links of the old version and makes the new version searchable, while old evidence ids stay readable as superseded. Graph.delete_document removes the document from search and keeps its text and history. Graph.purge_document removes the text of every version, so old evidence ids become unavailable. Update, delete, and purge flag the decisions that cite the document." />
+
+## Before you start
+
+1. Run Neo4j, and set `NEO4J_URI`, `NEO4J_USERNAME` and `NEO4J_PASSWORD`. The [Quickstart](../get-started/quickstart.mdx) shows how.
+2. Install the extras that the example uses:
+
+   ```bash
+   uv pip install "agentic-graphrag[neo4j,extract]"
+   ```
+
+## Choose a document key
+
+Every document has a `document_key`. `Graph.update` and `Graph.delete_document` find a document by it.
+
+- For a file, the key is the absolute path of the file.
+- For a record, the key is the file path plus the record id or the row number.
+- For `Graph.add(text=...)`, the key comes from a hash of the text. An edit to the text makes a new key, so you cannot update it later.
+
+If you add text that will change, pass a `Document` with a key you choose.
+
+## Add, update and delete a document
+
+This script adds a document with the key `apollo-notes`. It then updates the document with the same text, updates it with new text, and deletes it.
+
+```python
+import asyncio
+import hashlib
+
+from agrag.common.data_models.document import Document, DocumentFamily, SourceFormat
+from agrag.common.data_models import DEFAULT_SCHEMA
+from agrag.embedding import build_embedder
+from agrag.graphdb import build_graph_store
+from agrag.ingestion import Graph
+from agrag.ingestion.extract import GlinerExtractor
+
+TEXT = "NASA ran the Apollo program. Neil Armstrong commanded Apollo 11."
+
+
+async def main() -> None:
+    graph_store = build_graph_store("neo4j")
+    graph = await Graph.open(
+        schema=DEFAULT_SCHEMA,
+        graph_store=graph_store,
+        embedder=build_embedder("ibm-granite/granite-embedding-small-english-r2"),
+        extractor=GlinerExtractor(),
+    )
+    try:
+        document = Document(
+            text=TEXT,
+            title="Apollo notes",
+            uri="notes://apollo",
+            document_key="apollo-notes",
+            source_format=SourceFormat.TXT,
+            family=DocumentFamily.PROSE,
+            content_hash=hashlib.sha256(TEXT.encode()).hexdigest(),
+            loader_name="manual",
+            char_count=len(TEXT),
+        )
+        await graph.add(documents=[document])
+
+        same = await graph.update("apollo-notes", text=TEXT)
+        print("same text ->", same.no_op)
+
+        changed = await graph.update(
+            "apollo-notes",
+            text="NASA ran the Apollo program. Buzz Aldrin walked on the Moon.",
+        )
+        print("new text ->", changed.no_op, changed.parts_closed)
+
+        deleted = await graph.delete_document("apollo-notes")
+        print("delete ->", deleted.no_op, deleted.parts_closed)
+    finally:
+        await graph_store.close()
+
+
+asyncio.run(main())
+```
+
+Expected output:
+
+```text
+same text -> True
+new text -> False 1
+delete -> False 2
+```
+
+## Update a document
+
+Call `Graph.update` with the key and the new content. Give exactly one of `text`, `source`, or `document`. A `source` must be a single file.
+
+```python notest
+result = await graph.update("apollo-notes", text="New text")
+```
+
+Pass `document` when you have already built a `Document`. Agentic GraphRAG skips loading and normalization and uses the document's text and `content_hash` as they are. The `resolved_document_key` of the document must equal the key you pass, or `Graph.update` raises `ValueError`.
+
+```python notest
+replacement = Document(
+    text="New text",
+    title="Apollo notes",
+    uri="notes://apollo",
+    document_key="apollo-notes",
+    source_format=SourceFormat.TXT,
+    family=DocumentFamily.PROSE,
+    content_hash=hashlib.sha256(b"New text").hexdigest(),
+    loader_name="manual",
+    char_count=len("New text"),
+)
+result = await graph.update("apollo-notes", document=replacement)
+```
+
+Read the result:
+
+- `no_op` is `True` when the content, chunker settings, schema structure, extraction settings and dates match the stored version, the document has an open chunk, and `force` is false. Agentic GraphRAG then skips chunking, extraction and writes.
+- `parts_closed` counts the `HAS_PART` links of the old version that Agentic GraphRAG closed. The links go to chunks, sections, tables and figures.
+- `add_result` holds the summary of the new ingestion, as `Graph.add` returns it.
+
+If the key does not exist yet, `Graph.update` adds the content as a new document.
+
+Set `force=True` to extract entities again when the text and schema structure did not change. The update keeps the existing chunks and embeddings. If only `published_at` or `content_date` changed, `Graph.update` writes the dates without extracting again.
+
+To update dates, pass a replacement source with date columns configured in `ReadOptions`, or a loader that returns a dated `Document`. A replacement without dates, including `text=...`, clears stored dates. A date-only update reports `decision="metadata_only"`, `parts_closed=0`, and `add_result=None`.
+
+## Re-extract after a change of schema or settings
+
+Agentic GraphRAG stores a schema fingerprint and an extraction fingerprint on each document and each chunk. A fingerprint is a value computed from the settings that it covers. The schema fingerprint covers the structure of the schema: entity types, parents, properties, relations, patterns, cardinality and symmetry. The schema name, the schema version and the descriptions do not change it. The extraction fingerprint covers the descriptions, the extraction settings, the extraction mode, the LLM model name and the heading path option of `BAMLExtractor`. The escalation budget is not part of it. See [how Agentic GraphRAG decides a document is unchanged](../concepts/ingestion.mdx#how-agentic-graphrag-decides-a-document-is-unchanged).
+
+To apply a change of schema or settings to a stored document, open the graph with the new schema or settings. Then call `Graph.update` with the same key and the same text. The result depends on what changed:
+
+- If the schema structure changed, or the chunking rules changed, Agentic GraphRAG writes a new version of the document. It chunks the text again and embeds the new chunks. The old version closes when the call commits.
+- If only the descriptions, the extraction settings, the extraction mode or the LLM model name changed, Agentic GraphRAG keeps the chunks and extracts the entities again. It does not embed the chunks again.
+
+A change of the schema name or the schema version alone does not start a new version, and it does not extract the document again. The same holds for a change of the escalation budget.
+
+If the document was deleted, no chunk is open. `Graph.update` then writes a new version with the same text.
+
+`Graph.add` makes the same decision as `Graph.update` for a key that already has a current version. If the content matches the stored version, `Graph.add` skips the document and writes nothing. If the content changed, `Graph.add` replaces the current version, as `Graph.update` does. A key with no current version, such as a new key or a deleted document, is added as a new document. Calling `Graph.add` again with the same documents therefore writes only what changed since the last call.
+
+## Delete a document
+
+Call `Graph.delete_document` with the key.
+
+```python notest
+result = await graph.delete_document("apollo-notes")
+```
+
+The call removes the document from search. It does not delete the document node, the chunks or the history. A key that does not exist gives `no_op=True`.
+
+## Purge a document
+
+Call `Graph.purge_document` with the key when the text itself must leave the graph.
+
+```python notest
+result = await graph.purge_document("apollo-notes")
+```
+
+The call hard-deletes the chunks, sections, tables and figures of every version of the document, with their mention and relation evidence. Entities that lose their last evidence are removed. Evidence ids from the document then fetch as `unavailable`. The document node and its activation records stay, so the history shows that the purge happened. Decisions that cite the document are flagged for review with the reason `source_removed`. A key with no stored content gives `no_op=True`.
+
+Pending candidates that cite the document are deleted. Approved and rejected candidates stay, but their links to deleted chunks are removed. Community summaries are not rebuilt by purge; run community detection again to refresh them.
+
+Purge belongs to `Graph`, not `RetentionMemory`, because it removes ingested content and runs graph cleanup. It scans relationships for `source_chunk_ids` citations, including relations whose endpoints no longer have mention links. These array membership checks have no index. Content deletion runs in one transaction. Before starting the cutover job, preflight rejects more than 10,000 content nodes, cited relations, pending candidates, or combined mention and citation endpoint records with `ValueError`. An entity counted in both endpoint sets counts twice toward this limit. Large graphs can still take time to scan.
+
+## See what stays in the graph
+
+After the script above, run this query. It lists the chunks of each document and whether the link to them is open.
+
+```python
+import asyncio
+
+from agrag.graphdb import build_graph_store
+
+
+async def main() -> None:
+    graph_store = build_graph_store("neo4j")
+    await graph_store.connect()
+    try:
+        edges = await graph_store.execute_read(
+            "MATCH (d:Document {document_key: 'apollo-notes'})-[p:HAS_PART]->(c:Chunk) "
+            "RETURN d.document_key AS key, p.invalid_at IS NULL AS open, "
+            "count(c) AS chunks ORDER BY open"
+        )
+        for edge in edges:
+            print(edge["key"], "open" if edge["open"] else "closed", edge["chunks"])
+    finally:
+        await graph_store.close()
+
+
+asyncio.run(main())
+```
+
+Expected output after the script above:
+
+```text
+apollo-notes closed 2
+```
+
+Both chunks are still in the graph, but no link is open, so search does not return them.
+
+What happens to entities:
+
+- An entity that only the old version mentioned is removed after the update or the delete.
+- An entity that the new version also mentions stays.
+- The document node stays. Its current content hash is cleared.
+
+A re-extraction that keeps the chunks works the same way for entities and relations. The document keeps its version, entities that only the old run produced are removed, and entities that the new run also finds stay. A relation loses this document's evidence from the old run, and it is removed when no evidence is left.
+
+## Candidates
+
+`Graph.update` replaces the document's pending candidates with candidates from the new run. `Graph.delete_document` removes its pending candidates. Approved and rejected candidates stay. A failed update leaves the candidates unchanged.
+
+## If a call stops halfway
+
+`Graph.update` and `Graph.delete_document` are safe to interrupt. Open the graph again and Agentic GraphRAG finishes or undoes the unfinished call. See [Ingestion pipeline](../concepts/ingestion.mdx#crash-safety).
+
+## Related
+
+- [Knowledge graph](../concepts/knowledge-graph.mdx) explains open and closed links.
+- [Ingest documents](./ingest-documents.mdx) shows how to add documents.
+- [Ingestion API](../api/ingestion/index.md) lists every argument.

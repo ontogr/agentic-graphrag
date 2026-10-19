@@ -7,6 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.6] - 2026-10-19
+
+### Added
+
+- Record the content version on each chunk ([#131](https://github.com/ontogr/agentic-graphrag/pull/131))
+- Update a document from an already built Document ([#133](https://github.com/ontogr/agentic-graphrag/pull/133))
+- Record each document change and make add on an existing key an update ([#140](https://github.com/ontogr/agentic-graphrag/pull/140))
+- Find, fetch and cite original source passages ([#138](https://github.com/ontogr/agentic-graphrag/pull/138))
+- Add durable tasks with raw events and resumable steps ([#141](https://github.com/ontogr/agentic-graphrag/pull/141))
+- Add a local MCP server with read tools for source evidence ([#143](https://github.com/ontogr/agentic-graphrag/pull/143))
+- Navigate around a passage and find entities with their source support ([#144](https://github.com/ontogr/agentic-graphrag/pull/144))
+- Add source status and graph index readiness ([#148](https://github.com/ontogr/agentic-graphrag/pull/148))
+- Record evidence-linked decisions ([#147](https://github.com/ontogr/agentic-graphrag/pull/147))
+- Add task and decision MCP tools ([#149](https://github.com/ontogr/agentic-graphrag/pull/149))
+- Add task and event retention operations ([#151](https://github.com/ontogr/agentic-graphrag/pull/151))
+- Review decisions after source changes and reaffirm them ([#152](https://github.com/ontogr/agentic-graphrag/pull/152))
+- Record agent events and resume tasks ([#154](https://github.com/ontogr/agentic-graphrag/pull/154))
+- Purge a document and its evidence after cutover ([#155](https://github.com/ontogr/agentic-graphrag/pull/155))
+- Add provenance-aware connected memory and agent/MCP workflows ([#157](https://github.com/ontogr/agentic-graphrag/pull/157))
+- Add readable source citations ([#159](https://github.com/ontogr/agentic-graphrag/pull/159))
+
+### Changed
+
+- Update the README, guides, reference pages, and documentation site ([#162](https://github.com/ontogr/agentic-graphrag/pull/162)).
+- Remove generated Cypher retrieval ([#136](https://github.com/ontogr/agentic-graphrag/pull/136))
+- Remove the separate Qdrant, Weaviate and Milvus backends and their extras. Vector search uses Neo4j's native indexes ([#139](https://github.com/ontogr/agentic-graphrag/pull/139)).
+- Replace the agent workflow with a task-scoped agent that uses explicit document scope, project, agent and task identities ([#150](https://github.com/ontogr/agentic-graphrag/pull/150)).
+
+### Fixed
+
+- Make a document version's identity follow its text and structure ([#137](https://github.com/ontogr/agentic-graphrag/pull/137))
+- Validate chunk content hashes ([#145](https://github.com/ontogr/agentic-graphrag/pull/145))
+- Provision search indexes before running agent evaluations ([#156](https://github.com/ontogr/agentic-graphrag/pull/156))
+- Read structured answers in answer and trajectory evaluations ([#158](https://github.com/ontogr/agentic-graphrag/pull/158))
+- Resolve numbered citations in answer quality evaluation ([#160](https://github.com/ontogr/agentic-graphrag/pull/160))
+
 ## [0.0.5] - 2026-10-13
 
 ### Added
@@ -131,7 +167,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.0.1] - 2026-08-25
 
-[unreleased]: https://github.com/ontogr/agentic-graphrag/compare/v0.0.5..HEAD
+[unreleased]: https://github.com/ontogr/agentic-graphrag/compare/v0.0.6..HEAD
+[0.0.6]: https://github.com/ontogr/agentic-graphrag/compare/v0.0.5..v0.0.6
 [0.0.5]: https://github.com/ontogr/agentic-graphrag/compare/v0.0.4..v0.0.5
 [0.0.4]: https://github.com/ontogr/agentic-graphrag/compare/v0.0.3..v0.0.4
 [0.0.3]: https://github.com/ontogr/agentic-graphrag/compare/v0.0.2..v0.0.3

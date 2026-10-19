@@ -1,0 +1,42 @@
+---
+sidebar_position: 12
+title: Graph storage
+description: Where Agentic GraphRAG keeps the graph and the embeddings, and how a search reaches them.
+---
+
+# Graph storage
+
+Neo4j is the only store. It holds the graph, and it holds the native vector indexes that dense search uses. There is no second database to run or keep in sync.
+
+## Why it exists
+
+A graph and a vector index answer different questions. The graph stores relations and provenance, while a vector index finds text or entities that are semantically close to a query. Retrieval can combine the initial matches with graph context when its recipe requests a walk.
+
+Keeping both in Neo4j means graph records and vectors share one database, but an ingestion call is not one transaction. A cutover job stages writes and makes them visible at commit. Search reads graph data and vectors from the same database.
+
+## How it works
+
+1. Write. `Graph.add` writes documents with their sections, tables and figures, chunks, entities, and relations to Neo4j. It also writes an embedding onto each entity, resolved entity, community, and chunk node.
+2. Search. The engine runs dense search in the Neo4j vector index of each label that the search covers.
+3. Read. The engine reads the full items back from Neo4j and walks the graph when the recipe asks for it.
+
+## The store
+
+| Holds | Searches |
+|---|---|
+| Source files, documents, sections, tables, figures, chunks, entities, resolved entities, relations, communities, and the vector indexes | Dense vector search, graph walks, read-only graph queries |
+
+A local server in Docker and a hosted server such as Aura both work.
+
+## Embedders
+
+An embedder turns text into a vector. The default embedder runs a FastEmbed model on your machine. The default model produces 384 values per text.
+
+`Graph.open` compares the embedder's dimension with each vector index in Neo4j. It raises an error when they differ. It raises before it writes any vector.
+
+## Related
+
+- Guide: [Configure storage backends](../guides/configure-storage-backends.mdx)
+- Guide: [Troubleshoot common errors](../guides/troubleshoot-common-errors.mdx)
+- Concepts: [Knowledge graph](./knowledge-graph.mdx), [Retrieval](./retrieval.mdx)
+- Reference: [Graph store API](../api/graphdb/index.md), [Embedding API](../api/embedding/index.md), [Configuration](../reference/configuration.mdx)

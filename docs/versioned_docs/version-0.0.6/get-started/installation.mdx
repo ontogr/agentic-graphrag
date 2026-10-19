@@ -1,0 +1,89 @@
+---
+sidebar_position: 2
+title: Installation
+---
+
+# Installation
+
+To use Agentic GraphRAG, install `agentic-graphrag` from your Python package manager, for example pip:
+
+```bash
+pip install agentic-graphrag
+```
+
+If you are using [uv](https://docs.astral.sh/uv/), create a virtual environment and install the package into it:
+
+```bash
+uv venv
+uv pip install agentic-graphrag
+```
+
+To install uv, see the [installation docs](https://docs.astral.sh/uv/getting-started/installation/).
+
+Agentic GraphRAG needs Python 3.11 or newer. It also needs a Neo4j database to store the graph. The [Quickstart](./quickstart.mdx) lists the connection settings.
+
+The base install includes the loaders, the chunkers, the data models, and the default embedder. Storage, extraction, the agent, and the MCP server are extras.
+
+<details id="alternative-pytorch-distributions">
+<summary>Alternative PyTorch distributions</summary>
+
+The `embed-local`, `extract`, and `docling` extras depend on [PyTorch](https://pytorch.org/). Depending on your hardware, pick a different distribution of `torch`, for example a CPU-only build or a build for another accelerator. The [PyTorch install page](https://pytorch.org/get-started/locally/) lists all the ways to install `torch`.
+
+When you install with uv, add `--torch-backend=auto`. uv looks for a GPU driver. It installs the build that matches the driver, or the CPU build when it finds no GPU.
+
+```bash
+uv pip install "agentic-graphrag[neo4j,extract]" --torch-backend=auto
+```
+
+To always install the CPU build, use `--torch-backend=cpu`. This flag is a uv preview feature. It needs uv 0.6.9 or newer.
+
+</details>
+
+## What the base install includes
+
+The base install has the parts of Agentic GraphRAG that need no database, no GPU, and no LLM client:
+
+- The data models, such as the graph schema and the search result.
+- Loaders for files, directories, and raw text. Docling reads Markdown, HTML, AsciiDoc, Word, PowerPoint, and Excel files without a model. Other loaders read plain text, XML, CSV, and JSON.
+- The section chunker, which packs the sections of every document into chunks.
+- The default embedder, which runs ONNX embedding models on the CPU.
+- The OpenTelemetry API calls that trace each step. Without the `observability` extra, these calls do nothing.
+
+To build and search a graph, you also need a graph store and an extractor. Each one is an extra.
+
+## Available extras
+
+Other parts of Agentic GraphRAG need more third-party packages. These packages install only if you select them as extras. If an extra is missing, Agentic GraphRAG raises an error that names the extra to install.
+
+The following table lists the extras. Install them with `pip install "agentic-graphrag[NAME1,NAME2]"` or `uv pip install "agentic-graphrag[NAME1,NAME2]"`.
+
+| Extra | Description |
+| --- | --- |
+| `neo4j` | Installs the Neo4j graph store and its native vector index. |
+| `embed-local` | Installs Sentence Transformers, to embed with models that the default embedder does not support. |
+| `extract` | Installs GLiNER 2.5, to run entity extraction on your machine. |
+| `llm` | Installs BAML, to extract entities and review matches with an LLM. |
+| `agents` | Installs LangGraph, DeepAgents, and the LangChain OpenAI client for the built-in agent. |
+| `mcp` | Installs the MCP SDK for the `agrag-mcp` server. |
+| `docling` | Installs the Docling layout and table models, to read PDF and image files. |
+| `observability` | Installs the OpenTelemetry SDK, the OTLP exporter, and the asyncio and LangChain instrumentation. |
+| `community` | Installs Leiden community detection. |
+| `eval` | Installs DeepEval, AgentEvals, `er-evaluation`, scikit-learn, the LangChain OpenAI client, and OpenTelemetry tracing support for the metrics in `agrag.eval`. |
+| `schema-formats` | Installs `rdflib` for OWL and RDFS Turtle imports. |
+
+### Extras by goal
+
+| Goal | Extras |
+| --- | --- |
+| Build a first graph (the [Quickstart](./quickstart.mdx)) | `neo4j,extract` |
+| Also ask questions with the agent | `neo4j,extract,agents` |
+| Give an MCP client access to the graph | `neo4j,mcp` |
+| Read PDF and image files | Add `docling` |
+| Extract with an LLM instead of a local model | `neo4j,llm` |
+| Find communities of related entities | Add `community` |
+| Record traces | Add `observability` |
+| Measure answer quality | Add `eval` and `agents` |
+
+## Next steps
+
+Follow the [Quickstart](./quickstart.mdx) to build your first graph.

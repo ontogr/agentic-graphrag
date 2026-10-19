@@ -42,7 +42,7 @@ names one is an error.
 **Returns:**
 
 - <code>[GraphSchema](../../common/data_models/graph_schema/GraphSchema.md)</code> – The loaded schema. `name` defaults to `custom` (the file stem for a
-- <code>[GraphSchema](../../common/data_models/graph_schema/GraphSchema.md)</code> – file) and `version` defaults to `"1"`.
+  file) and `version` defaults to `"1"`.
 
 **Raises:**
 

@@ -1,0 +1,237 @@
+---
+title: Retrieve and answer
+sidebar_position: 4
+---
+
+# Retrieve and answer
+
+Use `SearchEngine` when your application needs retrieved entities or chunks. Use `build_agent` when you want the system to search, combine evidence, and return a cited answer. The direct-search example needs no agent LLM; the agent examples do.
+
+## Prerequisites
+
+Install the storage, embedding, and extraction extras. The agent layer needs the `agents` extra:
+
+```bash
+uv pip install "agentic-graphrag[neo4j,extract]"
+# For the agent layer:
+uv pip install "agentic-graphrag[agents]"
+```
+
+Each code block on this page is complete. It opens a graph with `DEFAULT_SCHEMA`, adds two sentences, and closes the graph at the end. The agent examples read `AGENT_LLM_BASE_URL`, `AGENT_LLM_MODEL_ID`, and `AGENT_LLM_API_KEY`, and fall back to `LLM_BASE_URL`, `LLM_MODEL_ID`, and `LLM_API_KEY`, from the environment or from `.env`. The default model id is `gpt-4o-mini`.
+
+## Search directly
+
+`SearchEngine` searches entity labels that exist in your graph. The example below ingests its data with `DEFAULT_SCHEMA`, so its labels match. If you ingested with another schema, pass that schema's labels in `entity_labels`.
+
+```python
+import asyncio
+
+from agrag.retrieval.recipes import HYBRID
+from agrag.retrieval.search_engine import SearchEngine
+from agrag.common.data_models import DEFAULT_SCHEMA
+from agrag.embedding import build_embedder
+from agrag.graphdb import build_graph_store
+from agrag.ingestion import Graph
+from agrag.ingestion.extract import GlinerExtractor
+
+
+async def main() -> None:
+    graph_store = build_graph_store("neo4j")
+    embedder = build_embedder("ibm-granite/granite-embedding-small-english-r2")
+    graph = await Graph.open(
+        schema=DEFAULT_SCHEMA,
+        graph_store=graph_store,
+        embedder=embedder,
+        extractor=GlinerExtractor(),
+    )
+    try:
+        await graph.add(text="Aspirin treats headaches. Ibuprofen also treats headaches.")
+        engine = SearchEngine(
+            graph_store=graph_store,
+            embedder=embedder,
+            entity_labels=[entity.label for entity in DEFAULT_SCHEMA.entities],
+        )
+
+        results = await engine.search("What treats headaches?", HYBRID)
+
+        for result in results:
+            print(f"{result.item} (score={result.score:.3f})")
+    finally:
+        await graph_store.close()
+
+
+asyncio.run(main())
+```
+
+An empty result is not an error. Check that the search labels match the schema used for ingestion, then confirm that the graph has indexed the documents. See [Troubleshoot common errors](./troubleshoot-common-errors.mdx#a-search-returns-nothing) for other causes.
+
+## Answer with an agent
+
+{/* pmd-metadata: fixture:llm_env */}
+
+```python
+import asyncio
+import hashlib
+
+from agrag.agents.build import build_agent
+from agrag.agents.settings import AgentLLMSettings
+from agrag.retrieval.search_engine import SearchEngine
+from agrag.common.data_models import DEFAULT_SCHEMA
+from agrag.common.data_models.document import Document, DocumentFamily, SourceFormat
+from agrag.embedding import build_embedder
+from agrag.graphdb import build_graph_store
+from agrag.ingestion import Graph
+from agrag.ingestion.extract import GlinerExtractor
+
+TEXT = "Aspirin treats headaches. Ibuprofen also treats headaches."
+DOCUMENT_KEY = "headache-notes"
+
+
+async def main() -> None:
+    graph_store = build_graph_store("neo4j")
+    embedder = build_embedder("ibm-granite/granite-embedding-small-english-r2")
+    graph = await Graph.open(
+        schema=DEFAULT_SCHEMA,
+        graph_store=graph_store,
+        embedder=embedder,
+        extractor=GlinerExtractor(),
+    )
+    try:
+        await graph.add(documents=[Document(
+            text=TEXT,
+            title="Headache notes",
+            uri="notes://headache",
+            document_key=DOCUMENT_KEY,
+            source_format=SourceFormat.TXT,
+            family=DocumentFamily.PROSE,
+            content_hash=hashlib.sha256(TEXT.encode()).hexdigest(),
+            loader_name="manual",
+            char_count=len(TEXT),
+        )])
+        agent = build_agent(
+            graph_store=graph_store,
+            embedder=embedder,
+            scope=frozenset({DOCUMENT_KEY}),
+            project_id="headache-research",
+            agent_id="research-agent",
+            llm_settings=AgentLLMSettings.from_openai_compatible_env(),
+        )
+
+        result = await agent.ainvoke({
+            "task_name": "headache-treatment",
+            "question": "What treats headaches?",
+        })
+
+        print(result["answer"])
+    finally:
+        await graph_store.close()
+
+
+asyncio.run(main())
+```
+
+The result has the `answer`, a `status` that says whether the agent answered or reached a limit, the `citations` it fetched, the `invalid_citations`, any `recording_failures`, the `task` name with its last event number, and the `messages`. See [Agent loop](../concepts/agent-loop.mdx#result-status) for the statuses. The agent stores task state under the supplied `project_id`, `agent_id`, and `task_name`.
+
+Render `result["answer"]` with your application's Markdown renderer to show clickable HTTP(S) source references. The example uses an inline source URI, so its references are readable text rather than links. Keep `result["citations"]` for canonical evidence IDs and fetched passage text.
+
+For a document copied from a remote source, set `Document.uri` to its actual user-openable HTTP(S) URL and `Document.title` to a readable name before passing it to `graph.add(documents=[...])`. Supply the document text yourself. `graph.add(source=...)` reads local paths, directories, and globs. Returned source URIs contain valid HTTP(S) URLs, and local documents are cited by title. An application that serves local documents can provide its own authorized document-viewer links.
+
+See [Citations in MCP clients](../concepts/agent-loop.mdx#citations-in-mcp-clients) for using readable source references in client answers.
+
+The agent uses the supplied document keys as its read scope. It does not search outside that scope.
+
+### Set the document scope
+
+Pass the exact document keys the agent may read as a set of strings. The
+scope is fixed when the agent is built and applies to discovery, fetch, and
+citation checks.
+
+{/* pmd-metadata: fixture:llm_env */}
+
+```python
+import asyncio
+import hashlib
+
+from agrag.agents.build import build_agent
+from agrag.agents.settings import AgentLLMSettings
+from agrag.common.data_models import DEFAULT_SCHEMA
+from agrag.common.data_models.document import Document, DocumentFamily, SourceFormat
+from agrag.embedding import build_embedder
+from agrag.graphdb import build_graph_store
+from agrag.ingestion import Graph
+from agrag.ingestion.extract import GlinerExtractor
+
+TEXT = "Aspirin treats headaches. Ibuprofen also treats headaches."
+DOCUMENT_KEY = "headache-notes"
+
+
+async def main() -> None:
+    graph_store = build_graph_store("neo4j")
+    embedder = build_embedder("ibm-granite/granite-embedding-small-english-r2")
+    graph = await Graph.open(
+        schema=DEFAULT_SCHEMA,
+        graph_store=graph_store,
+        embedder=embedder,
+        extractor=GlinerExtractor(),
+    )
+    try:
+        await graph.add(documents=[Document(
+            text=TEXT,
+            title="Headache notes",
+            uri="notes://headache",
+            document_key=DOCUMENT_KEY,
+            source_format=SourceFormat.TXT,
+            family=DocumentFamily.PROSE,
+            content_hash=hashlib.sha256(TEXT.encode()).hexdigest(),
+            loader_name="manual",
+            char_count=len(TEXT),
+        )])
+        agent = build_agent(
+            graph_store=graph_store,
+            embedder=embedder,
+            scope=frozenset({DOCUMENT_KEY}),
+            project_id="headache-research",
+            agent_id="research-agent",
+            llm_settings=AgentLLMSettings.from_openai_compatible_env(),
+        )
+    finally:
+        await graph_store.close()
+
+
+asyncio.run(main())
+```
+
+Set the scope when your application builds the agent. The tools enforce the
+scope. The model cannot see or change it.
+
+Use the standalone `SearchEngine` API for recipes and graph retrieval methods.
+The task-scoped agent uses evidence discovery and fetch operations. To call
+them from your own code, see [Find and cite evidence](./find-and-cite-evidence.mdx).
+
+## Available recipes
+
+| Recipe | Methods | BFS | Reranker |
+|--------|---------|-----|----------|
+| `ENTITY` | entity | No | None |
+| `CHUNK` | chunk | No | None |
+| `HYBRID` | entity, chunk | No | None |
+| `HYBRID_RERANKED` | entity, chunk | No | cross_encoder |
+| `GRAPH_EXPAND` | entity | Yes | None |
+| `THEMATIC` | community | No | None |
+
+## Configuration
+
+Set environment variables with the `RETRIEVAL_` prefix:
+
+```bash
+RETRIEVAL_ENTITY_LABELS='["Drug","Condition"]'
+RETRIEVAL_ENTITY_TOP_K=10
+RETRIEVAL_CHUNK_TOP_K=10
+RETRIEVAL_TRAVERSAL_DEPTH=2
+```
+
+`RETRIEVAL_ENTITY_LABELS` (or the `entity_labels` argument) names the schema
+entity labels that entity search runs against. Ingestion creates one native
+vector index per label, so search needs the labels themselves.
+
+When you pass `graph_schema` to `SearchEngine`, the schema's entity labels are used and `RETRIEVAL_ENTITY_LABELS` is not read.

@@ -1,7 +1,7 @@
 <h1 align="center"><a href="https://github.com/ontogr/agentic-graphrag">Agentic GraphRAG</a></h1>
 
 <h3 align="center">Context graphs that give AI agents memory they can trace to its sources.</h3>
-<h4 align="center"><a href="https://ontogr.github.io/agentic-graphrag/">Documentation</a> · <a href="https://ontogr.github.io/agentic-graphrag/latest/get-started/quickstart">Quickstart</a> · <a href="https://ontogr.github.io/agentic-graphrag/latest/concepts/architecture">Concepts</a> · <a href="https://ontogr.github.io/agentic-graphrag/latest/guides/ingest-documents">Guides</a> · <a href="https://ontogr.github.io/agentic-graphrag/latest/api/">API reference</a></h4>
+<h4 align="center"><a href="https://ontogr.github.io/agentic-graphrag/">Documentation</a> · <a href="https://ontogr.github.io/agentic-graphrag/stable/get-started/quickstart">Quickstart</a> · <a href="https://ontogr.github.io/agentic-graphrag/stable/concepts/architecture">Concepts</a> · <a href="https://ontogr.github.io/agentic-graphrag/stable/guides/ingest-documents">Guides</a> · <a href="https://ontogr.github.io/agentic-graphrag/stable/api/">API reference</a></h4>
 
 
 <div align="center">
@@ -103,11 +103,11 @@ Use the agent that ships with the library, or connect your own through MCP.
 - **The same tools work through MCP.** A local MCP server gives other agents the same tools. It starts read-only and shows only the documents you choose, and you decide whether a client may record tasks and decisions.
 - **Trace and evaluate your runs.** Runs can be traced with OpenTelemetry, and the evaluation tools score answers, citations, and agent runs on your own questions.
 
-See the [features page](https://ontogr.github.io/agentic-graphrag/latest/get-started/features) for the complete list, including supported file formats, chunking, keeping the graph current as documents change, and community summaries.
+See the [features page](https://ontogr.github.io/agentic-graphrag/stable/get-started/features) for the complete list, including supported file formats, chunking, keeping the graph current as documents change, and community summaries.
 
 ## Quickstart
 
-In this example you add one document, ask a question about it, and get an answer with numbered sources. You need Python 3.11 or newer, a running Neo4j database, and an OpenAI-compatible LLM endpoint. See the [quickstart guide](https://ontogr.github.io/agentic-graphrag/latest/get-started/quickstart) for starting Neo4j with Docker or Neo4j Aura.
+In this example you add one document, ask a question about it, and get an answer with numbered sources. You need Python 3.11 or newer, a running Neo4j database, and an OpenAI-compatible LLM endpoint. See the [quickstart guide](https://ontogr.github.io/agentic-graphrag/stable/get-started/quickstart) for starting Neo4j with Docker or Neo4j Aura.
 
 ### 1. Install
 
@@ -119,7 +119,7 @@ source .venv/bin/activate
 uv pip install "agentic-graphrag[neo4j,extract,agents]" --torch-backend=auto
 ```
 
-See [Installation](https://ontogr.github.io/agentic-graphrag/latest/get-started/installation) for other package managers and the optional parts you can add.
+See [Installation](https://ontogr.github.io/agentic-graphrag/stable/get-started/installation) for other package managers and the optional parts you can add.
 
 ### 2. Add your settings
 
@@ -134,7 +134,7 @@ AGENT_LLM_API_KEY=your-api-key
 AGENT_LLM_MODEL_ID=your-model-id
 ```
 
-The last three lines are the address, key, and model of your OpenAI-compatible LLM endpoint. For a Neo4j database on another machine, see [Configuration](https://ontogr.github.io/agentic-graphrag/latest/reference/configuration).
+The last three lines are the address, key, and model of your OpenAI-compatible LLM endpoint. For a Neo4j database on another machine, see [Configuration](https://ontogr.github.io/agentic-graphrag/stable/reference/configuration).
 
 ### 3. Run the example
 
@@ -195,9 +195,9 @@ The script prints an answer that ends with a numbered list of sources. Run it ag
 
 ### Next steps
 
-- See [Record decisions and review them](https://ontogr.github.io/agentic-graphrag/latest/guides/connected-memory) for tying a decision to its evidence and reviewing it when a document changes.
-- See [Find and cite evidence](https://ontogr.github.io/agentic-graphrag/latest/guides/find-and-cite-evidence) for searching passages and checking citations from your own code.
-- See the [features page](https://ontogr.github.io/agentic-graphrag/latest/get-started/features) for everything else Agentic GraphRAG does.
+- See [Record decisions and review them](https://ontogr.github.io/agentic-graphrag/stable/guides/connected-memory) for tying a decision to its evidence and reviewing it when a document changes.
+- See [Find and cite evidence](https://ontogr.github.io/agentic-graphrag/stable/guides/find-and-cite-evidence) for searching passages and checking citations from your own code.
+- See the [features page](https://ontogr.github.io/agentic-graphrag/stable/get-started/features) for everything else Agentic GraphRAG does.
 
 ## Use MCP
 
@@ -229,7 +229,7 @@ Then add the server to your MCP client. Replace the document path with the full 
 }
 ```
 
-If your client cannot find `agrag-mcp`, use its full path inside the virtual environment, for example `/full/path/to/.venv/bin/agrag-mcp`. The server starts read-only and reads only the documents you list. The project and agent IDs enable task and decision memory tools; writes remain disabled until you change the server settings. See the [MCP server guide](https://ontogr.github.io/agentic-graphrag/latest/guides/run-the-mcp-server) for the other settings.
+If your client cannot find `agrag-mcp`, use its full path inside the virtual environment, for example `/full/path/to/.venv/bin/agrag-mcp`. The server starts read-only and reads only the documents you list. The project and agent IDs enable task and decision memory tools; writes remain disabled until you change the server settings. See the [MCP server guide](https://ontogr.github.io/agentic-graphrag/stable/guides/run-the-mcp-server) for the other settings.
 
 ## Contributing
 

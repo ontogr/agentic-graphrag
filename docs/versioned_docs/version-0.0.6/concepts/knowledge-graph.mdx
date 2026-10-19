@@ -1,0 +1,76 @@
+---
+sidebar_position: 2
+title: Knowledge graph
+description: The node and edge kinds Agentic GraphRAG writes to the graph, and why it keeps them.
+---
+
+import Diagram from '@site/src/components/Diagram';
+
+# Knowledge graph
+
+The knowledge graph stores source structure, searchable chunks, extracted entities, and links between them in the graph database. This lets retrieval move from a match to related facts and back to the text that supports them.
+
+## Why it exists
+
+Every fact in an answer must trace back to text. A graph of only entities cannot show where a fact came from. A graph of only text cannot connect facts.
+
+Agentic GraphRAG keeps both text and structure in one graph. An entity links to the chunks that mention it, and a chunk links to its document and sections. Retrieval can therefore use relationships without losing the path back to source evidence.
+
+## How it works
+
+<Diagram folder="docs" name="knowledge-graph" alt="A document has sections, and sections have chunks and tables. A table has chunks. A chunk is MENTIONED_IN an entity. Entities are joined by schema relations and MATCHES links. An entity is RESOLVED_AS a resolved entity when a group matches, and is a MEMBER_OF a community." />
+
+*The node kinds and their edges. Entity nodes use your schema's type names as labels. `HAS_PART` also joins a document to each section, table and figure.*
+
+The main node kinds serve different roles in retrieval and provenance:
+
+1. Document: one node for each logical document. Its `document_key` stays the same when the content changes. It holds the source location, the title, the current content hash, optional `published_at` and `content_date` dates, and the name, version and fingerprints of the schema and extraction setup that produced it.
+2. Section: one heading of a document, or the unheaded content when the document has no headings yet. It holds the heading, its depth, and its page range or character range. It holds no text. The chunks under it hold the text. A section has a stable `section_key` that stays the same while the heading path and the place among sections with that path stay the same.
+3. Table and Figure: one node for each table or figure. A table holds its caption, its column names and its row count. A figure holds its caption and its page box. It does not store the image.
+4. Source: one node for each record file, such as a CSV file. It joins each of its row documents with `HAS_DOCUMENT`.
+5. Chunk: one retrieval-sized piece of text. It holds the text, its location in the source, the headings above it, the sections it covers and the chunker that made it.
+6. Entity: one node for each name and type, such as the person "Ada Lovelace". Its label is the type from your schema. A type with parents also adds the labels of its parents to the node. The same name with two types makes two entities. It records which chunks mention it.
+7. ResolvedEntity (see [Matching and resolved entities](./resolved-entities.mdx)): a group of entities that the resolver decided are the same thing. It exists only for groups of two or more.
+8. Community (see [Communities](./communities.mdx)): a group of related entities. It holds a title, a summary, a rating and findings.
+
+The edges connect them:
+
+- `HAS_CHILD` builds the tree. It joins a document or section to its sections, tables, figures and chunks, and a table to its chunks. It carries an `order`, the reading order of the child.
+- `HAS_DOCUMENT` joins the source file of a record file, such as a CSV file, to each of its row documents.
+- `HAS_PART` joins a document to each of its sections, tables, figures and chunks. It records `valid_at` and `invalid_at` timestamps. The edge is open while `invalid_at` is null and the node belongs to the current version of the document. `HAS_CHILD` gives the reading order. `HAS_PART` says which document version owns a node.
+- `NEXT_CHUNK` joins two neighbouring chunks of one document.
+- `MENTIONED_IN` joins a chunk to each entity it mentions.
+- A schema relation joins two entities, for example `WORKED_WITH`. Only the patterns that your schema allows can exist.
+- `MATCHES` joins two entities that the resolver matched. See [Matching and resolved entities](./resolved-entities.mdx).
+- `RESOLVED_AS` joins an entity to its resolved entity.
+- `MEMBER_OF` joins an entity to its community.
+
+### Task and decision memory
+
+Agent memory lives in the same graph, beside the documents. A task has `HAS_EVENT` edges to its ordered events and `HAS_STEP` edges to its named steps. A task has `MADE` edges to the decisions it recorded. A decision has `HAS_SUPPORT` edges to the supports it relies on, and `DEPENDS_ON` and `SUPERSEDES` edges to other decisions. A document support names a document, the first characters of the content hash of one version, and a chunk or character span, so it keeps pointing to the same text after the document changes.
+
+## Example
+
+Take a note with two sentences about Ada Lovelace, Charles Babbage and the Analytical Engine. With `DEFAULT_SCHEMA`, one run writes the document, the section, the chunk, one entity node for each distinct person, place, product or event it finds, and a relation edge when the text states one of the eight relations. A schema for your domain gives the extractor more specific targets.
+
+<details>
+<summary>Design choices</summary>
+
+Why are chunks nodes? A chunk node lets an answer cite its source. It also lets a search step from one chunk to its neighbours.
+
+Why does `HAS_PART` have an end time instead of being deleted? A changed document closes its old edges and opens new ones. The old chunks stay as history. Search reads only open edges, so a removed document leaves retrieval at once.
+
+Why does the resolver add a ResolvedEntity instead of merging entities? A match is a judgement. The original entity nodes stay, so a wrong match loses no information.
+
+Why is the type the label? The type is what you filter and index by. A parent type is a label too, so a filter on `Organization` returns `Vendor` entities. Every Agentic GraphRAG node also carries an internal marker label, so Agentic GraphRAG can find its own nodes in a shared database.
+
+Why does a chunk list its sections as a property and not as edges? A chunk can span several sections. It stores their ids in `section_ids`, so a reader can find them without a traversal. The [Chunking](./chunking.mdx) page explains how a chunk records its sections.
+
+</details>
+
+## Related
+
+- [Ingestion pipeline](./ingestion.mdx) describes how the graph is written.
+- [Chunking](./chunking.mdx) describes how chunks are made.
+- [Update and delete documents](../guides/update-and-delete-documents.mdx) shows how versions work.
+- [Common API](../api/common/index.md) lists the models.

@@ -771,7 +771,7 @@ def load_schema(
 
     Returns:
         The loaded schema. ``name`` defaults to ``custom`` (the file stem for a
-        file) and ``version`` defaults to ``"1"``.
+            file) and ``version`` defaults to ``"1"``.
 
     Raises:
         SchemaLoadError: The source cannot be read or is invalid. The message

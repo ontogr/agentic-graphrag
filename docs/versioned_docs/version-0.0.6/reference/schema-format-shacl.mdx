@@ -1,0 +1,48 @@
+---
+title: SHACL export
+description: How a schema maps to SHACL, and what the export does not carry.
+---
+
+# SHACL export
+
+`to_shacl(schema)` writes SHACL shapes as Turtle text for one schema. Use it to check extraction results in a graph tool that reads SHACL, or to share the schema with a triple store or validation pipeline that speaks Turtle.
+
+```python notest
+from agrag.schema import load_schema
+from agrag.schema.formats import to_shacl
+
+schema = load_schema(["Person", "Company", "Person-WORKS_FOR->Company"])
+print(to_shacl(schema))
+```
+
+The result is a string, not a dict. Each entity type becomes a `sh:NodeShape` with a `sh:targetClass`, and each declared property becomes a `sh:property` shape on that node shape.
+
+## Mapping
+
+| Schema element | SHACL |
+| --- | --- |
+| Entity type | A `sh:NodeShape` with `sh:targetClass` naming the type |
+| Entity description | `rdfs:comment` on the node shape |
+| Property type `string`, `integer`, `float`, `boolean` | `sh:datatype` of `xsd:string`, `xsd:integer`, `xsd:double`, `xsd:boolean` |
+| Property type `date` | `sh:datatype` of `xsd:date` |
+| Property `required` | `sh:minCount 1` on the property shape |
+| Property `enum` | `sh:in` with the allowed values |
+| Property description | `rdfs:comment` on the property shape |
+| Entity parents | `rdfs:subClassOf` pointing at each parent class |
+| Relation type | An `rdf:Property` plus a `sh:property` shape on each endpoint's node shape naming the allowed target class |
+| Relation description | `rdfs:comment` on the relation property |
+| Relation patterns | `x-agrag:pattern` annotations with the declared pairs; endpoint shapes cover every pair `GraphSchema.allows` accepts |
+
+Relation limits appear twice: as `sh:maxCount` on the endpoint shapes, which validators enforce, and as `x-agrag:` annotations for pipelines. The annotations preserve the declared pattern pairs and symmetry, but validators ignore them. The endpoint shapes also constrain allowed endpoint types and include descendants and symmetric reversals.
+
+| Schema element | Annotation |
+| --- | --- |
+| Relation `max_per_source` | `x-agrag:maxPerSource` |
+| Relation `max_per_target` | `x-agrag:maxPerTarget` |
+| Relation `symmetric` | `x-agrag:symmetric` |
+
+## What the export does not carry
+
+SHACL checks one graph. Cardinality limits are enforced per node through `sh:maxCount` on the endpoint shapes, with the same values repeated as annotations for pipelines. A symmetric relation is written once; the reverse direction is an annotation plus expanded endpoint shapes, not a second property. Endpoint shapes already include descendants and symmetric reversals, so validators should target exact types rather than re-applying parent shapes through subclass reasoning.
+
+This page covers export only. You cannot load a schema from SHACL.

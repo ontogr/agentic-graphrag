@@ -1,0 +1,77 @@
+---
+title: agrag.retrieval.retrievers.entity.EntityRetriever
+sidebar_label: EntityRetriever
+---
+
+# `agrag.retrieval.retrievers.entity.EntityRetriever` \{#agrag-retrieval-retrievers-entity-EntityRetriever}
+
+```python
+EntityRetriever(*, graph_store:GraphStore, embedder:Embedder, settings:RetrievalSettings | None = None, entity_labels:Sequence[str] | None = None, tracer:Tracer | None = None) -> None
+```
+
+Bases: <code>[Retriever](../base/Retriever.md)</code>
+
+Dense entity search via vector similarity.
+
+Embeds the query, searches the graph's native vector indexes, then
+loads every hit from the graph. A hit that no longer exists in the
+graph is dropped.
+
+One vector index exists per entity label, so the search needs the
+labels ingestion provisioned indexes for: the label filter when the
+caller sets one, otherwise `entity_labels`.
+
+**Functions:**
+
+- [**retrieve**](#agrag-retrieval-retrievers-entity-EntityRetriever-retrieve) – Run entity search and return loaded results.
+
+**Attributes:**
+
+- [**name**](#agrag-retrieval-retrievers-entity-EntityRetriever-name) –
+
+**Parameters:**
+
+- **graph_store** (<code>[GraphStore](../../../graphdb/base/GraphStore.md)</code>) – Backs entity search and the entity reads.
+- **embedder** (<code>[Embedder](../../../embedding/base/Embedder.md)</code>) – Produces query vectors.
+- **settings** (<code>[RetrievalSettings](../../settings/RetrievalSettings.md) | None</code>) – Retrieval configuration. Defaults from
+  environment.
+- **entity_labels** (<code>Sequence\[str\] | None</code>) – The schema entity labels native search runs
+  against. None uses settings.entity_labels.
+- **tracer** (<code>Tracer | None</code>) – Opens spans for the retriever and its children. None
+  opens no recorded span.
+
+## `name` \{#agrag-retrieval-retrievers-entity-EntityRetriever-name}
+
+```python
+name = 'entity'
+```
+
+## `retrieve` \{#agrag-retrieval-retrievers-entity-EntityRetriever-retrieve}
+
+```python
+retrieve(query:str, *, filters:SearchFilters | None = None, limit:int | None = None) -> list[SearchResult]
+```
+
+Run entity search and return loaded results.
+
+**Parameters:**
+
+- **query** (<code>str</code>) – The natural-language query text.
+- **filters** (<code>[SearchFilters](../../filters/SearchFilters.md) | None</code>) – Constraints applied to the search.
+- **limit** (<code>int | None</code>) – Maximum results. None uses settings.entity_top_k.
+  Zero or negative returns no results without searching.
+
+**Returns:**
+
+- <code>list\[[SearchResult](../../../common/data_models/search_result/SearchResult.md)\]</code> – Ranked SearchResults with resolved entity ids. The list is
+  empty when the limit is not positive, or when the search ran and
+  found nothing.
+
+**Raises:**
+
+- <code>ValueError</code> – Native search was selected and neither the
+  filter nor the configuration names an entity label, or a
+  stored entity node cannot be parsed.
+- <code>Exception</code> – Any embedding, vector search, or graph read
+  failure propagates, so a failed search is not mistaken
+  for an empty one.

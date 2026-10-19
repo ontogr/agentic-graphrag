@@ -1,0 +1,98 @@
+---
+sidebar_position: 3
+---
+
+import Diagram from '@site/src/components/Diagram';
+
+# Choose an extraction mode
+
+Choose an extraction mode based on where you want models to run and how much text you want an LLM to read. Extraction finds entities and relations in your documents. The graph splits documents into chunks, and the mode controls how each chunk is read.
+
+## Pick a mode for your workload
+
+<Diagram folder="docs" name="extraction-mode" alt="If you do not need property values or LLM review of the results, use gliner. Otherwise, if you want a local model too, use hybrid, the default. If you do not want to run a local model, use llm." />
+
+| Mode | Choose it when | Tradeoff |
+|---|---|---|
+| `gliner` | You want local entity and relation extraction without extraction LLM calls. | You run GLiNER on your machine. It does not fill entity property values, and no extraction LLM reviews its results. |
+| `hybrid` (default) | You want local extraction on all chunks and LLM review of selected chunks. | You run both models. The budget limits LLM calls, so some chunks keep only their local results. |
+| `llm` | You want an LLM to extract without running GLiNER. | Every chunk that meets the word minimum goes to the LLM. There is no local result to keep if that call fails. |
+
+Start with `gliner` if you do not need property values or extraction LLM review. Choose `hybrid` if you want to limit how many chunks reach the LLM. Choose `llm` if you do not want to run a local extraction model. LLM usage depends on how many chunks it reads; when you use a hosted endpoint, those chunks are sent to that provider.
+
+The modes do not establish an accuracy ranking. Check the extracted entities, relations, and properties on representative documents before choosing a mode for your workload. The setting controls extraction only, not LLM use elsewhere in the graph.
+
+## Install and configure your chosen mode
+
+For the default extractors, install `extract` for `gliner`, `extract,llm` for `hybrid`, or `llm` for `llm` mode. For example, install the hybrid dependencies:
+
+```bash
+uv pip install "agentic-graphrag[extract,llm]"
+```
+
+For `hybrid` or `llm`, also [configure an extraction LLM](./extract-and-resolve.mdx#configure-the-llm-provider). Installing the extra does not configure a provider. Set `EXTRACTION_LLM_CLIENTS`, or use `LLM_BASE_URL` with `LLM_MODEL_ID` and any credentials your endpoint requires.
+
+Set the mode in your shell before starting the application:
+
+```bash
+export EXTRACTION_MODE=gliner
+```
+
+Alternatively, create settings in Python:
+
+```python
+from agrag.ingestion import ExtractionSettings
+
+settings = ExtractionSettings(mode="gliner")
+```
+
+Pass the settings to `Graph.open` or `Graph` as `extraction_settings`.
+
+The default local extractor is `GlinerExtractor`, and the default LLM extractor is `BAMLExtractor`. If you provide a custom `Extractor` as `extractor=`, install its dependencies instead of `extract`. If you provide a custom `LLMExtractor` as `llm_extractor=`, install its dependencies instead of `llm`. See [Configure extraction](./extract-and-resolve.mdx#configure-extraction) for constructor settings.
+
+If `hybrid` has no configured LLM, the graph runs local extraction only and logs a warning. Set `gliner` explicitly if that is your intended choice. If you intended hybrid review, configure an LLM before the next run. Read `graph.effective_mode` to confirm which mode the graph selected.
+
+In `llm` mode, chunks shorter than `min_escalation_words` are skipped. The default is 8 words. Lower the setting if short chunks in your documents contain facts you need to extract. `llm` mode does not need the `extract` extra.
+
+## Decide how much hybrid review you need
+
+Hybrid extraction first reads every chunk locally. It then selects chunks for LLM review, called escalation. A chunk is eligible for review when:
+
+1. A kept entity has a confidence score below `escalation_threshold`, which defaults to 0.75.
+2. Local extraction keeps no entities and the chunk meets `min_escalation_words`.
+3. A kept entity's type or an ancestor type declares properties that the LLM can extract.
+
+A kept entity is one that passed the local extraction threshold. GLiNER's default entity threshold is 0.5; per-label thresholds can change which entities it keeps. Raising the escalation threshold makes more chunks eligible for review, but does not increase the budget.
+
+The budget limits review to a share of all chunks in each batch, not a share of eligible chunks. The default `escalation_budget=0.2` allows up to 20 percent, rounded up to a whole chunk. For example, a batch of 12 chunks allows 3 reviews. The lowest entity scores go first, followed by chunks with no kept entities.
+
+Lower the budget to reduce LLM calls, accepting that more chunks will keep only their local results. Set it to `0` for no review, or `"all"` to review every eligible chunk. The threshold and budget apply only to `hybrid`; the word minimum also applies to `llm` mode.
+
+After a run, inspect `result.escalation`. Check `left_for_gliner` to see how many eligible chunks missed review because of the budget, and `failed` to see how many reviews were unusable. Use [Control LLM cost during extraction](./control-llm-cost-during-extraction.mdx) to adjust the budget from the report rather than guessing.
+
+## Choose property coverage
+
+Properties are values attached to an entity, such as a person's role or a product's price. GLiNER finds entity spans and types but does not fill property values. Use an extraction LLM when your schema needs those values.
+
+In `hybrid`, property extraction shares the review budget with low-confidence and empty local results. A chunk that misses review keeps its GLiNER result without property values. Set `escalation_budget="all"` if you want every eligible chunk reviewed, or choose `llm` to read every chunk that meets the word minimum. Neither choice guarantees that the LLM finds every property value.
+
+## Understand what review changes
+
+Hybrid review combines the LLM's entities and relations with the local result. Local entities that the LLM omits stay in the result. For a shared entity, the LLM's type and properties take precedence while the local text span and confidence remain. Review is therefore not a filter that removes every entity the LLM did not return.
+
+If a hybrid LLM call fails, the chunk keeps its local result and the report counts the failed review. An answer with no entities also counts as a failure when local extraction found entities. If both models found none, the empty answer is valid.
+
+In `llm` mode, there is no local result to keep. By default, a failed extraction call stops `Graph.add`. Choose `SKIP` or `QUARANTINE` through `error_policy` if you want the run to continue and record the failure. A successfully parsed answer with no entities is a valid empty result, not an error.
+
+## Fix setup problems
+
+If you get `ExtractorMissingExtraError`, install the extra named by the error. The default GLiNER extractor checks dependencies during graph construction; a passed `GlinerExtractor` without an injected model checks when it initializes the model. BAML checks its runtime when extraction runs.
+
+If graph construction raises `ValueError`, check that your extractor arguments match the mode. Use `extractor=` for a local `Extractor` and `llm_extractor=` for an `LLMExtractor`. Do not pass a local extractor in `llm` mode or an LLM extractor in `gliner` mode. In `llm` mode, configure an LLM or pass one explicitly. If you supply settings to both the graph and a `GlinerExtractor`, use matching values.
+
+## Related guides
+
+- [How extraction works](../concepts/extraction.mdx)
+- [Extract and resolve entities](./extract-and-resolve.mdx)
+- [Control LLM cost during extraction](./control-llm-cost-during-extraction.mdx)
+- [Configuration reference](../reference/configuration.mdx)

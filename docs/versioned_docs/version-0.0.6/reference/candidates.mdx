@@ -1,0 +1,79 @@
+---
+title: Candidates
+description: Candidate states, review functions, and schema patch files.
+---
+
+# Candidates
+
+A candidate is an extraction item that the schema or a confidence threshold kept out of the entity graph. Review functions are async functions in `agrag.candidates`. They take a `GraphStore`, so candidate review does not require an extractor or an open `Graph`.
+
+## Candidate state
+
+| State | Meaning | Allowed next state |
+| --- | --- | --- |
+| `pending` | Waiting for review. | `approved` or `rejected` |
+| `approved` | Approved and waiting for conversion. | `rejected` |
+| `rejected` | Rejected and retained to suppress the same candidate in later runs. | None |
+
+Conversion removes the candidate record from the candidate graph. There is no `converted` state. Rejected candidates do not return to pending. Pruning a rejected candidate allows a later extraction run to propose it again. Candidates have no automatic expiry.
+
+Each extraction job writes a candidate record with a fixed `count`. A list groups records with the same content key and state. The group count is the sum of those records' counts. Candidate IDs can change when a document is re-extracted, so review IDs from the current list before that document is processed again. The content key remains stable for equal candidate content.
+
+## Review functions
+
+Import the public functions and models from `agrag.candidates`.
+
+| Function | Behavior |
+| --- | --- |
+| `list_candidates(graph_store, query=None, *, limit=100, skip=0, schema=None, include_covered=False)` | Lists groups, most frequent first. `CandidateQuery` filters by `kind`, `label`, `state`, and `min_count`. Its default state is `pending`. Pass a schema to hide pending candidates that it already covers. |
+| `approve_candidates(graph_store, schema, *, ids=None, query=None, output=None, overwrite=False)` | Approves matching pending records and builds a schema patch. Pass exactly one of `ids` or `query`. An output path writes the patch file. |
+| `reject_candidates(graph_store, *, keys=None, query=None)` | Rejects matching pending or approved groups. Pass exactly one of `keys` or `query`. |
+| `candidate_patch(graph_store, schema, *, ids=None)` | Builds a patch for approved candidates. Pass `ids` to limit the patch to those candidates. |
+| `prune_candidates(graph_store, *, rejected=False, pending_older_than_days=None, pending_below_count=None, apply=False)` | Reports groups matching any supplied criterion. Deletes them only when `apply=True`. Never deletes approved records. |
+| `read_patch(path)` and `write_patch(patch, path, *, overwrite=False)` | Read and write JSON patch files. `write_patch` does not replace an existing file unless `overwrite=True`. |
+
+By default, `list_candidates` does not hide candidates based on schema coverage. Pass `schema` to hide pending candidates that the schema already covers. Coverage is computed during the read and does not change candidate state. Use `include_covered=True` to include covered candidates.
+
+Approval of a relation or property requires its entity endpoint to resolve to exactly one entity. Unresolved or ambiguous endpoints remain pending and appear in the review outcome's skipped results.
+
+## Schema patch files
+
+A patch file records the schema additions and the approved candidate IDs. It does not edit your schema file.
+
+| Field | Content |
+| --- | --- |
+| `patch_id` | A 16-character identifier for the approvals and base schema. |
+| `base_schema` | The reviewed schema's name, version, and fingerprint. |
+| `additions` | New entity and relation declarations in the schema loader's canonical format. Existing relation labels use `add_patterns` to add allowed endpoint pairs. |
+| `add_properties` | Property declarations with the entity, property name, and property specification. |
+| `evidence` | Counts of candidate sightings that support each addition. |
+| `candidate_ids` | Approved candidate IDs selected for conversion. |
+
+Apply the additions to your schema file and raise its version. The patch uses the grammar accepted by [`load_schema`](./schema-file-format.mdx), including `patterns` and `add_patterns`. Add a useful description for each new entity type because extraction uses schema descriptions.
+
+## Conversion
+
+`Graph.convert_candidates(patch, *, error_policy=ErrorPolicy.RAISE)` accepts a `SchemaPatch` or a patch file path and returns a `ConversionReport`. Open the graph with the updated schema before conversion. The method raises `PatchNotAppliedError` if the schema does not contain the additions or property declarations in the patch. It does not compare schema fingerprints because the schema version changes when you apply the patch.
+
+Conversion writes graph data in one transaction. Entity candidates become entity nodes in place and retain their IDs. An entity with the same name and type joins the existing entity. Relation candidates become edges between resolved entities. Property candidates become properties on their entity. A candidate that is no longer approved or is no longer valid is listed in `skipped`.
+
+| `ConversionReport` field | Meaning |
+| --- | --- |
+| `converted_entities` | Entity candidates converted to entity nodes. |
+| `folded` | Entity candidates joined to an existing entity. |
+| `created_relations` | Relation candidates converted to edges. |
+| `set_properties` | Property candidates applied to entities. |
+| `skipped` | Candidate IDs that were not converted and their reasons. |
+| `failures` | Post-commit vector mirror or description embedding failures recorded under a non-raising error policy. |
+
+Running the same patch again does not convert candidates a second time. Already converted IDs are reported as not approved because their candidate records no longer exist.
+
+## Lexical search
+
+`SearchEngine.search_candidates(query, *, kind=None, limit=10)` performs lexical search over pending and approved candidates. Rejected candidates are excluded. The search does not use embeddings. The task agent does not call this method.
+
+## Related
+
+- How-to: [Review candidates and grow your schema](../guides/review-candidates.mdx).
+- Explanation: [Candidates](../concepts/candidates.mdx).
+- Reference: [Configuration](./configuration.mdx).

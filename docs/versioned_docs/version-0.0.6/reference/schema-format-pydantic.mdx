@@ -1,0 +1,84 @@
+---
+title: Pydantic class import
+description: How Pydantic classes map to a schema, and what the import reports.
+---
+
+# Pydantic class import
+
+Use your Pydantic classes as a schema. Each class is an entity type. A field that holds another class is a relation. Any other field is a property.
+
+```python
+from datetime import date
+from typing import Literal
+
+from pydantic import BaseModel, Field
+
+from agrag.schema import load_schema
+
+
+class Organization(BaseModel):
+    """A company or institution."""
+
+    title: str
+
+
+class Person(BaseModel):
+    """A named individual."""
+
+    email: str
+    born: date | None = None
+    works_for: Organization | None = Field(
+        default=None, description="A person is employed by an organization."
+    )
+
+
+schema = load_schema([Organization, Person])
+print(schema.relations[0].label)
+```
+
+The output is the relation label:
+
+```text
+WORKS_FOR
+```
+
+`load_schema` names the schema `custom` and logs each warning. To set the name and version, or to get the warnings as a list, call `from_pydantic`:
+
+```python notest
+from agrag.schema.formats import from_pydantic
+
+result = from_pydantic([Organization, Person], name="people", version="2")
+for warning in result.warnings:
+    print(warning)
+```
+
+## Mapping
+
+| Schema element | Pydantic class |
+| --- | --- |
+| Entity label | The class name |
+| Entity description | The class docstring |
+| Parents | Base classes that are in the list. The child keeps only the fields it adds or overrides. |
+| Property type | `str`, `int`, `float`, `bool`, `date` give `string`, `integer`, `float`, `boolean`, `date` |
+| Property enum | A `Literal` or an `Enum` |
+| Property required | A field with no default that is not `Optional` |
+| Property description | `Field(description=...)` |
+| Relation label | The field name with non-alphanumeric runs replaced by `_`, leading and trailing `_` removed, then uppercased |
+| Relation pattern | The class and the type of the field. `Optional` and `list`, `set`, `frozenset` or `Sequence` wrappers are read through. |
+| Relation `max_per_source` | `1` for a single field. `max_length` for a collection field. |
+
+A class cannot hold `max_per_target` or `symmetric`. Use a dict, YAML or JSON for those.
+
+## What the import reports
+
+The import never drops a field in silence. `ImportResult.warnings` lists each case.
+
+| Code | Cause |
+| --- | --- |
+| `property_dropped` | The field is a list of scalars, a `dict`, a `datetime`, a union of types, or a class that is not in the list. |
+| `missing_description` | A class has no docstring, or a relation field has no description. The label is used. |
+| `limit_loosened` | Two fields of one relation give different limits. No limit applies. |
+
+A class with a reserved name, such as `Chunk`, raises `SchemaLoadError`.
+
+This page covers import only. You cannot write a schema as Pydantic classes.

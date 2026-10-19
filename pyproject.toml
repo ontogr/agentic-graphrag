@@ -4,7 +4,7 @@ build-backend = "uv_build"
 
 [project]
 name = "agentic-graphrag"
-version = "0.0.5"
+version = "0.0.6"
 description = "Context graphs that give AI agents memory they can trace to its sources."
 readme = "README.md"
 requires-python = ">=3.11"
