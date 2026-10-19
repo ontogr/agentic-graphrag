@@ -158,6 +158,7 @@ from agrag.graphdb import build_graph_store
 async def main() -> None:
     document = Path("policy.md").resolve()
     store = build_graph_store("neo4j")
+    await store.connect()
     embedder = build_embedder("ibm-granite/granite-embedding-small-english-r2")
     try:
         agent = build_agent(
