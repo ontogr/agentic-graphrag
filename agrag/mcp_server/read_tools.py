@@ -27,13 +27,13 @@ from agrag.common.data_models.task import (
 )
 from agrag.embedding.base import Embedder
 from agrag.evidence import (
-    explore as explore_evidence,
+    entity_search as entity_search_evidence,
 )
 from agrag.evidence import (
-    find_entities as find_entities_evidence,
+    explore_relationships as explore_relationships_evidence,
 )
 from agrag.evidence import (
-    navigate as navigate_evidence,
+    navigate_document_tree as navigate_document_tree_evidence,
 )
 from agrag.graphdb.base import GraphStore
 from agrag.mcp_server.results import bounded_result
@@ -68,7 +68,7 @@ def register_evidence_read_tools(
         annotations=_READ_ONLY,
         description="Find entities with support in configured documents.",
     )
-    async def find_entities(
+    async def entity_search(
         query: Annotated[str, Field(min_length=1, max_length=1000)],
         labels: Annotated[list[str] | None, Field(max_length=20)] = None,
         mode: DiscoveryMode = DiscoveryMode.HYBRID,
@@ -77,7 +77,7 @@ def register_evidence_read_tools(
         """Find entities using only the configured document scope."""
         return await _bounded(
             settings,
-            find_entities_evidence(
+            entity_search_evidence(
                 store,
                 embedder,
                 query,
@@ -92,7 +92,7 @@ def register_evidence_read_tools(
         annotations=_READ_ONLY,
         description="Explore supported entity relations in configured documents.",
     )
-    async def explore(
+    async def explore_relationships(
         entity_id: Annotated[str, Field(min_length=1, max_length=100)],
         depth: Annotated[int, Field(ge=1, le=2)] = 1,
         relation_types: Annotated[list[str] | None, Field(max_length=20)] = None,
@@ -102,7 +102,7 @@ def register_evidence_read_tools(
         """Explore relations without allowing the caller to widen source scope."""
         return await _bounded(
             settings,
-            explore_evidence(
+            explore_relationships_evidence(
                 store,
                 entity_id,
                 scope=settings.scope,
@@ -117,7 +117,7 @@ def register_evidence_read_tools(
         annotations=_READ_ONLY,
         description="Navigate to nearby passages in configured documents.",
     )
-    async def navigate(
+    async def navigate_document_tree(
         evidence_id: Annotated[str, Field(min_length=1, max_length=500)],
         relation: NavigationRelation,
         limit: Annotated[int, Field(ge=1, le=50)] = 10,
@@ -126,7 +126,7 @@ def register_evidence_read_tools(
         """Read neighboring passages within the trusted document scope."""
         return await _bounded(
             settings,
-            navigate_evidence(
+            navigate_document_tree_evidence(
                 store,
                 evidence_id,
                 relation,

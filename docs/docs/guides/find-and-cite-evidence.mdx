@@ -70,14 +70,14 @@ asyncio.run(main())
 
 ## Move around a passage
 
-`navigate` takes an evidence id and a relation, and returns the neighbouring text. Add the snippets in this and the next two sections inside the `try` block of the example above.
+`navigate_document_tree` takes an evidence id and a relation, and returns the neighbouring text. Add the snippets in this and the next two sections inside the `try` block of the example above.
 
 ```python notest
 from agrag.common.data_models.navigation import NavigationRelation
-from agrag.evidence import navigate
+from agrag.evidence import navigate_document_tree
 
 if ids:
-    result = await navigate(
+    result = await navigate_document_tree(
         store,
         ids[0],
         NavigationRelation.PARENT,
@@ -93,14 +93,14 @@ else:
 
 The relations are `parent`, `children`, `siblings`, `previous`, `next`, and `table_context`. The last one returns the rows around a table cell. The result lists up to `limit` items and marks the first item that the `max_chars` budget cuts.
 
-## Find entities and explore relations
+## Search entities and explore relations
 
-`find_entities` searches entity names by keyword and entity embeddings by similarity. Each hit carries up to `support_limit` passages that mention the entity. `explore` follows the relations of an entity outward.
+`entity_search` searches entity names by keyword and entity embeddings by similarity. Each hit carries up to `support_limit` passages that mention the entity. `explore_relationships` follows the relations of an entity outward.
 
 ```python notest
-from agrag.evidence import explore, find_entities
+from agrag.evidence import entity_search, explore_relationships
 
-entities = await find_entities(
+entities = await entity_search(
     store, embedder, "Charles Babbage", scope=scope, limit=5
 )
 if entities.hits:
@@ -108,14 +108,14 @@ if entities.hits:
     for passage in hit.support:
         print(passage)
 
-    graph_view = await explore(store, hit.entity_id, scope=scope, depth=1)
+    graph_view = await explore_relationships(store, hit.entity_id, scope=scope, depth=1)
     for edge in graph_view.edges:
         print(edge)
 else:
     print("No entities matched the search.")
 ```
 
-`explore` walks at most two steps from the entity. An edge is an assertion when a passage in scope supports it, and a path when the relation has no source passage. The result lists the bounds that cut the walk in `truncated_by`.
+`explore_relationships` walks at most two steps from the entity. An edge is an assertion when a passage in scope supports it, and a path when the relation has no source passage. The result lists the bounds that cut the walk in `truncated_by`.
 
 ## Render numbered references
 

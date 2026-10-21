@@ -28,12 +28,10 @@ from agrag.embedding.base import Embedder
 from agrag.evidence import (
     check_citations,
     discover,
+    entity_search,
+    explore_relationships,
     fetch,
-    find_entities,
-    navigate,
-)
-from agrag.evidence import (
-    explore as explore_evidence,
+    navigate_document_tree,
 )
 from agrag.graphdb.base import GraphStore
 from agrag.memory import DecisionMemory, TaskMemory
@@ -125,7 +123,7 @@ def make_core_tools(  # noqa: PLR0915
                 )
             return json.dumps([o.model_dump(mode="json") for o in outcomes])
 
-    @tool("navigate")
+    @tool("navigate_document_tree")
     async def navigate_evidence(
         evidence_id: str,
         relation: NavigationRelation,
@@ -136,7 +134,7 @@ def make_core_tools(  # noqa: PLR0915
         """Read nearby passages in the same document version."""
         with tool_span_context(callbacks):
             try:
-                result = await navigate(
+                result = await navigate_document_tree(
                     graph_store,
                     evidence_id,
                     relation,
@@ -153,7 +151,7 @@ def make_core_tools(  # noqa: PLR0915
                 output = result.model_dump_json()
             return output
 
-    @tool("find_entities")
+    @tool("entity_search")
     async def search_entities(
         query: str,
         labels: list[str] | None = None,
@@ -166,7 +164,7 @@ def make_core_tools(  # noqa: PLR0915
             if not 1 <= limit <= 50:
                 return "Limit must be between 1 and 50."
             try:
-                result = await find_entities(
+                result = await entity_search(
                     graph_store,
                     embedder,
                     query,
@@ -185,8 +183,8 @@ def make_core_tools(  # noqa: PLR0915
                 output = result.model_dump_json()
             return output
 
-    @tool
-    async def explore(
+    @tool("explore_relationships")
+    async def explore_relationships_tool(
         entity_id: str,
         depth: int = 1,
         relation_types: list[str] | None = None,
@@ -198,7 +196,7 @@ def make_core_tools(  # noqa: PLR0915
         """Explore supported relations around an entity within fixed bounds."""
         with tool_span_context(callbacks):
             try:
-                result = await explore_evidence(
+                result = await explore_relationships(
                     graph_store,
                     entity_id,
                     scope=scope,
@@ -487,7 +485,7 @@ def make_core_tools(  # noqa: PLR0915
         fetch_evidence,
         navigate_evidence,
         search_entities,
-        explore,
+        explore_relationships_tool,
         check_citations_tool,
         get_task,
         set_step,

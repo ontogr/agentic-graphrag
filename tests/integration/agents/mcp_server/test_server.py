@@ -221,10 +221,10 @@ class TestToolListing:
         names = sorted(tool.name for tool in listing.tools)
         assert {
             "check_citations",
-            "explore",
+            "explore_relationships",
             "fetch_evidence",
-            "find_entities",
-            "navigate",
+            "entity_search",
+            "navigate_document_tree",
             "search_evidence",
         } <= set(names)
         for tool in listing.tools:
@@ -248,10 +248,10 @@ class TestToolListing:
         names = sorted(tool.name for tool in listing.tools)
         assert names == [
             "check_citations",
-            "explore",
+            "entity_search",
+            "explore_relationships",
             "fetch_event",
             "fetch_evidence",
-            "find_entities",
             "get_decision",
             "get_task",
             "list_conflicts",
@@ -260,7 +260,7 @@ class TestToolListing:
             "list_needing_review",
             "list_steps",
             "list_support_history",
-            "navigate",
+            "navigate_document_tree",
             "search_decisions",
             "search_evidence",
         ]
@@ -446,7 +446,7 @@ class TestSharedEvidenceTools:
 
         async with Client(_server(env.store, env)) as client:
             entities = await client.call_tool(
-                "find_entities",
+                "entity_search",
                 {"query": "activity", "mode": "lexical", "limit": 5},
             )
             assert not entities.is_error, entities.content
@@ -458,14 +458,14 @@ class TestSharedEvidenceTools:
             )
 
             navigation = await client.call_tool(
-                "navigate",
+                "navigate_document_tree",
                 {"evidence_id": outside_id, "relation": "next", "limit": 5},
             )
             assert not navigation.is_error, navigation.content
             assert navigation.structured_content["status"] == "unavailable"
 
             exploration = await client.call_tool(
-                "explore", {"entity_id": "not-an-entity-id"}
+                "explore_relationships", {"entity_id": "not-an-entity-id"}
             )
             assert not exploration.is_error, exploration.content
             assert exploration.structured_content["status"] == "malformed"

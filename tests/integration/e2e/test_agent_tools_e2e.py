@@ -426,19 +426,19 @@ async def test_core_tools_read_and_scope_the_seeded_graph(seeded: dict) -> None:
     assert zed_from_main.text is None
 
     orgs = EntityResult.model_validate_json(
-        await _tool(full, "find_entities").ainvoke(
+        await _tool(full, "entity_search").ainvoke(
             {"query": "Acme", "labels": [labels["org"]]}
         )
     )
     assert sorted(_names(orgs, suffix)) == ["Acme", "Globex", "Zeta"]
     scoped = EntityResult.model_validate_json(
-        await _tool(main, "find_entities").ainvoke(
+        await _tool(main, "entity_search").ainvoke(
             {"query": "Zed", "labels": list(labels.values())}
         )
     )
     assert not {"Zed", "Zeta"} & set(_names(scoped, suffix))
     scoped_alice = EntityResult.model_validate_json(
-        await _tool(main, "find_entities").ainvoke(
+        await _tool(main, "entity_search").ainvoke(
             {"query": "Alice", "labels": list(labels.values())}
         )
     )
@@ -447,14 +447,14 @@ async def test_core_tools_read_and_scope_the_seeded_graph(seeded: dict) -> None:
     alice_entity = next(
         hit
         for hit in EntityResult.model_validate_json(
-            await _tool(full, "find_entities").ainvoke(
+            await _tool(full, "entity_search").ainvoke(
                 {"query": "Alice", "labels": [labels["person"]]}
             )
         ).hits
         if hit.name == "Alice"
     )
     explored = ExplorationResult.model_validate_json(
-        await _tool(full, "explore").ainvoke(
+        await _tool(full, "explore_relationships").ainvoke(
             {"entity_id": alice_entity.entity_id, "depth": 2}
         )
     )

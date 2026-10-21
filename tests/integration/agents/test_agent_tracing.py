@@ -262,10 +262,10 @@ class TestAgentTracing:
         assert owners, "no graph read ran under a tool span"
         assert set(owners.values()) <= {
             "discover_evidence",
+            "entity_search",
+            "explore_relationships",
             "fetch_evidence",
-            "navigate",
-            "find_entities",
-            "explore",
+            "navigate_document_tree",
         }
         assert len(owners) >= 2, "fewer than two tool calls ran retrieval"
 

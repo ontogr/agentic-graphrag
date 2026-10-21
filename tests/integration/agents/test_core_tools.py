@@ -122,7 +122,7 @@ async def test_core_memory_tools_read_write_and_review_persisted_data() -> None:
         assert fetched[0]["status"] == "ok"
         neighboring_passages = [
             json.loads(
-                await tool_by_name["navigate"].ainvoke(
+                await tool_by_name["navigate_document_tree"].ainvoke(
                     {"evidence_id": evidence_id, "relation": relation}
                 )
             )
@@ -130,7 +130,7 @@ async def test_core_memory_tools_read_write_and_review_persisted_data() -> None:
         ]
         assert sum(len(result["items"]) for result in neighboring_passages) > 0
         malformed_navigation = json.loads(
-            await tool_by_name["navigate"].ainvoke(
+            await tool_by_name["navigate_document_tree"].ainvoke(
                 {"evidence_id": "not-an-evidence-id", "relation": "next"}
             )
         )

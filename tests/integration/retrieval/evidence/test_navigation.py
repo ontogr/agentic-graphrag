@@ -36,7 +36,7 @@ from agrag.common.data_models.navigation import (
     TruncationReason,
 )
 from agrag.common.data_models.provenance import BoundingBox, PageSpan
-from agrag.evidence import discover, fetch, navigate
+from agrag.evidence import discover, fetch, navigate_document_tree
 from agrag.evidence.ids import encode_evidence_id
 from agrag.graphdb import build_graph_store
 from agrag.graphdb.base import GraphStore
@@ -267,7 +267,7 @@ class TestNavigate:
         """Previous and next return the chunks before and after in the document."""
         install = await _id_of(nav_env, "installone", nav_env.guide)
 
-        previous = await navigate(
+        previous = await navigate_document_tree(
             nav_env.store,
             install,
             NavigationRelation.PREVIOUS,
@@ -275,7 +275,7 @@ class TestNavigate:
             limit=5,
             max_chars=10_000,
         )
-        following = await navigate(
+        following = await navigate_document_tree(
             nav_env.store,
             install,
             NavigationRelation.NEXT,
@@ -293,7 +293,7 @@ class TestNavigate:
         """The first chunk of a document reports no match for previous."""
         first = await _id_of(nav_env, "setupone", nav_env.guide)
 
-        result = await navigate(
+        result = await navigate_document_tree(
             nav_env.store,
             first,
             NavigationRelation.PREVIOUS,
@@ -311,7 +311,7 @@ class TestNavigate:
         """Parent returns the heading path of the section and its passage id."""
         install = await _id_of(nav_env, "installone", nav_env.guide)
 
-        result = await navigate(
+        result = await navigate_document_tree(
             nav_env.store,
             install,
             NavigationRelation.PARENT,
@@ -332,7 +332,7 @@ class TestNavigate:
         """Children return the other chunks under the section of the passage."""
         first = await _id_of(nav_env, "setupone", nav_env.guide)
 
-        result = await navigate(
+        result = await navigate_document_tree(
             nav_env.store,
             first,
             NavigationRelation.CHILDREN,
@@ -349,7 +349,7 @@ class TestNavigate:
         """Siblings return the sibling sections with their first passage."""
         install = await _id_of(nav_env, "installone", nav_env.guide)
 
-        result = await navigate(
+        result = await navigate_document_tree(
             nav_env.store,
             install,
             NavigationRelation.SIBLINGS,
@@ -368,7 +368,7 @@ class TestNavigate:
         """A top-level section has the other top-level section as its sibling."""
         usage = await _id_of(nav_env, "usageone", nav_env.guide)
 
-        result = await navigate(
+        result = await navigate_document_tree(
             nav_env.store,
             usage,
             NavigationRelation.SIBLINGS,
@@ -385,7 +385,7 @@ class TestNavigate:
         """A limit below the neighbor count returns the first items and says so."""
         usage = await _id_of(nav_env, "usageone", nav_env.guide)
 
-        result = await navigate(
+        result = await navigate_document_tree(
             nav_env.store,
             usage,
             NavigationRelation.CHILDREN,
@@ -404,7 +404,7 @@ class TestNavigate:
         """Text beyond max_chars is cut, and the result reports the chars reason."""
         usage = await _id_of(nav_env, "usageone", nav_env.guide)
 
-        result = await navigate(
+        result = await navigate_document_tree(
             nav_env.store,
             usage,
             NavigationRelation.CHILDREN,
@@ -434,7 +434,7 @@ class TestNavigate:
             )
         )
 
-        out_of_scope = await navigate(
+        out_of_scope = await navigate_document_tree(
             nav_env.store,
             install,
             NavigationRelation.NEXT,
@@ -442,7 +442,7 @@ class TestNavigate:
             limit=5,
             max_chars=10_000,
         )
-        missing = await navigate(
+        missing = await navigate_document_tree(
             nav_env.store,
             missing_document,
             NavigationRelation.NEXT,
@@ -461,7 +461,7 @@ class TestNavigate:
         """Each table item in table context repeats the header row."""
         middle = await _id_of(nav_env, "fruit5", nav_env.prices)
 
-        result = await navigate(
+        result = await navigate_document_tree(
             nav_env.store,
             middle,
             NavigationRelation.TABLE_CONTEXT,
@@ -482,7 +482,7 @@ class TestNavigate:
         """A text passage has no table context."""
         install = await _id_of(nav_env, "installone", nav_env.guide)
 
-        result = await navigate(
+        result = await navigate_document_tree(
             nav_env.store,
             install,
             NavigationRelation.TABLE_CONTEXT,
@@ -503,7 +503,7 @@ class TestNavigate:
             text="A new guide with one plain paragraph about the changed layout.",
         )
 
-        result = await navigate(
+        result = await navigate_document_tree(
             nav_env.store,
             old_install,
             NavigationRelation.NEXT,
@@ -520,7 +520,7 @@ class TestNavigate:
     ) -> None:
         """Deleting a document makes its retained passage unavailable to navigation."""
         old_install = await _id_of(nav_env, "installone", nav_env.guide)
-        before_delete = await navigate(
+        before_delete = await navigate_document_tree(
             nav_env.store,
             old_install,
             NavigationRelation.NEXT,
@@ -532,7 +532,7 @@ class TestNavigate:
         assert _markers(before_delete.items) == ["configureone"]
         await nav_env.graph.delete_document(nav_env.guide)
 
-        result = await navigate(
+        result = await navigate_document_tree(
             nav_env.store,
             old_install,
             NavigationRelation.NEXT,
@@ -563,7 +563,7 @@ class TestNavigate:
             NavigationRelation.SIBLINGS,
             NavigationRelation.CHILDREN,
         ):
-            result = await navigate(
+            result = await navigate_document_tree(
                 nav_env.store,
                 install,
                 relation,
@@ -586,7 +586,7 @@ class TestNavigate:
 
     async def test_malformed_id_is_reported_as_malformed(self, nav_env: NavEnv) -> None:
         """An id that does not decode gives the malformed status."""
-        result = await navigate(
+        result = await navigate_document_tree(
             nav_env.store,
             "not-an-evidence-id",
             NavigationRelation.PARENT,
@@ -606,7 +606,7 @@ class TestNavigate:
         install = await _id_of(nav_env, "installone", nav_env.guide)
 
         with pytest.raises(ValueError):
-            await navigate(
+            await navigate_document_tree(
                 nav_env.store,
                 install,
                 NavigationRelation.NEXT,

@@ -57,9 +57,9 @@ These tools work with only a document scope.
 | --- | --- |
 | `search_evidence` | Finds passages by full-text search, semantic search, or both. Each hit has an evidence id. |
 | `fetch_evidence` | Returns the exact text for evidence ids, with the title, source, and version status. |
-| `navigate` | Moves from a passage to its parent, children, siblings, previous or next chunk, or table context. |
-| `find_entities` | Finds entities and the passages that mention them. |
-| `explore` | Follows the relations of an entity. |
+| `navigate_document_tree` | Moves from a passage to its parent, children, siblings, previous or next chunk, or table context. |
+| `entity_search` | Finds entities and the passages that mention them. |
+| `explore_relationships` | Follows the relations of an entity. |
 | `check_citations` | Checks cited ids against the ids this session fetched. |
 
 `fetch_evidence` also returns a `citation_markdown` field for complete fetches. Use it to build a numbered claim reference and a Sources list in your client's answer. The server keeps the fetched ids in memory for the session, and `check_citations` compares against them.

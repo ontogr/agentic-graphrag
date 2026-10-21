@@ -124,7 +124,7 @@ class _Ranked:
     ceiling: bool
 
 
-async def find_entities(
+async def entity_search(
     store: GraphStore,
     embedder: Embedder,
     query: str,
@@ -242,7 +242,7 @@ async def find_entities(
     )
 
 
-async def explore(
+async def explore_relationships(
     store: GraphStore,
     entity_id: str,
     *,
@@ -258,7 +258,7 @@ async def explore(
     only those types are followed. Without it, every schema relation type is
     followed, and graph-owned types such as ``HAS_PART`` and ``MENTIONED_IN`` are
     never followed. An entity can be reached only through a passage in scope, the
-    same rule as in ``find_entities``.
+    same rule as in ``entity_search``.
 
     A relation with a visible passage in scope is an assertion, and its passages
     are listed in the edge. A relation without any passage is a path. A relation

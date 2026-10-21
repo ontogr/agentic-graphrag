@@ -41,7 +41,7 @@ from agrag.common.data_models.graph_schema import (
 )
 from agrag.cypher.evidence import entity_labels_query
 from agrag.embedding.base import Embedder
-from agrag.evidence import explore, fetch, find_entities
+from agrag.evidence import entity_search, explore_relationships, fetch
 from agrag.graphdb import build_graph_store
 from agrag.graphdb.base import GraphStore
 from agrag.ingestion.extract import Extractor
@@ -300,7 +300,7 @@ async def entity_env() -> AsyncGenerator[EntityEnv, None]:
 
 async def _entity_id(env: EntityEnv, name: str, scope: frozenset[str]) -> str:
     """Return the id of the entity with a name, found through the graph."""
-    result = await find_entities(
+    result = await entity_search(
         env.store,
         _KeywordEmbedder(),
         name,
@@ -336,7 +336,7 @@ class TestFindEntities:
         """Each supported hit cites a passage whose text holds the entity name."""
         scope = frozenset({entity_env.headache_note, entity_env.fever_note})
 
-        result = await find_entities(
+        result = await entity_search(
             entity_env.store,
             _KeywordEmbedder(),
             "aspirin headache ibuprofen fever",
@@ -369,7 +369,7 @@ class TestFindEntities:
         self, entity_env: EntityEnv, mode: DiscoveryMode
     ) -> None:
         """Lexical, semantic and hybrid search all return the named entity."""
-        result = await find_entities(
+        result = await entity_search(
             entity_env.store,
             _KeywordEmbedder(),
             "aspirin",
@@ -386,7 +386,7 @@ class TestFindEntities:
         self, entity_env: EntityEnv
     ) -> None:
         """Lucene operators in the query do not break the lexical search."""
-        result = await find_entities(
+        result = await entity_search(
             entity_env.store,
             _KeywordEmbedder(),
             'aspirin" OR (*) AND NOT :~ fever^',
@@ -403,7 +403,7 @@ class TestFindEntities:
         self, entity_env: EntityEnv
     ) -> None:
         """An entity whose only passages are out of scope is not returned."""
-        out_of_scope = await find_entities(
+        out_of_scope = await entity_search(
             entity_env.store,
             _KeywordEmbedder(),
             "ibuprofen",
@@ -412,7 +412,7 @@ class TestFindEntities:
             limit=5,
             mode=DiscoveryMode.LEXICAL,
         )
-        in_scope = await find_entities(
+        in_scope = await entity_search(
             entity_env.store,
             _KeywordEmbedder(),
             "ibuprofen",
@@ -438,7 +438,7 @@ class TestFindEntities:
             entity_env.fever_note, text="Fever needs rest and fluids."
         )
 
-        result = await find_entities(
+        result = await entity_search(
             entity_env.store,
             _KeywordEmbedder(),
             "ibuprofen",
@@ -457,7 +457,7 @@ class TestFindEntities:
         self, entity_env: EntityEnv
     ) -> None:
         """No hit lists more supporting passages than support_limit allows."""
-        result = await find_entities(
+        result = await entity_search(
             entity_env.store,
             _KeywordEmbedder(),
             "fever",
@@ -482,7 +482,7 @@ class TestExplore:
         scope = frozenset({entity_env.headache_note})
         aspirin = await _entity_id(entity_env, "Aspirin", scope)
 
-        result = await explore(
+        result = await explore_relationships(
             entity_env.store,
             aspirin,
             scope=scope,
@@ -521,7 +521,7 @@ class TestExplore:
             ]
         )
 
-        result = await explore(
+        result = await explore_relationships(
             entity_env.store,
             aspirin,
             scope=scope,
@@ -545,7 +545,7 @@ class TestExplore:
         )
         aspirin = await _entity_id(entity_env, "Aspirin", scope)
 
-        result = await explore(
+        result = await explore_relationships(
             entity_env.store, aspirin, scope=scope, depth=1, max_nodes=25
         )
 
@@ -566,7 +566,7 @@ class TestExplore:
         )
         aspirin = await _entity_id(entity_env, "Aspirin", scope)
 
-        result = await explore(
+        result = await explore_relationships(
             entity_env.store, aspirin, scope=scope, depth=2, max_nodes=25
         )
 
@@ -578,7 +578,7 @@ class TestExplore:
         scope = frozenset({entity_env.headache_note, entity_env.aspirin_fever_note})
         aspirin = await _entity_id(entity_env, "Aspirin", scope)
 
-        result = await explore(
+        result = await explore_relationships(
             entity_env.store, aspirin, scope=scope, depth=1, max_nodes=1
         )
 
@@ -591,7 +591,7 @@ class TestExplore:
         scope = frozenset({entity_env.headache_note, entity_env.aspirin_fever_note})
         aspirin = await _entity_id(entity_env, "Aspirin", scope)
 
-        result = await explore(
+        result = await explore_relationships(
             entity_env.store, aspirin, scope=scope, depth=1, max_edges=1
         )
 
@@ -605,7 +605,7 @@ class TestExplore:
         scope = frozenset({entity_env.headache_note})
         aspirin = await _entity_id(entity_env, "Aspirin", scope)
 
-        result = await explore(
+        result = await explore_relationships(
             entity_env.store,
             aspirin,
             scope=scope,
@@ -625,7 +625,7 @@ class TestExplore:
             frozenset({entity_env.headache_note}),
         )
 
-        result = await explore(
+        result = await explore_relationships(
             entity_env.store,
             aspirin,
             scope=frozenset({entity_env.fever_note}),
@@ -640,7 +640,7 @@ class TestExplore:
     ) -> None:
         """A depth below one or above two raises ValueError."""
         with pytest.raises(ValueError):
-            await explore(
+            await explore_relationships(
                 entity_env.store,
                 str(uuid4()),
                 scope=frozenset({entity_env.headache_note}),

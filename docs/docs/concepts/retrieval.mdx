@@ -18,17 +18,17 @@ An answer that cites its sources needs more than a ranked list. The evidence fun
 
 ## Evidence retrieval
 
-<Diagram folder="docs" name="evidence-tools" alt="A query goes to discover, or to find_entities and then explore. Both return evidence ids. fetch turns an id into its exact text. navigate moves from a passage to neighbouring passages and returns more ids. check_citations compares cited ids with the ids that were fetched, and render_citations makes numbered references." />
+<Diagram folder="docs" name="evidence-tools" alt="A query goes to discover, or to entity_search and then explore_relationships. Both return evidence ids. fetch turns an id into its exact text. navigate_document_tree moves from a passage to neighbouring passages and returns more ids. check_citations compares cited ids with the ids that were fetched, and render_citations makes numbered references." />
 
 *Search and entity functions return evidence ids. Fetch returns the text behind an id. Citations are checked against the ids that were fetched.*
 
 1. Discover. `discover` searches the text of the current document versions in scope. It runs a keyword search, a vector search, or both, and combines hybrid results with Reciprocal Rank Fusion. Each hit has an evidence id, a snippet, a title, and a location. The result carries a status, and it says when a search leg failed or the candidate list was cut.
 2. Fetch. `fetch` returns the exact text for each id. A chunk id returns the stored chunk text. A span id returns the requested character range, and a result that covers only part of the range is marked partial. The result says whether the version is current or superseded, so an id keeps working after the document is updated.
-3. Navigate. `navigate` moves from a passage to its parent section, its children, its siblings, the previous or next chunk, or the cells around a table.
-4. Find entities. `find_entities` searches entity names by keyword and entity embeddings by similarity, and returns each entity with up to three supporting passages. `explore` follows relations outward from an entity and marks each edge as an assertion that a visible passage supports, or as a path between entities.
+3. Navigate the document tree. `navigate_document_tree` moves from a passage to its parent section, its children, its siblings, the previous or next chunk, or the cells around a table.
+4. Search entities. `entity_search` searches entity names by keyword and entity embeddings by similarity, and returns each entity with up to three supporting passages. `explore_relationships` follows relations outward from an entity and marks each edge as an assertion that a visible passage supports, or as a path between entities.
 5. Check. `check_citations` compares cited ids with the ids that were fetched in scope. A valid citation was fetched. `render_citations` turns valid ids into numbered references with a Sources list.
 
-An evidence id names a document, a prefix of the content hash of one version, and a chunk or character span. The agent calls these functions as tools, and the MCP server exposes them as `search_evidence`, `fetch_evidence`, `navigate`, `find_entities`, `explore`, and `check_citations`. See [Find and cite evidence](../guides/find-and-cite-evidence.mdx) to call them from Python.
+An evidence id names a document, a prefix of the content hash of one version, and a chunk or character span. The agent calls these functions as tools, and the MCP server exposes them as `search_evidence`, `fetch_evidence`, `navigate_document_tree`, `entity_search`, `explore_relationships`, and `check_citations`. See [Find and cite evidence](../guides/find-and-cite-evidence.mdx) to call them from Python.
 
 ## Recipe search
 
