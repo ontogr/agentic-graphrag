@@ -85,6 +85,10 @@ from agrag.observability import (
 )
 
 
+# Names this long are usually whole sentences that cannot match other mentions.
+_LONG_ENTITY_NAME_CHARS = 120
+
+
 async def _run_extractor(
     chunks: Sequence[Chunk],
     *,
@@ -152,6 +156,13 @@ async def _run_extractor(
                 span.set_attribute("agrag.entities_extracted", len(result.entities))
                 span.set_attribute("agrag.relations_extracted", len(result.relations))
                 span.set_attribute("agrag.candidates_extracted", len(result.candidates))
+                span.set_attribute(
+                    "agrag.long_entity_names",
+                    sum(
+                        len(entity.text) > _LONG_ENTITY_NAME_CHARS
+                        for entity in result.entities
+                    ),
+                )
                 return result
 
     tasks = [
@@ -211,6 +222,7 @@ async def _escalate(
         span.set_attribute("agrag.chunks_total", report.total)
         span.set_attribute("agrag.chunks_eligible", report.eligible)
         span.set_attribute("agrag.chunks_escalated", report.escalated)
+        span.set_attribute("agrag.chunks_zero_relation", plan.zero_relation)
         if not plan.selected:
             return outcomes, [], report
         # Weakest first: with a limit below the batch size the weakest chunks
@@ -449,6 +461,7 @@ async def extract_chunks(
                     source_index=rel.source_index + offset,
                     target_index=rel.target_index + offset,
                     confidence=rel.confidence,
+                    extractors=rel.extractors,
                 )
             except Exception as exc:  # noqa: BLE001
                 if error_policy is ErrorPolicy.RAISE:

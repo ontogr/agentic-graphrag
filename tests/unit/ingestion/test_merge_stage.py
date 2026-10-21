@@ -369,3 +369,37 @@ class TestMergeStage:
 
         assert result.relation_records == []
         assert len(result.mentioned_in_records) == 2
+
+    @staticmethod
+    async def test_mentions_of_one_triple_merge_into_one_record_with_provenance() -> (
+        None
+    ):
+        """Two extractors' mentions of one relation give one record with both names."""
+        chunk_id = uuid4()
+        alice, acme = _existing("Alice"), _existing("Acme")
+        relations = [
+            ExtractedRelation(
+                chunk_id=chunk_id,
+                label="WORKS_AT",
+                source_index=0,
+                target_index=1,
+                confidence=0.4,
+                extractors=["gliner"],
+            ),
+            ExtractedRelation(
+                chunk_id=chunk_id,
+                label="WORKS_AT",
+                source_index=0,
+                target_index=1,
+                extractors=["llm"],
+            ),
+        ]
+        batch = _batch([[0], [1]], exact_matches={0: alice, 1: acme})
+
+        result = await _merge(
+            [_mention("Alice"), _mention("Acme")], relations, batch, _store()
+        )
+
+        [record] = result.relation_records
+        assert record.properties["confidence"] == 0.4
+        assert record.properties["extractors"] == ["gliner", "llm"]

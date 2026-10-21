@@ -64,7 +64,7 @@ Hybrid extraction first reads every chunk locally. It then selects chunks for LL
 
 A kept entity is one that passed the local extraction threshold. GLiNER's default entity threshold is 0.5; per-label thresholds can change which entities it keeps. Raising the escalation threshold makes more chunks eligible for review, but does not increase the budget.
 
-The budget limits review to a share of all chunks in each batch, not a share of eligible chunks. The default `escalation_budget=0.2` allows up to 20 percent, rounded up to a whole chunk. For example, a batch of 12 chunks allows 3 reviews. The lowest entity scores go first, followed by chunks with no kept entities.
+The budget limits review to a share of all chunks in each batch, not a share of eligible chunks. The default `escalation_budget=0.2` allows up to 20 percent, rounded up to a whole chunk. For example, a batch of 12 chunks allows 3 reviews. Chunks with at least two kept entities and no relation go first. The other chunks follow, lowest entity score first, and chunks with no kept entities go last.
 
 Lower the budget to reduce LLM calls, accepting that more chunks will keep only their local results. Set it to `0` for no review, or `"all"` to review every eligible chunk. The threshold and budget apply only to `hybrid`; the word minimum also applies to `llm` mode.
 

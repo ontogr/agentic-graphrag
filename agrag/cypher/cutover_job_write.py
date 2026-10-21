@@ -257,7 +257,9 @@ def fold_pending_relations_query(rel_type: str) -> str:
 
     A job writes a new relation under a job-scoped id and records the
     canonical id on it. When a committed relation with the canonical id
-    exists, the job's chunk ids join it and the job's copy is deleted.
+    exists, the job's chunk ids join it and the job's copy is deleted. The
+    committed relation also takes the higher confidence of the two, where a
+    missing value keeps the other one, and the union of both extractor lists.
 
     Args:
         rel_type: The relationship type. Validated before it is formatted.
@@ -277,6 +279,17 @@ def fold_pending_relations_query(rel_type: str) -> str:
         "SET c.source_chunk_ids = [x IN coalesce(c.source_chunk_ids, []) "
         "WHERE NOT x IN coalesce(r.source_chunk_ids, [])] "
         "+ coalesce(r.source_chunk_ids, []) "
+        "SET c.confidence = CASE "
+        "WHEN c.confidence IS NULL THEN r.confidence "
+        "WHEN r.confidence IS NULL THEN c.confidence "
+        "WHEN c.confidence > r.confidence THEN c.confidence "
+        "ELSE r.confidence END "
+        "SET c.extractors = CASE "
+        "WHEN size(coalesce(c.extractors, [])) = 0 "
+        "AND size(coalesce(r.extractors, [])) = 0 THEN null "
+        "ELSE [x IN coalesce(c.extractors, []) "
+        "WHERE NOT x IN coalesce(r.extractors, [])] "
+        "+ coalesce(r.extractors, []) END "
         "DELETE r RETURN count(r) AS folded"
     )
 

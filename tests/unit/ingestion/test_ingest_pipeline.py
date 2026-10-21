@@ -620,6 +620,8 @@ class TestExtractChunks:
                             label="KNOWS",
                             source_index=0,
                             target_index=1,
+                            confidence=0.6,
+                            extractors=["alpha"],
                         )
                     ],
                     extractor_name="pair",
@@ -653,6 +655,8 @@ class TestExtractChunks:
         assert [rel.target_index for rel in first_batch.relations] == [1]
         assert [rel.source_index for rel in second_batch.relations] == [2]
         assert [rel.target_index for rel in second_batch.relations] == [3]
+        assert [rel.confidence for rel in second_batch.relations] == [0.6]
+        assert [rel.extractors for rel in second_batch.relations] == [["alpha"]]
         assert len(first_batch.entities) + len(second_batch.entities) == 4
 
     async def test_label_outside_the_schema_is_dropped_not_raised(self) -> None:
@@ -993,6 +997,28 @@ class TestExtractChunksEscalation:
         assert [f.error_type for f in failures] == ["RuntimeError"]
         assert (report.escalated, report.failed) == (2, 1)
 
+    @staticmethod
+    @pytest.mark.parametrize(
+        "policy", [ErrorPolicy.RAISE, ErrorPolicy.SKIP, ErrorPolicy.QUARANTINE]
+    )
+    async def test_every_escalation_error_keeps_the_first_results(
+        policy: ErrorPolicy,
+    ) -> None:
+        """In hybrid mode, every chunk keeps its GLiNER result if all LLM calls fail."""
+        error = RuntimeError("llm down")
+
+        entities, failures, report = await _run_two_phase(
+            ["0.6", "0.65"],
+            first=_ScoredExtractor(),
+            llm=_LlmExtractor(raises={"0.6": error, "0.65": error}),
+            settings=ExtractionSettings(escalation_budget="all"),
+            error_policy=policy,
+        )
+
+        assert [e.text for e in entities] == ["Ada", "Ada"]
+        assert [f.error_type for f in failures] == ["RuntimeError", "RuntimeError"]
+        assert (report.escalated, report.failed) == (2, 2)
+
     async def test_unparsable_answer_keeps_the_first_result(self) -> None:
         """An answer that did not parse raises in the LLM extractor and is kept out."""
         entities, failures, report = await _run_two_phase(
@@ -1133,6 +1159,59 @@ class TestExtractChunksEscalation:
         assert (escalate.attributes or {})["agrag.chunks_total"] == 2
         assert (escalate.attributes or {})["agrag.chunks_eligible"] == 1
         assert (escalate.attributes or {})["agrag.chunks_escalated"] == 1
+
+    async def test_extraction_span_counts_names_over_the_length_limit(self) -> None:
+        """The extract_chunk span counts entities with a name over 120 characters."""
+        exporter = InMemorySpanExporter()
+        provider = TracerProvider()
+        provider.add_span_processor(SimpleSpanProcessor(exporter))
+        long_name = "a" * 200
+        doc = _doc(key="long-names")
+        chunk = _chunk(doc, text=f"{long_name} Ada")
+
+        class _LongAndShortNames(Extractor):
+            async def extract(
+                self, chunk: Chunk, schema: GraphSchema
+            ) -> ExtractionResult:
+                entities = [
+                    ExtractedEntity(
+                        chunk_id=chunk.id,
+                        label="Person",
+                        text=long_name,
+                        char_start=0,
+                        char_end=200,
+                        confidence=None,
+                    ),
+                    ExtractedEntity(
+                        chunk_id=chunk.id,
+                        label="Person",
+                        text="Ada",
+                        char_start=201,
+                        char_end=204,
+                        confidence=None,
+                    ),
+                ]
+                return ExtractionResult(
+                    entities=entities, relations=[], extractor_name="first"
+                )
+
+        await extract_chunks(
+            [chunk],
+            start_index=0,
+            extractor=_LongAndShortNames(),
+            schema=DEFAULT_SCHEMA,
+            error_policy=ErrorPolicy.RAISE,
+            settings=ExtractionSettings(mode="gliner"),
+            llm_extractor=None,
+            tracer=provider.get_tracer("test"),
+        )
+
+        (span,) = [
+            s
+            for s in exporter.get_finished_spans()
+            if s.name == "agrag.extraction.extract_chunk"
+        ]
+        assert (span.attributes or {})["agrag.long_entity_names"] == 1
 
 
 class TestExtractChunksModes:

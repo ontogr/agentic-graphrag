@@ -1033,6 +1033,7 @@ class TestBAMLExtractor:
         (relation,) = result.relations
         assert (relation.source_index, relation.target_index) == (0, 1)
         assert relation.label == "KNOWS"
+        assert relation.extractors == ["llm"]
         assert result.extractor_name == "baml"
 
     async def test_relation_endpoint_matches_despite_case_and_spacing(self) -> None:

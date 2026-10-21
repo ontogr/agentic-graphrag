@@ -194,7 +194,8 @@ Each LLM path also opens one small domain span carrying its own ids and counts.
 |---|---|---|
 | Extraction, BAML | `agrag.extraction.baml` | `agrag.chunk_id`, `agrag.entities_extracted`, `agrag.relations_extracted`, `agrag.candidates_extracted`, `agrag.extraction.heading_context` (bool, whether a section line was sent), `agrag.extraction.unparsable` (bool, set when the reply held no usable answer) |
 | Extraction, GLiNER | `agrag.extraction.gliner`, and `agrag.extraction.model_load` around the one-time model build | `agrag.chunk_id`, `agrag.entities_extracted`, `agrag.relations_extracted`, `agrag.candidates_extracted`. `agrag.model` is on the load span |
-| Extraction, escalate | `agrag.extraction.escalate` | `agrag.chunks_total`, `agrag.chunks_eligible`, `agrag.chunks_escalated` |
+| Extraction, escalate | `agrag.extraction.escalate` | `agrag.chunks_total`, `agrag.chunks_eligible`, `agrag.chunks_escalated`, `agrag.chunks_zero_relation` (eligible chunks with at least two kept entities and no relation, counted before the budget cut) |
+| Extraction, chunk | `agrag.extraction.extract_chunk` | `agrag.chunk_id`, `agrag.extraction.phase`, `agrag.entities_extracted`, `agrag.relations_extracted`, `agrag.candidates_extracted`, `agrag.long_entity_names` (entities whose name is longer than 120 characters) |
 | Resolution | `agrag.resolution.llm_verify` | `agrag.pair_count`, `agrag.match_count`, `agrag.uncertain_count`, `agrag.request_failed` (bool), `agrag.llm_unavailable` (bool) |
 | Merge | `agrag.merge.resolve_description` | `agrag.description_count`, `agrag.summarized` (bool) |
 | Community | `agrag.community.report_batch` | `agrag.batch_size` |

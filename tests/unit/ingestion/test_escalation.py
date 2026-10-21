@@ -73,6 +73,17 @@ def _result(
     )
 
 
+def _with_relation(result: ExtractionResult) -> ExtractionResult:
+    """Return the result with one relation between its first two entities."""
+    relation = ExtractedRelation(
+        chunk_id=result.entities[0].chunk_id,
+        label="RELATED_TO",
+        source_index=0,
+        target_index=1,
+    )
+    return result.model_copy(update={"relations": [relation]})
+
+
 def _select(
     scores_per_chunk: list[tuple[float | None, ...]],
     *,
@@ -89,7 +100,7 @@ def _select(
 
 
 class TestRanking:
-    """Eligible chunks rank weakest first, ties by chunk order."""
+    """Eligible chunks rank by relation evidence, then weakest score, then order."""
 
     def test_weakest_minimum_score_comes_first(self) -> None:
         """A chunk ranks by its lowest span score."""
@@ -134,6 +145,101 @@ class TestRanking:
         )
 
         assert selected == [1, 0]
+
+    @staticmethod
+    def test_two_kept_spans_without_relations_rank_first() -> None:
+        """A chunk with two kept spans and no relation ranks ahead of a weak one."""
+        chunks = [_chunk(), _chunk()]
+        results = [
+            _result(chunks[0], 0.95, 0.9, label="Contract"),
+            _with_relation(_result(chunks[1], 0.5, 0.9)),
+        ]
+
+        selected = select_for_escalation(
+            results,
+            ExtractionSettings(escalation_budget=0.5),
+            chunks=chunks,
+            property_labels=frozenset({"Contract"}),
+        )
+
+        assert selected == [0]
+
+    @staticmethod
+    def test_relation_free_chunks_rank_by_weakest_score() -> None:
+        """Within the relation-free group, the weaker chunk ranks first."""
+        chunks = [_chunk(), _chunk()]
+        results = [
+            _result(chunks[0], 0.95, 0.8, label="Contract"),
+            _result(chunks[1], 0.95, 0.7, label="Contract"),
+        ]
+
+        selected = select_for_escalation(
+            results,
+            ExtractionSettings(escalation_budget="all"),
+            chunks=chunks,
+            property_labels=frozenset({"Contract"}),
+        )
+
+        assert selected == [1, 0]
+
+    @staticmethod
+    def test_single_kept_span_without_relation_does_not_rank_first() -> None:
+        """One kept span with no relation stays behind a chunk with a relation."""
+        chunks = [_chunk(), _chunk()]
+        results = [
+            _result(chunks[0], 0.99, label="Contract"),
+            _with_relation(_result(chunks[1], 0.6, 0.9)),
+        ]
+
+        selected = select_for_escalation(
+            results,
+            ExtractionSettings(escalation_budget="all"),
+            chunks=chunks,
+            property_labels=frozenset({"Contract"}),
+        )
+
+        assert selected == [1, 0]
+
+    @staticmethod
+    def test_without_relations_single_span_chunks_rank_weakest_first() -> None:
+        """Without relations, single kept spans rank weakest first, then no span."""
+        chunks = [_chunk() for _ in range(4)]
+        results = [
+            _result(chunks[0], 0.7),
+            _result(chunks[1], 0.55),
+            _result(chunks[2], 0.65),
+            _result(chunks[3]),
+        ]
+
+        selected = select_for_escalation(
+            results,
+            ExtractionSettings(escalation_budget="all"),
+            chunks=chunks,
+            property_labels=frozenset(),
+        )
+
+        assert selected == [1, 2, 0, 3]
+
+    @staticmethod
+    def test_zero_relation_count_includes_chunks_the_budget_cuts() -> None:
+        """Eligible relation-free chunks are counted even when the budget cuts them."""
+        chunks = [_chunk() for _ in range(4)]
+        results = [
+            _result(chunks[0], 0.95, 0.9, label="Contract"),
+            _result(chunks[1], 0.95, 0.8, label="Contract"),
+            _with_relation(_result(chunks[2], 0.5, 0.9)),
+            _result(chunks[3], 0.95, 0.9),
+        ]
+
+        plan = plan_escalation(
+            results,
+            ExtractionSettings(escalation_budget=0.25),
+            chunks=chunks,
+            property_labels=frozenset({"Contract"}),
+        )
+
+        assert len(plan.selected) == 1
+        assert plan.zero_relation == 2
 
 
 class TestEligibility:

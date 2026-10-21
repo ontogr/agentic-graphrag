@@ -367,6 +367,10 @@ async def _domain_relation_records(
     # Domain relation triples: (src_id, tgt_id, label) with the chunks that
     # asserted them, unioned within this call.
     triple_to_chunk_ids: dict[tuple[UUID, UUID, str], list[UUID]] = {}
+    # The highest confidence among the mentions of a triple. Mentions without
+    # a confidence do not lower it, and a triple with none has no entry.
+    triple_confidence: dict[tuple[UUID, UUID, str], float] = {}
+    triple_extractors: dict[tuple[UUID, UUID, str], set[str]] = {}
     unmapped: Counter[str] = Counter()
     self_loops: Counter[str] = Counter()
     for rel in relations:
@@ -382,6 +386,12 @@ async def _domain_relation_records(
         lst = triple_to_chunk_ids.setdefault(key, [])
         if rel.chunk_id not in lst:
             lst.append(rel.chunk_id)
+        if rel.confidence is not None:
+            prior = triple_confidence.get(key)
+            triple_confidence[key] = (
+                rel.confidence if prior is None else max(prior, rel.confidence)
+            )
+        triple_extractors.setdefault(key, set()).update(rel.extractors)
 
     existing_rel_map = await _global_relation_lookup(
         list(triple_to_chunk_ids.keys()),
@@ -410,11 +420,18 @@ async def _domain_relation_records(
             )
             union_ids = list(dict.fromkeys(chunk_ids))
 
+        key = (src_id, tgt_id, rel_type)
+        properties: dict[str, object] = {}
+        if (confidence := triple_confidence.get(key)) is not None:
+            properties["confidence"] = confidence
+        if extractors := sorted(triple_extractors.get(key, ())):
+            properties["extractors"] = extractors
         relation_obj = Relation(
             id=rel_id,
             type=rel_type,
             source_id=src_id,
             target_id=tgt_id,
+            properties=properties,
             source_chunk_ids=union_ids,
         )
         record = relation_obj.to_relation_record()
