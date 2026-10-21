@@ -13,7 +13,7 @@ from agrag.ingestion.resolve.resolution import (
 from agrag.loaders.types import ErrorPolicy
 
 
-class _Embedder:
+class _FakeEmbedder:
     """Return stable vectors for the resolver's fuzzy comparison."""
 
     async def embed_one(self, text: str) -> list[float]:
@@ -60,7 +60,6 @@ class TestAlreadyDecidedPairs:
             {0: first_id, 1: second_id, 2: other_id},
             {0: [1], 1: [0]},
             store,
-            error_policy=ErrorPolicy.SKIP,
         )
 
         assert decided == {(0, 1)}
@@ -77,7 +76,6 @@ class TestAlreadyDecidedPairs:
             {0: uuid4(), 1: uuid4()},
             {0: [1]},
             store,
-            error_policy=ErrorPolicy.SKIP,
         )
 
         assert decided == set()
@@ -86,24 +84,14 @@ class TestAlreadyDecidedPairs:
         assert failure.error_type == "RuntimeError"
         assert failure.error_message == "database unavailable"
 
-    async def test_propagates_read_failure_under_raise_policy(self) -> None:
-        """RAISE preserves the database exception."""
-        store = AsyncMock()
-        store.execute_read.side_effect = RuntimeError("database unavailable")
-
-        with pytest.raises(RuntimeError, match="database unavailable"):
-            await _already_decided_pairs(
-                {0: uuid4(), 1: uuid4()},
-                {0: [1]},
-                store,
-                error_policy=ErrorPolicy.RAISE,
-            )
-
 
 class TestResolveBatchTelemetryRead:
     """Failure of the already-decided read does not change comparisons."""
 
-    async def test_reports_failure_and_keeps_candidate_comparisons(self) -> None:
+    @pytest.mark.parametrize("error_policy", [ErrorPolicy.SKIP, ErrorPolicy.RAISE])
+    async def test_reports_failure_and_keeps_candidate_comparisons(
+        self, error_policy: ErrorPolicy
+    ) -> None:
         """A telemetry read failure is reported without marking mentions failed."""
         first_id, second_id = uuid4(), uuid4()
         store = AsyncMock()
@@ -124,11 +112,11 @@ class TestResolveBatchTelemetryRead:
                 [],
                 {},
                 graph_store=store,
-                embedder=_Embedder(),
+                embedder=_FakeEmbedder(),
                 entity_labels=["Person"],
                 tracer=None,
                 max_llm_pairs=0,
-                error_policy=ErrorPolicy.SKIP,
+                error_policy=error_policy,
             )
 
         assert batch.result is not None

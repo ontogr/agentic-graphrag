@@ -21,8 +21,7 @@ The outcome of resolving one batch of mentions.
 - [**persisted_ids**](#agrag-ingestion-resolve-resolution-BatchResolution-persisted_ids) (<code>dict\[int, UUID\]</code>) – Index of each synthetic candidate mention to the id of
   the persisted entity it stands for.
 - [**candidate_entities**](#agrag-ingestion-resolve-resolution-BatchResolution-candidate_entities) (<code>dict\[UUID, [Entity](../../../common/data_models/entity/Entity-ref.md)\]</code>) – Persisted candidates by id.
-- [**failures**](#agrag-ingestion-resolve-resolution-BatchResolution-failures) (<code>list\[[StageFailure](../../../common/data_models/stage_failure/StageFailure.md)\]</code>) – Candidate-read failures and any non-raising telemetry
-  read failure.
+- [**failures**](#agrag-ingestion-resolve-resolution-BatchResolution-failures) (<code>list\[[StageFailure](../../../common/data_models/stage_failure/StageFailure.md)\]</code>) – Candidate-read failures and any telemetry-read failure.
 - [**unresolved_indices**](#agrag-ingestion-resolve-resolution-BatchResolution-unresolved_indices) (<code>set\[int\]</code>) – Mentions whose candidate read failed. They do
   not start or join a comparison.
 

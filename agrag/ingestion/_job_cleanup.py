@@ -15,6 +15,7 @@ from agrag.common.data_models.stage_failure import StageFailure
 from agrag.embedding.base import Embedder
 from agrag.graphdb.base import GraphStore
 from agrag.ingestion._resolution_maintenance import reconcile_created_entities
+from agrag.ingestion.resolve.zone_classifier import DEFAULT_LLM_CONCURRENCY
 from agrag.ingestion.resolved_embeddings import embed_resolved_entities
 from agrag.ingestion.resolved_entities import (
     prune_orphaned_entities,
@@ -34,7 +35,7 @@ async def finish_job(
     embedder: Embedder,
     tracer: Tracer,
     max_llm_pairs: int,
-    llm_concurrency: int = 2,
+    llm_concurrency: int = DEFAULT_LLM_CONCURRENCY,
     error_policy: ErrorPolicy = ErrorPolicy.RAISE,
 ) -> list[StageFailure]:
     """Run the cleanup phase of one committed Cutover Job.

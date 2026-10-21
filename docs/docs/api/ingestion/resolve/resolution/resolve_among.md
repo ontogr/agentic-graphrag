@@ -6,7 +6,7 @@ sidebar_label: resolve_among
 # `agrag.ingestion.resolve.resolution.resolve_among` \{#agrag-ingestion-resolve-resolution-resolve_among}
 
 ```python
-resolve_among(entities:list[Entity], *, embedder:Embedder, tracer:Tracer | None, max_llm_pairs:int, llm_concurrency:int = 2) -> ResolutionResult
+resolve_among(entities:list[Entity], *, embedder:Embedder, tracer:Tracer | None, max_llm_pairs:int, llm_concurrency:int = DEFAULT_LLM_CONCURRENCY) -> ResolutionResult
 ```
 
 Resolve a fixed set of persisted entities by comparing same-label pairs.

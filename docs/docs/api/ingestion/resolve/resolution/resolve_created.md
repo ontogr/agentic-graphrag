@@ -6,7 +6,7 @@ sidebar_label: resolve_created
 # `agrag.ingestion.resolve.resolution.resolve_created` \{#agrag-ingestion-resolve-resolution-resolve_created}
 
 ```python
-resolve_created(created:list[Entity], *, graph_store:GraphStore, embedder:Embedder, entity_labels:Sequence[str], tracer:Tracer | None, max_llm_pairs:int, error_policy:ErrorPolicy, llm_concurrency:int = 2) -> tuple[list[Entity], ResolutionResult, list[StageFailure]]
+resolve_created(created:list[Entity], *, graph_store:GraphStore, embedder:Embedder, entity_labels:Sequence[str], tracer:Tracer | None, max_llm_pairs:int, error_policy:ErrorPolicy, llm_concurrency:int = DEFAULT_LLM_CONCURRENCY) -> tuple[list[Entity], ResolutionResult, list[StageFailure]]
 ```
 
 Resolve newly committed entities against everything committed.
@@ -26,18 +26,17 @@ and the label holds few committed entities, all of them are candidates.
 - **tracer** (<code>Tracer | None</code>) – Traces the resolver.
 - **max_llm_pairs** (<code>int</code>) – The most ambiguous pairs per label sent to the LLM.
 - **llm_concurrency** (<code>int</code>) – Maximum simultaneous verification requests.
-- **error_policy** (<code>[ErrorPolicy](../../../loaders/types/ErrorPolicy.md)</code>) – RAISE propagates candidate and telemetry read failures.
+- **error_policy** (<code>[ErrorPolicy](../../../loaders/types/ErrorPolicy.md)</code>) – RAISE propagates candidate-read failures.
   Other policies record candidate-read failures and leave those
-  entities out of this pass; telemetry-read failures are reported
-  without changing comparisons.
+  entities out of this pass. Every policy reports telemetry-read
+  failures without changing comparisons.
 
 **Returns:**
 
 - <code>list\[[Entity](../../../common/data_models/entity/Entity-ref.md)\]</code> – The created entities followed by the candidates they found, the
 - <code>[ResolutionResult](../resolver/ResolutionResult.md)</code> – resolver result indexed like that list, candidate-read failures, and
-- <code>list\[[StageFailure](../../../common/data_models/stage_failure/StageFailure.md)\]</code> – any non-raising telemetry-read failure.
+- <code>list\[[StageFailure](../../../common/data_models/stage_failure/StageFailure.md)\]</code> – any telemetry-read failure.
 
 **Raises:**
 
-- <code>Exception</code> – A candidate or telemetry read failed and `error_policy`
-  is RAISE.
+- <code>Exception</code> – A candidate read failed and `error_policy` is RAISE.

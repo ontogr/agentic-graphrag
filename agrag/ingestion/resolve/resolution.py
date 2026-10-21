@@ -49,6 +49,7 @@ from agrag.ingestion.resolve.resolver import (
     ResolutionResult,
     Resolver,
 )
+from agrag.ingestion.resolve.zone_classifier import DEFAULT_LLM_CONCURRENCY
 from agrag.loaders.types import ErrorPolicy
 from agrag.observability import get_tracer, record_stage_failure
 
@@ -78,13 +79,12 @@ async def _already_decided_pairs(
     candidates_by_index: Mapping[int, Sequence[int]],
     graph_store: GraphStore,
     *,
-    error_policy: ErrorPolicy,
     job_id: UUID | str | None = None,
 ) -> tuple[set[tuple[int, int]], StageFailure | None]:
     """Count prior matches among candidates without changing pair selection.
 
-    A telemetry read failure propagates under RAISE. Other policies return it
-    as a StageFailure and leave the candidate pairs available for resolution.
+    Telemetry read failures return a StageFailure under every error policy
+    and leave the candidate pairs available for resolution.
     """
     decided: set[tuple[int, int]] = set()
     indices_by_entity_pair: dict[tuple[str, str], set[tuple[int, int]]] = defaultdict(
@@ -113,8 +113,6 @@ async def _already_decided_pairs(
             {"pairs": pairs, "job_id": str(job_id) if job_id else None},
         )
     except Exception as exc:  # noqa: BLE001
-        if error_policy is ErrorPolicy.RAISE:
-            raise
         trace_id, span_id = record_stage_failure(exc)
         return decided, StageFailure(
             item_id="already_decided_pairs",
@@ -142,8 +140,7 @@ class BatchResolution:
         persisted_ids: Index of each synthetic candidate mention to the id of
             the persisted entity it stands for.
         candidate_entities: Persisted candidates by id.
-        failures: Candidate-read failures and any non-raising telemetry
-            read failure.
+        failures: Candidate-read failures and any telemetry-read failure.
         unresolved_indices: Mentions whose candidate read failed. They do
             not start or join a comparison.
     """
@@ -282,7 +279,7 @@ async def resolve_batch(  # noqa: PLR0915
     max_llm_pairs: int,
     error_policy: ErrorPolicy,
     job_id: UUID | str | None = None,
-    llm_concurrency: int = 2,
+    llm_concurrency: int = DEFAULT_LLM_CONCURRENCY,
     on_progress: Callable[[int, int, float], None] | None = None,
 ) -> BatchResolution:
     """Resolve one extraction batch against itself and the persisted graph.
@@ -303,10 +300,10 @@ async def resolve_batch(  # noqa: PLR0915
         max_llm_pairs: The most ambiguous pairs per label sent to the LLM.
         llm_concurrency: Maximum simultaneous verification requests.
         on_progress: Receives completed batches, total batches and elapsed seconds.
-        error_policy: RAISE propagates candidate and telemetry read failures.
+        error_policy: RAISE propagates candidate-read failures.
             Other policies record candidate-read failures and leave those
-            mentions unresolved; telemetry-read failures are reported without
-            changing comparisons.
+            mentions unresolved. Every policy reports telemetry-read failures
+            without changing comparisons.
         job_id: The in-flight Cutover Job's id for the exact-match read.
 
     Returns:
@@ -314,8 +311,7 @@ async def resolve_batch(  # noqa: PLR0915
         candidates, candidate-read failures, and any telemetry-read failure.
 
     Raises:
-        Exception: A candidate or telemetry read failed and ``error_policy``
-            is RAISE.
+        Exception: A candidate read failed and ``error_policy`` is RAISE.
     """
     resolved_tracer = get_tracer(tracer)
     with resolved_tracer.start_as_current_span(
@@ -437,7 +433,6 @@ async def resolve_batch(  # noqa: PLR0915
         },
         candidates_by_index,
         graph_store,
-        error_policy=error_policy,
         job_id=job_id,
     )
     if telemetry_failure is not None:
@@ -473,7 +468,7 @@ async def resolve_persisted(
     tracer: Tracer | None,
     max_llm_pairs: int,
     error_policy: ErrorPolicy,
-    llm_concurrency: int = 2,
+    llm_concurrency: int = DEFAULT_LLM_CONCURRENCY,
 ) -> tuple[ResolutionResult, list[StageFailure]]:
     """Resolve persisted entities against each other.
 
@@ -487,18 +482,17 @@ async def resolve_persisted(
         tracer: Traces the resolver.
         max_llm_pairs: The most ambiguous pairs per label sent to the LLM.
         llm_concurrency: Maximum simultaneous verification requests.
-        error_policy: RAISE propagates candidate and telemetry read failures.
+        error_policy: RAISE propagates candidate-read failures.
             Other policies record candidate-read failures and leave those
-            entities out of this pass; telemetry-read failures are reported
-            without changing comparisons.
+            entities out of this pass. Every policy reports telemetry-read
+            failures without changing comparisons.
 
     Returns:
         The resolver result, indexed like ``entities``, candidate-read
-        failures, and any non-raising telemetry-read failure.
+        failures, and any telemetry-read failure.
 
     Raises:
-        Exception: A candidate or telemetry read failed and ``error_policy``
-            is RAISE.
+        Exception: A candidate read failed and ``error_policy`` is RAISE.
     """
     mentions, chunks_by_id = _synthesize_mentions(entities)
     candidate_source = GraphCandidateSource(
@@ -534,7 +528,6 @@ async def resolve_persisted(
         {index: entity.id for index, entity in enumerate(entities)},
         candidate_indices,
         graph_store,
-        error_policy=error_policy,
     )
     if telemetry_failure is not None:
         failures.append(telemetry_failure)
@@ -559,7 +552,7 @@ async def resolve_created(
     tracer: Tracer | None,
     max_llm_pairs: int,
     error_policy: ErrorPolicy,
-    llm_concurrency: int = 2,
+    llm_concurrency: int = DEFAULT_LLM_CONCURRENCY,
 ) -> tuple[list[Entity], ResolutionResult, list[StageFailure]]:
     """Resolve newly committed entities against everything committed.
 
@@ -577,19 +570,18 @@ async def resolve_created(
         tracer: Traces the resolver.
         max_llm_pairs: The most ambiguous pairs per label sent to the LLM.
         llm_concurrency: Maximum simultaneous verification requests.
-        error_policy: RAISE propagates candidate and telemetry read failures.
+        error_policy: RAISE propagates candidate-read failures.
             Other policies record candidate-read failures and leave those
-            entities out of this pass; telemetry-read failures are reported
-            without changing comparisons.
+            entities out of this pass. Every policy reports telemetry-read
+            failures without changing comparisons.
 
     Returns:
         The created entities followed by the candidates they found, the
         resolver result indexed like that list, candidate-read failures, and
-        any non-raising telemetry-read failure.
+        any telemetry-read failure.
 
     Raises:
-        Exception: A candidate or telemetry read failed and ``error_policy``
-            is RAISE.
+        Exception: A candidate read failed and ``error_policy`` is RAISE.
     """
     pool = list(created)
     index_by_id = {entity.id: index for index, entity in enumerate(pool)}
@@ -678,7 +670,6 @@ async def resolve_created(
         {index: entity.id for index, entity in enumerate(pool)},
         peers_by_index,
         graph_store,
-        error_policy=error_policy,
     )
     if telemetry_failure is not None:
         failures.append(telemetry_failure)
@@ -703,7 +694,7 @@ async def resolve_among(
     embedder: Embedder,
     tracer: Tracer | None,
     max_llm_pairs: int,
-    llm_concurrency: int = 2,
+    llm_concurrency: int = DEFAULT_LLM_CONCURRENCY,
 ) -> ResolutionResult:
     """Resolve a fixed set of persisted entities by comparing same-label pairs.
 
@@ -750,7 +741,7 @@ def _build_resolver(
     embedder: Embedder,
     tracer: Tracer | None,
     max_llm_pairs: int,
-    llm_concurrency: int = 2,
+    llm_concurrency: int = DEFAULT_LLM_CONCURRENCY,
     on_progress: Callable[[int, int, float], None] | None = None,
 ) -> Resolver:
     """Build the zone-routed resolver: ExactMatch, FuzzyMatch, then LLMVerify."""

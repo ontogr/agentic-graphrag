@@ -64,7 +64,10 @@ from agrag.ingestion._storage import (
 from agrag.ingestion.extract import Extractor, LLMExtractor, validate_extraction
 from agrag.ingestion.reports import AddResult
 from agrag.ingestion.reports.escalation_report import EscalationReport
-from agrag.ingestion.resolve.zone_classifier import MAX_LLM_PAIRS
+from agrag.ingestion.resolve.zone_classifier import (
+    DEFAULT_LLM_CONCURRENCY,
+    MAX_LLM_PAIRS,
+)
 from agrag.ingestion.resolved_entities import MatchComponent
 from agrag.ingestion.settings import ExtractionSettings, effective_mode
 from agrag.ingestion.stats import (
@@ -658,7 +661,7 @@ async def ingest_chunks(
     tracer: Tracer | None = None,
     embed_heading_path: bool = True,
     max_llm_pairs: int = MAX_LLM_PAIRS,
-    llm_concurrency: int = 2,
+    llm_concurrency: int = DEFAULT_LLM_CONCURRENCY,
     on_progress: Callable[[AddResult], None] | None = None,
     candidates: Sequence[CandidateRecord] = (),
     dropped: Sequence[DroppedCount] = (),

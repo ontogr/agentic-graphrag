@@ -6,7 +6,7 @@ sidebar_label: resolve_persisted
 # `agrag.ingestion.resolve.resolution.resolve_persisted` \{#agrag-ingestion-resolve-resolution-resolve_persisted}
 
 ```python
-resolve_persisted(entities:list[Entity], *, graph_store:GraphStore, embedder:Embedder, entity_labels:Sequence[str], tracer:Tracer | None, max_llm_pairs:int, error_policy:ErrorPolicy, llm_concurrency:int = 2) -> tuple[ResolutionResult, list[StageFailure]]
+resolve_persisted(entities:list[Entity], *, graph_store:GraphStore, embedder:Embedder, entity_labels:Sequence[str], tracer:Tracer | None, max_llm_pairs:int, error_policy:ErrorPolicy, llm_concurrency:int = DEFAULT_LLM_CONCURRENCY) -> tuple[ResolutionResult, list[StageFailure]]
 ```
 
 Resolve persisted entities against each other.
@@ -22,17 +22,16 @@ ANN search bounds the pairs the resolver compares.
 - **tracer** (<code>Tracer | None</code>) – Traces the resolver.
 - **max_llm_pairs** (<code>int</code>) – The most ambiguous pairs per label sent to the LLM.
 - **llm_concurrency** (<code>int</code>) – Maximum simultaneous verification requests.
-- **error_policy** (<code>[ErrorPolicy](../../../loaders/types/ErrorPolicy.md)</code>) – RAISE propagates candidate and telemetry read failures.
+- **error_policy** (<code>[ErrorPolicy](../../../loaders/types/ErrorPolicy.md)</code>) – RAISE propagates candidate-read failures.
   Other policies record candidate-read failures and leave those
-  entities out of this pass; telemetry-read failures are reported
-  without changing comparisons.
+  entities out of this pass. Every policy reports telemetry-read
+  failures without changing comparisons.
 
 **Returns:**
 
 - <code>[ResolutionResult](../resolver/ResolutionResult.md)</code> – The resolver result, indexed like `entities`, candidate-read
-- <code>list\[[StageFailure](../../../common/data_models/stage_failure/StageFailure.md)\]</code> – failures, and any non-raising telemetry-read failure.
+- <code>list\[[StageFailure](../../../common/data_models/stage_failure/StageFailure.md)\]</code> – failures, and any telemetry-read failure.
 
 **Raises:**
 
-- <code>Exception</code> – A candidate or telemetry read failed and `error_policy`
-  is RAISE.
+- <code>Exception</code> – A candidate read failed and `error_policy` is RAISE.

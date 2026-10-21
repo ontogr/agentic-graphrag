@@ -21,6 +21,7 @@ from agrag.graphdb.entities import load_entities
 from agrag.graphdb.serialize import parse_entity_node
 from agrag.ingestion.reports import ConsolidationReport, ReevaluationReport
 from agrag.ingestion.resolve import resolve_among, resolve_created, resolve_persisted
+from agrag.ingestion.resolve.zone_classifier import DEFAULT_LLM_CONCURRENCY
 from agrag.ingestion.resolved_embeddings import embed_resolved_entities
 from agrag.ingestion.resolved_entities import (
     MatchComponent,
@@ -196,7 +197,7 @@ async def reconcile_created_entities(
     embedder: Embedder,
     tracer: Tracer,
     max_llm_pairs: int,
-    llm_concurrency: int = 2,
+    llm_concurrency: int = DEFAULT_LLM_CONCURRENCY,
 ) -> list[StageFailure]:
     """Resolve entities a committed job created against everything committed.
 
@@ -293,7 +294,7 @@ async def consolidate(
     embedder: Embedder,
     tracer: Tracer,
     max_llm_pairs: int,
-    llm_concurrency: int = 2,
+    llm_concurrency: int = DEFAULT_LLM_CONCURRENCY,
 ) -> ConsolidationReport:
     """Run resolution against every persisted entity. See ``Graph.consolidate``."""
     with tracer.start_as_current_span("agrag.ingestion.consolidate"):
@@ -386,7 +387,7 @@ async def reevaluate(
     embedder: Embedder,
     tracer: Tracer,
     max_llm_pairs: int,
-    llm_concurrency: int = 2,
+    llm_concurrency: int = DEFAULT_LLM_CONCURRENCY,
 ) -> ReevaluationReport:
     """Reevaluate matches among the given entities. See ``Graph.reevaluate``."""
     with tracer.start_as_current_span(

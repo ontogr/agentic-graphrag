@@ -78,7 +78,10 @@ from agrag.ingestion.reports import (
     UpdateResult,
 )
 from agrag.ingestion.resolve import SYSTEM_RELATION_TYPES
-from agrag.ingestion.resolve.zone_classifier import MAX_LLM_PAIRS
+from agrag.ingestion.resolve.zone_classifier import (
+    DEFAULT_LLM_CONCURRENCY,
+    MAX_LLM_PAIRS,
+)
 from agrag.ingestion.settings import (
     EXTRACTION_PROMPT_ID,
     CutoverJobSettings,
@@ -244,7 +247,7 @@ class Graph:
         chunker: Chunker | None = None,
         embed_heading_path: bool = True,
         max_llm_pairs: int = MAX_LLM_PAIRS,
-        llm_concurrency: int = 2,
+        llm_concurrency: int = DEFAULT_LLM_CONCURRENCY,
     ) -> None:
         """Create a graph bound to a schema, store, embedder, and extractor.
 
@@ -338,7 +341,7 @@ class Graph:
         chunker: Chunker | None = None,
         embed_heading_path: bool = True,
         max_llm_pairs: int = MAX_LLM_PAIRS,
-        llm_concurrency: int = 2,
+        llm_concurrency: int = DEFAULT_LLM_CONCURRENCY,
     ) -> "Graph":
         """Open a graph, connecting and fully provisioning graph_store.
 

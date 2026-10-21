@@ -15,6 +15,7 @@ from agrag.ingestion._stage_context import StageContext
 from agrag.ingestion.reports import AddResult
 from agrag.ingestion.resolve import resolve_batch
 from agrag.ingestion.resolve.resolution import BatchResolution
+from agrag.ingestion.resolve.zone_classifier import DEFAULT_LLM_CONCURRENCY
 from agrag.ingestion.stats import ResolutionStats
 
 
@@ -42,7 +43,7 @@ async def resolve_stage(
     *,
     graph_schema: GraphSchema,
     max_llm_pairs: int,
-    llm_concurrency: int = 2,
+    llm_concurrency: int = DEFAULT_LLM_CONCURRENCY,
     on_progress: Callable[[AddResult], None] | None = None,
 ) -> ResolveStageResult:
     """Resolve the batch's mentions and count what the resolver decided.

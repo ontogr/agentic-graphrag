@@ -21,6 +21,7 @@ from agrag.embedding.base import Embedder
 from agrag.ingestion.extract import ExtractionLLMSettings, ExtractorMissingExtraError
 from agrag.ingestion.resolve.candidate_source import CandidateSource
 from agrag.ingestion.resolve.zone_classifier import (
+    DEFAULT_LLM_CONCURRENCY,
     DISCARD_THRESHOLD,
     HARD_MERGE_THRESHOLD,
     MAX_LLM_PAIRS,
@@ -594,7 +595,7 @@ class Resolver:
         discard_threshold: float = DISCARD_THRESHOLD,
         max_llm_pairs: int = MAX_LLM_PAIRS,
         llm_batch_size: int = 10,
-        llm_concurrency: int = 2,
+        llm_concurrency: int = DEFAULT_LLM_CONCURRENCY,
         on_progress: Callable[[int, int, float], None] | None = None,
         tracer: Tracer | None = None,
     ) -> None:

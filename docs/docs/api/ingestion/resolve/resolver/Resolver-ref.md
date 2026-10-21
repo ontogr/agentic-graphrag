@@ -6,7 +6,7 @@ sidebar_label: Resolver
 # `agrag.ingestion.resolve.resolver.Resolver` \{#agrag-ingestion-resolve-resolver-Resolver}
 
 ```python
-Resolver(*, comparators:list[Comparator], candidate_source:CandidateSource, embedder:Embedder | None = None, hard_merge_threshold:float = HARD_MERGE_THRESHOLD, discard_threshold:float = DISCARD_THRESHOLD, max_llm_pairs:int = MAX_LLM_PAIRS, llm_batch_size:int = 10, llm_concurrency:int = 2, on_progress:Callable[[int, int, float], None] | None = None, tracer:Tracer | None = None) -> None
+Resolver(*, comparators:list[Comparator], candidate_source:CandidateSource, embedder:Embedder | None = None, hard_merge_threshold:float = HARD_MERGE_THRESHOLD, discard_threshold:float = DISCARD_THRESHOLD, max_llm_pairs:int = MAX_LLM_PAIRS, llm_batch_size:int = 10, llm_concurrency:int = DEFAULT_LLM_CONCURRENCY, on_progress:Callable[[int, int, float], None] | None = None, tracer:Tracer | None = None) -> None
 ```
 
 Routes blocked candidate pairs through exact, fuzzy, embedding, and LLM zones.

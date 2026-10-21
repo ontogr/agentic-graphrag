@@ -15,6 +15,7 @@ Pair selection and sub-clustering for entity-resolution LLM review.
 
 **Attributes:**
 
+- [**DEFAULT_LLM_CONCURRENCY**](DEFAULT_LLM_CONCURRENCY.md) –
 - [**DIGIT_TOKEN_PATTERN**](DIGIT_TOKEN_PATTERN.md) –
 - [**DISCARD_THRESHOLD**](DISCARD_THRESHOLD.md) –
 - [**HARD_MERGE_THRESHOLD**](HARD_MERGE_THRESHOLD.md) –

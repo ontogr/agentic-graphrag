@@ -12,6 +12,7 @@ from agrag.ingestion._clustering import average_linkage_clusters
 HARD_MERGE_THRESHOLD = 0.95
 DISCARD_THRESHOLD = 0.80
 MAX_LLM_PAIRS = 500
+DEFAULT_LLM_CONCURRENCY = 2
 LONG_NAME_CHARS = 80
 DIGIT_TOKEN_PATTERN = re.compile(r"\d+(?:\.\d+)*")
 
