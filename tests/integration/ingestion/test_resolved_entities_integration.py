@@ -162,11 +162,10 @@ class TestMatchRebuildIntegration:
 
             decided = await store.execute_read(
                 fetch_decided_pairs_query(),
-                {"ids": [str(first.id), str(second.id)], "job_id": None},
+                {"pairs": [[str(first.id), str(second.id)]], "job_id": None},
             )
             assert {(row["a_id"], row["b_id"]) for row in decided} == {
                 (str(first.id), str(second.id)),
-                (str(second.id), str(first.id)),
             }
 
             await write_matches_and_rebuild(

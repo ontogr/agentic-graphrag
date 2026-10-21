@@ -543,7 +543,8 @@ def _constrain_matches(
     }
     rejected: set[tuple[int, int]] = set()
     for left, right in sorted(
-        edges, key=lambda pair: (-confidence.get(pair, 1.0), pair)
+        edges,
+        key=lambda pair: (-confidence.get(pair, 1.0), pair in confidence, pair),
     ):
         left_root, right_root = find(left), find(right)
         if left_root == right_root:
@@ -616,7 +617,8 @@ class Resolver:
                 most similar first. The rest are undecided.
             llm_batch_size: Pairs per LLM request. Must fit the
                 LLMVerify comparator's max_pairs_per_batch.
-            llm_concurrency: Maximum simultaneous verification requests, at least 1.
+            llm_concurrency: Maximum simultaneous verification requests per resolve
+                call, at least 1. Concurrent resolve calls have separate limits.
             on_progress: Receives completed batches, total batches and elapsed seconds.
             tracer: Opens this resolver's spans.
 
@@ -757,7 +759,11 @@ class Resolver:
                 llm_unavailable_pairs=tier.unavailable_pairs,
                 unresolved_pairs=sorted(set(tier.unresolved_pairs) | gated | rejected),
             )
-            if result.unresolved_pairs:
+            if (
+                result.failed_llm_requests
+                or result.cap_truncated_pairs
+                or result.llm_unavailable_pairs
+            ):
                 reason = (
                     f" LLM tier unavailable: {tier.unavailable_reason}."
                     if tier.unavailable_pairs
@@ -820,6 +826,7 @@ class Resolver:
                             comparator="fuzzy_fast_path",
                             score=evidence.score,
                             reasoning=evidence.reasoning,
+                            similarity=similarity_by_pair.get((left, right)),
                         )
                     )
                     continue

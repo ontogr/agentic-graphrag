@@ -65,7 +65,8 @@ A knowledge graph that a caller can open and add content to.
   to the LLM for each label. A lower value bounds the number of
   verification calls and leaves more pairs undecided. Zero sends
   no pairs to the LLM.
-- **llm_concurrency** (<code>int</code>) – Maximum concurrent LLM verification requests.
+- **llm_concurrency** (<code>int</code>) – Maximum concurrent LLM verification requests per
+  resolution call. Concurrent operations have separate limits.
 
 **Raises:**
 
@@ -379,7 +380,8 @@ index that evidence search reads, before this call returns.
   see __init__.
 - **max_llm_pairs** (<code>int</code>) – The most ambiguous entity pairs sent to the LLM for each
   label during resolution; see __init__.
-- **llm_concurrency** (<code>int</code>) – Maximum concurrent LLM verification requests.
+- **llm_concurrency** (<code>int</code>) – Maximum concurrent LLM verification requests per
+  resolution call. Concurrent operations have separate limits.
 
 **Returns:**
 

@@ -4,7 +4,7 @@ The stage matches the batch's mentions against each other and against the
 entities already in the graph. Its output feeds the merge stage.
 """
 
-import contextlib
+import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 
@@ -16,6 +16,9 @@ from agrag.ingestion.reports import AddResult
 from agrag.ingestion.resolve import resolve_batch
 from agrag.ingestion.resolve.resolution import BatchResolution
 from agrag.ingestion.stats import ResolutionStats
+
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -71,8 +74,10 @@ async def resolve_stage(
             }
         )
         if on_progress is not None:
-            with contextlib.suppress(Exception):
+            try:
                 on_progress(AddResult(resolution=progress))
+            except Exception:  # noqa: BLE001
+                logger.warning("Resolution progress callback failed", exc_info=True)
 
     batch = await resolve_batch(
         entities,

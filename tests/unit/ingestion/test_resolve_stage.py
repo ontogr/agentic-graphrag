@@ -5,6 +5,8 @@ from unittest import mock
 from unittest.mock import AsyncMock
 from uuid import uuid4
 
+import pytest
+
 from agrag.common.data_models.default_schema import DEFAULT_SCHEMA
 from agrag.common.data_models.extraction import ExtractedEntity
 from agrag.ingestion import _resolve_stage
@@ -26,10 +28,18 @@ def _mention(text: str) -> ExtractedEntity:
 class TestResolveStage:
     """Counting what the resolver decided for one batch."""
 
-    async def test_forwards_monotonic_resolution_progress(self) -> None:
+    @pytest.mark.parametrize("callback_fails", [False, True])
+    async def test_forwards_monotonic_resolution_progress(
+        self, callback_fails: bool, caplog: pytest.LogCaptureFixture
+    ) -> None:
         """Resolution progress reports monotonic counts and completes at total."""
         progress: list[AddResult] = []
         batch = BatchResolution(exact_matches={}, groups=[], result=None)
+
+        def report(item: AddResult) -> None:
+            progress.append(item)
+            if callback_fails:
+                raise RuntimeError("progress consumer failed")
 
         async def _resolve(
             *_args: object,
@@ -59,7 +69,7 @@ class TestResolveStage:
                 ctx,
                 graph_schema=DEFAULT_SCHEMA,
                 max_llm_pairs=10,
-                on_progress=progress.append,
+                on_progress=report,
             )
 
         assert [
@@ -75,6 +85,9 @@ class TestResolveStage:
             stage.stats.batches_total,
             stage.stats.elapsed_seconds,
         ) == (3, 3, 0.3)
+        if callback_fails:
+            assert "progress consumer failed" in caplog.text
+            assert "Resolution progress callback failed" in caplog.text
 
     async def test_counts_groups_with_two_incoming_mentions_and_copies_failures(
         self,

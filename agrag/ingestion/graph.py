@@ -279,7 +279,8 @@ class Graph:
                 to the LLM for each label. A lower value bounds the number of
                 verification calls and leaves more pairs undecided. Zero sends
                 no pairs to the LLM.
-            llm_concurrency: Maximum concurrent LLM verification requests.
+            llm_concurrency: Maximum concurrent LLM verification requests per
+                resolution call. Concurrent operations have separate limits.
 
         Raises:
             ValueError: ``llm_concurrency`` is less than one.
@@ -376,7 +377,8 @@ class Graph:
                 see __init__.
             max_llm_pairs: The most ambiguous entity pairs sent to the LLM for each
                 label during resolution; see __init__.
-            llm_concurrency: Maximum concurrent LLM verification requests.
+            llm_concurrency: Maximum concurrent LLM verification requests per
+                resolution call. Concurrent operations have separate limits.
 
         Returns:
             A graph connected to graph_store and ready to accept add() calls.

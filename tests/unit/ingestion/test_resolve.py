@@ -178,11 +178,13 @@ class TestFuzzyMatch:
         )
 
         result = await resolver.resolve(
-            [_entity("Ada Lovelace"), _entity("Lovelace Ada")]
+            [_entity("Ada Lovelace"), _entity("Lovelace Ada")],
+            similarity_by_pair={(0, 1): 0.87},
         )
 
         assert len(result.matches) == 1
         assert result.matches[0].score == 1.0
+        assert result.matches[0].similarity == 0.87
 
 
 # ── LLMVerify ──────────────────────────────────────────────────────────
@@ -515,6 +517,32 @@ def _llm_entity(text: str, chunk: Chunk, label: str = "Person") -> ExtractedEnti
 
 class TestZoneRouting:
     """Resolver routes pairs through exact, fuzzy, embedding, and LLM zones."""
+
+    async def test_exact_edge_wins_a_tie_with_a_model_match(self) -> None:
+        """Identical mentions stay together when a conflicting match scores 1."""
+        chunk = _llm_chunk()
+
+        class Client:
+            async def VerifyEntityMatches(self, pairs, options):  # noqa: N802
+                return [
+                    {
+                        "pair_id": pair["pair_id"],
+                        "verdict": "no_match" if pair["pair_id"] == "0:2" else "match",
+                    }
+                    for pair in pairs
+                ]
+
+        resolver = Resolver(
+            comparators=[LLMVerify(chunks_by_id={chunk.id: chunk}, client=Client())],
+            candidate_source=_candidate_source(),
+        )
+        result = await resolver.resolve(
+            [_entity(name, chunk_id=chunk.id) for name in ("Alpha", "Beta", "Beta")],
+            similarity_by_pair={(0, 1): 1.0},
+        )
+
+        assert [group.entity_indices for group in result.groups] == [[0], [1, 2]]
+        assert result.matches == []
 
     async def test_exact_match_groups_without_evidence(self) -> None:
         """Exact identity merges with no match record and no ambiguity."""

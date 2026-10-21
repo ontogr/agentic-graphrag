@@ -28,15 +28,18 @@ through one pass. Synthetic mentions never initiate a comparison.
 - **max_llm_pairs** (<code>int</code>) – The most ambiguous pairs per label sent to the LLM.
 - **llm_concurrency** (<code>int</code>) – Maximum simultaneous verification requests.
 - **on_progress** (<code>Callable\\[[int, int, float\], None\] | None</code>) – Receives completed batches, total batches and elapsed seconds.
-- **error_policy** (<code>[ErrorPolicy](../../../loaders/types/ErrorPolicy.md)</code>) – RAISE propagates a failed candidate read; any other
-  policy records it and leaves that mention unresolved.
+- **error_policy** (<code>[ErrorPolicy](../../../loaders/types/ErrorPolicy.md)</code>) – RAISE propagates candidate and telemetry read failures.
+  Other policies record candidate-read failures and leave those
+  mentions unresolved; telemetry-read failures are reported without
+  changing comparisons.
 - **job_id** (<code>UUID | str | None</code>) – The in-flight Cutover Job's id for the exact-match read.
 
 **Returns:**
 
 - <code>[BatchResolution](BatchResolution.md)</code> – The exact matches, exact groups, resolver result, persisted
-- <code>[BatchResolution](BatchResolution.md)</code> – candidates, and candidate-read failures for the batch.
+- <code>[BatchResolution](BatchResolution.md)</code> – candidates, candidate-read failures, and any telemetry-read failure.
 
 **Raises:**
 
-- <code>Exception</code> – A candidate read failed and `error_policy` is RAISE.
+- <code>Exception</code> – A candidate or telemetry read failed and `error_policy`
+  is RAISE.

@@ -52,7 +52,8 @@ merge without spending LLM calls.
   most similar first. The rest are undecided.
 - **llm_batch_size** (<code>int</code>) – Pairs per LLM request. Must fit the
   LLMVerify comparator's max_pairs_per_batch.
-- **llm_concurrency** (<code>int</code>) – Maximum simultaneous verification requests, at least 1.
+- **llm_concurrency** (<code>int</code>) – Maximum simultaneous verification requests per resolve
+  call, at least 1. Concurrent resolve calls have separate limits.
 - **on_progress** (<code>Callable\\[[int, int, float\], None\] | None</code>) – Receives completed batches, total batches and elapsed seconds.
 - **tracer** (<code>Tracer | None</code>) – Opens this resolver's spans.
 
