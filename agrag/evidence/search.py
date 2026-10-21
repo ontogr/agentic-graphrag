@@ -14,11 +14,11 @@ from typing import Any
 
 from agrag.common.data_models.chunk import CHUNK_LABEL, Chunk
 from agrag.common.data_models.evidence import (
-    DiscoveryHit,
-    DiscoveryLeg,
-    DiscoveryMode,
-    DiscoveryResult,
-    DiscoveryStatus,
+    EvidenceSearchHit,
+    EvidenceSearchLeg,
+    EvidenceSearchMode,
+    EvidenceSearchResult,
+    EvidenceSearchStatus,
     IndexState,
     LegFailure,
 )
@@ -88,21 +88,21 @@ def reciprocal_rank_fusion(
     return dict(scores)
 
 
-async def discover(
+async def search_evidence(
     store: GraphStore,
     embedder: Embedder,
     query: str,
     *,
-    mode: DiscoveryMode,
+    mode: EvidenceSearchMode,
     limit: int,
     scope: frozenset[str],
     timeout: float | None = None,
-) -> DiscoveryResult:
+) -> EvidenceSearchResult:
     """Find up to ``limit`` visible passages that match a query.
 
     The lexical leg matches the words of the query against chunk text. The
     semantic leg embeds the query and searches the chunk embeddings. The hybrid
-    mode runs both and fuses them. Discovery returns status ``index_not_ready``
+    mode runs both and fuses them. Search returns status ``index_not_ready``
     when a needed index is missing or not ONLINE. It returns ``empty_scope``
     without searching when ``scope`` is empty.
 
@@ -128,25 +128,25 @@ async def discover(
     if limit <= 0:
         raise ValueError(f"limit must be positive, got {limit}")
     if not scope:
-        return DiscoveryResult(status=DiscoveryStatus.EMPTY_SCOPE)
+        return EvidenceSearchResult(status=EvidenceSearchStatus.EMPTY_SCOPE)
 
     legs = (
-        [DiscoveryLeg.LEXICAL, DiscoveryLeg.SEMANTIC]
-        if mode is DiscoveryMode.HYBRID
-        else [DiscoveryLeg(mode.value)]
+        [EvidenceSearchLeg.LEXICAL, EvidenceSearchLeg.SEMANTIC]
+        if mode is EvidenceSearchMode.HYBRID
+        else [EvidenceSearchLeg(mode.value)]
     )
     try:
         index_state = await indexes_ready(store, _index_specs(legs), timeout=timeout)
     except Exception:
         _LOGGER.exception("Evidence index state read failed")
-        return DiscoveryResult(status=DiscoveryStatus.FAILED)
+        return EvidenceSearchResult(status=EvidenceSearchStatus.FAILED)
     if index_state is IndexState.NOT_READY:
-        return DiscoveryResult(
-            status=DiscoveryStatus.INDEX_NOT_READY, index_state=index_state
+        return EvidenceSearchResult(
+            status=EvidenceSearchStatus.INDEX_NOT_READY, index_state=index_state
         )
 
     scope_ids = sorted(scope_node_ids(scope))
-    rankings: dict[DiscoveryLeg, list[_Visible]] = {}
+    rankings: dict[EvidenceSearchLeg, list[_Visible]] = {}
     failures: list[LegFailure] = []
     truncated = False
     for leg in legs:
@@ -169,14 +169,14 @@ async def discover(
 
     hits = _combine(rankings, mode=mode, limit=limit)
     if failures and len(failures) == len(legs):
-        status = DiscoveryStatus.FAILED
+        status = EvidenceSearchStatus.FAILED
     elif failures:
-        status = DiscoveryStatus.PARTIAL
+        status = EvidenceSearchStatus.PARTIAL
     elif hits:
-        status = DiscoveryStatus.OK
+        status = EvidenceSearchStatus.OK
     else:
-        status = DiscoveryStatus.NO_MATCH
-    return DiscoveryResult(
+        status = EvidenceSearchStatus.NO_MATCH
+    return EvidenceSearchResult(
         status=status,
         hits=hits,
         truncated=truncated,
@@ -185,10 +185,10 @@ async def discover(
     )
 
 
-def _index_specs(legs: Sequence[DiscoveryLeg]) -> list[IndexSpec]:
+def _index_specs(legs: Sequence[EvidenceSearchLeg]) -> list[IndexSpec]:
     """Return the index each leg searches."""
     specs: list[IndexSpec] = []
-    if DiscoveryLeg.LEXICAL in legs:
+    if EvidenceSearchLeg.LEXICAL in legs:
         specs.append(
             IndexSpec(
                 name=fulltext_index_name(CHUNK_LABEL, _FULLTEXT_PROPERTIES),
@@ -197,7 +197,7 @@ def _index_specs(legs: Sequence[DiscoveryLeg]) -> list[IndexSpec]:
                 prop=_FULLTEXT_PROPERTIES[0],
             )
         )
-    if DiscoveryLeg.SEMANTIC in legs:
+    if EvidenceSearchLeg.SEMANTIC in legs:
         specs.append(
             IndexSpec(
                 name=vector_index_name(CHUNK_LABEL, _EMBEDDING_PROPERTY),
@@ -212,7 +212,7 @@ def _index_specs(legs: Sequence[DiscoveryLeg]) -> list[IndexSpec]:
 async def _run_leg(
     store: GraphStore,
     embedder: Embedder,
-    leg: DiscoveryLeg,
+    leg: EvidenceSearchLeg,
     query: str,
     *,
     scope_ids: list[str],
@@ -224,7 +224,7 @@ async def _run_leg(
     The candidate count grows until ``limit`` visible chunks are found, the index
     runs out of candidates, or the ceiling is reached.
     """
-    if leg is DiscoveryLeg.LEXICAL:
+    if leg is EvidenceSearchLeg.LEXICAL:
         terms = lucene_terms(query)
         if not terms:
             return [], False
@@ -290,23 +290,23 @@ def _visible_rows(rows: Sequence[Mapping[str, Any]]) -> list[_Visible]:
 
 
 def _combine(
-    rankings: Mapping[DiscoveryLeg, list[_Visible]],
+    rankings: Mapping[EvidenceSearchLeg, list[_Visible]],
     *,
-    mode: DiscoveryMode,
+    mode: EvidenceSearchMode,
     limit: int,
-) -> list[DiscoveryHit]:
+) -> list[EvidenceSearchHit]:
     """Merge the legs into hits, one per evidence id, best first."""
     by_id: dict[str, _Visible] = {}
-    legs_by_id: dict[str, list[DiscoveryLeg]] = defaultdict(list)
-    for leg in DiscoveryLeg:
+    legs_by_id: dict[str, list[EvidenceSearchLeg]] = defaultdict(list)
+    for leg in EvidenceSearchLeg:
         for item in rankings.get(leg, []):
             by_id.setdefault(item.evidence_id, item)
             legs_by_id[item.evidence_id].append(leg)
 
-    if mode is DiscoveryMode.HYBRID:
+    if mode is EvidenceSearchMode.HYBRID:
         ranked_ids = [
             [item.evidence_id for item in rankings[leg]]
-            for leg in DiscoveryLeg
+            for leg in EvidenceSearchLeg
             if leg in rankings
         ]
         scores = reciprocal_rank_fusion(ranked_ids)
@@ -320,10 +320,12 @@ def _combine(
     ]
 
 
-def _hit(item: _Visible, score: float, legs: list[DiscoveryLeg]) -> DiscoveryHit:
+def _hit(
+    item: _Visible, score: float, legs: list[EvidenceSearchLeg]
+) -> EvidenceSearchHit:
     """Build the public hit for one visible chunk."""
     chunk = item.chunk
-    return DiscoveryHit(
+    return EvidenceSearchHit(
         evidence_id=item.evidence_id,
         document_key=item.document_key,
         title=item.title,

@@ -101,15 +101,15 @@ class TestMcpMemoryTools:
                 "list_conflicts",
                 "get_decision",
                 "list_decisions",
-                "list_needing_review",
+                "list_decisions_for_review",
                 "reaffirm_decision",
-                "continue_review_propagation",
+                "continue_decision_review",
             } <= names
             assert "reject_decision" not in names
             create = await client.call_tool(
                 "create_task",
                 {
-                    "name": "mcp task",
+                    "task_name": "mcp task",
                     "goal": "record an event",
                     "request_id": "create-once",
                 },
@@ -225,7 +225,7 @@ class TestMcpMemoryTools:
                 "list_steps", {"task_name": "mcp task", "state": "completed"}
             )
             assert steps.structured_content["steps"][0]["result_basis"] == "supported"
-            task_view = await client.call_tool("get_task", {"name": "mcp task"})
+            task_view = await client.call_tool("get_task", {"task_name": "mcp task"})
             assert task_view.structured_content["found"] is True
             decision = await client.call_tool(
                 "record_decision",
@@ -267,22 +267,22 @@ class TestMcpMemoryTools:
                 "list_decisions", {"task_name": "mcp task"}
             )
             assert history.structured_content["page"]["count"] == 2
-            review_list = await client.call_tool("list_needing_review", {})
+            review_list = await client.call_tool("list_decisions_for_review", {})
             assert (
                 review_list.structured_content["decisions"][0]["review_state"]
                 == "unknown"
             )
             propagation = await client.call_tool(
-                "continue_review_propagation", {"limit": 5}
+                "continue_decision_review", {"limit": 5}
             )
             assert propagation.structured_content["result"] == 1
-            reviewed = await client.call_tool("list_needing_review", {})
+            reviewed = await client.call_tool("list_decisions_for_review", {})
             assert reviewed.structured_content["decisions"] == []
 
             reaffirm_task = await client.call_tool(
                 "create_task",
                 {
-                    "name": "reaffirm task",
+                    "task_name": "reaffirm task",
                     "goal": "reaffirm a supported decision",
                     "request_id": "reaffirm-task-once",
                 },
@@ -306,7 +306,7 @@ class TestMcpMemoryTools:
                 "reaffirm_decision",
                 {
                     "decision_id": reaffirm_id,
-                    "evidence": [{"evidence_id": evidence_id}],
+                    "evidence_ids": [evidence_id],
                     "explanation": "The current source still supports it.",
                     "request_id": "reaffirm-once",
                 },
@@ -316,7 +316,7 @@ class TestMcpMemoryTools:
             other_task = await client.call_tool(
                 "create_task",
                 {
-                    "name": "another task",
+                    "task_name": "another task",
                     "goal": "compare the decision",
                     "request_id": "other-task-once",
                 },
@@ -366,7 +366,7 @@ class TestMcpMemoryTools:
             hidden_names = {tool.name for tool in hidden.tools}
             assert "record_event" not in hidden_names
             assert "reaffirm_decision" not in hidden_names
-            assert "continue_review_propagation" not in hidden_names
+            assert "continue_decision_review" not in hidden_names
             denied = await client.call_tool(
                 "record_event",
                 {
@@ -388,7 +388,7 @@ class TestMcpMemoryTools:
         async with Client(
             build_server(evidence_env.store, BagOfWordsEmbedder(), other_scope)
         ) as client:
-            hidden_task = await client.call_tool("get_task", {"name": "mcp task"})
+            hidden_task = await client.call_tool("get_task", {"task_name": "mcp task"})
             assert hidden_task.structured_content["found"] is False
             hidden_events = await client.call_tool(
                 "list_events", {"task_name": "mcp task", "limit": 5}

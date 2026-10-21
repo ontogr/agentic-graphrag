@@ -1,12 +1,12 @@
 ---
-title: agrag.evidence.navigate.navigate
-sidebar_label: navigate
+title: agrag.evidence.navigate.navigate_document_tree
+sidebar_label: navigate_document_tree
 ---
 
-# `agrag.evidence.navigate.navigate` \{#agrag-evidence-navigate-navigate}
+# `agrag.evidence.navigate.navigate_document_tree` \{#agrag-evidence-navigate-navigate_document_tree}
 
 ```python
-navigate(store:GraphStore, evidence_id:str, relation:NavigationRelation, *, scope:frozenset[str], limit:int, max_chars:int) -> NavigationResult
+navigate_document_tree(store:GraphStore, evidence_id:str, relation:NavigationRelation, *, scope:frozenset[str], limit:int, max_chars:int) -> NavigationResult
 ```
 
 Return the passages that one relation reaches from an evidence id.

@@ -12,7 +12,7 @@ One passage returned by a navigation call.
 **Attributes:**
 
 - [**evidence_id**](#agrag-common-data_models-navigation-NavigationItem-evidence_id) (<code>str</code>) – The evidence id of the passage. Pass it to fetch,
-  check_citations or navigate.
+  check_citations or navigate_document_tree.
 - [**document_key**](#agrag-common-data_models-navigation-NavigationItem-document_key) (<code>str</code>) – The key of the document the passage belongs to.
 - [**heading_path**](#agrag-common-data_models-navigation-NavigationItem-heading_path) (<code>list\[str\]</code>) – The headings above the passage, from the outermost down.
 - [**kind**](#agrag-common-data_models-navigation-NavigationItem-kind) (<code>Literal['text', 'table']</code>) – `"text"` for running text and `"table"` for a table passage.

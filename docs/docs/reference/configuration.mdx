@@ -172,7 +172,7 @@ Class: `RetrievalSettings`. Prefix: `RETRIEVAL_`.
 | `RETRIEVAL_COMMUNITY_TOP_K` | `5` | Results per community search. |
 | `RETRIEVAL_TRAVERSAL_DEPTH` | `2` | The maximum hops of a graph expansion. |
 | `RETRIEVAL_TRAVERSAL_LIMIT` | `50` | The maximum nodes a graph expansion returns. |
-| `RETRIEVAL_RRF_K` | `60` | The reciprocal-rank-fusion constant of `SearchEngine`. Evidence discovery and entity search in `agrag.evidence` fuse with a fixed constant of `60` and ignore this variable. |
+| `RETRIEVAL_RRF_K` | `60` | The reciprocal-rank-fusion constant of `SearchEngine`. Evidence search and entity search in `agrag.evidence` fuse with a fixed constant of `60` and ignore this variable. |
 | `RETRIEVAL_RERANKER_MIN_SCORE` | none | Drop results below this score after reranking. None keeps all. |
 | `RETRIEVAL_NODE_DISTANCE_SEED_TOP_K` | `3` | How many top entity hits seed the node-distance reranker. |
 | `RETRIEVAL_CROSS_ENCODER_MODEL` | `cross-encoder/ms-marco-MiniLM-L-6-v2` | The cross-encoder for reranking. |
@@ -187,21 +187,21 @@ Class: `CutoverJobSettings`. Prefix: `CUTOVER_JOB_`.
 
 ## MCP server
 
-Class: `McpServerSettings`. Prefix: `AGRAG_MCP_`. The `agrag-mcp` server reads these variables at start. See [Run the MCP server](../guides/run-the-mcp-server.mdx) for how to use them.
+Class: `McpServerSettings`. Prefix: `MCP_`. The `agrag-mcp` server reads these variables at start. See [Run the MCP server](../guides/run-the-mcp-server.mdx) for how to use them.
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `AGRAG_MCP_SCOPE_DOCUMENT_KEYS` | none | Required. A comma-separated list with at least one document key that the server may read. A file document's key is its resolved absolute path. |
-| `AGRAG_MCP_READ_ONLY` | `true` | When `true`, the server registers no write tools. Set it to `false` to enable task and decision writes. |
-| `AGRAG_MCP_PROJECT_ID` | none | The project that task and decision tools read and write. Required when `AGRAG_MCP_READ_ONLY` is `false`. |
-| `AGRAG_MCP_AGENT_ID` | none | The author recorded on writes. Required when `AGRAG_MCP_READ_ONLY` is `false`. |
-| `AGRAG_MCP_ALLOW_REJECT` | `false` | Set to `true` to register `reject_decision`. |
-| `AGRAG_MCP_MAX_HITS` | `10` | The most hits one search returns. |
-| `AGRAG_MCP_MAX_SNIPPET_CHARS` | `240` | The most characters of one hit snippet. |
-| `AGRAG_MCP_MAX_FETCH_CHARS` | `4000` | The most characters returned for each fetched evidence id. |
-| `AGRAG_MCP_MAX_FETCH_IDS` | `20` | The most evidence ids one fetch or citation check takes. |
-| `AGRAG_MCP_MAX_RESPONSE_CHARS` | `60000` | The most characters of one result as sent. Search and fetch results send their JSON twice, so they count at twice their JSON length. |
-| `AGRAG_MCP_REQUEST_DEADLINE_SECONDS` | `30.0` | The timeout of each store read. |
+| `MCP_SCOPE_DOCUMENT_KEYS` | none | Required. A comma-separated list with at least one document key that the server may read. A file document's key is its resolved absolute path. |
+| `MCP_READ_ONLY` | `true` | When `true`, the server registers no write tools. Set it to `false` to enable task and decision writes. |
+| `MCP_PROJECT_ID` | none | The project that task and decision tools read and write. Required when `MCP_READ_ONLY` is `false`. |
+| `MCP_AGENT_ID` | none | The author recorded on writes. Required when `MCP_READ_ONLY` is `false`. |
+| `MCP_ALLOW_REJECT` | `false` | Set to `true` to register `reject_decision`. |
+| `MCP_MAX_HITS` | `10` | The most hits one search returns. |
+| `MCP_MAX_SNIPPET_CHARS` | `240` | The most characters of one hit snippet. |
+| `MCP_MAX_FETCH_CHARS` | `4000` | The most characters returned for each fetched evidence id. |
+| `MCP_MAX_FETCH_IDS` | `20` | The most evidence ids one fetch or citation check takes. |
+| `MCP_MAX_RESPONSE_CHARS` | `60000` | The most characters of one result as sent. Search and fetch results send their JSON twice, so they count at twice their JSON length. |
+| `MCP_REQUEST_DEADLINE_SECONDS` | `30.0` | The timeout of each store read. |
 
 The server also reads the `NEO4J_*` and `EMBEDDING_*` variables. Set `EMBEDDING_MODEL` to the model you used for ingestion.
 

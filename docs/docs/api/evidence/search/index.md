@@ -1,9 +1,9 @@
 ---
-title: agrag.evidence.discover
-sidebar_label: discover
+title: agrag.evidence.search
+sidebar_label: search
 ---
 
-# `agrag.evidence.discover` \{#agrag-evidence-discover}
+# `agrag.evidence.search` \{#agrag-evidence-search}
 
 Find visible passages by full-text search, vector search, or both.
 
@@ -14,8 +14,8 @@ out-of-scope and superseded chunks never take a result slot.
 
 **Functions:**
 
-- [**discover**](discover-ref.md) – Find up to `limit` visible passages that match a query.
 - [**reciprocal_rank_fusion**](reciprocal_rank_fusion.md) – Fuse ranked id lists into one score per id.
+- [**search_evidence**](search_evidence.md) – Find up to `limit` visible passages that match a query.
 
 **Attributes:**
 

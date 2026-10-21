@@ -15,7 +15,7 @@ keeps its own neighbors.
 
 **Functions:**
 
-- [**navigate**](navigate-ref.md) – Return the passages that one relation reaches from an evidence id.
+- [**navigate_document_tree**](navigate_document_tree.md) – Return the passages that one relation reaches from an evidence id.
 
 **Attributes:**
 

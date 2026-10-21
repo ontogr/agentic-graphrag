@@ -25,11 +25,11 @@ from pydantic import BaseModel, Field
 from agrag.common.data_models.chunk import CHUNK_LABEL
 from agrag.common.data_models.evidence import (
     CitationResult,
-    DiscoveryHit,
-    DiscoveryLeg,
-    DiscoveryMode,
-    DiscoveryResult,
-    DiscoveryStatus,
+    EvidenceSearchHit,
+    EvidenceSearchLeg,
+    EvidenceSearchMode,
+    EvidenceSearchResult,
+    EvidenceSearchStatus,
     FetchResult,
     FetchStatus,
     LegFailure,
@@ -37,7 +37,7 @@ from agrag.common.data_models.evidence import (
 from agrag.cypher.schema import vector_index_dimensions_query
 from agrag.embedding.base import Embedder
 from agrag.evidence import check_citations as verify_citations
-from agrag.evidence import discover, fetch
+from agrag.evidence import fetch_evidence, search_evidence
 from agrag.graphdb.base import GraphStore
 from agrag.mcp_server.read_tools import (
     register_evidence_read_tools,
@@ -168,6 +168,7 @@ def build_server(  # noqa: PLR0915
     _register_memory_tools(server, store, embedder, settings)
 
     @server.tool(
+        name="search_evidence",
         annotations=_READ_ONLY,
         description=(
             "Find passages in the configured documents by keyword, meaning or "
@@ -179,12 +180,12 @@ def build_server(  # noqa: PLR0915
             "hits only. Equal dimensions do not verify model identity."
         ),
     )
-    async def search_evidence(
+    async def search_evidence_tool(
         ctx: Context[_Session, Any],
         query: str,
-        mode: DiscoveryMode = DiscoveryMode.HYBRID,
+        mode: EvidenceSearchMode = EvidenceSearchMode.HYBRID,
         limit: Annotated[int, Field(ge=1)] | None = None,
-    ) -> DiscoveryResult:
+    ) -> EvidenceSearchResult:
         """Find passages that match a query, best first.
 
         Args:
@@ -205,15 +206,15 @@ def build_server(  # noqa: PLR0915
         requested = settings.max_hits if limit is None else limit
         effective = min(requested, settings.max_hits)
         dimension_mismatch = False
-        if mode is not DiscoveryMode.LEXICAL:
+        if mode is not EvidenceSearchMode.LEXICAL:
             dimension_mismatch = await _dimensions_mismatch(
                 store, embedder, deadline=deadline
             )
-            if dimension_mismatch and mode is DiscoveryMode.SEMANTIC:
+            if dimension_mismatch and mode is EvidenceSearchMode.SEMANTIC:
                 raise ToolError(_EMBEDDING_MISMATCH)
-        search_mode = DiscoveryMode.LEXICAL if dimension_mismatch else mode
+        search_mode = EvidenceSearchMode.LEXICAL if dimension_mismatch else mode
         try:
-            result = await discover(
+            result = await search_evidence(
                 store,
                 embedder,
                 query,
@@ -225,13 +226,13 @@ def build_server(  # noqa: PLR0915
         except Exception:
             _LOGGER.exception("Evidence search failed")
             raise ToolError(_STORE_UNAVAILABLE) from None
-        if result.status is DiscoveryStatus.FAILED:
+        if result.status is EvidenceSearchStatus.FAILED:
             raise ToolError(_STORE_UNAVAILABLE)
         if dimension_mismatch:
             result = _with_semantic_failure(result)
 
         snippets_cut = False
-        hits: list[DiscoveryHit] = []
+        hits: list[EvidenceSearchHit] = []
         for hit in result.hits:
             if len(hit.snippet) > settings.max_snippet_chars:
                 snippets_cut = True
@@ -258,6 +259,7 @@ def build_server(  # noqa: PLR0915
         )
 
     @server.tool(
+        name="fetch_evidence",
         annotations=_READ_ONLY,
         description=(
             "Return the exact text of evidence ids from search_evidence. The text "
@@ -267,7 +269,7 @@ def build_server(  # noqa: PLR0915
             "retain evidence_id for validation."
         ),
     )
-    async def fetch_evidence(
+    async def fetch_evidence_tool(
         ctx: Context[_Session, Any],
         evidence_ids: list[str],
         max_chars: Annotated[int, Field(ge=1)] | None = None,
@@ -291,7 +293,7 @@ def build_server(  # noqa: PLR0915
         cap = settings.max_fetch_chars
         if max_chars is not None:
             cap = min(max_chars, cap)
-        outcomes = await fetch(
+        outcomes = await fetch_evidence(
             store,
             evidence_ids,
             scope=scope,
@@ -331,13 +333,13 @@ def build_server(  # noqa: PLR0915
     )
     async def check_citations(
         ctx: Context[_Session, Any],
-        cited_evidence_ids: list[str],
+        evidence_ids: list[str],
     ) -> CitationResult:
         """Return one verdict for each cited evidence id, in the order given.
 
         Args:
             ctx: The request context. Its lifespan state holds the fetched ids.
-            cited_evidence_ids: The ids that an answer cites.
+            evidence_ids: The ids that an answer cites.
 
         Returns:
             One verdict for each cited id. The result is not cut to the size
@@ -346,11 +348,9 @@ def build_server(  # noqa: PLR0915
         Raises:
             ToolError: More ids were passed than the configured maximum.
         """
-        _check_id_count(cited_evidence_ids, settings.max_fetch_ids)
+        _check_id_count(evidence_ids, settings.max_fetch_ids)
         session = _session(ctx)
-        checks = await verify_citations(
-            cited_evidence_ids, session.fetched_ids, scope=scope
-        )
+        checks = await verify_citations(evidence_ids, session.fetched_ids, scope=scope)
         kept, dropped = _drop_to_budget(
             checks,
             lambda items: CitationResult(checks=items, truncated=True),
@@ -364,7 +364,7 @@ def build_server(  # noqa: PLR0915
 async def _dimensions_mismatch(
     store: GraphStore, embedder: Embedder, *, deadline: float
 ) -> bool:
-    """Detect incompatible dimensions, leaving absent indexes to discovery."""
+    """Detect incompatible dimensions, leaving absent indexes to search."""
     try:
         rows = await store.execute_read(
             *vector_index_dimensions_query(CHUNK_LABEL, _EMBEDDING_PROPERTY),
@@ -383,15 +383,15 @@ async def _dimensions_mismatch(
     return rows[0]["dimensions"] != embedder_dimensions
 
 
-def _with_semantic_failure(lexical: DiscoveryResult) -> DiscoveryResult:
+def _with_semantic_failure(lexical: EvidenceSearchResult) -> EvidenceSearchResult:
     """Report a hybrid search that ran lexical only because of a mismatch.
 
     An ok or no-match lexical result becomes partial. Any other status keeps its
     meaning, and the failed semantic leg is added to the failures.
     """
-    failure = LegFailure(leg=DiscoveryLeg.SEMANTIC, message=_EMBEDDING_MISMATCH)
-    if lexical.status in (DiscoveryStatus.OK, DiscoveryStatus.NO_MATCH):
-        status = DiscoveryStatus.PARTIAL
+    failure = LegFailure(leg=EvidenceSearchLeg.SEMANTIC, message=_EMBEDDING_MISMATCH)
+    if lexical.status in (EvidenceSearchStatus.OK, EvidenceSearchStatus.NO_MATCH):
+        status = EvidenceSearchStatus.PARTIAL
     else:
         status = lexical.status
     return lexical.model_copy(

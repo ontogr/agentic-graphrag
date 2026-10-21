@@ -1,7 +1,7 @@
 """Purge a document's content and evidence against a real Neo4j instance.
 
 A purge hard-deletes every version of one document. Afterwards its text is gone
-from every node property, its evidence and discovery find nothing, and entities
+from every node property, its evidence and search find nothing, and entities
 and relations that lost their last evidence are removed. The Document node and its
 activation records remain as a tombstone, and other documents are untouched.
 """
@@ -22,7 +22,7 @@ from agrag.common.data_models.document import (
     Unit,
     UnitKind,
 )
-from agrag.common.data_models.evidence import DiscoveryMode, FetchStatus
+from agrag.common.data_models.evidence import EvidenceSearchMode, FetchStatus
 from agrag.common.data_models.extraction import (
     ExtractedEntity,
     ExtractedRelation,
@@ -30,7 +30,7 @@ from agrag.common.data_models.extraction import (
 )
 from agrag.common.data_models.graph_schema import GraphSchema
 from agrag.common.data_models.provenance import BoundingBox, PageSpan
-from agrag.evidence import discover, fetch
+from agrag.evidence import fetch_evidence, search_evidence
 from agrag.graphdb import build_graph_store
 from agrag.graphdb.base import GraphStore
 from agrag.ingestion.extract import Extractor
@@ -245,13 +245,13 @@ async def _works_for_sources(store: GraphStore, name: str) -> list[set[str]]:
     return [set(row["sources"]) for row in rows]
 
 
-async def _discovered_ids(store: GraphStore, key: str, probe: str) -> list[str]:
-    """Return the evidence ids that lexical discovery finds for the probe."""
-    found = await discover(
+async def _searched_ids(store: GraphStore, key: str, probe: str) -> list[str]:
+    """Return the evidence ids that lexical search finds for the probe."""
+    found = await search_evidence(
         store,
         BagOfWordsEmbedder(),
         probe,
-        mode=DiscoveryMode.LEXICAL,
+        mode=EvidenceSearchMode.LEXICAL,
         limit=10,
         scope=frozenset({key}),
     )
@@ -341,16 +341,16 @@ class TestDocumentPurge:
         graph = await _open_graph(store, probe, (probe,))
         try:
             await graph.add(documents=[_structured_document(key, probe)])
-            first_ids = await _discovered_ids(store, key, probe)
+            first_ids = await _searched_ids(store, key, probe)
             assert await _works_for_sources(store, probe)
             await graph.add(
                 documents=[_prose_document(key, f"{probe} revised tide gauge record.")]
             )
-            second_ids = await _discovered_ids(store, key, probe)
+            second_ids = await _searched_ids(store, key, probe)
             assert first_ids and second_ids
             assert await _structure_count(store, key) > 0
             assert await _text_hits(store, probe) > 0
-            out_of_scope = await fetch(
+            out_of_scope = await fetch_evidence(
                 store, first_ids + second_ids, scope=frozenset(), max_chars=500
             )
             assert {outcome.status for outcome in out_of_scope} == {
@@ -363,14 +363,14 @@ class TestDocumentPurge:
             assert await _structure_count(store, key) == 0
             assert await _text_hits(store, probe) == 0
             assert await _works_for_sources(store, probe) == []
-            outcomes = await fetch(
+            outcomes = await fetch_evidence(
                 store,
                 first_ids + second_ids,
                 scope=frozenset({key}),
                 max_chars=500,
             )
             assert {outcome.status for outcome in outcomes} == {FetchStatus.UNAVAILABLE}
-            assert await _discovered_ids(store, key, probe) == []
+            assert await _searched_ids(store, key, probe) == []
             assert await _purge_activations(store, key) == 1
         finally:
             await _cleanup(store, [key], probe)
@@ -385,12 +385,12 @@ class TestDocumentPurge:
         graph = await _open_graph(store, probe, (probe,))
         try:
             await graph.add(documents=[_structured_document(key, probe)])
-            evidence_ids = await _discovered_ids(store, key, probe)
+            evidence_ids = await _searched_ids(store, key, probe)
             assert evidence_ids
             assert await _structure_count(store, key) > 0
 
             await graph.delete_document(key)
-            after_delete = await fetch(
+            after_delete = await fetch_evidence(
                 store, evidence_ids, scope=frozenset({key}), max_chars=500
             )
             assert {outcome.status for outcome in after_delete} == {
@@ -443,7 +443,7 @@ class TestDocumentPurge:
                     _prose_document(other_key, f"{other_probe} harbor log entry."),
                 ]
             )
-            other_ids = await _discovered_ids(store, other_key, other_probe)
+            other_ids = await _searched_ids(store, other_key, other_probe)
             other_chunks = await _chunk_ids(store, other_key)
             assert other_ids
             assert any(
@@ -453,11 +453,11 @@ class TestDocumentPurge:
 
             await graph.purge_document(key)
 
-            outcomes = await fetch(
+            outcomes = await fetch_evidence(
                 store, other_ids, scope=frozenset({other_key}), max_chars=500
             )
             assert {outcome.status for outcome in outcomes} == {FetchStatus.OK}
-            assert await _discovered_ids(store, other_key, other_probe) == other_ids
+            assert await _searched_ids(store, other_key, other_probe) == other_ids
             assert await _text_hits(store, other_probe) > 0
             assert await _works_for_sources(store, probe) == [other_chunks]
         finally:

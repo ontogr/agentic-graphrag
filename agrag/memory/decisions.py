@@ -321,7 +321,7 @@ class DecisionMemory:
             found=bool(rows), decision=_decision_from_row(rows[0]) if rows else None
         )
 
-    async def continue_review_propagation(self, *, limit: int = 100) -> int:
+    async def continue_decision_review(self, *, limit: int = 100) -> int:
         """Expand at most ``limit`` queued decisions by one dependency hop each."""
         processed = 0
         for _ in range(max(0, min(limit, 100))):
@@ -379,7 +379,7 @@ class DecisionMemory:
             else None,
         )
 
-    async def list_review(
+    async def list_decisions_for_review(
         self, *, task_name: str | None = None, limit: int = 20
     ) -> DecisionReviewList:
         """List active decisions that need a look, within this project's bounds.

@@ -23,11 +23,43 @@ Citations make claims traceable to the passages behind them.
 <Diagram folder="docs" name="agent-loop" alt="A run creates or resumes the task and builds its task view. The agent calls evidence tools to find ids and fetch exact text, and writes an answer. The run records every message and tool result as task events. A citation check compares the cited ids with the fetched ids. If all are valid the run returns the result. If some are invalid and tool budget is left, the agent gets one repair pass." />
 
 1. The run creates or resumes the task and builds its task view. The view is data, and the agent reads it before it acts.
-2. The agent calls evidence tools. `discover_evidence` returns evidence ids for passages in scope. `find_entities` and `explore` search the graph. `navigate` moves from one passage to related text.
+2. The agent calls evidence tools. `search_evidence` returns evidence ids for passages in scope. `entity_search` and `explore_relationships` search the graph. `navigate_document_tree` moves from one passage to related text. See [The agent's tools](#the-agents-tools).
 3. The agent calls `fetch_evidence` on the ids it wants to cite. Only a fetch that returns complete text makes an id citable.
 4. The agent writes the answer and cites ids in square brackets.
 5. The run checks every cited id against the ids that were fetched in scope. If some are invalid and the tool budget has room, one repair pass asks the agent to remove or fetch them.
 6. The run returns the answer, a status, the valid citations, and any invalid ids.
+
+## The agent's tools
+
+The agent has two groups of tools. The evidence tools read your documents and graph. The task and decision tools record what the agent does and decides. The caller fixes the document scope when it builds the agent, and the model has no argument to change it. The parameters and limits of each tool are in the [tools reference](../reference/tools.mdx#evidence-tools).
+
+<Diagram folder="docs" name="agent-tools" alt="The agent sits between two tool groups. Evidence tools read the scoped documents and return evidence ids and exact text. Task and decision tools write and read the task log, steps, and decisions. The agent's answer passes the citation check before it is returned." />
+
+### Evidence tools
+
+| Tool | What the agent uses it for |
+|---|---|
+| `search_evidence` | Finds passages for a question by [keyword, meaning, or both](../tools/passage-search.mdx) and returns evidence ids and previews. |
+| `fetch_evidence` | Reads the exact text for evidence ids. Only a complete fetch makes an id [citable](../tools/fetch-evidence.mdx). |
+| `navigate_document_tree` | Reads the section, the neighbors, or the table rows around a passage, using one of [six relations](../tools/navigate-document-tree.mdx). |
+| `entity_search` | Finds [entities](../tools/entity-search.mdx) by name or meaning and lists the passages that mention them. |
+| `explore_relationships` | Follows the [relations](../tools/explore-relationships.mdx) around an entity, out to two steps. |
+| `check_citations` | Checks that cited ids were fetched in this run. |
+
+The system prompt tells the agent to read the task view first, to find and fetch evidence before it answers, to fetch relevant hits before it refines a search, and to stop searching once the fetched passages answer the question. It tells the agent to cite only ids whose fetch returned complete text, and to say when the evidence is insufficient.
+
+For a question that names an entity, the agent usually calls the tools in this order.
+
+1. `entity_search` finds the entity and the passages that mention it.
+2. `explore_relationships` lists the relations around it.
+3. `fetch_evidence` reads the passages on the assertion edges that matter.
+4. The agent writes the answer with the evidence ids in square brackets.
+
+A question with no named entity usually starts with `search_evidence`, then `fetch_evidence`, and uses `navigate_document_tree` when a passage is cut off.
+
+### Task and decision tools
+
+The agent also has tools to read its task (`get_task`, `list_events`, `fetch_event`, `list_steps`), to record progress (`set_step`), and to read and write decisions (`search_decisions`, `get_decision`, `list_decisions`, `list_support_history`, `list_decisions_for_review`, `record_decision`, `supersede_decision`, `reaffirm_decision`, `continue_decision_review`). It cannot reject a human decision. [Tasks and resuming](#tasks-and-resuming) describes how a run records and reuses this work.
 
 ## Tasks and resuming
 
@@ -48,7 +80,7 @@ The agent can also record progress with `set_step` and record decisions with `re
 
 ## Citation ids
 
-Evidence ids start with `ev1:`. A span id names a range of a chunk, and a chunk id names a whole chunk. The agent copies these ids from discovery results. It does not make them up.
+Evidence ids start with `ev1:`. A span id names a range of a chunk, and a chunk id names a whole chunk. The agent copies these ids from search results. It does not make them up.
 
 ## Limits
 
@@ -89,6 +121,7 @@ Source passages, task events, and tool results are data. The system prompt tells
 
 - Guide: [Retrieve and answer](../guides/retrieve-and-answer.mdx)
 - Guide: [Trace an agent run](../guides/trace-an-agent-run.mdx)
-- Concepts: [Retrieval](./retrieval.mdx), [Observability](./observability.mdx)
-- Reference: [Agents API](../api/agents/index.md), [Configuration](../reference/configuration.mdx)
+- [Retrieval](./retrieval.mdx) compares the strategies behind the evidence tools, and [Evidence ids and citations](./evidence-and-citations.mdx) describes the citation check that follows the answer.
+- Concepts: [Observability](./observability.mdx)
+- Reference: [Tools](../reference/tools.mdx) for tool parameters, [Agents API](../api/agents/index.md), [Configuration](../reference/configuration.mdx)
 - Reference: [Candidates](../reference/candidates.mdx)

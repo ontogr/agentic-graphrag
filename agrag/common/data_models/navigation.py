@@ -70,7 +70,7 @@ class NavigationItem(BaseModel):
 
     Attributes:
         evidence_id: The evidence id of the passage. Pass it to fetch,
-            check_citations or navigate.
+            check_citations or navigate_document_tree.
         document_key: The key of the document the passage belongs to.
         heading_path: The headings above the passage, from the outermost down.
         kind: ``"text"`` for running text and ``"table"`` for a table passage.

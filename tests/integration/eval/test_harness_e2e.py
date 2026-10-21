@@ -1,6 +1,6 @@
 """Smoke tests for evaluation corpus readiness and model scoring.
 
-Check hybrid discovery and evidence fetch without an LLM before model scoring.
+Check hybrid search and evidence fetch without an LLM before model scoring.
 Runs the real agent over the tiny corpus and scores its answer with a
 ``GEval`` from the real judge. It checks that the pieces connect,
 not the answer quality: the score only has to fall in ``[0, 1]``. The judge
@@ -17,12 +17,12 @@ from deepeval.test_case import LLMTestCase, SingleTurnParams
 
 from agrag.agents.settings import AgentLLMSettings
 from agrag.common.data_models.evidence import (
-    DiscoveryMode,
-    DiscoveryStatus,
+    EvidenceSearchMode,
+    EvidenceSearchStatus,
     FetchStatus,
 )
 from agrag.eval.judge import ChatModelJudge
-from agrag.evidence import discover, fetch
+from agrag.evidence import fetch_evidence, search_evidence
 from tests.integration.eval.conftest import AnswerQualityGraph, TinyCorpus
 
 
@@ -33,18 +33,18 @@ EXPECTED = "Tobias Renn designed the Lumen-9 lifting arm."
 async def test_tiny_corpus_has_searchable_and_fetchable_evidence(
     tiny_corpus: TinyCorpus,
 ) -> None:
-    """The trajectory fixture supports hybrid discovery before an agent starts."""
-    found = await discover(
+    """The trajectory fixture supports hybrid search before an agent starts."""
+    found = await search_evidence(
         tiny_corpus.store,
         tiny_corpus.embedder,
         "Tobias Renn",
-        mode=DiscoveryMode.HYBRID,
+        mode=EvidenceSearchMode.HYBRID,
         limit=5,
         scope=tiny_corpus.scope,
     )
-    assert found.status is DiscoveryStatus.OK
+    assert found.status is EvidenceSearchStatus.OK
     assert found.hits
-    outcomes = await fetch(
+    outcomes = await fetch_evidence(
         tiny_corpus.store,
         [found.hits[0].evidence_id],
         scope=tiny_corpus.scope,
@@ -58,18 +58,18 @@ async def test_tiny_corpus_has_searchable_and_fetchable_evidence(
 async def test_answer_quality_graph_has_searchable_and_fetchable_evidence(
     answer_quality_graph: AnswerQualityGraph,
 ) -> None:
-    """The answer fixture supports hybrid discovery before an agent starts."""
-    found = await discover(
+    """The answer fixture supports hybrid search before an agent starts."""
+    found = await search_evidence(
         answer_quality_graph.store,
         answer_quality_graph.embedder,
         "foreign currency",
-        mode=DiscoveryMode.HYBRID,
+        mode=EvidenceSearchMode.HYBRID,
         limit=5,
         scope=answer_quality_graph.scope,
     )
-    assert found.status is DiscoveryStatus.OK
+    assert found.status is EvidenceSearchStatus.OK
     assert found.hits
-    outcomes = await fetch(
+    outcomes = await fetch_evidence(
         answer_quality_graph.store,
         [found.hits[0].evidence_id],
         scope=answer_quality_graph.scope,

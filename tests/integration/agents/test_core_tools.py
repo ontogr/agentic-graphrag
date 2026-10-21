@@ -6,7 +6,7 @@ from uuid import uuid4
 from agrag.agents.tools.core import make_core_tools
 from agrag.chunking import Chunker
 from agrag.common.data_models.decision import DECISION_LABEL
-from agrag.common.data_models.evidence import DiscoveryMode
+from agrag.common.data_models.evidence import EvidenceSearchMode
 from agrag.common.data_models.graph_schema import GraphSchema
 from agrag.common.data_models.task import EventKind
 from agrag.graphdb import build_graph_store
@@ -64,7 +64,7 @@ async def test_core_memory_tools_read_write_and_review_persisted_data() -> None:
         )
         event_page = json.loads(
             await tool_by_name["list_events"].ainvoke(
-                {"event_task_name": task_name, "after_seq": 0, "limit": 1}
+                {"task_name": task_name, "after_seq": 0, "limit": 1}
             )
         )
         assert [event["payload"] for event in event_page["events"]] == [
@@ -72,35 +72,35 @@ async def test_core_memory_tools_read_write_and_review_persisted_data() -> None:
         ]
         next_event_page = json.loads(
             await tool_by_name["list_events"].ainvoke(
-                {"event_task_name": task_name, "after_seq": 1, "limit": 1}
+                {"task_name": task_name, "after_seq": 1, "limit": 1}
             )
         )
         assert [event["payload"] for event in next_event_page["events"]] == [
             "second durable note"
         ]
         event_lookup = json.loads(
-            await tool_by_name["get_event"].ainvoke(
-                {"event_task_name": task_name, "seq": event_two.event.seq}
+            await tool_by_name["fetch_event"].ainvoke(
+                {"task_name": task_name, "seq": event_two.event.seq}
             )
         )
         assert event_lookup["event"]["payload"] == "second durable note"
 
         await tool_by_name["set_step"].ainvoke(
-            {"name": "inspect source", "state_name": "in_progress", "kind": "read"}
+            {"name": "inspect source", "state": "in_progress", "kind": "read"}
         )
         await tool_by_name["set_step"].ainvoke(
-            {"name": "write summary", "state_name": "in_progress", "kind": "analysis"}
+            {"name": "write summary", "state": "in_progress", "kind": "analysis"}
         )
         step_page = json.loads(
             await tool_by_name["list_steps"].ainvoke(
-                {"state_name": "in_progress", "limit": 1}
+                {"state": "in_progress", "limit": 1}
             )
         )
         assert [step["name"] for step in step_page["steps"]] == ["inspect source"]
         next_step_page = json.loads(
             await tool_by_name["list_steps"].ainvoke(
                 {
-                    "state_name": "in_progress",
+                    "state": "in_progress",
                     "after_name": "inspect source",
                     "limit": 1,
                 }
@@ -109,8 +109,8 @@ async def test_core_memory_tools_read_write_and_review_persisted_data() -> None:
         assert [step["name"] for step in next_step_page["steps"]] == ["write summary"]
 
         found = json.loads(
-            await tool_by_name["discover_evidence"].ainvoke(
-                {"query": "harbor lighthouse", "mode": DiscoveryMode.LEXICAL.value}
+            await tool_by_name["search_evidence"].ainvoke(
+                {"query": "harbor lighthouse", "mode": EvidenceSearchMode.LEXICAL.value}
             )
         )
         evidence_id = found["hits"][0]["evidence_id"]
@@ -122,7 +122,7 @@ async def test_core_memory_tools_read_write_and_review_persisted_data() -> None:
         assert fetched[0]["status"] == "ok"
         neighboring_passages = [
             json.loads(
-                await tool_by_name["navigate"].ainvoke(
+                await tool_by_name["navigate_document_tree"].ainvoke(
                     {"evidence_id": evidence_id, "relation": relation}
                 )
             )
@@ -130,7 +130,7 @@ async def test_core_memory_tools_read_write_and_review_persisted_data() -> None:
         ]
         assert sum(len(result["items"]) for result in neighboring_passages) > 0
         malformed_navigation = json.loads(
-            await tool_by_name["navigate"].ainvoke(
+            await tool_by_name["navigate_document_tree"].ainvoke(
                 {"evidence_id": "not-an-evidence-id", "relation": "next"}
             )
         )
@@ -186,8 +186,8 @@ async def test_core_memory_tools_read_write_and_review_persisted_data() -> None:
         )
         assert continuation["processed"] == 1
         refreshed_search = json.loads(
-            await tool_by_name["discover_evidence"].ainvoke(
-                {"query": "harbor revised", "mode": DiscoveryMode.LEXICAL.value}
+            await tool_by_name["search_evidence"].ainvoke(
+                {"query": "harbor revised", "mode": EvidenceSearchMode.LEXICAL.value}
             )
         )
         refreshed_id = refreshed_search["hits"][0]["evidence_id"]
@@ -220,7 +220,7 @@ async def test_core_memory_tools_read_write_and_review_persisted_data() -> None:
             await tool_by_name["set_step"].ainvoke(
                 {
                     "name": "inspect source",
-                    "state_name": "completed",
+                    "state": "completed",
                     "kind": "read",
                     "result": "The retention decision has current support.",
                     "result_basis": "supported",

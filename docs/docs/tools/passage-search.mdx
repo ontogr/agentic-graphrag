@@ -1,0 +1,198 @@
+---
+title: Passage search
+description: Find the chunks of your documents that match a query by keyword, by meaning, or both.
+---
+
+# Passage search
+
+Passage search finds the chunks of your documents that match a query and returns them ranked, each with an evidence id.
+
+| | |
+|---|---|
+| Python function | `search_evidence` |
+| Built-in agent tool | `search_evidence` |
+| MCP tool | `search_evidence` |
+| Required inputs | `query`. Python also requires `store`, `embedder`, `mode`, `limit`, and `scope`. |
+| Optional inputs | On the agent and MCP tools, `mode` (default `hybrid`) and `limit` (default 8 on the agent and 10 on MCP). In Python, `timeout`. |
+| Returns | An `EvidenceSearchResult` with ranked `hits`. Each hit has an evidence id and a preview. |
+| Needs | The full-text index and the vector index on chunks. An embedder for `semantic` and `hybrid`. |
+| Reads | The current versions of the documents in scope |
+| API reference | [`agrag.evidence.search_evidence`](../api/evidence/search/search_evidence.md) |
+
+## Overview
+
+Passage search reads the stored chunk text, so a passage is found even when extraction never turned its facts into entities or relations. A hit holds a 240-character preview and an evidence id. [Fetch evidence](./fetch-evidence.mdx) returns the whole passage.
+
+Pick one of three modes.
+
+- `lexical` matches the words of the query. Use it when the query holds an exact word, an identifier, a defined term, or a name.
+- `semantic` compares the meaning of the query with the meaning of each chunk. Use it when the query describes an idea in words the document may not use.
+- `hybrid` runs both and fuses the two rankings. It is the default. Use it when you are unsure.
+
+## Example
+
+The examples use the notes from [Set up the example](./example-setup.mdx), and they reuse `store`, `embedder`, `scope`, and `short` from that page. Outputs come from a real run, and your ids differ.
+
+Ask the question "How soon is customer data erased?" in hybrid mode and print each hit:
+
+```python notest
+found = await search_evidence(
+    store,
+    embedder,
+    "How soon is customer data erased?",
+    mode=EvidenceSearchMode.HYBRID,
+    limit=3,
+    scope=scope,
+)
+print(found.status.value)
+for hit in found.hits:
+    print(f"{hit.score:.4f}  {short(hit.evidence_id)}  {[leg.value for leg in hit.legs]}")
+    print("   ", hit.snippet.replace("\n", " ")[:70])
+```
+
+```text
+ok
+0.0328  ev1:c:f24b301d...d7c4d6ef  ['lexical', 'semantic']
+    Data retention  Robot logs are kept for 30 days and then deleted. A cu
+0.0320  ev1:c:f24b301d...3e66aa77  ['lexical', 'semantic']
+    Acme Robotics engineering notes  Route planning  Maria Chen works for
+0.0161  ev1:c:f24b301d...12cd16fb  ['semantic']
+    | Component | Owner | Purpose | | --- | --- | --- | | Orion Planner |
+```
+
+The first hit holds the answer. The second hit also comes back from both searches, because the keyword search matches common words such as "customer" and "data" in a chunk about something else. The third hit came only from the semantic search. Fetch the first hit to read it.
+
+### Keyword search does not match word forms
+
+The notes say "deleted" and "erase". Search for the word "deletion" in each mode:
+
+```python notest
+for mode in (EvidenceSearchMode.LEXICAL, EvidenceSearchMode.SEMANTIC):
+    found = await search_evidence(store, embedder, "deletion", mode=mode, limit=1, scope=scope)
+    print(mode.value, found.status.value, [short(h.evidence_id) for h in found.hits])
+```
+
+```text
+lexical no_match []
+semantic ok ['ev1:c:f24b301d...d7c4d6ef']
+```
+
+Keyword search matches whole words and does not stem them, so "deletion" finds nothing. Semantic search finds the retention section because its meaning is close. The word "deleted" matches in keyword mode:
+
+```text
+lexical (deleted) ok ['ev1:c:f24b301d...d7c4d6ef']
+```
+
+:::note[Semantic search has no similarity threshold]
+The semantic search returns the nearest chunks for every query, including a query that no document answers. A hit shows only that a chunk is the nearest one. Read the preview or fetch the text to learn whether it answers the question.
+:::
+
+An empty result shows only that no current passage matched. Rephrase the query, switch the mode, or try [entity search](./entity-search.mdx).
+
+## Usage
+
+### In Python
+
+Call `search_evidence` as in the example above. Python needs the connected `store`, the `embedder`, a `mode`, a `limit`, and the `scope`. Use the same embedder that loaded the documents, because `semantic` and `hybrid` embed the query with it.
+
+### In the built-in agent
+
+The agent calls `search_evidence` on its own when it needs passages. You do not call it. You set the documents the agent can read with the `scope` argument of `build_agent`.
+
+### On the MCP server
+
+An MCP client calls `search_evidence` with the query, the mode, and the limit. The server supplies the scope.
+
+```json
+{"query": "How soon is customer data erased?", "mode": "hybrid", "limit": 3}
+```
+
+The parameter ranges and the MCP caps are in the [passage search parameters](../reference/tools.mdx#passage-search).
+
+## Result
+
+A call returns an `EvidenceSearchResult`.
+
+| Field | Meaning |
+|---|---|
+| `status` | The outcome. See the status table. |
+| `hits` | The chunks, best first. |
+| `truncated` | True when a search reached its candidate ceiling, or when the MCP server cut hits, previews, or response size. |
+| `index_state` | `ready` or `not_ready`. |
+| `failures` | The searches that failed, each with the mode and a message. |
+
+Each hit has these fields.
+
+| Field | Meaning |
+|---|---|
+| `evidence_id` | The id of the chunk. Pass it to `fetch_evidence`, `navigate_document_tree`, or `check_citations`. |
+| `document_key` | The key of the document. |
+| `title` | The stored document title. |
+| `content_hash` | The content hash of the version the chunk belongs to. |
+| `location` | `page_numbers` for a paged source, and `char_start` and `char_end` when the loader recorded offsets. For the Markdown file in the example they are `null` and an empty list. |
+| `snippet` | The first 240 characters of the chunk. |
+| `score` | An ordering value for this call. It is not a confidence. |
+| `legs` | The searches that found the chunk, `lexical`, `semantic`, or both. |
+
+| Status | Meaning | Next step |
+|---|---|---|
+| `ok` | Every search that ran returned hits. | Fetch the hits you want to use. |
+| `partial` | One search failed and the other returned hits, and `failures` names the failed one. On MCP, a dimension mismatch between the query embedder and the stored vectors gives this status with keyword hits only. | Treat the list as incomplete. |
+| `no_match` | Every search ran and no visible passage matched. | Rephrase, switch mode, or try entity search. |
+| `empty_scope` | The scope holds no document keys. | Set the scope. |
+| `index_not_ready` | A needed index is missing or not online. | Wait for ingestion to finish, then retry. |
+| `failed` | Every search that ran failed. | Read `failures` and retry. |
+
+<details>
+<summary>Full JSON of the hybrid search result</summary>
+
+This is `found.model_dump_json(indent=2)` for the question above with `limit=2`.
+
+```json
+{
+  "status": "ok",
+  "hits": [
+    {
+      "evidence_id": "ev1:c:f24b301d-f73a-5291-9d80-7ea3cbd5291c:c174f9d9eba7d79c:efae06f9-f4e7-5a7a-af99-d7f5d7c4d6ef",
+      "document_key": "/home/you/acme-notes.md",
+      "title": "Acme Robotics engineering notes",
+      "content_hash": "c174f9d9eba7d79cd7977a4ed29bc23b0cd2ad6a91d7ebf98162c554ba82601d",
+      "location": {
+        "char_start": null,
+        "char_end": null,
+        "page_numbers": []
+      },
+      "snippet": "Data retention\n\nRobot logs are kept for 30 days and then deleted. A customer can ask Acme Robotics to erase their delivery data. After the request is verified, the data is deleted within 10 business days.",
+      "score": 0.03278688524590164,
+      "legs": ["lexical", "semantic"]
+    },
+    {
+      "evidence_id": "ev1:c:f24b301d-f73a-5291-9d80-7ea3cbd5291c:c174f9d9eba7d79c:440441fc-6865-5391-8e02-a44c3e66aa77",
+      "document_key": "/home/you/acme-notes.md",
+      "title": "Acme Robotics engineering notes",
+      "content_hash": "c174f9d9eba7d79cd7977a4ed29bc23b0cd2ad6a91d7ebf98162c554ba82601d",
+      "location": {
+        "char_start": null,
+        "char_end": null,
+        "page_numbers": []
+      },
+      "snippet": "Acme Robotics engineering notes\n\nRoute planning\n\nMaria Chen works for Acme Robotics and wrote the Orion Planner. The Orion Planner schedules delivery routes for the warehouse robots in the Berlin warehouse. It replans a route within two sec",
+      "score": 0.016129032258064516,
+      "legs": ["lexical"]
+    }
+  ],
+  "truncated": false,
+  "index_state": "ready",
+  "failures": []
+}
+```
+
+The first score is 1/61 + 1/61, because both searches ranked the chunk first. The second score is 1/62, because only the keyword search found the chunk, at rank 2. With `limit=2` each search keeps only its top two chunks, so the semantic search, which ranked this chunk third in the example above, does not count it. That is why its score differs from the 0.0320 of the three-hit example. Reciprocal rank fusion adds `1 / (60 + rank)` for each search that found a chunk.
+
+</details>
+
+## Related
+
+- [How passage search works](../concepts/how-passage-search-works.mdx) describes which chunks are visible, how each search ranks, and how hybrid mode fuses the rankings.
+- [Fetch evidence](./fetch-evidence.mdx) reads the whole passage behind a hit.
+- [Find and cite evidence](../guides/find-and-cite-evidence.mdx) runs a search, a fetch, and a citation check from Python.

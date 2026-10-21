@@ -13,7 +13,7 @@ Whether the fetched text is the current version of its document.
 
 - [**CURRENT**](#agrag-common-data_models-evidence-VersionStatus-CURRENT) – The content hash equals the document's current content hash.
 - [**SUPERSEDED**](#agrag-common-data_models-evidence-VersionStatus-SUPERSEDED) – The document has changed since this text was written. The
-  text is still returned, and it is not discoverable.
+  text is still returned, and it is not searchable.
 
 ## `CURRENT` \{#agrag-common-data_models-evidence-VersionStatus-CURRENT}
 

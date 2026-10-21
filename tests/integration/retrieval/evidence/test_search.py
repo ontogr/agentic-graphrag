@@ -1,6 +1,6 @@
-"""Integration tests for evidence discovery over the authored corpus.
+"""Integration tests for evidence search over the authored corpus.
 
-Discovery runs against a real Neo4j with the authored corpus from ``_corpus``.
+Search runs against a real Neo4j with the authored corpus from ``_corpus``.
 The embedder is the bag-of-words fake, so the semantic leg is deterministic.
 Gold passages are found by locating authored sentences, and a hit covers a
 gold passage when its chunk range contains the gold range.
@@ -17,17 +17,17 @@ from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
 )
 
 from agrag.common.data_models.evidence import (
-    DiscoveryHit,
-    DiscoveryLeg,
-    DiscoveryMode,
-    DiscoveryResult,
-    DiscoveryStatus,
+    EvidenceSearchHit,
+    EvidenceSearchLeg,
+    EvidenceSearchMode,
+    EvidenceSearchResult,
+    EvidenceSearchStatus,
     FetchStatus,
     IndexState,
     LegFailure,
 )
 from agrag.cypher.schema import fulltext_index_name, vector_index_name
-from agrag.evidence import discover, fetch
+from agrag.evidence import fetch_evidence, search_evidence
 from agrag.graphdb.neo4j import Neo4jGraphStore
 from tests.integration.retrieval.evidence._corpus import (
     GOLD_SENTENCE,
@@ -47,7 +47,7 @@ _QUERY = "do you keep and upload my activity to your database"
 _GOLD_START, _GOLD_END = locate(KEEP_TEXT, GOLD_SENTENCE)
 
 
-def _covers_gold(hit: DiscoveryHit) -> bool:
+def _covers_gold(hit: EvidenceSearchHit) -> bool:
     """Return whether a hit's chunk range contains the gold sentence."""
     location = hit.location
     if location.char_start is None or location.char_end is None:
@@ -55,7 +55,7 @@ def _covers_gold(hit: DiscoveryHit) -> bool:
     return location.char_start <= _GOLD_START and location.char_end >= _GOLD_END
 
 
-def _gold_positions(hits: list[DiscoveryHit]) -> list[int]:
+def _gold_positions(hits: list[EvidenceSearchHit]) -> list[int]:
     """Return the 0-based positions of hits that cover the gold sentence."""
     return [index for index, hit in enumerate(hits) if _covers_gold(hit)]
 
@@ -93,29 +93,29 @@ def embedder() -> Iterator[BagOfWordsEmbedder]:
     yield BagOfWordsEmbedder()
 
 
-class TestLexicalDiscovery:
-    """Full-text discovery finds the gold passage among the authored documents."""
+class TestLexicalSearch:
+    """Full-text search finds the gold passage among the authored documents."""
 
     async def test_finds_the_gold_passage_within_the_top_five(
         self, evidence_env: EvidenceEnv, embedder: BagOfWordsEmbedder
     ) -> None:
         """The gold chunk ranks in the top five lexical hits from the Keep notice."""
-        result = await discover(
+        result = await search_evidence(
             evidence_env.store,
             embedder,
             _QUERY,
-            mode=DiscoveryMode.LEXICAL,
+            mode=EvidenceSearchMode.LEXICAL,
             limit=5,
             scope=frozenset(
                 {evidence_env.keep, evidence_env.viber, evidence_env.harbor}
             ),
         )
 
-        assert result.status is DiscoveryStatus.OK
+        assert result.status is EvidenceSearchStatus.OK
         positions = _gold_positions(result.hits)
         assert positions and positions[0] < 5
         assert result.hits[positions[0]].document_key == evidence_env.keep
-        assert result.hits[positions[0]].legs == [DiscoveryLeg.LEXICAL]
+        assert result.hits[positions[0]].legs == [EvidenceSearchLeg.LEXICAL]
 
     async def test_query_with_lucene_operators_is_safe(
         self, evidence_env: EvidenceEnv, embedder: BagOfWordsEmbedder
@@ -123,33 +123,33 @@ class TestLexicalDiscovery:
         """Operator characters and keywords in user text are treated as plain terms."""
         hostile = 'keep AND (upload OR) NOT ~2 "database" +activity -my : ^ \\ [ ] {x}'
 
-        result = await discover(
+        result = await search_evidence(
             evidence_env.store,
             embedder,
             hostile,
-            mode=DiscoveryMode.LEXICAL,
+            mode=EvidenceSearchMode.LEXICAL,
             limit=5,
             scope=frozenset({evidence_env.keep}),
         )
 
-        assert result.status is DiscoveryStatus.OK
+        assert result.status is EvidenceSearchStatus.OK
         assert _gold_positions(result.hits)
 
     async def test_no_match_gives_an_empty_list_with_a_clear_status(
         self, evidence_env: EvidenceEnv, embedder: BagOfWordsEmbedder
     ) -> None:
         """A query with no indexed term returns no hits and the no-match status."""
-        result = await discover(
+        result = await search_evidence(
             evidence_env.store,
             embedder,
             "xylophone quasar zeppelin",
-            mode=DiscoveryMode.LEXICAL,
+            mode=EvidenceSearchMode.LEXICAL,
             limit=5,
             scope=frozenset({evidence_env.keep, evidence_env.viber}),
         )
 
         assert result.hits == []
-        assert result.status is DiscoveryStatus.NO_MATCH
+        assert result.status is EvidenceSearchStatus.NO_MATCH
         assert result.failures == []
         assert result.index_state is IndexState.READY
 
@@ -157,42 +157,42 @@ class TestLexicalDiscovery:
         self, evidence_env: EvidenceEnv, embedder: BagOfWordsEmbedder
     ) -> None:
         """A query made only of symbols has no terms, so it matches nothing."""
-        result = await discover(
+        result = await search_evidence(
             evidence_env.store,
             embedder,
             "+++ ((( ]]]",
-            mode=DiscoveryMode.LEXICAL,
+            mode=EvidenceSearchMode.LEXICAL,
             limit=5,
             scope=frozenset({evidence_env.keep}),
         )
 
         assert result.hits == []
-        assert result.status is DiscoveryStatus.NO_MATCH
+        assert result.status is EvidenceSearchStatus.NO_MATCH
         assert result.failures == []
 
 
-class TestSemanticDiscovery:
-    """Vector discovery finds the gold passage with the bag-of-words embedder."""
+class TestSemanticSearch:
+    """Vector search finds the gold passage with the bag-of-words embedder."""
 
     async def test_finds_the_gold_passage_within_the_top_five(
         self, evidence_env: EvidenceEnv, embedder: BagOfWordsEmbedder
     ) -> None:
         """The gold chunk ranks in the top five semantic hits."""
-        result = await discover(
+        result = await search_evidence(
             evidence_env.store,
             embedder,
             _QUERY,
-            mode=DiscoveryMode.SEMANTIC,
+            mode=EvidenceSearchMode.SEMANTIC,
             limit=5,
             scope=frozenset(
                 {evidence_env.keep, evidence_env.viber, evidence_env.harbor}
             ),
         )
 
-        assert result.status is DiscoveryStatus.OK
+        assert result.status is EvidenceSearchStatus.OK
         positions = _gold_positions(result.hits)
         assert positions and positions[0] < 5
-        assert result.hits[positions[0]].legs == [DiscoveryLeg.SEMANTIC]
+        assert result.hits[positions[0]].legs == [EvidenceSearchLeg.SEMANTIC]
 
 
 class TestHeadedChunks:
@@ -205,19 +205,19 @@ class TestHeadedChunks:
         key = evidence_env.key("headed")
         await evidence_env.graph.add(documents=[make_headed_document(key)])
 
-        result = await discover(
+        result = await search_evidence(
             evidence_env.store,
             embedder,
             "lighthouse keeper fog",
-            mode=DiscoveryMode.LEXICAL,
+            mode=EvidenceSearchMode.LEXICAL,
             limit=5,
             scope=frozenset({key}),
         )
 
-        assert result.status is DiscoveryStatus.OK
+        assert result.status is EvidenceSearchStatus.OK
         hit = result.hits[0]
         assert hit.evidence_id.startswith("ev1:c:")
-        outcomes = await fetch(
+        outcomes = await fetch_evidence(
             evidence_env.store,
             [hit.evidence_id],
             scope=frozenset({key}),
@@ -237,79 +237,79 @@ class _FailingEmbedder(BagOfWordsEmbedder):
         raise RuntimeError("embedding endpoint refused connection at 10.0.0.5")
 
 
-class TestHybridDiscovery:
-    """Hybrid discovery fuses both legs and returns each passage once."""
+class TestHybridSearch:
+    """Hybrid search fuses both legs and returns each passage once."""
 
     async def test_failed_semantic_leg_keeps_lexical_hits_with_a_fixed_message(
         self, evidence_env: EvidenceEnv
     ) -> None:
         """Lexical hits are returned as partial, and the failure text is generic."""
-        result = await discover(
+        result = await search_evidence(
             evidence_env.store,
             _FailingEmbedder(),
             _QUERY,
-            mode=DiscoveryMode.HYBRID,
+            mode=EvidenceSearchMode.HYBRID,
             limit=5,
             scope=frozenset(
                 {evidence_env.keep, evidence_env.viber, evidence_env.harbor}
             ),
         )
 
-        assert result.status is DiscoveryStatus.PARTIAL
+        assert result.status is EvidenceSearchStatus.PARTIAL
         assert result.failures == [
-            LegFailure(leg=DiscoveryLeg.SEMANTIC, message="search leg failed")
+            LegFailure(leg=EvidenceSearchLeg.SEMANTIC, message="search leg failed")
         ]
         positions = _gold_positions(result.hits)
         assert len(positions) == 1
-        assert result.hits[positions[0]].legs == [DiscoveryLeg.LEXICAL]
+        assert result.hits[positions[0]].legs == [EvidenceSearchLeg.LEXICAL]
         assert "10.0.0.5" not in result.model_dump_json()
 
 
-class TestHybridDiscoveryFusion:
-    """Hybrid discovery fuses both legs and returns each passage once."""
+class TestHybridSearchFusion:
+    """Hybrid search fuses both legs and returns each passage once."""
 
     async def test_returns_the_gold_passage_once_with_both_legs(
         self, evidence_env: EvidenceEnv, embedder: BagOfWordsEmbedder
     ) -> None:
         """The gold chunk appears once and lists lexical and semantic as legs."""
-        result = await discover(
+        result = await search_evidence(
             evidence_env.store,
             embedder,
             _QUERY,
-            mode=DiscoveryMode.HYBRID,
+            mode=EvidenceSearchMode.HYBRID,
             limit=5,
             scope=frozenset(
                 {evidence_env.keep, evidence_env.viber, evidence_env.harbor}
             ),
         )
 
-        assert result.status is DiscoveryStatus.OK
+        assert result.status is EvidenceSearchStatus.OK
         assert len({hit.evidence_id for hit in result.hits}) == len(result.hits)
         positions = _gold_positions(result.hits)
         assert len(positions) == 1
         assert set(result.hits[positions[0]].legs) == {
-            DiscoveryLeg.LEXICAL,
-            DiscoveryLeg.SEMANTIC,
+            EvidenceSearchLeg.LEXICAL,
+            EvidenceSearchLeg.SEMANTIC,
         }
 
 
 class TestScope:
-    """Discovery returns evidence only from the documents in scope."""
+    """Search returns evidence only from the documents in scope."""
 
     async def test_scope_without_the_document_returns_no_gold_passage(
         self, evidence_env: EvidenceEnv, embedder: BagOfWordsEmbedder
     ) -> None:
         """With only the Viber notice in scope, no Keep passage is returned."""
-        result = await discover(
+        result = await search_evidence(
             evidence_env.store,
             embedder,
             _QUERY,
-            mode=DiscoveryMode.LEXICAL,
+            mode=EvidenceSearchMode.LEXICAL,
             limit=5,
             scope=frozenset({evidence_env.viber}),
         )
 
-        assert result.status is DiscoveryStatus.OK
+        assert result.status is EvidenceSearchStatus.OK
         assert result.hits
         assert {hit.document_key for hit in result.hits} == {evidence_env.viber}
 
@@ -317,38 +317,38 @@ class TestScope:
         self, evidence_env: EvidenceEnv, embedder: BagOfWordsEmbedder
     ) -> None:
         """An empty scope is a distinct status, not a search of everything."""
-        result = await discover(
+        result = await search_evidence(
             evidence_env.store,
             embedder,
             _QUERY,
-            mode=DiscoveryMode.HYBRID,
+            mode=EvidenceSearchMode.HYBRID,
             limit=5,
             scope=frozenset(),
         )
 
         assert result.hits == []
-        assert result.status is DiscoveryStatus.EMPTY_SCOPE
+        assert result.status is EvidenceSearchStatus.EMPTY_SCOPE
 
     async def test_returns_all_visible_matches_up_to_the_limit(
         self, evidence_env: EvidenceEnv, embedder: BagOfWordsEmbedder
     ) -> None:
         """Every visible lighthouse chunk of the one document is returned."""
-        result = await discover(
+        result = await search_evidence(
             evidence_env.store,
             embedder,
             "lighthouse",
-            mode=DiscoveryMode.LEXICAL,
+            mode=EvidenceSearchMode.LEXICAL,
             limit=4,
             scope=frozenset({evidence_env.harbor}),
         )
 
-        assert result.status is DiscoveryStatus.OK
+        assert result.status is EvidenceSearchStatus.OK
         assert len(result.hits) == 4
         assert {hit.document_key for hit in result.hits} == {evidence_env.harbor}
 
 
 class TestIndexReadiness:
-    """Discovery reports index_not_ready instead of an empty list."""
+    """Search reports index_not_ready instead of an empty list."""
 
     @pytest.mark.parametrize("state", ["POPULATING", "missing"])
     async def test_lexical_reports_index_not_ready(
@@ -368,16 +368,16 @@ class TestIndexReadiness:
             state=state,
         )
 
-        result = await discover(
+        result = await search_evidence(
             store,
             embedder,
             _QUERY,
-            mode=DiscoveryMode.LEXICAL,
+            mode=EvidenceSearchMode.LEXICAL,
             limit=5,
             scope=frozenset({evidence_env.keep}),
         )
 
-        assert result.status is DiscoveryStatus.INDEX_NOT_READY
+        assert result.status is EvidenceSearchStatus.INDEX_NOT_READY
         assert result.index_state is IndexState.NOT_READY
         assert result.hits == []
 
@@ -399,22 +399,22 @@ class TestIndexReadiness:
             state=state,
         )
 
-        result = await discover(
+        result = await search_evidence(
             store,
             embedder,
             _QUERY,
-            mode=DiscoveryMode.SEMANTIC,
+            mode=EvidenceSearchMode.SEMANTIC,
             limit=5,
             scope=frozenset({evidence_env.keep}),
         )
 
-        assert result.status is DiscoveryStatus.INDEX_NOT_READY
+        assert result.status is EvidenceSearchStatus.INDEX_NOT_READY
         assert result.index_state is IndexState.NOT_READY
         assert result.hits == []
 
 
 class TestHistory:
-    """Discovery returns only current text after a document update."""
+    """Search returns only current text after a document update."""
 
     async def test_after_update_only_new_text_is_found_and_limit_is_filled(
         self, evidence_env: EvidenceEnv, embedder: BagOfWordsEmbedder
@@ -422,23 +422,23 @@ class TestHistory:
         """Superseded chunks do not take result slots; the new chunks fill the limit."""
         await evidence_env.graph.update(evidence_env.harbor, text=HARBOR_TEXT_V2)
 
-        result: DiscoveryResult = await discover(
+        result: EvidenceSearchResult = await search_evidence(
             evidence_env.store,
             embedder,
             "lighthouse",
-            mode=DiscoveryMode.LEXICAL,
+            mode=EvidenceSearchMode.LEXICAL,
             limit=3,
             scope=frozenset({evidence_env.harbor}),
         )
 
-        assert result.status is DiscoveryStatus.OK
+        assert result.status is EvidenceSearchStatus.OK
         assert len(result.hits) == 3
         current_hash = sha256_of(HARBOR_TEXT_V2)
         assert {hit.content_hash for hit in result.hits} == {current_hash}
 
 
-class TestDiscoveryFailures:
-    """Read errors and oversized requests stay inside discovery's contract."""
+class TestSearchFailures:
+    """Read errors and oversized requests stay inside search's contract."""
 
     async def test_index_state_read_error_returns_a_failed_result(
         self,
@@ -462,16 +462,16 @@ class TestDiscoveryFailures:
 
         monkeypatch.setattr(store, "execute_read", execute_read)
 
-        result = await discover(
+        result = await search_evidence(
             store,
             embedder,
             _QUERY,
-            mode=DiscoveryMode.LEXICAL,
+            mode=EvidenceSearchMode.LEXICAL,
             limit=5,
             scope=frozenset({evidence_env.keep}),
         )
 
-        assert result.status is DiscoveryStatus.FAILED
+        assert result.status is EvidenceSearchStatus.FAILED
         assert result.hits == []
         assert "10.0.0.9" not in result.model_dump_json()
 
@@ -498,18 +498,18 @@ class TestDiscoveryFailures:
 
         monkeypatch.setattr(store, "execute_read", execute_read)
 
-        result = await discover(
+        result = await search_evidence(
             store,
             embedder,
             "lighthouse",
-            mode=DiscoveryMode.LEXICAL,
+            mode=EvidenceSearchMode.LEXICAL,
             limit=1500,
             scope=frozenset({evidence_env.harbor}),
         )
 
         assert requested
         assert max(requested) <= 1000
-        assert result.status is DiscoveryStatus.OK
+        assert result.status is EvidenceSearchStatus.OK
         assert len(result.hits) == 4
 
     async def test_index_with_the_right_name_but_another_label_is_not_ready(
@@ -518,7 +518,7 @@ class TestDiscoveryFailures:
         embedder: BagOfWordsEmbedder,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """A same-named index on another label is not used for discovery."""
+        """A same-named index on another label is not used for search."""
         store = evidence_env.store
         assert isinstance(store, Neo4jGraphStore)
         original = store.execute_read
@@ -540,26 +540,26 @@ class TestDiscoveryFailures:
 
         monkeypatch.setattr(store, "execute_read", execute_read)
 
-        result = await discover(
+        result = await search_evidence(
             store,
             embedder,
             _QUERY,
-            mode=DiscoveryMode.LEXICAL,
+            mode=EvidenceSearchMode.LEXICAL,
             limit=5,
             scope=frozenset({evidence_env.keep}),
         )
 
-        assert result.status is DiscoveryStatus.INDEX_NOT_READY
+        assert result.status is EvidenceSearchStatus.INDEX_NOT_READY
         assert result.index_state is IndexState.NOT_READY
 
 
 class TestReAddedDocument:
-    """Adding a key again with new text hides the earlier text from discovery."""
+    """Adding a key again with new text hides the earlier text from search."""
 
-    async def test_earlier_text_is_not_discoverable_after_a_second_add(
+    async def test_earlier_text_is_not_searchable_after_a_second_add(
         self, evidence_env: EvidenceEnv, embedder: BagOfWordsEmbedder
     ) -> None:
-        """Only the text of the latest add is discoverable."""
+        """Only the text of the latest add is searchable."""
         replacement = (
             "The orchard ledger lists apples, pears and plums for the autumn fair."
         )
@@ -567,19 +567,19 @@ class TestReAddedDocument:
             documents=[make_document(evidence_env.keep, replacement)]
         )
 
-        old = await discover(
+        old = await search_evidence(
             evidence_env.store,
             embedder,
             _QUERY,
-            mode=DiscoveryMode.LEXICAL,
+            mode=EvidenceSearchMode.LEXICAL,
             limit=5,
             scope=frozenset({evidence_env.keep}),
         )
-        new = await discover(
+        new = await search_evidence(
             evidence_env.store,
             embedder,
             "orchard ledger apples",
-            mode=DiscoveryMode.LEXICAL,
+            mode=EvidenceSearchMode.LEXICAL,
             limit=5,
             scope=frozenset({evidence_env.keep}),
         )
@@ -602,11 +602,11 @@ class TestTelemetry:
         store = Neo4jGraphStore(tracer=provider.get_tracer("agrag-test"))
         await store.connect()
         try:
-            await discover(
+            await search_evidence(
                 store,
                 embedder,
                 "lighthouse",
-                mode=DiscoveryMode.LEXICAL,
+                mode=EvidenceSearchMode.LEXICAL,
                 limit=4,
                 scope=frozenset({evidence_env.harbor}),
             )
@@ -653,16 +653,16 @@ class TestStaleHitsFillTheWindow:
         for key in superseded:
             await evidence_env.graph.update(key, text="lighthouse harbor gasket")
 
-        result = await discover(
+        result = await search_evidence(
             evidence_env.store,
             embedder,
             _QUERY,
-            mode=DiscoveryMode.LEXICAL,
+            mode=EvidenceSearchMode.LEXICAL,
             limit=3,
             scope=frozenset({live, *superseded}),
         )
 
-        assert result.status is DiscoveryStatus.OK
+        assert result.status is EvidenceSearchStatus.OK
         assert result.truncated is False
         assert result.hits
         assert {hit.document_key for hit in result.hits} == {live}

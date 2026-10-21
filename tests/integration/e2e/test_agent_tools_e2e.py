@@ -4,7 +4,7 @@ Seeds a small connected graph through ``Graph.add`` and a second, disconnected
 graph in another document. It then calls the tools ``make_core_tools`` returns
 the way the agent does (``tool.ainvoke``) and checks what the agent would read:
 
-- discovery and entity search name the expected passages and entities;
+- search and entity search name the expected passages and entities;
 - a document scope hides the other document's passages and entities, and a
   fetch cannot read an id from outside the scope;
 - exploration follows relations within the connected component only;
@@ -34,7 +34,7 @@ from agrag.common.data_models.document import (
 )
 from agrag.common.data_models.entity_search import EntityResult, ExplorationResult
 from agrag.common.data_models.evidence import (
-    DiscoveryResult,
+    EvidenceSearchResult,
     FetchOutcome,
     FetchStatus,
 )
@@ -56,7 +56,7 @@ from agrag.retrieval.rerank.node_distance import node_distance_rerank
 from agrag.retrieval.search_engine import SearchEngine
 from agrag.retrieval.settings import RetrievalSettings
 from tests.conftest import FAKE_EMBEDDING_DIMENSIONS
-from tests.integration._schema_cleanup import drop_schema_for
+from tests.integration._schema_cleanup import delete_resolved_entities, drop_schema_for
 
 
 neo4j_missing = importlib.util.find_spec("neo4j") is None
@@ -269,6 +269,7 @@ async def _cleanup(
     document_ids: list[str],
 ) -> None:
     """Delete only the rows this test wrote, found by label and id."""
+    await delete_resolved_entities(store, *labels)
     await store.execute_write(
         "MATCH (n) WHERE any(l IN labels(n) WHERE l IN $labels) DETACH DELETE n",
         {"labels": labels},
@@ -398,8 +399,8 @@ async def test_core_tools_read_and_scope_the_seeded_graph(seeded: dict) -> None:
     full = await _core_tools(env, [env["main_key"], env["other_key"]], "full-scope")
     main = await _core_tools(env, [env["main_key"]], "main-scope")
 
-    alice = DiscoveryResult.model_validate_json(
-        await _tool(main, "discover_evidence").ainvoke({"query": "Alice"})
+    alice = EvidenceSearchResult.model_validate_json(
+        await _tool(main, "search_evidence").ainvoke({"query": "Alice"})
     )
     fetched = FetchOutcome.model_validate(
         json.loads(
@@ -411,8 +412,8 @@ async def test_core_tools_read_and_scope_the_seeded_graph(seeded: dict) -> None:
     assert fetched.status is FetchStatus.OK
     assert "Alice founded Acme" in (fetched.text or "")
 
-    zed_in_full = DiscoveryResult.model_validate_json(
-        await _tool(full, "discover_evidence").ainvoke({"query": "Zed"})
+    zed_in_full = EvidenceSearchResult.model_validate_json(
+        await _tool(full, "search_evidence").ainvoke({"query": "Zed"})
     )
     zed_hit = next(hit for hit in zed_in_full.hits if "Zed" in hit.snippet)
     zed_from_main = FetchOutcome.model_validate(
@@ -426,19 +427,19 @@ async def test_core_tools_read_and_scope_the_seeded_graph(seeded: dict) -> None:
     assert zed_from_main.text is None
 
     orgs = EntityResult.model_validate_json(
-        await _tool(full, "find_entities").ainvoke(
+        await _tool(full, "entity_search").ainvoke(
             {"query": "Acme", "labels": [labels["org"]]}
         )
     )
     assert sorted(_names(orgs, suffix)) == ["Acme", "Globex", "Zeta"]
     scoped = EntityResult.model_validate_json(
-        await _tool(main, "find_entities").ainvoke(
+        await _tool(main, "entity_search").ainvoke(
             {"query": "Zed", "labels": list(labels.values())}
         )
     )
     assert not {"Zed", "Zeta"} & set(_names(scoped, suffix))
     scoped_alice = EntityResult.model_validate_json(
-        await _tool(main, "find_entities").ainvoke(
+        await _tool(main, "entity_search").ainvoke(
             {"query": "Alice", "labels": list(labels.values())}
         )
     )
@@ -447,14 +448,14 @@ async def test_core_tools_read_and_scope_the_seeded_graph(seeded: dict) -> None:
     alice_entity = next(
         hit
         for hit in EntityResult.model_validate_json(
-            await _tool(full, "find_entities").ainvoke(
+            await _tool(full, "entity_search").ainvoke(
                 {"query": "Alice", "labels": [labels["person"]]}
             )
         ).hits
         if hit.name == "Alice"
     )
     explored = ExplorationResult.model_validate_json(
-        await _tool(full, "explore").ainvoke(
+        await _tool(full, "explore_relationships").ainvoke(
             {"entity_id": alice_entity.entity_id, "depth": 2}
         )
     )
@@ -470,22 +471,22 @@ async def test_core_tools_read_and_scope_the_seeded_graph(seeded: dict) -> None:
         budget_memory, "budget", RunState(max_tool_calls=2)
     )
 
-    async def call_discover(call_id: str) -> Any:
+    async def call_search_evidence(call_id: str) -> Any:
         call = {
-            "name": "discover_evidence",
+            "name": "search_evidence",
             "args": {"query": "Alice"},
             "id": call_id,
         }
         request = SimpleNamespace(tool_call=call)
 
         async def invoke_tool(_request: Any) -> Any:
-            return await _tool(limited, "discover_evidence").ainvoke(call["args"])
+            return await _tool(limited, "search_evidence").ainvoke(call["args"])
 
         return await budget_middleware.awrap_tool_call(request, invoke_tool)
 
     for index in range(2):
-        assert isinstance(await call_discover(f"budget-{index}"), str)
-    rejected = await call_discover("budget-3")
+        assert isinstance(await call_search_evidence(f"budget-{index}"), str)
+    rejected = await call_search_evidence("budget-3")
     assert isinstance(rejected, ToolMessage)
     assert rejected.status == "error"
     assert rejected.content == "Tool budget exhausted."

@@ -45,7 +45,7 @@ class TestMcpServerSettingsScope:
 
     def test_refuses_a_missing_scope(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Refuse a server started with no scope variable."""
-        monkeypatch.delenv("AGRAG_MCP_SCOPE_DOCUMENT_KEYS", raising=False)
+        monkeypatch.delenv("MCP_SCOPE_DOCUMENT_KEYS", raising=False)
 
         with pytest.raises(ValidationError, match="at least one document key"):
             McpServerSettings(_env_file=None)

@@ -2,7 +2,7 @@
 
 AGENT_SYSTEM = """\
 You work on the named task in the task view. Read the view before acting. Use
-tools to discover and fetch evidence before answering. Cite only evidence ids
+tools to search and fetch evidence before answering. Cite only evidence ids
 whose fetch returned complete text. Write each citation as the evidence id in
 square brackets, for example [ev1:s:...], right after the claim it supports. Say when
 the evidence is insufficient.

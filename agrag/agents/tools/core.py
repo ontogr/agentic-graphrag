@@ -13,7 +13,7 @@ from agrag.common.data_models.decision import (
     SupportInput,
 )
 from agrag.common.data_models.evidence import (
-    DiscoveryMode,
+    EvidenceSearchMode,
     FetchOutcome,
     FetchStatus,
 )
@@ -27,13 +27,11 @@ from agrag.common.data_models.task import (
 from agrag.embedding.base import Embedder
 from agrag.evidence import (
     check_citations,
-    discover,
-    fetch,
-    find_entities,
-    navigate,
-)
-from agrag.evidence import (
-    explore as explore_evidence,
+    entity_search,
+    explore_relationships,
+    fetch_evidence,
+    navigate_document_tree,
+    search_evidence,
 )
 from agrag.graphdb.base import GraphStore
 from agrag.memory import DecisionMemory, TaskMemory
@@ -55,14 +53,14 @@ def make_core_tools(  # noqa: PLR0915
     """Bind evidence and memory tools to a single task and trusted scope."""
     from langchain_core.tools import tool  # noqa: PLC0415
 
-    state = RunState(
+    run_state = RunState(
         max_tool_calls=max_tool_calls,
         fetched_ids=fetched_ids,
         fetches={item.evidence_id: item for item in fetched_outcomes},
     )
 
-    @tool
-    async def discover_evidence(
+    @tool("search_evidence")
+    async def search_evidence_tool(
         query: str,
         mode: str = "hybrid",
         limit: int = 8,
@@ -73,26 +71,26 @@ def make_core_tools(  # noqa: PLR0915
             if not 1 <= limit <= 50:
                 return "Limit must be between 1 and 50."
             try:
-                found = await discover(
+                found = await search_evidence(
                     graph_store,
                     embedder,
                     query,
-                    mode=DiscoveryMode(mode),
+                    mode=EvidenceSearchMode(mode),
                     limit=limit,
                     scope=scope,
                 )
             except (ValueError, KeyError) as exc:
                 result = f"Invalid discovery request: {exc}"
             else:
-                state.retrieval_failed |= (
+                run_state.retrieval_failed |= (
                     found.status.value not in {"ok", "no_match", "empty_scope"}
                     or found.truncated
                 )
                 result = found.model_dump_json()
             return result
 
-    @tool
-    async def fetch_evidence(
+    @tool("fetch_evidence")
+    async def fetch_evidence_tool(
         evidence_ids: list[str],
         callbacks: Any = None,
     ) -> str:
@@ -100,32 +98,32 @@ def make_core_tools(  # noqa: PLR0915
         with tool_span_context(callbacks):
             if len(evidence_ids) > 20:
                 return "Fetch at most 20 evidence ids per call."
-            outcomes = await fetch(
+            outcomes = await fetch_evidence(
                 graph_store, evidence_ids, scope=scope, max_chars=max_chars
             )
             for outcome in outcomes:
-                state.fetches[outcome.evidence_id] = outcome
+                run_state.fetches[outcome.evidence_id] = outcome
                 if outcome.status is FetchStatus.OK:
-                    state.fetched_ids.append(outcome.evidence_id)
+                    run_state.fetched_ids.append(outcome.evidence_id)
                 elif outcome.status in {
                     FetchStatus.FAILED,
                     FetchStatus.TRUNCATED,
                     FetchStatus.PARTIAL,
                 }:
-                    state.retrieval_failed = True
+                    run_state.retrieval_failed = True
             valid_ids = [o.evidence_id for o in outcomes if o.status is FetchStatus.OK]
             if valid_ids:
                 await record_event_or_flag(
                     memory,
                     task_name,
-                    state,
+                    run_state,
                     EventKind.NOTE,
                     name="fetched_evidence",
                     payload=json.dumps(valid_ids),
                 )
             return json.dumps([o.model_dump(mode="json") for o in outcomes])
 
-    @tool("navigate")
+    @tool("navigate_document_tree")
     async def navigate_evidence(
         evidence_id: str,
         relation: NavigationRelation,
@@ -136,7 +134,7 @@ def make_core_tools(  # noqa: PLR0915
         """Read nearby passages in the same document version."""
         with tool_span_context(callbacks):
             try:
-                result = await navigate(
+                result = await navigate_document_tree(
                     graph_store,
                     evidence_id,
                     relation,
@@ -147,13 +145,13 @@ def make_core_tools(  # noqa: PLR0915
             except ValueError as exc:
                 output = f"Invalid navigation request: {exc}"
             else:
-                state.retrieval_failed |= (
+                run_state.retrieval_failed |= (
                     result.status.value == "failed" or result.truncated
                 )
                 output = result.model_dump_json()
             return output
 
-    @tool("find_entities")
+    @tool("entity_search")
     async def search_entities(
         query: str,
         labels: list[str] | None = None,
@@ -166,27 +164,27 @@ def make_core_tools(  # noqa: PLR0915
             if not 1 <= limit <= 50:
                 return "Limit must be between 1 and 50."
             try:
-                result = await find_entities(
+                result = await entity_search(
                     graph_store,
                     embedder,
                     query,
                     scope=scope,
                     labels=labels,
-                    mode=DiscoveryMode(mode),
+                    mode=EvidenceSearchMode(mode),
                     limit=limit,
                 )
             except ValueError as exc:
                 output = f"Invalid entity search request: {exc}"
             else:
-                state.retrieval_failed |= (
+                run_state.retrieval_failed |= (
                     result.status.value not in {"ok", "no_match", "empty_scope"}
                     or result.truncated
                 )
                 output = result.model_dump_json()
             return output
 
-    @tool
-    async def explore(
+    @tool("explore_relationships")
+    async def explore_relationships_tool(
         entity_id: str,
         depth: int = 1,
         relation_types: list[str] | None = None,
@@ -198,7 +196,7 @@ def make_core_tools(  # noqa: PLR0915
         """Explore supported relations around an entity within fixed bounds."""
         with tool_span_context(callbacks):
             try:
-                result = await explore_evidence(
+                result = await explore_relationships(
                     graph_store,
                     entity_id,
                     scope=scope,
@@ -210,7 +208,7 @@ def make_core_tools(  # noqa: PLR0915
             except ValueError as exc:
                 output = f"Invalid exploration request: {exc}"
             else:
-                state.retrieval_failed |= result.status.value == "failed" or bool(
+                run_state.retrieval_failed |= result.status.value == "failed" or bool(
                     result.truncated_by
                 )
                 output = result.model_dump_json()
@@ -224,7 +222,7 @@ def make_core_tools(  # noqa: PLR0915
         """Check that evidence ids were fetched in the permitted scope."""
         with tool_span_context(callbacks):
             checked = await check_citations(
-                evidence_ids, state.fetched_ids, scope=scope
+                evidence_ids, run_state.fetched_ids, scope=scope
             )
             return json.dumps([c.model_dump(mode="json") for c in checked])
 
@@ -237,10 +235,10 @@ def make_core_tools(  # noqa: PLR0915
     @tool
     async def set_step(  # noqa: PLR0917
         name: str,
-        state_name: str,
-        kind: str = "other",
+        state: StepState,
+        kind: StepKind = StepKind.OTHER,
         result: str | None = None,
-        result_basis: str = "unknown",
+        result_basis: StepResultBasis = StepResultBasis.UNKNOWN,
         supports: list[SupportInput] | None = None,
     ) -> str:
         """Record task-step progress and the text for a completed step.
@@ -248,22 +246,16 @@ def make_core_tools(  # noqa: PLR0915
         A completed step requires result text that fits the event payload limit.
         Later runs reuse that result instead of repeating the completed work.
         """
-        try:
-            step_state = StepState(state_name)
-            step_kind = StepKind(kind)
-            basis = StepResultBasis(result_basis)
-        except ValueError as exc:
-            return f"Invalid step state: {exc}"
         if not await _support_inputs_are_current(decisions, supports or []):
             return "A decision support is missing, inactive, or needs review."
         result_seq = None
-        if step_state is StepState.COMPLETED:
+        if state is StepState.COMPLETED:
             if not result:
                 return "A completed step needs its result text."
             event = await record_event_or_flag(
                 memory,
                 task_name,
-                state,
+                run_state,
                 EventKind.NOTE,
                 name=f"step:{name}",
                 payload=result,
@@ -279,23 +271,23 @@ def make_core_tools(  # noqa: PLR0915
             outcome = await memory.set_step(
                 task_name,
                 name,
-                step_state,
-                kind=step_kind,
+                state,
+                kind=kind,
                 result_event_seq=result_seq,
-                result_basis=basis,
+                result_basis=result_basis,
                 supports=supports or [],
-                fetched_evidence=_current_fetches(state),
+                fetched_evidence=_current_fetches(run_state),
             )
         except Exception as exc:
-            state.fail_recording(f"set_step {name}: {exc!r}")
+            run_state.fail_recording(f"set_step {name}: {exc!r}")
             raise RuntimeError(f"Step {name!r} could not be recorded.") from exc
         if not outcome.recorded:
-            state.fail_recording(f"set_step {name}: {outcome.error}")
+            run_state.fail_recording(f"set_step {name}: {outcome.error}")
             raise RuntimeError(f"Step {name!r} could not be recorded: {outcome.error}.")
-        if step_state is StepState.IN_PROGRESS:
-            state.open_steps[name] = step_kind
+        if state is StepState.IN_PROGRESS:
+            run_state.open_steps[name] = kind
         else:
-            state.open_steps.pop(name, None)
+            run_state.open_steps.pop(name, None)
         return outcome.model_dump_json()
 
     @tool
@@ -310,7 +302,7 @@ def make_core_tools(  # noqa: PLR0915
         """Record a decision with typed source and decision supports."""
         if not await _support_inputs_are_current(decisions, supports):
             return "A decision support is missing, inactive, or needs review."
-        fetched = _current_fetches(state)
+        fetched = _current_fetches(run_state)
         result = await decisions.record_decision(
             task_name,
             choice_key,
@@ -322,7 +314,7 @@ def make_core_tools(  # noqa: PLR0915
             open_questions=open_questions or [],
         )
         if not result.recorded:
-            state.fail_recording(f"record_decision: {result.error}")
+            run_state.fail_recording(f"record_decision: {result.error}")
         return result.model_dump_json()
 
     @tool
@@ -338,7 +330,7 @@ def make_core_tools(  # noqa: PLR0915
         """Replace a decision with a supported conclusion."""
         if not await _support_inputs_are_current(decisions, supports):
             return "A decision support is missing, inactive, or needs review."
-        fetched = _current_fetches(state)
+        fetched = _current_fetches(run_state)
         try:
             old_id = UUID(decision_id)
         except ValueError:
@@ -354,7 +346,7 @@ def make_core_tools(  # noqa: PLR0915
             open_questions=open_questions or [],
         )
         if not result.recorded:
-            state.fail_recording(f"supersede_decision: {result.error}")
+            run_state.fail_recording(f"supersede_decision: {result.error}")
         return result.model_dump_json()
 
     @tool
@@ -376,36 +368,28 @@ def make_core_tools(  # noqa: PLR0915
         return json.dumps(usable)
 
     @tool
-    async def get_event(event_task_name: str, seq: int) -> str:
+    async def fetch_event(task_name: str, seq: int) -> str:
         """Read one event by its task name and sequence number."""
-        lookup = await memory.get_event(event_task_name, seq)
+        lookup = await memory.fetch_event(task_name, seq)
         return lookup.model_dump_json()
 
     @tool
-    async def list_events(
-        event_task_name: str, after_seq: int = 0, limit: int = 50
-    ) -> str:
+    async def list_events(task_name: str, after_seq: int = 0, limit: int = 50) -> str:
         """Read one bounded page of task events."""
         if not 1 <= limit <= 50:
             return "Limit must be between 1 and 50."
-        page = await memory.list_events(
-            event_task_name, after_seq=after_seq, limit=limit
-        )
+        page = await memory.list_events(task_name, after_seq=after_seq, limit=limit)
         return page.model_dump_json()
 
     @tool
     async def list_steps(
-        state_name: str, after_name: str | None = None, limit: int = 50
+        state: StepState, after_name: str | None = None, limit: int = 50
     ) -> str:
         """Read one bounded page of steps in a task state."""
         if not 1 <= limit <= 50:
             return "Limit must be between 1 and 50."
-        try:
-            step_state = StepState(state_name)
-        except ValueError as exc:
-            return f"Invalid step state: {exc}"
-        page = await memory.list_steps_page(
-            task_name, step_state, after_name=after_name, limit=limit
+        page = await memory.list_steps(
+            task_name, state, after_name=after_name, limit=limit
         )
         return page.model_dump_json()
 
@@ -448,7 +432,9 @@ def make_core_tools(  # noqa: PLR0915
         """List decisions flagged for review without treating them as false."""
         if not 1 <= limit <= 50:
             return "Limit must be between 1 and 50."
-        page = await decisions.list_review(task_name=task_name, limit=limit)
+        page = await decisions.list_decisions_for_review(
+            task_name=task_name, limit=limit
+        )
         return page.model_dump_json()
 
     @tool
@@ -463,7 +449,7 @@ def make_core_tools(  # noqa: PLR0915
         except ValueError:
             return "decision_id must be a UUID."
         supports = [DocumentSupportInput(evidence_id=item) for item in evidence_ids]
-        fetched = _current_fetches(state, evidence_ids)
+        fetched = _current_fetches(run_state, evidence_ids)
         outcome = await decisions.reaffirm_decision(
             parsed_id,
             supports,
@@ -471,7 +457,7 @@ def make_core_tools(  # noqa: PLR0915
             explanation=explanation,
         )
         if not outcome.recorded:
-            state.fail_recording(f"reaffirm_decision: {outcome.error}")
+            run_state.fail_recording(f"reaffirm_decision: {outcome.error}")
         return outcome.model_dump_json()
 
     @tool
@@ -479,22 +465,22 @@ def make_core_tools(  # noqa: PLR0915
         """Advance queued decision-review propagation by a bounded amount."""
         if not 0 <= limit <= 50:
             return "Limit must be between 0 and 50."
-        processed = await decisions.continue_review_propagation(limit=limit)
+        processed = await decisions.continue_decision_review(limit=limit)
         return json.dumps({"processed": processed})
 
     return [
-        discover_evidence,
-        fetch_evidence,
+        search_evidence_tool,
+        fetch_evidence_tool,
         navigate_evidence,
         search_entities,
-        explore,
+        explore_relationships_tool,
         check_citations_tool,
         get_task,
         set_step,
         record_decision,
         supersede_decision,
         search_decisions,
-        get_event,
+        fetch_event,
         list_events,
         list_steps,
         get_decision,
@@ -503,7 +489,7 @@ def make_core_tools(  # noqa: PLR0915
         list_decisions_for_review,
         reaffirm_decision,
         continue_decision_review,
-    ], state
+    ], run_state
 
 
 def _current_fetches(

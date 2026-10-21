@@ -62,6 +62,21 @@ const sidebars = {
     ]),
     section('Search and answer', [
       'concepts/retrieval',
+      section('Search tools', [
+        'tools/example-setup',
+        'tools/passage-search',
+        'tools/entity-search',
+        'tools/explore-relationships',
+        'tools/navigate-document-tree',
+        'tools/fetch-evidence',
+        'tools/check-citations',
+        'tools/recipe-search',
+      ]),
+      section('How search works', [
+        'concepts/how-passage-search-works',
+        'concepts/how-entity-search-works',
+        'concepts/evidence-and-citations',
+      ]),
       'guides/find-and-cite-evidence',
       'guides/retrieve-and-answer',
       'concepts/agent-loop',
@@ -80,6 +95,7 @@ const sidebars = {
   ],
   referenceSidebar: [
     section('Reference', [
+      'reference/tools',
       'reference/configuration',
       'reference/schema-file-format',
       'reference/default-schema',

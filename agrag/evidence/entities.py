@@ -30,9 +30,9 @@ from agrag.common.data_models.entity_search import (
     SupportingPassage,
 )
 from agrag.common.data_models.evidence import (
-    DiscoveryLeg,
-    DiscoveryMode,
-    DiscoveryStatus,
+    EvidenceSearchLeg,
+    EvidenceSearchMode,
+    EvidenceSearchStatus,
     IndexState,
     LegFailure,
 )
@@ -55,8 +55,8 @@ from agrag.evidence._shared import (
     scope_node_ids,
     stored_chunk,
 )
-from agrag.evidence.discover import RRF_CONSTANT, reciprocal_rank_fusion
 from agrag.evidence.ids import encode_evidence_id
+from agrag.evidence.search import RRF_CONSTANT, reciprocal_rank_fusion
 from agrag.graphdb.base import GraphStore
 
 
@@ -124,7 +124,7 @@ class _Ranked:
     ceiling: bool
 
 
-async def find_entities(
+async def entity_search(
     store: GraphStore,
     embedder: Embedder,
     query: str,
@@ -132,7 +132,7 @@ async def find_entities(
     scope: frozenset[str],
     labels: Sequence[str] | None = None,
     limit: int,
-    mode: DiscoveryMode = DiscoveryMode.HYBRID,
+    mode: EvidenceSearchMode = EvidenceSearchMode.HYBRID,
     support_limit: int = 3,
 ) -> EntityResult:
     """Find up to ``limit`` entities that match a query by name or by meaning.
@@ -173,24 +173,24 @@ async def find_entities(
     if support_limit <= 0:
         raise ValueError(f"support_limit must be positive, got {support_limit}")
     if not scope:
-        return EntityResult(status=DiscoveryStatus.EMPTY_SCOPE)
+        return EntityResult(status=EvidenceSearchStatus.EMPTY_SCOPE)
 
     entity_labels = await _entity_labels(store, labels)
     if not entity_labels:
-        return EntityResult(status=DiscoveryStatus.NO_MATCH)
+        return EntityResult(status=EvidenceSearchStatus.NO_MATCH)
     legs = (
-        [DiscoveryLeg.LEXICAL, DiscoveryLeg.SEMANTIC]
-        if mode is DiscoveryMode.HYBRID
-        else [DiscoveryLeg(mode.value)]
+        [EvidenceSearchLeg.LEXICAL, EvidenceSearchLeg.SEMANTIC]
+        if mode is EvidenceSearchMode.HYBRID
+        else [EvidenceSearchLeg(mode.value)]
     )
     index_state = await indexes_ready(store, _index_specs(entity_labels, legs))
     if index_state is IndexState.NOT_READY:
         return EntityResult(
-            status=DiscoveryStatus.INDEX_NOT_READY, index_state=index_state
+            status=EvidenceSearchStatus.INDEX_NOT_READY, index_state=index_state
         )
 
     candidate_count = min(limit * _CANDIDATE_MULTIPLIER, _MAX_CANDIDATES)
-    rankings: dict[DiscoveryLeg, _Ranked] = {}
+    rankings: dict[EvidenceSearchLeg, _Ranked] = {}
     failures: list[LegFailure] = []
     for leg in legs:
         try:
@@ -216,7 +216,7 @@ async def find_entities(
     except Exception:
         _LOGGER.exception("Entity support query failed")
         return EntityResult(
-            status=DiscoveryStatus.FAILED,
+            status=EvidenceSearchStatus.FAILED,
             index_state=index_state,
             failures=[
                 LegFailure(leg=leg, message=_STORE_ERROR_MESSAGE) for leg in legs
@@ -226,13 +226,13 @@ async def find_entities(
     hits = _combine(rankings, visible, mode=mode, limit=limit)
     truncated = any(ranked.ceiling for ranked in rankings.values())
     if failures and len(failures) == len(legs):
-        status = DiscoveryStatus.FAILED
+        status = EvidenceSearchStatus.FAILED
     elif failures:
-        status = DiscoveryStatus.PARTIAL
+        status = EvidenceSearchStatus.PARTIAL
     elif hits:
-        status = DiscoveryStatus.OK
+        status = EvidenceSearchStatus.OK
     else:
-        status = DiscoveryStatus.NO_MATCH
+        status = EvidenceSearchStatus.NO_MATCH
     return EntityResult(
         status=status,
         hits=hits,
@@ -242,7 +242,7 @@ async def find_entities(
     )
 
 
-async def explore(
+async def explore_relationships(
     store: GraphStore,
     entity_id: str,
     *,
@@ -258,7 +258,7 @@ async def explore(
     only those types are followed. Without it, every schema relation type is
     followed, and graph-owned types such as ``HAS_PART`` and ``MENTIONED_IN`` are
     never followed. An entity can be reached only through a passage in scope, the
-    same rule as in ``find_entities``.
+    same rule as in ``entity_search``.
 
     A relation with a visible passage in scope is an assertion, and its passages
     are listed in the edge. A relation without any passage is a path. A relation
@@ -355,12 +355,12 @@ async def _entity_labels(store: GraphStore, labels: Sequence[str] | None) -> lis
 
 
 def _index_specs(
-    labels: Iterable[str], legs: Sequence[DiscoveryLeg]
+    labels: Iterable[str], legs: Sequence[EvidenceSearchLeg]
 ) -> list[IndexSpec]:
     """Return the index each leg of each label searches, with its expected shape."""
     specs: list[IndexSpec] = []
     for label in labels:
-        if DiscoveryLeg.LEXICAL in legs:
+        if EvidenceSearchLeg.LEXICAL in legs:
             specs.append(
                 IndexSpec(
                     name=fulltext_index_name(label, [_NAME_PROPERTY]),
@@ -369,7 +369,7 @@ def _index_specs(
                     prop=_NAME_PROPERTY,
                 )
             )
-        if DiscoveryLeg.SEMANTIC in legs:
+        if EvidenceSearchLeg.SEMANTIC in legs:
             specs.append(
                 IndexSpec(
                     name=vector_index_name(label, _EMBEDDING_PROPERTY),
@@ -385,7 +385,7 @@ async def _leg_candidates(
     store: GraphStore,
     embedder: Embedder,
     *,
-    leg: DiscoveryLeg,
+    leg: EvidenceSearchLeg,
     query: str,
     labels: Sequence[str],
     count: int,
@@ -393,7 +393,7 @@ async def _leg_candidates(
     """Return the candidates of one leg over every label, best first, once each."""
     terms = ""
     vector: list[float] = []
-    if leg is DiscoveryLeg.LEXICAL:
+    if leg is EvidenceSearchLeg.LEXICAL:
         terms = lucene_terms(query)
         if not terms:
             return _Ranked(candidates=[], ceiling=False)
@@ -404,7 +404,7 @@ async def _leg_candidates(
     found: list[_Candidate] = []
     ceiling = False
     for label in labels:
-        if leg is DiscoveryLeg.LEXICAL:
+        if leg is EvidenceSearchLeg.LEXICAL:
             statement = entity_candidates_query(label, lexical=True)
             parameters: dict[str, Any] = {
                 "index": fulltext_index_name(label, [_NAME_PROPERTY]),
@@ -488,14 +488,14 @@ def _passage(chunk: Chunk, document_key: str) -> SupportingPassage:
 
 
 def _combine(
-    rankings: Mapping[DiscoveryLeg, _Ranked],
+    rankings: Mapping[EvidenceSearchLeg, _Ranked],
     visible: Mapping[str, _Visible],
     *,
-    mode: DiscoveryMode,
+    mode: EvidenceSearchMode,
     limit: int,
 ) -> list[EntityHit]:
     """Fuse the legs over the visible entities, and build the best hits."""
-    kept: dict[DiscoveryLeg, list[_Candidate]] = {
+    kept: dict[EvidenceSearchLeg, list[_Candidate]] = {
         leg: [
             candidate
             for candidate in ranked.candidates
@@ -503,20 +503,20 @@ def _combine(
         ]
         for leg, ranked in rankings.items()
     }
-    legs_by_id: dict[str, list[DiscoveryLeg]] = defaultdict(list)
+    legs_by_id: dict[str, list[EvidenceSearchLeg]] = defaultdict(list)
     label_by_id: dict[str, str] = {}
     raw_score: dict[str, float] = {}
-    for leg in DiscoveryLeg:
+    for leg in EvidenceSearchLeg:
         for candidate in kept.get(leg, []):
             legs_by_id[candidate.entity_id].append(leg)
             label_by_id.setdefault(candidate.entity_id, candidate.label)
             raw_score.setdefault(candidate.entity_id, candidate.score)
 
-    if mode is DiscoveryMode.HYBRID:
+    if mode is EvidenceSearchMode.HYBRID:
         scores = reciprocal_rank_fusion(
             [
                 [candidate.entity_id for candidate in kept[leg]]
-                for leg in DiscoveryLeg
+                for leg in EvidenceSearchLeg
                 if leg in kept
             ],
             constant=RRF_CONSTANT,

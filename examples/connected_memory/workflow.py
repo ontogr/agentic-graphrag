@@ -12,7 +12,11 @@ from uuid import uuid4
 from agrag.agents import AgentLLMSettings, AgentSettings, build_agent
 from agrag.common.data_models.decision import DocumentSupport, DocumentSupportInput
 from agrag.common.data_models.document import Document
-from agrag.common.data_models.evidence import DiscoveryMode, FetchOutcome, VersionStatus
+from agrag.common.data_models.evidence import (
+    EvidenceSearchMode,
+    FetchOutcome,
+    VersionStatus,
+)
 from agrag.common.data_models.graph_schema import GraphSchema
 from agrag.common.data_models.task import (
     EventKind,
@@ -21,7 +25,7 @@ from agrag.common.data_models.task import (
     StepState,
 )
 from agrag.embedding import build_embedder
-from agrag.evidence import discover, fetch
+from agrag.evidence import fetch_evidence, search_evidence
 from agrag.graphdb import build_graph_store
 from agrag.ingestion import Graph
 from agrag.memory import DecisionMemory, TaskMemory
@@ -113,7 +117,9 @@ async def _fixture_support(store: Any, support: dict[str, Any]) -> FetchOutcome:
         f"{DOCS[key]['content_sha256'][:16]}:"
         f"{support['char_start']}-{support['char_end']}"
     )
-    [outcome] = await fetch(store, [evidence_id], scope=SCOPE, max_chars=12_000)
+    [outcome] = await fetch_evidence(
+        store, [evidence_id], scope=SCOPE, max_chars=12_000
+    )
     _require(outcome.status.value == "ok", f"fixture passage unavailable: {key}")
     return outcome
 
@@ -320,12 +326,14 @@ async def exercise() -> dict[str, Any]:  # noqa: PLR0912, PLR0915
             raise AssertionError(f"decision record failed: {record.error}")
         original = record.decision
         mutation = await _replace_source(store, embedder)
-        review = await decisions.list_review(task_name="source_change_review")
+        review = await decisions.list_decisions_for_review(
+            task_name="source_change_review"
+        )
         _require(
             any(item.id == original.id for item in review.decisions),
             "M1 did not flag source-backed decision",
         )
-        current = await fetch(
+        current = await fetch_evidence(
             store, [support.evidence_id], scope=SCOPE, max_chars=12_000
         )
         _require(
@@ -338,16 +346,16 @@ async def exercise() -> dict[str, Any]:  # noqa: PLR0912, PLR0915
             fetched_evidence=current,
         )
         _require(not stale_reaffirm.recorded, "stale support was accepted after M1")
-        search = await discover(
+        search = await search_evidence(
             store,
             embedder,
             "Keep personal information sale share advertising partners",
-            mode=DiscoveryMode.HYBRID,
+            mode=EvidenceSearchMode.HYBRID,
             limit=10,
             scope=frozenset({KEEP}),
         )
         _require(bool(search.hits), "M1 current evidence search returned no passages")
-        current_fetches = await fetch(
+        current_fetches = await fetch_evidence(
             store,
             [hit.evidence_id for hit in search.hits],
             scope=frozenset({KEEP}),
@@ -452,10 +460,10 @@ async def mcp() -> dict[str, Any]:
     environment = os.environ.copy()
     environment.update(
         {
-            "AGRAG_MCP_SCOPE_DOCUMENT_KEYS": ",".join(sorted(SCOPE)),
-            "AGRAG_MCP_PROJECT_ID": PROJECT,
-            "AGRAG_MCP_AGENT_ID": AGENT,
-            "AGRAG_MCP_READ_ONLY": "false",
+            "MCP_SCOPE_DOCUMENT_KEYS": ",".join(sorted(SCOPE)),
+            "MCP_PROJECT_ID": PROJECT,
+            "MCP_AGENT_ID": AGENT,
+            "MCP_READ_ONLY": "false",
         }
     )
     async with (
@@ -474,7 +482,7 @@ async def mcp() -> dict[str, Any]:
             "create_task",
             "search_evidence",
             "fetch_evidence",
-            "list_needing_review",
+            "list_decisions_for_review",
             "record_decision",
             "reaffirm_decision",
         }
@@ -491,7 +499,7 @@ async def mcp() -> dict[str, Any]:
             },
         )
         hits = search_result.structured_content["hits"]
-        _require(bool(hits), "MCP evidence discovery returned no hits")
+        _require(bool(hits), "MCP evidence search returned no hits")
         fetched = await session.call_tool(
             "fetch_evidence", {"evidence_ids": [hits[0]["evidence_id"]]}
         )
@@ -501,7 +509,7 @@ async def mcp() -> dict[str, Any]:
         task = await session.call_tool(
             "create_task",
             {
-                "name": "mcp-review-check",
+                "task_name": "mcp-review-check",
                 "goal": "Review the current sharing policy.",
                 "request_id": "connected-memory-mcp-task",
             },
@@ -532,7 +540,7 @@ async def mcp() -> dict[str, Any]:
             "reaffirm_decision",
             {
                 "decision_id": decision_id,
-                "evidence": [{"evidence_id": hit_fetch["evidence_id"]}],
+                "evidence_ids": [hit_fetch["evidence_id"]],
                 "explanation": "Rechecked the currently fetched source passage.",
                 "request_id": "connected-memory-mcp-reaffirm",
             },
@@ -542,7 +550,7 @@ async def mcp() -> dict[str, Any]:
             "MCP decision reaffirm failed",
         )
         reviews = await session.call_tool(
-            "list_needing_review", {"task_name": "source_change_review"}
+            "list_decisions_for_review", {"task_name": "source_change_review"}
         )
         _require(not reviews.is_error, "MCP review listing failed")
         return {

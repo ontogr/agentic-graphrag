@@ -63,7 +63,7 @@ class _Passage:
     heading_path: list[str]
 
 
-async def navigate(
+async def navigate_document_tree(
     store: GraphStore,
     evidence_id: str,
     relation: NavigationRelation,

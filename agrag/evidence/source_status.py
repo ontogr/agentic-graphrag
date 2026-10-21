@@ -82,7 +82,7 @@ async def source_status(store: GraphStore, document_key: str) -> SourceStatus:
 
 
 async def _source_index_statuses(store: GraphStore) -> list[SourceIndexStatus]:
-    """Read readiness and population progress for source discovery indexes."""
+    """Read readiness and population progress for source search indexes."""
     rows = await store.execute_read(index_states_query(), {"names": list(_INDEXES)})
     by_name = {str(row["name"]): row for row in rows}
     return [

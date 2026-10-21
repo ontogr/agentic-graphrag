@@ -14,7 +14,7 @@ Build one agent bound to trusted document and memory scopes.
 **Parameters:**
 
 - **graph_store** (<code>[GraphStore](../../graphdb/base/GraphStore.md)</code>) – Store used by evidence and memory operations.
-- **embedder** (<code>[Embedder](../../embedding/base/Embedder.md)</code>) – Embedder used for semantic evidence discovery.
+- **embedder** (<code>[Embedder](../../embedding/base/Embedder.md)</code>) – Embedder used for semantic evidence search.
 - **scope** (<code>frozenset\[str\]</code>) – Document keys the agent may read.
 - **project_id** (<code>str</code>) – Trusted project identifier for task and decision memory.
 - **agent_id** (<code>str</code>) – Trusted author identifier for memory writes.

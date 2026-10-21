@@ -1,12 +1,12 @@
 ---
-title: agrag.evidence.entities.explore
-sidebar_label: explore
+title: agrag.evidence.entities.explore_relationships
+sidebar_label: explore_relationships
 ---
 
-# `agrag.evidence.entities.explore` \{#agrag-evidence-entities-explore}
+# `agrag.evidence.entities.explore_relationships` \{#agrag-evidence-entities-explore_relationships}
 
 ```python
-explore(store:GraphStore, entity_id:str, *, scope:frozenset[str], relation_types:Sequence[str] | None = None, depth:int = 1, max_nodes:int = 25, max_edges:int = 50) -> ExplorationResult
+explore_relationships(store:GraphStore, entity_id:str, *, scope:frozenset[str], relation_types:Sequence[str] | None = None, depth:int = 1, max_nodes:int = 25, max_edges:int = 50) -> ExplorationResult
 ```
 
 Explore the entity relations around one entity, within bounds.
@@ -15,7 +15,7 @@ The walk follows relations that join two entities. With `relation_types`
 only those types are followed. Without it, every schema relation type is
 followed, and graph-owned types such as `HAS_PART` and `MENTIONED_IN` are
 never followed. An entity can be reached only through a passage in scope, the
-same rule as in `find_entities`.
+same rule as in `entity_search`.
 
 A relation with a visible passage in scope is an assertion, and its passages
 are listed in the edge. A relation without any passage is a path. A relation

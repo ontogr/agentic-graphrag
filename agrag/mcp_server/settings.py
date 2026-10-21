@@ -16,28 +16,28 @@ class McpServerSettings(BaseSettings):
 
     Attributes:
         scope_document_keys: Comma-separated keys of the documents the server
-            may read. Env: ``AGRAG_MCP_SCOPE_DOCUMENT_KEYS``.
-        max_hits: The most hits one search returns. Env: ``AGRAG_MCP_MAX_HITS``.
+            may read. Env: ``MCP_SCOPE_DOCUMENT_KEYS``.
+        max_hits: The most hits one search returns. Env: ``MCP_MAX_HITS``.
         max_snippet_chars: The most characters of a hit snippet. Env:
-            ``AGRAG_MCP_MAX_SNIPPET_CHARS``.
+            ``MCP_MAX_SNIPPET_CHARS``.
         max_fetch_chars: The most characters returned for each fetched id. Env:
-            ``AGRAG_MCP_MAX_FETCH_CHARS``.
+            ``MCP_MAX_FETCH_CHARS``.
         max_fetch_ids: The most evidence ids one fetch or citation check takes.
-            Env: ``AGRAG_MCP_MAX_FETCH_IDS``.
+            Env: ``MCP_MAX_FETCH_IDS``.
         max_response_chars: The most characters of one result as sent. Memory
             tool results send their JSON once, beside a short text block. Search
             and fetch results still send their JSON twice, so they count at twice
-            their JSON length. Env: ``AGRAG_MCP_MAX_RESPONSE_CHARS``.
+            their JSON length. Env: ``MCP_MAX_RESPONSE_CHARS``.
         request_deadline_seconds: The server-side timeout of each store read.
-            Env: ``AGRAG_MCP_REQUEST_DEADLINE_SECONDS``.
+            Env: ``MCP_REQUEST_DEADLINE_SECONDS``.
         project_id: Trusted project scope for task and decision operations. Env:
-            ``AGRAG_MCP_PROJECT_ID``.
+            ``MCP_PROJECT_ID``.
         agent_id: Trusted author for task and decision writes. Env:
-            ``AGRAG_MCP_AGENT_ID``.
+            ``MCP_AGENT_ID``.
         read_only: Whether the server omits and blocks all write tools. Env:
-            ``AGRAG_MCP_READ_ONLY``.
+            ``MCP_READ_ONLY``.
         allow_reject: Whether ``reject_decision`` is registered. Env:
-            ``AGRAG_MCP_ALLOW_REJECT``.
+            ``MCP_ALLOW_REJECT``.
 
     Raises:
         ValueError: The document scope is empty, or write access lacks either
@@ -45,7 +45,7 @@ class McpServerSettings(BaseSettings):
     """
 
     model_config = SettingsConfigDict(
-        env_prefix="AGRAG_MCP_",
+        env_prefix="MCP_",
         env_file=".env",
         extra="ignore",
         hide_input_in_errors=True,

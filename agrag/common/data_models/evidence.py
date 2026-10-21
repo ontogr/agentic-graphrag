@@ -1,4 +1,4 @@
-"""Models for evidence references, discovery results, fetch outcomes and citations.
+"""Models for evidence references, search results, fetch outcomes and citations.
 
 Evidence is passage text from a Document, named by an evidence id. The models
 here are the values that the evidence operations exchange with callers.
@@ -124,8 +124,8 @@ class EvidenceLocation(BaseModel):
     page_numbers: list[int] = Field(default_factory=list)
 
 
-class DiscoveryMode(StrEnum):
-    """Which search legs discovery runs.
+class EvidenceSearchMode(StrEnum):
+    """Which search legs search runs.
 
     Attributes:
         LEXICAL: Full-text search over chunk text.
@@ -138,20 +138,20 @@ class DiscoveryMode(StrEnum):
     HYBRID = "hybrid"
 
 
-class DiscoveryLeg(StrEnum):
+class EvidenceSearchLeg(StrEnum):
     """One search leg that can find a passage."""
 
     LEXICAL = "lexical"
     SEMANTIC = "semantic"
 
 
-class DiscoveryStatus(StrEnum):
-    """The overall outcome of a discovery call.
+class EvidenceSearchStatus(StrEnum):
+    """The overall outcome of a search call.
 
     Attributes:
         OK: Every leg ran and returned hits.
         PARTIAL: At least one leg failed, and the other leg returned hits. Read
-            ``DiscoveryResult.failures`` before treating the list as complete.
+            ``EvidenceSearchResult.failures`` before treating the list as complete.
         NO_MATCH: Every leg ran and no visible passage matched.
         EMPTY_SCOPE: The scope named no documents, so nothing was searched.
         INDEX_NOT_READY: A search index the mode needs is missing or not ONLINE.
@@ -216,7 +216,7 @@ class SourceStatus(BaseModel):
         lease_expires_at: Lease expiry timestamp rendered as text.
         job_age_seconds: Age of the latest incomplete job.
         job_error: Stored job error or expired-lease reason.
-        indexes: Full-text and vector index states used by discovery.
+        indexes: Full-text and vector index states used by search.
     """
 
     document_key: str
@@ -232,8 +232,8 @@ class SourceStatus(BaseModel):
     indexes: list[SourceIndexStatus] = Field(default_factory=list)
 
 
-class DiscoveryHit(BaseModel):
-    """One visible passage found by discovery.
+class EvidenceSearchHit(BaseModel):
+    """One visible passage found by search.
 
     Attributes:
         evidence_id: The evidence id of the passage. Pass it to fetch and
@@ -258,23 +258,23 @@ class DiscoveryHit(BaseModel):
     location: EvidenceLocation
     snippet: str
     score: float
-    legs: list[DiscoveryLeg]
+    legs: list[EvidenceSearchLeg]
 
 
 class LegFailure(BaseModel):
-    """A search leg that failed during discovery.
+    """A search leg that failed during search.
 
     Attributes:
         leg: The leg that failed.
         message: The error message from the store.
     """
 
-    leg: DiscoveryLeg
+    leg: EvidenceSearchLeg
     message: str
 
 
-class DiscoveryResult(BaseModel):
-    """The result of one discovery call.
+class EvidenceSearchResult(BaseModel):
+    """The result of one search call.
 
     Attributes:
         status: The overall outcome. A failed leg never shows as NO_MATCH.
@@ -287,8 +287,8 @@ class DiscoveryResult(BaseModel):
         failures: The legs that failed. Empty when every leg ran.
     """
 
-    status: DiscoveryStatus
-    hits: list[DiscoveryHit] = Field(default_factory=list)
+    status: EvidenceSearchStatus
+    hits: list[EvidenceSearchHit] = Field(default_factory=list)
     truncated: bool = False
     index_state: IndexState | None = None
     failures: list[LegFailure] = Field(default_factory=list)
@@ -326,7 +326,7 @@ class VersionStatus(StrEnum):
     Attributes:
         CURRENT: The content hash equals the document's current content hash.
         SUPERSEDED: The document has changed since this text was written. The
-            text is still returned, and it is not discoverable.
+            text is still returned, and it is not searchable.
     """
 
     CURRENT = "current"

@@ -1,0 +1,151 @@
+---
+title: Entity search
+description: Find the entities in your graph by name or meaning, each with the passages that mention it.
+---
+
+# Entity search
+
+Entity search finds the things your schema names, such as people, organizations, or software, and returns each with up to three passages that mention it.
+
+| | |
+|---|---|
+| Python function | `entity_search` |
+| Built-in agent tool | `entity_search` |
+| MCP tool | `entity_search` |
+| Required inputs | `query`. Python also needs `store`, `embedder`, `scope`, and `limit`. |
+| Optional inputs | `labels`, `mode` (default `hybrid`), `limit`, and in Python `support_limit` (default 3) |
+| Returns | An `EntityResult` with ranked `hits`. Each hit is an entity with its `support` passages. |
+| Needs | A full-text index on `name` and a vector index on `embedding` for each entity label. An embedder for `semantic` and `hybrid`. |
+| Reads | Entities that a passage in scope mentions |
+| API reference | [`agrag.evidence.entity_search`](../api/evidence/entities/entity_search.md) |
+
+## Overview
+
+A question that names a thing and asks about its connections has no keyword that sits next to the answer. "Who wrote the Orion Planner?" can span several passages. Entity search finds the entity even when the question spells it differently, because the semantic search matches meaning. [Explore relationships](./explore-relationships.mdx) then follows the relations around the entity.
+
+- Use entity search when the question names a person, product, or another thing from your schema.
+- Use [passage search](./passage-search.mdx) when the answer is a fact in running text and no entity is named.
+
+Entities exist only where extraction found them. A fact that extraction missed has no entity, and passage search still finds the passage that holds it.
+
+## Example
+
+The examples use the notes from [Set up the example](./example-setup.mdx), and they reuse `store`, `embedder`, `scope`, and `short` from that page. Outputs come from a real run.
+
+Look up "Maria Chen" among the `Person` entities and print each hit with its supporting passages:
+
+```python notest
+entities = await entity_search(
+    store, embedder, "Maria Chen", scope=scope, labels=["Person"], limit=3
+)
+for hit in entities.hits:
+    legs = [leg.value for leg in hit.legs]
+    print(f"{hit.score:.4f}  {hit.label}  {hit.name}  {hit.kind.value}  {legs}")
+    for passage in hit.support:
+        print("   ", short(passage.evidence_id))
+```
+
+```text
+0.0328  Person  Maria Chen  supported  ['lexical', 'semantic']
+    ev1:c:f24b301d...3e66aa77
+    ev1:c:f24b301d...12cd16fb
+0.0161  Person  Priya Raman  supported  ['semantic']
+    ev1:c:f24b301d...12cd16fb
+0.0159  Person  Daniel Okafor  supported  ['semantic']
+    ev1:c:f24b301d...3e66aa77
+    ev1:c:f24b301d...12cd16fb
+```
+
+The first hit is the entity you asked for. It matched in both searches, and two passages mention it: the planning notes and the table. The other two hits matched only through the semantic search, which returns the nearest entities even when they are not the one you named. Compare `hit.score` and `hit.legs` before you rely on a hit.
+
+Leave out `labels` to search every entity label. The query "route planner" finds the software entity first, and the other hits show how loose a meaning match can be:
+
+```text
+0.0328  Software  Orion Planner  ['lexical', 'semantic']
+0.0161  Dataset  floor plans  ['semantic']
+0.0159  Software  Fleet Monitor  ['semantic']
+```
+
+Each hit has an `entity_id`. Pass it to [explore relationships](./explore-relationships.mdx) to see what the entity connects to.
+
+## Usage
+
+### In Python
+
+Call `entity_search` as in the example above. Python needs the connected `store`, the `embedder`, the `scope`, and a `limit`. Use the same embedder that loaded the documents.
+
+### In the built-in agent
+
+The agent calls `entity_search` on its own when a question names a thing. You set the readable documents with the `scope` argument of `build_agent`.
+
+### On the MCP server
+
+An MCP client calls `entity_search` with the query and optional labels, mode, and limit.
+
+```json
+{"query": "Maria Chen", "labels": ["Person"], "limit": 3}
+```
+
+The parameter ranges and the MCP caps are in the [entity search parameters](../reference/tools.mdx#entity-search).
+
+## Result
+
+An entity hit has these fields.
+
+| Field | Meaning |
+|---|---|
+| `entity_id` | The id of the entity node. Pass it to `explore_relationships`. |
+| `label` | The schema label the entity was found under. |
+| `name` | The entity name. |
+| `properties` | The schema properties of the entity. Internal fields, the embedding, and the source chunk list are left out. |
+| `kind` | `supported` when a current passage mentions the entity, and `unsupported` when only an older version of a document does. |
+| `score` | An ordering value. It is not a confidence. |
+| `legs` | The searches that found the entity. |
+| `support` | Up to three passages that mention the entity, each with `evidence_id`, `document_key`, and `location`. |
+
+The result also has `status`, `truncated`, `index_state`, and `failures`, with the same meanings as in the [passage search result](./passage-search.mdx#result). An `unsupported` entity comes back with an empty `support` list. The entity is in the graph, and no current text states it, so treat it as a lead and not as a fact.
+
+<details>
+<summary>Full JSON of the first hit</summary>
+
+This is `entities.model_dump_json(indent=2)` for the query above with `limit=1`.
+
+```json
+{
+  "status": "ok",
+  "hits": [
+    {
+      "entity_id": "a0083936-0bf3-5836-9ebf-95cf350434ec",
+      "label": "Person",
+      "name": "Maria Chen",
+      "properties": {},
+      "kind": "supported",
+      "score": 0.03278688524590164,
+      "legs": ["lexical", "semantic"],
+      "support": [
+        {
+          "evidence_id": "ev1:c:f24b301d-f73a-5291-9d80-7ea3cbd5291c:c174f9d9eba7d79c:440441fc-6865-5391-8e02-a44c3e66aa77",
+          "document_key": "/home/you/acme-notes.md",
+          "location": { "char_start": null, "char_end": null, "page_numbers": [] }
+        },
+        {
+          "evidence_id": "ev1:c:f24b301d-f73a-5291-9d80-7ea3cbd5291c:c174f9d9eba7d79c:d87dc453-128c-5ace-91e7-74d912cd16fb",
+          "document_key": "/home/you/acme-notes.md",
+          "location": { "char_start": null, "char_end": null, "page_numbers": [] }
+        }
+      ]
+    }
+  ],
+  "truncated": false,
+  "index_state": "ready",
+  "failures": []
+}
+```
+
+</details>
+
+## Related
+
+- [How entity search and relations work](../concepts/how-entity-search-works.mdx) describes the labels, the indexes, and why an entity needs a visible passage.
+- [Explore relationships](./explore-relationships.mdx) follows the relations from an `entity_id`.
+- [Knowledge graph](../concepts/knowledge-graph.mdx) defines the entities and relations these tools read.

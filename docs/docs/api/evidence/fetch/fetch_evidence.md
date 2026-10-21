@@ -1,12 +1,12 @@
 ---
-title: agrag.evidence.fetch.fetch
-sidebar_label: fetch
+title: agrag.evidence.fetch.fetch_evidence
+sidebar_label: fetch_evidence
 ---
 
-# `agrag.evidence.fetch.fetch` \{#agrag-evidence-fetch-fetch}
+# `agrag.evidence.fetch.fetch_evidence` \{#agrag-evidence-fetch-fetch_evidence}
 
 ```python
-fetch(store:GraphStore, evidence_ids:Sequence[str], *, scope:frozenset[str], max_chars:int, timeout:float | None = None) -> list[FetchOutcome]
+fetch_evidence(store:GraphStore, evidence_ids:Sequence[str], *, scope:frozenset[str], max_chars:int, timeout:float | None = None) -> list[FetchOutcome]
 ```
 
 Return the text of each evidence id, in the order given.

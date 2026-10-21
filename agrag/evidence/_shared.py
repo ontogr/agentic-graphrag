@@ -1,4 +1,4 @@
-"""Helpers shared by discovery, fetch, navigation and citation checks."""
+"""Helpers shared by search, fetch, navigation and citation checks."""
 
 import re
 from collections import defaultdict
@@ -89,7 +89,7 @@ def text_range(chunk: Chunk) -> tuple[int, int] | None:
 
 
 def chunk_reference(chunk: Chunk) -> EvidenceReference:
-    """Return the reference a discovery hit uses for a chunk.
+    """Return the reference a search hit uses for a chunk.
 
     A chunk whose text is exactly its text range gives a span over that range. Any
     other chunk, including a chunk under a heading, gives a chunk reference. Both

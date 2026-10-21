@@ -13,7 +13,7 @@ from agrag.common.data_models.task import (
     StepResultValidity,
     StepState,
 )
-from agrag.evidence import fetch
+from agrag.evidence import fetch_evidence
 from agrag.graphdb.base import GraphStore
 from agrag.memory import TaskMemory
 from tests.integration.graphdb.memory.conftest import DocumentEnv
@@ -37,7 +37,7 @@ class TestTaskView:
             "source-result", EventKind.NOTE, payload="Policy analysis"
         )
         evidence_id = span_evidence_id(documents.keep, KEEP_TEXT, 0, 60)
-        fetched = await fetch(
+        fetched = await fetch_evidence(
             store, [evidence_id], scope=frozenset({documents.keep}), max_chars=2000
         )
         recorded = await memory.set_step(
@@ -50,19 +50,19 @@ class TestTaskView:
             fetched_evidence=fetched,
         )
         assert recorded.recorded is True
-        first = await memory.list_steps_page("source-result", StepState.COMPLETED)
+        first = await memory.list_steps("source-result", StepState.COMPLETED)
         assert first.steps[0].result_validity is StepResultValidity.REUSABLE
         await documents.graph.add(
             documents=[make_document(documents.harbor, "Unrelated replacement text.")]
         )
-        unaffected = await memory.list_steps_page("source-result", StepState.COMPLETED)
+        unaffected = await memory.list_steps("source-result", StepState.COMPLETED)
         assert unaffected.steps[0].result_validity is StepResultValidity.REUSABLE
         await documents.graph.add(
             documents=[
                 make_document(documents.keep, KEEP_TEXT + "\nNew policy qualification.")
             ]
         )
-        changed = await memory.list_steps_page("source-result", StepState.COMPLETED)
+        changed = await memory.list_steps("source-result", StepState.COMPLETED)
         assert changed.steps[0].state is StepState.COMPLETED
         assert changed.steps[0].result_validity is StepResultValidity.NEEDS_REVIEW
         assert changed.steps[0].result_supports[0].evidence_id == evidence_id
@@ -163,8 +163,8 @@ class TestTaskView:
         for name in ("step-a", "step-b", "step-c"):
             await memory.set_step("paged", name, StepState.COMPLETED)
 
-        first = await memory.list_steps_page("paged", StepState.COMPLETED, limit=2)
-        second = await memory.list_steps_page(
+        first = await memory.list_steps("paged", StepState.COMPLETED, limit=2)
+        second = await memory.list_steps(
             "paged",
             StepState.COMPLETED,
             after_name=first.next_after_name,
@@ -193,7 +193,7 @@ class TestTaskView:
         )
         await memory.record_event("independent", EventKind.NOTE, payload="unrelated")
 
-        page = await memory.list_steps_page("independent", StepState.COMPLETED)
+        page = await memory.list_steps("independent", StepState.COMPLETED)
 
         assert page.steps[0].result_validity is StepResultValidity.REUSABLE
 

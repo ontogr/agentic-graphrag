@@ -54,3 +54,20 @@ async def drop_schema_for(store: GraphStore, *names: str) -> None:
         object_name = row["name"]
         if isinstance(object_name, str) and is_safe_identifier(object_name):
             await store.execute_write(f"DROP INDEX {object_name} IF EXISTS")
+
+
+async def delete_resolved_entities(store: GraphStore, *labels: str) -> None:
+    """Delete the resolved entities that were built from the given entity labels.
+
+    Deleting a test's entities by label leaves the ``ResolvedEntity`` nodes that
+    ingestion created for them. Entity search returns those nodes to every later
+    test in the same database, so tests call this in their teardown.
+
+    Args:
+        store: A connected graph store.
+        *labels: The entity labels the test created.
+    """
+    await store.execute_write(
+        "MATCH (r:ResolvedEntity) WHERE r.label IN $labels DETACH DELETE r",
+        {"labels": list(labels)},
+    )

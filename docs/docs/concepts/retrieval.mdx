@@ -1,103 +1,198 @@
 ---
 sidebar_position: 11
 title: Retrieval
-description: How Agentic GraphRAG finds evidence for a query with several search methods, fusion, and re-ranking.
+description: How Agentic GraphRAG finds passages, entities, and relations, how the strategies differ, and which tool to call for a question.
 ---
 
 import Diagram from '@site/src/components/Diagram';
 
 # Retrieval
 
-Agentic GraphRAG has two ways to retrieve. The evidence functions in `agrag.evidence` find passages, fetch their exact text, move between neighbouring passages, explore entity relations, and check citations. The built-in agent and the MCP server use them. `SearchEngine` runs named recipes that combine search methods over entities, chunks, and community reports, for code that wants ranked results from the graph.
+Retrieval finds the parts of your documents that answer a question, and it lets an answer point back to the exact text it came from. Agentic GraphRAG has two ways to do this. The evidence tools in `agrag.evidence` search your documents, return the exact text of a passage, and check the citations in an answer. The built-in agent and the MCP server use them. `SearchEngine` runs recipes that return ranked results as data, without citations.
 
-## Why it exists
+No single search finds everything. A name lookup finds "Ada Lovelace" and misses "the main themes in this corpus". A keyword search finds an exact contract term and misses a paraphrase of it. A vector search finds the paraphrase and can rank a similar but wrong passage first. The tools below cover these cases one at a time.
 
-Graph data answers questions in different ways. A fact can sit in a source passage, on an entity, in a relation between entities, or in a summary of a whole topic. No single search finds all four. A name lookup works for "Ada Lovelace". It does not work for "the main themes in this corpus".
+<Diagram folder="docs" name="evidence-tools-overview" alt="A query goes to passage search, or to entity search and then relationship exploration. Both return evidence ids. Fetch turns an id into its exact text. Document tree navigation moves from a passage to neighboring passages and returns more ids. The citation check compares cited ids with the ids that were fetched." />
 
-An answer that cites its sources needs more than a ranked list. The evidence functions give every passage an id that names one version of one document, return the exact text behind an id, and check each citation against what was fetched. A caller fixes the set of readable documents once, and every function applies that scope inside its queries.
+## How a question becomes a cited answer
 
-## Evidence retrieval
+An answer is built only from passages that the system read, and each claim in it points to the passage it came from. To see how, follow one question through the three steps, using the notes in [Set up the example](../tools/example-setup.mdx). The question is "How soon is customer data erased?". The output blocks on this page come from a real run, and your ids differ.
 
-<Diagram folder="docs" name="evidence-tools" alt="A query goes to discover, or to find_entities and then explore. Both return evidence ids. fetch turns an id into its exact text. navigate moves from a passage to neighbouring passages and returns more ids. check_citations compares cited ids with the ids that were fetched, and render_citations makes numbered references." />
+### Step 1. Search
 
-*Search and entity functions return evidence ids. Fetch returns the text behind an id. Citations are checked against the ids that were fetched.*
+A search returns the best matches as short previews. This is the output of a hybrid [passage search](../tools/passage-search.mdx) for the question:
 
-1. Discover. `discover` searches the text of the current document versions in scope. It runs a keyword search, a vector search, or both, and combines hybrid results with Reciprocal Rank Fusion. Each hit has an evidence id, a snippet, a title, and a location. The result carries a status, and it says when a search leg failed or the candidate list was cut.
-2. Fetch. `fetch` returns the exact text for each id. A chunk id returns the stored chunk text. A span id returns the requested character range, and a result that covers only part of the range is marked partial. The result says whether the version is current or superseded, so an id keeps working after the document is updated.
-3. Navigate. `navigate` moves from a passage to its parent section, its children, its siblings, the previous or next chunk, or the cells around a table.
-4. Find entities. `find_entities` searches entity names by keyword and entity embeddings by similarity, and returns each entity with up to three supporting passages. `explore` follows relations outward from an entity and marks each edge as an assertion that a visible passage supports, or as a path between entities.
-5. Check. `check_citations` compares cited ids with the ids that were fetched in scope. A valid citation was fetched. `render_citations` turns valid ids into numbered references with a Sources list.
+```text
+ok
+0.0328  ev1:c:f24b301d...d7c4d6ef  ['lexical', 'semantic']
+    Data retention  Robot logs are kept for 30 days and then deleted. A cu
+0.0320  ev1:c:f24b301d...3e66aa77  ['lexical', 'semantic']
+    Acme Robotics engineering notes  Route planning  Maria Chen works for
+0.0161  ev1:c:f24b301d...12cd16fb  ['semantic']
+    | Component | Owner | Purpose | | --- | --- | --- | | Orion Planner |
+```
 
-An evidence id names a document, a prefix of the content hash of one version, and a chunk or character span. The agent calls these functions as tools, and the MCP server exposes them as `search_evidence`, `fetch_evidence`, `navigate`, `find_entities`, `explore`, and `check_citations`. See [Find and cite evidence](../guides/find-and-cite-evidence.mdx) to call them from Python.
+Each pair of lines is one match. The number is a score that puts the matches in order. The text under it is a preview of the first characters of the passage. The id on the first line is an evidence id. It points to one passage in one version of one document, so it keeps pointing to the same text after the document changes. The first match looks right, but a preview can stop before the sentence you need.
 
-## Recipe search
+### Step 2. Read
 
-`SearchEngine` runs a recipe over the graph.
+[Fetch evidence](../tools/fetch-evidence.mdx) takes an id and returns the whole passage:
 
-### How a recipe runs
+```text
+ok current Acme Robotics engineering notes
+Data retention
 
-<Diagram folder="docs" name="recipe" alt="The engine runs the recipe's methods at the same time and fuses the ranked lists. A recipe can then walk the graph from entity hits and fuse again, add community reports, and re-rank. The engine keeps the top results up to the limit of the recipe." />
+Robot logs are kept for 30 days and then deleted. A customer can ask Acme Robotics to erase their delivery data. After the request is verified, the data is deleted within 10 business days.
+```
 
-*The engine runs these steps in order. The steps in the box run only when the recipe asks.*
+The first line has three parts. `ok` is the status of the fetch, and it means the text is complete. `current` is the version of the document, and it means the document has not changed since this id was made. After an edit, the old id returns the old text marked `superseded`. The last part is the document title, and the passage follows on the next lines.
 
-1. Run the methods. The recipe names one or more methods. The engine runs them at the same time. If one method fails, the others still return results.
-2. Fuse. The engine merges the ranked lists into one list and removes duplicates.
-3. Walk the graph (optional). The engine follows relations outward from the entity hits and fuses the neighbours into the list.
-4. Add communities (optional). The engine adds the reports of communities that overlap the entities found.
-5. Re-rank (optional). A cross-encoder model, or the graph distance to the top entity hits, sets a new order.
-6. Cut. The engine keeps the top results, up to the limit of the recipe.
+The passage answers the question: the data is deleted within 10 business days. Only text read this way can be cited.
 
-### Methods
+### Step 3. Answer and check
 
-| Method | What it finds |
-|---|---|
-| `entity` | Entities and resolved entities whose embedding is closest to the query. |
-| `chunk` | Passages of source text. Each hit is one chunk, with the headings above it. |
-| `community` | Reports on topics. |
+The answer cites the id in square brackets. [Check citations](../tools/check-citations.mdx) compares each cited id with the ids that were read. Here the answer cites three ids, and only the first was read:
 
-The graph walk is a step, not a method. A recipe switches it on.
+```text
+ev1:c:f24b301d...d7c4d6ef    valid
+ev1:c:f24b301d...12cd16fb    not_fetched
+ev1:c:oops                   malformed
+```
 
-### Recipes
+The second id points to a real passage that nobody read. The third is not an id at all. A `valid` verdict shows that the passage was read. It does not show that the passage supports the claim. A valid citation then becomes a numbered reference:
 
-A recipe is a named list of configuration values. It is data, so you can read it and copy it.
+```text
+Customer data is deleted within 10 business days. [1]
 
-| Recipe | Methods | Extra steps | Results |
-|---|---|---|---|
-| `ENTITY` | entity | none | 10 |
-| `CHUNK` | chunk | none | 10 |
-| `HYBRID` | entity, chunk | none | 10 |
-| `HYBRID_RERANKED` | entity, chunk | community reports, cross-encoder re-rank | 10 |
-| `GRAPH_EXPAND` | entity | graph walk, community reports | 20 |
-| `THEMATIC` | community | none | 5 |
+### Sources
 
-### Fusion
+[1] Acme Robotics engineering notes
+```
 
-Reciprocal Rank Fusion scores an item by its rank in each list, not by its raw score. `RETRIEVAL_RRF_K` sets the constant for `SearchEngine`, and evidence discovery uses a fixed constant of 60. An item found by multiple methods can outrank an item found by one method. Each method gives an item one vote at its best rank, so duplicate hits from one method do not add weight.
+### Choose which documents can be read
 
-Fusion runs even when a recipe has one method. It also removes duplicates, so the re-ranker never sees the same item twice.
+You give the tools a list of documents that they may read. The list is called the scope. The tools never read outside it, and the model cannot change it. An id from a document outside the scope behaves as if the document does not exist.
 
-### Filters
+## Retrieval strategies
 
-A filter limits a search to matching items. It can match entity label, document, property value, or relation type. Labels apply to entity search only. Relation types limit the graph walk. Document and property filters apply to entity, chunk, and community search.
+### Keyword search
 
-### A worked example
+Keyword search matches the words of the query against chunk text with a full-text index. [Passage search](../tools/passage-search.mdx) runs it in `lexical` mode.
 
-The query is "Who worked with Babbage?" and the recipe is `HYBRID`. Entity search ranks the entities Charles Babbage and Ada Lovelace. Chunk search returns the chunk that names both. Fusion merges the two lists. The caller gets five results: four entities and one chunk. The chunk carries its heading path, so the caller can show where it came from.
+Main features:
+
+- Finds exact words, identifiers, defined terms, and names.
+- Does not find synonyms or paraphrases.
+- Treats the query as plain words. Quotes, `AND`, and `-` have no effect.
+
+### Semantic search
+
+Semantic search embeds the query and finds the chunks with the nearest embeddings. [Passage search](../tools/passage-search.mdx) runs it in `semantic` mode.
+
+Main features:
+
+- Finds a passage that says the same thing in different words.
+- Always returns the nearest chunks, even when none of them answers the question.
+- Needs the same embedding model that ingestion used.
+
+### Hybrid search
+
+Hybrid search runs keyword search and semantic search, then fuses the two ranked lists with reciprocal rank fusion. It is the default mode of [passage search](../tools/passage-search.mdx).
+
+Main features:
+
+- Keeps the hits that either search finds.
+- Ranks a chunk higher when both searches rank it well.
+- Reports `partial` when one of the two searches fails.
+
+### Entity search
+
+[Entity search](../tools/entity-search.mdx) finds the things your schema names, such as people, contracts, or products, by name or by meaning. Each entity comes with up to three passages that mention it.
+
+Main features:
+
+- Finds an entity even when the question spells its name differently.
+- Returns only entities that extraction created and that a passage in scope mentions.
+- Marks an entity `unsupported` when none of its passages is current.
+
+### Relationship exploration
+
+[Relationship exploration](../tools/explore-relationships.mdx) follows the stored relations around one entity, up to two steps.
+
+Main features:
+
+- Marks each relation as an assertion that a passage states, or as a path that no passage states.
+- Lists the passages that state an assertion, so you can fetch and cite them.
+- Reports the bound that cut the walk.
+
+### Document tree navigation
+
+[Document tree navigation](../tools/navigate-document-tree.mdx) reads the passages near a passage you already have, using the section structure and the reading order of the document.
+
+Main features:
+
+- Reaches the section, the sibling sections, the other passages in a section, the previous or next passage, and the rows around a table cell.
+- Reads only the document version of the passage you start from.
+- Starts from an evidence id, so it cannot search.
+
+### Recipe search
+
+[Recipe search](../tools/recipe-search.mdx) runs entity, chunk, and community search at the same time and returns ranked results as data.
+
+Main features:
+
+- Fuses the lists, and can walk the graph and re-rank.
+- Returns entities, passages, and community reports.
+- Has no document scope and no citation support.
+
+## Which tool to call for a question
+
+| The question | Start with | Then |
+|---|---|---|
+| Contains an exact word, a code, a defined term, or a quoted phrase | `search_evidence` in `lexical` mode | Read the best hits with `fetch_evidence`. |
+| Describes an idea in words the document may not use | `search_evidence` in `semantic` mode | Read the passages you will use with `fetch_evidence`. |
+| Fits neither case, or you are unsure | `search_evidence` in `hybrid` mode, the default | Read the hits you will quote with `fetch_evidence`. |
+| Names a thing and asks about its relations ("who worked with Babbage") | `entity_search` | `explore_relationships` from the best entity, then read the passages on its assertion edges with `fetch_evidence`. |
+| Needs the section, the table, or the text around a passage you already have | `navigate_document_tree` from that passage's id | Read the neighbors you cite with `fetch_evidence`. |
+| Asks for the main themes of a corpus | `SearchEngine` with the `THEMATIC` recipe | Read the community reports. |
+
+The table uses the tool names of the built-in agent and the MCP server. The Python functions in `agrag.evidence` have the same names.
+
+Passage search belongs in every sequence that ends in a citation. Entity search depends on extraction, so a fact that extraction missed has no entity, and passage search still finds it because it reads the stored text.
+
+## Rules for every evidence tool
+
+- A search finds only the current version of each document. Fetch and navigation can still read an older version, and they label it `superseded`.
+- Every tool limits how many results and how much text it returns. A result says `truncated` when the limit cut it short.
+- A failed search says so. If one half of a hybrid search fails, the status is `partial` and the result names the failed half. An empty list means that the search ran and found nothing.
+- A score orders the matches of one call. You cannot compare scores from different modes or different tools.
+- An empty result does not prove that the answer is missing. It means that no current passage matched this query.
+
+## Where you can use the tools
+
+| Where | Entry point | Scope comes from |
+|---|---|---|
+| Python | The functions in `agrag.evidence`. | The `scope` argument of each call. |
+| Built-in agent | `build_agent` registers the tools for the model. | The `scope` argument of `build_agent`. The model cannot see or change it. |
+| MCP server | `agrag-mcp` registers the tools for any MCP client. | `MCP_SCOPE_DOCUMENT_KEYS`. |
+
+All three read the same graph. Semantic and hybrid search embed the query with the embedder you pass in, and the vectors in the graph come from the embedder that ingestion used, so both must be the same model. The [tools reference](../reference/tools.mdx#tool-names) maps each operation to its function and tool names.
 
 <details>
 <summary>Design choices</summary>
 
-Why fuse ranks and not scores? A vector search, a keyword search, and a graph walk score on different scales. Ranks compare across methods. Scores do not.
+Search returns previews and not full text. A list of ten previews is short enough to scan at once, and only a fetch makes an id citable, so a fetch call read every cited passage.
 
-How do community reports survive the re-rank? With the cross-encoder, the recipe keeps up to three slots for community reports after the re-rank, so the re-rank cannot push every report out of the results.
+The scope sits outside the model. A model that can name any document key can read any document, so the caller sets the scope when it builds the agent or starts the server and the tools apply it in the query.
 
-Why does one failed method not fail the search? A timeout in one method must not hide good results from another. The engine logs the failure and records it on the trace. If every method fails, the engine raises an error. Every method follows one rule. With a positive limit, it returns an empty list only when the search ran and found nothing. It raises on any failure it cannot recover from.
+Search and fetch treat versions differently. A search result reflects what the document says now. An id from an earlier run still resolves, so a citation stays checkable after the document changes, and fetch labels that text `superseded`.
 
 </details>
 
 ## Related
 
-- Guide: [Find and cite evidence](../guides/find-and-cite-evidence.mdx), [Retrieve and answer](../guides/retrieve-and-answer.mdx)
-- Guide: [Run the MCP server](../guides/run-the-mcp-server.mdx)
-- Concepts: [Chunking](./chunking.mdx), [Communities](./communities.mdx), [Graph storage](./graph-storage.mdx), [Agent loop](./agent-loop.mdx)
-- Reference: [Retrieval API](../api/retrieval/index.md), [Configuration](../reference/configuration.mdx)
+- [How passage search works](./how-passage-search-works.mdx) describes visibility, the two search legs, and fusion.
+- [How entity search and relations work](./how-entity-search-works.mdx) describes the entity lookup and the relation walk.
+- [Evidence ids and citations](./evidence-and-citations.mdx) describes id formats, versions, and the citation check.
+- [Find and cite evidence](../guides/find-and-cite-evidence.mdx) runs the tools from Python end to end.
+- [Tools reference](../reference/tools.mdx) lists every parameter, default, and limit.

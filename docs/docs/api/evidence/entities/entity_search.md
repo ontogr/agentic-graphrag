@@ -1,12 +1,12 @@
 ---
-title: agrag.evidence.entities.find_entities
-sidebar_label: find_entities
+title: agrag.evidence.entities.entity_search
+sidebar_label: entity_search
 ---
 
-# `agrag.evidence.entities.find_entities` \{#agrag-evidence-entities-find_entities}
+# `agrag.evidence.entities.entity_search` \{#agrag-evidence-entities-entity_search}
 
 ```python
-find_entities(store:GraphStore, embedder:Embedder, query:str, *, scope:frozenset[str], labels:Sequence[str] | None = None, limit:int, mode:DiscoveryMode = DiscoveryMode.HYBRID, support_limit:int = 3) -> EntityResult
+entity_search(store:GraphStore, embedder:Embedder, query:str, *, scope:frozenset[str], labels:Sequence[str] | None = None, limit:int, mode:EvidenceSearchMode = EvidenceSearchMode.HYBRID, support_limit:int = 3) -> EntityResult
 ```
 
 Find up to `limit` entities that match a query by name or by meaning.
@@ -33,7 +33,7 @@ An entity with passages in scope and no visible passage is returned with kind
 - **labels** (<code>Sequence\[str\] | None</code>) – The entity labels to search. None searches every entity label that
   has a vector index, which is every label the graph schema declares.
 - **limit** (<code>int</code>) – The most entities to return. Must be positive.
-- **mode** (<code>[DiscoveryMode](../../common/data_models/evidence/DiscoveryMode.md)</code>) – Which legs to run.
+- **mode** (<code>[EvidenceSearchMode](../../common/data_models/evidence/EvidenceSearchMode.md)</code>) – Which legs to run.
 - **support_limit** (<code>int</code>) – The most supporting passages listed for each entity. Must
   be positive.
 

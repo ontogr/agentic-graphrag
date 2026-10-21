@@ -1,8 +1,8 @@
-"""Cypher builders for evidence discovery and fetch.
+"""Cypher builders for evidence search and fetch.
 
-Discovery attaches one visibility clause to both search legs. Pending writes,
+Search attaches one visibility clause to both search legs. Pending writes,
 superseded chunks and out-of-scope documents are marked invisible inside the
-query, so the escalation loop in discovery counts only visible rows.
+query, so the escalation loop in search counts only visible rows.
 """
 
 from agrag.common.data_models.chunk import CHUNK_LABEL
@@ -55,7 +55,7 @@ def _candidate_tail() -> str:
 
 
 def lexical_candidates_query() -> str:
-    """Build the full-text discovery query over the Chunk text index.
+    """Build the full-text search query over the Chunk text index.
 
     Returns:
         Parameterized Cypher expecting $index (the index name), $fulltext_terms
@@ -69,7 +69,7 @@ def lexical_candidates_query() -> str:
 
 
 def semantic_candidates_query() -> str:
-    """Build the vector discovery query over the Chunk embedding index.
+    """Build the vector search query over the Chunk embedding index.
 
     Returns:
         Parameterized Cypher expecting $index (the index name), $vector (the query
