@@ -509,6 +509,14 @@ def upsert_relation_query(rel_type: str) -> str:
     value here, inside the same MERGE, keeps the union correct regardless of
     which caller's read was stale.
 
+    ``confidence`` and ``extractors`` follow the same pattern. ``confidence``
+    keeps the higher of the stored and written values, and a missing value on
+    either side keeps the other one. ``extractors`` is the union of the stored
+    and written lists, stored items first. Without this, a write from one
+    extractor would erase the provenance that another extractor recorded.
+    Neither value is recomputed when a source chunk is later retracted, because
+    the edge keeps no per-chunk scores.
+
     Both endpoints must carry the identity label. Candidate edge types are
     reserved for the candidate store and cannot be written here.
 
@@ -525,7 +533,8 @@ def upsert_relation_query(rel_type: str) -> str:
         A parameterized Cypher query expecting a ``$records`` list parameter whose
         items carry ``id``, ``start_id``, ``end_id``, ``properties``, and
         ``pending_job_id`` keys. ``properties`` may include
-        ``source_chunk_ids``; other keys are applied as-is. The query returns
+        ``source_chunk_ids``, ``confidence``, and ``extractors``, which are merged
+        as described above. Other keys are applied as-is. The query returns
         ``id`` and ``written`` for every record whose endpoints matched and was
         processed.
 
@@ -549,12 +558,26 @@ def upsert_relation_query(rel_type: str) -> str:
         f"MERGE (a)-[r:{safe_type} {{id: record.id}}]->(b) "
         f"ON CREATE SET r.{PENDING_JOB_ID_PROPERTY} = record.pending_job_id "
         f"WITH r, record, {own} AS own, "
-        f"coalesce(r.source_chunk_ids, []) AS existing_source_chunk_ids "
+        f"coalesce(r.source_chunk_ids, []) AS existing_source_chunk_ids, "
+        f"r.confidence AS existing_confidence, "
+        f"coalesce(r.extractors, []) AS existing_extractors "
         f"FOREACH (_ IN CASE WHEN own THEN [1] ELSE [] END | "
         f"SET r += record.properties "
         f"SET r.source_chunk_ids = [x IN existing_source_chunk_ids "
         f"WHERE NOT x IN coalesce(record.properties.source_chunk_ids, [])] "
         f"+ coalesce(record.properties.source_chunk_ids, []) "
+        f"SET r.confidence = CASE "
+        f"WHEN existing_confidence IS NULL THEN record.properties.confidence "
+        f"WHEN record.properties.confidence IS NULL THEN existing_confidence "
+        f"WHEN existing_confidence > record.properties.confidence "
+        f"THEN existing_confidence "
+        f"ELSE record.properties.confidence END "
+        f"SET r.extractors = CASE "
+        f"WHEN size(existing_extractors) = 0 "
+        f"AND size(coalesce(record.properties.extractors, [])) = 0 THEN null "
+        f"ELSE [x IN existing_extractors "
+        f"WHERE NOT x IN coalesce(record.properties.extractors, [])] "
+        f"+ coalesce(record.properties.extractors, []) END "
         f"SET r.id = record.id) "
         f"RETURN record.id AS id, own AS written"
     )

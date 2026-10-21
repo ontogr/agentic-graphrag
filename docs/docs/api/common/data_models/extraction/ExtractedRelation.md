@@ -16,6 +16,8 @@ One relation mention between two ExtractedEntity mentions in one Chunk.
 - [**source_index**](#agrag-common-data_models-extraction-ExtractedRelation-source_index) (<code>int</code>) – Index of the source entity in the same ExtractionResult.entities.
 - [**target_index**](#agrag-common-data_models-extraction-ExtractedRelation-target_index) (<code>int</code>) – Index of the target entity in the same ExtractionResult.entities.
 - [**confidence**](#agrag-common-data_models-extraction-ExtractedRelation-confidence) (<code>float | None</code>) – The extractor's confidence in this mention, when available.
+- [**extractors**](#agrag-common-data_models-extraction-ExtractedRelation-extractors) (<code>list\[str\]</code>) – The names of the extractors that found this mention, such
+  as `gliner` or `llm`. Empty when no extractor is named.
 
 ## `chunk_id` \{#agrag-common-data_models-extraction-ExtractedRelation-chunk_id}
 
@@ -27,6 +29,12 @@ chunk_id: UUID
 
 ```python
 confidence: float | None = None
+```
+
+## `extractors` \{#agrag-common-data_models-extraction-ExtractedRelation-extractors}
+
+```python
+extractors: list[str] = Field(default_factory=list)
 ```
 
 ## `label` \{#agrag-common-data_models-extraction-ExtractedRelation-label}

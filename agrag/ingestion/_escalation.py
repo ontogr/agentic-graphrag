@@ -37,11 +37,15 @@ class EscalationPlan:
         selected: The leading positions of ``ranked`` that the budget allows.
         scores: For each eligible position, its weakest span score, or
             ``None`` when the chunk has no scored span.
+        zero_relation: The number of eligible chunks with at least two kept
+            spans and no relation. These rank first. The count includes chunks
+            that the budget leaves out.
     """
 
     ranked: list[int]
     selected: list[int]
     scores: dict[int, float | None]
+    zero_relation: int = 0
 
     def report(self, total: int) -> EscalationReport:
         """Summarise the plan as the run report of one batch.
@@ -146,9 +150,12 @@ def plan_escalation(
     ``settings.escalation_threshold``, when it has no kept span and at least
     ``settings.min_escalation_words`` words, or when a kept span has a label in
     ``property_labels``. A kept span is an entity at or above
-    ``settings.entity_threshold``, or one with no score. Chunks with a kept span
-    rank by their lowest score, weakest first. Chunks with no kept span rank
-    after them. Ties break by position in the batch.
+    ``settings.entity_threshold``, or one with no score. Eligible chunks rank in
+    three groups. The first group holds chunks with at least two kept spans and
+    no relation. The second group holds the other chunks with a kept span. The
+    last group holds chunks with no kept span. Relation evidence therefore ranks
+    before span weakness. Within each group, the lowest span score ranks first,
+    weakest first, and ties break by position in the batch.
 
     Args:
         results: The first extractor's result for each chunk, or ``None`` for a
@@ -168,7 +175,7 @@ def plan_escalation(
         kept = kept_entities(result, settings)
         if not kept:
             if len(chunk.text.split()) >= settings.min_escalation_words:
-                entries.append((1, 0.0, position))
+                entries.append((2, 0.0, position))
                 scores[position] = None
             continue
         scored = [e.confidence for e in kept if e.confidence is not None]
@@ -176,12 +183,19 @@ def plan_escalation(
         is_weak = weakest is not None and weakest < settings.escalation_threshold
         has_properties = any(entity.label in property_labels for entity in kept)
         if is_weak or has_properties:
-            entries.append((0, _UNSCORED if weakest is None else weakest, position))
+            group = 0 if len(kept) >= 2 and not result.relations else 1
+            entries.append((group, _UNSCORED if weakest is None else weakest, position))
             scores[position] = weakest
     entries.sort()
     ranked = [position for _, _, position in entries]
+    zero_relation = sum(1 for group, _, _ in entries if group == 0)
     limit = budget_limit(len(chunks), len(ranked), settings.escalation_budget)
-    return EscalationPlan(ranked=ranked, selected=ranked[:limit], scores=scores)
+    return EscalationPlan(
+        ranked=ranked,
+        selected=ranked[:limit],
+        scores=scores,
+        zero_relation=zero_relation,
+    )
 
 
 def select_for_escalation(
@@ -239,9 +253,12 @@ def combine_results(
     measurements. An LLM entity with no unmatched first-result entity keeps its
     own offsets and has no confidence. First-result entities that the LLM did
     not return are appended unchanged. The LLM relations keep their indices.
-    The first result's relations are re-pointed to the combined entity list and
-    added unless the same source, label and target is already there. An empty
-    LLM answer returns the first result unchanged.
+    The first result's relations are re-pointed to the combined entity list. A
+    first-result relation with the same source, label and target as an LLM
+    relation merges into that LLM relation. The merged relation keeps its place,
+    takes the higher of the two confidences, and lists the extractor names of
+    both results. Other first-result relations are added. An empty LLM answer
+    returns the first result unchanged.
 
     Args:
         primary: The first extractor's result for the chunk.
@@ -282,15 +299,28 @@ def combine_results(
             combined_index[index] = len(entities)
             entities.append(entity)
     relations = list(escalated.relations)
-    seen = {(r.source_index, r.label, r.target_index) for r in relations}
+    relation_index = {
+        (r.source_index, r.label, r.target_index): index
+        for index, r in enumerate(relations)
+    }
     for relation in primary.relations:
         source = combined_index[relation.source_index]
         target = combined_index[relation.target_index]
-        if (source, relation.label, target) in seen:
+        key = (source, relation.label, target)
+        moved = relation.model_copy(
+            update={"source_index": source, "target_index": target}
+        )
+        if key not in relation_index:
+            relation_index[key] = len(relations)
+            relations.append(moved)
             continue
-        seen.add((source, relation.label, target))
-        relations.append(
-            relation.model_copy(update={"source_index": source, "target_index": target})
+        existing = relations[relation_index[key]]
+        known = [c for c in (existing.confidence, moved.confidence) if c is not None]
+        relations[relation_index[key]] = existing.model_copy(
+            update={
+                "confidence": max(known, default=None),
+                "extractors": sorted({*existing.extractors, *moved.extractors}),
+            }
         )
     return escalated.model_copy(
         update={

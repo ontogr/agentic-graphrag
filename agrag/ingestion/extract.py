@@ -1041,6 +1041,7 @@ class BAMLExtractor(LLMExtractor):
                     label=relation.label,
                     source_index=chosen[0],
                     target_index=chosen[1],
+                    extractors=["llm"],
                 )
             )
         return ExtractionResult(
