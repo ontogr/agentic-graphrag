@@ -131,7 +131,7 @@ agrag.ingestion.add
 | `agrag.resolution.global_exact_match` | `agrag.mention_count`, `agrag.exact_match_hits` |
 | `agrag.resolution.candidate_generation` | `agrag.mention_count`, `agrag.persisted_candidate_count`, `agrag.in_batch_candidate_count` |
 | `agrag.resolution.decided_pairs` | none; diagnostic read failures are recorded as exception events |
-| `agrag.resolution.resolve` | `agrag.entity_count`, `agrag.pair_count`, `agrag.ambiguous_count`, `agrag.failed_llm_requests`, `agrag.cap_truncated_pairs`, `agrag.llm_unavailable_pairs` |
+| `agrag.resolution.resolve` | `agrag.entity_count`, `agrag.pair_count`, `agrag.ambiguous_count`, `agrag.failed_llm_requests`, `agrag.cap_truncated_pairs`, `agrag.llm_unavailable_pairs`, `agrag.already_decided_pairs` |
 | `agrag.resolution.exact_fuzzy_pass` | `agrag.pair_count`, `agrag.exact_match_count`, `agrag.fuzzy_fast_path_count`, `agrag.fuzzy_uncertain_count` |
 | `agrag.resolution.embedding_tier` | `agrag.fuzzy_uncertain_count`, `agrag.hard_merge_count`, `agrag.ambiguous_count` |
 | `agrag.resolution.precluster_tier` | `agrag.boundary_pairs_before`, `agrag.auto_merged_count`, `agrag.boundary_pairs_after` |
