@@ -16,5 +16,5 @@ connection with no passage is a path.
 
 **Functions:**
 
-- [**explore**](explore.md) – Explore the entity relations around one entity, within bounds.
-- [**find_entities**](find_entities.md) – Find up to `limit` entities that match a query by name or by meaning.
+- [**entity_search**](entity_search.md) – Find up to `limit` entities that match a query by name or by meaning.
+- [**explore_relationships**](explore_relationships.md) – Explore the entity relations around one entity, within bounds.
