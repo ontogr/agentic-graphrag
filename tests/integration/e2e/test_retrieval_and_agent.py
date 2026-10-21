@@ -36,7 +36,7 @@ from agrag.retrieval.recipes import CHUNK, ENTITY, HYBRID
 from agrag.retrieval.search_engine import SearchEngine
 from agrag.retrieval.settings import RetrievalSettings
 from tests.conftest import FAKE_EMBEDDING_DIMENSIONS
-from tests.integration._schema_cleanup import drop_schema_for
+from tests.integration._schema_cleanup import delete_resolved_entities, drop_schema_for
 from tests.integration.e2e._artifact import write_artifact
 
 
@@ -81,9 +81,11 @@ class _FixedEmbedder(Embedder):
 class _DistinctTextEmbedder(_FixedEmbedder):
     """Run-vector embedder that tilts each text toward its own axis.
 
-    Texts that differ stay below the resolver's hard-merge similarity, so
-    unrelated entities are not merged, and every vector still sits close
-    to the run vector the queries use.
+    The tilt is an offset of 1, not a multiple of the run vector. For every
+    run vector, two texts on different axes have a cosine similarity of at
+    most 0.86, below the resolver's hard-merge similarity of 0.95, so
+    unrelated entities are never merged. Every vector still has a positive
+    cosine similarity with the run vector the queries use.
     """
 
     model = "distinct"
@@ -93,7 +95,7 @@ class _DistinctTextEmbedder(_FixedEmbedder):
         vectors = []
         for text in texts:
             vector = list(self._vector)
-            vector[len(text) % 4] *= 2.5
+            vector[len(text) % 4] += 1.0
             vectors.append(vector)
         return vectors
 
@@ -196,6 +198,9 @@ class TestRetrievalE2E:
                 )
                 await self.store.execute_write(
                     f"MATCH (n:{self.condition_label}) DETACH DELETE n"
+                )
+                await delete_resolved_entities(
+                    self.store, self.drug_label, self.condition_label
                 )
                 await drop_schema_for(self.store, self.drug_label, self.condition_label)
             finally:
@@ -589,8 +594,8 @@ class TestRetrievalE2E:
         await self._ensure_retrieval_indexes()
 
         # The text-tilted vectors score below 1 against the run vector, so entities
-        # that other suites left in the shared database can outrank them. Searching
-        # only this test's labels keeps those entities out of the comparison.
+        # in other labels of the shared database can outrank them. Searching only
+        # this test's labels keeps those entities out of the comparison.
         own_labels = SearchFilters(labels=[self.drug_label, self.condition_label])
         results = await self._engine().search(
             "drug treatment", ENTITY, filters=own_labels

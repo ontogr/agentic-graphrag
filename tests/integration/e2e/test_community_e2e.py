@@ -32,7 +32,7 @@ from agrag.ingestion.graph import Graph
 from agrag.retrieval.recipes import HYBRID_RERANKED, THEMATIC
 from agrag.retrieval.search_engine import SearchEngine
 from agrag.retrieval.settings import RetrievalSettings
-from tests.integration._schema_cleanup import drop_schema_for
+from tests.integration._schema_cleanup import delete_resolved_entities, drop_schema_for
 from tests.integration.e2e._artifact import write_artifact
 
 
@@ -181,6 +181,7 @@ async def _cleanup_community_test_data(
     store: GraphStore, person_label: str, org_label: str
 ) -> None:
     """Remove only entities and dependent data created by one E2E test."""
+    await delete_resolved_entities(store, person_label, org_label)
     rows = await store.execute_read(
         "MATCH (n) WHERE $person_label IN labels(n) "
         "OR $org_label IN labels(n) RETURN collect(n.id) AS ids",

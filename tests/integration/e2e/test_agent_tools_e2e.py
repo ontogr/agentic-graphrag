@@ -56,7 +56,7 @@ from agrag.retrieval.rerank.node_distance import node_distance_rerank
 from agrag.retrieval.search_engine import SearchEngine
 from agrag.retrieval.settings import RetrievalSettings
 from tests.conftest import FAKE_EMBEDDING_DIMENSIONS
-from tests.integration._schema_cleanup import drop_schema_for
+from tests.integration._schema_cleanup import delete_resolved_entities, drop_schema_for
 
 
 neo4j_missing = importlib.util.find_spec("neo4j") is None
@@ -269,6 +269,7 @@ async def _cleanup(
     document_ids: list[str],
 ) -> None:
     """Delete only the rows this test wrote, found by label and id."""
+    await delete_resolved_entities(store, *labels)
     await store.execute_write(
         "MATCH (n) WHERE any(l IN labels(n) WHERE l IN $labels) DETACH DELETE n",
         {"labels": labels},
