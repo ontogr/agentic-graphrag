@@ -6,7 +6,7 @@ sidebar_label: Graph
 # `agrag.ingestion.graph.Graph` \{#agrag-ingestion-graph-Graph}
 
 ```python
-Graph(*, schema:SchemaSource, graph_store:GraphStore, embedder:Embedder, extractor:Extractor | None = None, tracer:Tracer | None = None, cutover_settings:CutoverJobSettings | None = None, extraction_settings:ExtractionSettings | None = None, llm_extractor:LLMExtractor | None = None, chunker:Chunker | None = None, embed_heading_path:bool = True, max_llm_pairs:int = MAX_LLM_PAIRS) -> None
+Graph(*, schema:SchemaSource, graph_store:GraphStore, embedder:Embedder, extractor:Extractor | None = None, tracer:Tracer | None = None, cutover_settings:CutoverJobSettings | None = None, extraction_settings:ExtractionSettings | None = None, llm_extractor:LLMExtractor | None = None, chunker:Chunker | None = None, embed_heading_path:bool = True, max_llm_pairs:int = MAX_LLM_PAIRS, llm_concurrency:int = 2) -> None
 ```
 
 A knowledge graph that a caller can open and add content to.
@@ -65,6 +65,11 @@ A knowledge graph that a caller can open and add content to.
   to the LLM for each label. A lower value bounds the number of
   verification calls and leaves more pairs undecided. Zero sends
   no pairs to the LLM.
+- **llm_concurrency** (<code>int</code>) – Maximum concurrent LLM verification requests.
+
+**Raises:**
+
+- <code>ValueError</code> – `llm_concurrency` is less than one.
 
 ## `add` \{#agrag-ingestion-graph-Graph-add}
 
@@ -98,7 +103,9 @@ them again instead of returning a no-op.
   raises an error.
 - **error_policy** (<code>[ErrorPolicy](../../loaders/types/ErrorPolicy.md)</code>) – The action to take on a per-source error.
 - **on_progress** (<code>Callable\[\[[AddResult](../reports/add_result/AddResult.md)\], None\] | None</code>) – A callback the call runs after each batch and once more
-  at the end with the fully-populated result.
+  at the end with the fully-populated result. During entity
+  resolution it also receives progress snapshots with resolver
+  batch counts and elapsed time.
 - **return_chunks** (<code>bool</code>) – Whether to include the produced chunks in the
   returned AddResult. False by default to avoid holding full text
   for a large corpus when not needed. Chunks of a document that
@@ -331,7 +338,7 @@ The model name of the LLM slot, or None when it is unset.
 ## `open` \{#agrag-ingestion-graph-Graph-open}
 
 ```python
-open(*, schema:SchemaSource, graph_store:GraphStore, embedder:Embedder, extractor:Extractor | None = None, tracer:Tracer | None = None, cutover_settings:CutoverJobSettings | None = None, extraction_settings:ExtractionSettings | None = None, llm_extractor:LLMExtractor | None = None, chunker:Chunker | None = None, embed_heading_path:bool = True, max_llm_pairs:int = MAX_LLM_PAIRS) -> Graph
+open(*, schema:SchemaSource, graph_store:GraphStore, embedder:Embedder, extractor:Extractor | None = None, tracer:Tracer | None = None, cutover_settings:CutoverJobSettings | None = None, extraction_settings:ExtractionSettings | None = None, llm_extractor:LLMExtractor | None = None, chunker:Chunker | None = None, embed_heading_path:bool = True, max_llm_pairs:int = MAX_LLM_PAIRS, llm_concurrency:int = 2) -> Graph
 ```
 
 Open a graph, connecting and fully provisioning graph_store.
@@ -372,6 +379,7 @@ index that evidence search reads, before this call returns.
   see __init__.
 - **max_llm_pairs** (<code>int</code>) – The most ambiguous entity pairs sent to the LLM for each
   label during resolution; see __init__.
+- **llm_concurrency** (<code>int</code>) – Maximum concurrent LLM verification requests.
 
 **Returns:**
 
@@ -379,6 +387,7 @@ index that evidence search reads, before this call returns.
 
 **Raises:**
 
+- <code>ValueError</code> – `llm_concurrency` is less than one.
 - <code>EmbeddingDimensionMismatchError</code> – A vector index in graph_store
   already exists with a different dimension than the embedder
   produces.

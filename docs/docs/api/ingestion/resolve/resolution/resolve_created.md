@@ -6,7 +6,7 @@ sidebar_label: resolve_created
 # `agrag.ingestion.resolve.resolution.resolve_created` \{#agrag-ingestion-resolve-resolution-resolve_created}
 
 ```python
-resolve_created(created:list[Entity], *, graph_store:GraphStore, embedder:Embedder, entity_labels:Sequence[str], tracer:Tracer | None, max_llm_pairs:int, error_policy:ErrorPolicy) -> tuple[list[Entity], ResolutionResult, list[StageFailure]]
+resolve_created(created:list[Entity], *, graph_store:GraphStore, embedder:Embedder, entity_labels:Sequence[str], tracer:Tracer | None, max_llm_pairs:int, error_policy:ErrorPolicy, llm_concurrency:int = 2) -> tuple[list[Entity], ResolutionResult, list[StageFailure]]
 ```
 
 Resolve newly committed entities against everything committed.
@@ -25,6 +25,7 @@ and the label holds few committed entities, all of them are candidates.
 - **entity_labels** (<code>Sequence\[str\]</code>) – The labels the schema defines.
 - **tracer** (<code>Tracer | None</code>) – Traces the resolver.
 - **max_llm_pairs** (<code>int</code>) – The most ambiguous pairs per label sent to the LLM.
+- **llm_concurrency** (<code>int</code>) – Maximum simultaneous verification requests.
 - **error_policy** (<code>[ErrorPolicy](../../../loaders/types/ErrorPolicy.md)</code>) – RAISE propagates a failed candidate read; any other
   policy records it and leaves that entity out of this pass.
 
