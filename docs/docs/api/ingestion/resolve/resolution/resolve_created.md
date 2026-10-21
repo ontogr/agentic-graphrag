@@ -28,14 +28,12 @@ and the label holds few committed entities, all of them are candidates.
 - **llm_concurrency** (<code>int</code>) – Maximum simultaneous verification requests.
 - **error_policy** (<code>[ErrorPolicy](../../../loaders/types/ErrorPolicy.md)</code>) – RAISE propagates candidate-read failures.
   Other policies record candidate-read failures and leave those
-  entities out of this pass. Every policy reports telemetry-read
-  failures without changing comparisons.
+  entities out of this pass. Telemetry reads never change the result.
 
 **Returns:**
 
 - <code>list\[[Entity](../../../common/data_models/entity/Entity-ref.md)\]</code> – The created entities followed by the candidates they found, the
-- <code>[ResolutionResult](../resolver/ResolutionResult.md)</code> – resolver result indexed like that list, candidate-read failures, and
-- <code>list\[[StageFailure](../../../common/data_models/stage_failure/StageFailure.md)\]</code> – any telemetry-read failure.
+- <code>[ResolutionResult](../resolver/ResolutionResult.md)</code> – resolver result indexed like that list, and candidate-read failures.
 
 **Raises:**
 

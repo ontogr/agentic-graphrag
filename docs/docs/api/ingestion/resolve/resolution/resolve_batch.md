@@ -30,14 +30,13 @@ through one pass. Synthetic mentions never initiate a comparison.
 - **on_progress** (<code>Callable\\[[int, int, float\], None\] | None</code>) – Receives completed batches, total batches and elapsed seconds.
 - **error_policy** (<code>[ErrorPolicy](../../../loaders/types/ErrorPolicy.md)</code>) – RAISE propagates candidate-read failures.
   Other policies record candidate-read failures and leave those
-  mentions unresolved. Every policy reports telemetry-read failures
-  without changing comparisons.
+  mentions unresolved. Telemetry reads never change the result.
 - **job_id** (<code>UUID | str | None</code>) – The in-flight Cutover Job's id for the exact-match read.
 
 **Returns:**
 
 - <code>[BatchResolution](BatchResolution.md)</code> – The exact matches, exact groups, resolver result, persisted
-- <code>[BatchResolution](BatchResolution.md)</code> – candidates, candidate-read failures, and any telemetry-read failure.
+- <code>[BatchResolution](BatchResolution.md)</code> – candidates, and candidate-read failures.
 
 **Raises:**
 

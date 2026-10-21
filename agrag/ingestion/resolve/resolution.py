@@ -51,7 +51,7 @@ from agrag.ingestion.resolve.resolver import (
 )
 from agrag.ingestion.resolve.zone_classifier import DEFAULT_LLM_CONCURRENCY
 from agrag.loaders.types import ErrorPolicy
-from agrag.observability import get_tracer, record_stage_failure
+from agrag.observability import get_tracer, record_swallowed_exception
 
 
 # Relationship types Graph.open() always registers. Resolution leaves them out
@@ -79,12 +79,13 @@ async def _already_decided_pairs(
     candidates_by_index: Mapping[int, Sequence[int]],
     graph_store: GraphStore,
     *,
+    tracer: Tracer | None = None,
     job_id: UUID | str | None = None,
-) -> tuple[set[tuple[int, int]], StageFailure | None]:
+) -> set[tuple[int, int]]:
     """Count prior matches among candidates without changing pair selection.
 
-    Telemetry read failures return a StageFailure under every error policy
-    and leave the candidate pairs available for resolution.
+    Only recording spans issue the database read. Read failures are recorded
+    in the trace without changing comparisons or ingestion failure reports.
     """
     decided: set[tuple[int, int]] = set()
     indices_by_entity_pair: dict[tuple[str, str], set[tuple[int, int]]] = defaultdict(
@@ -105,26 +106,25 @@ async def _already_decided_pairs(
             else:
                 indices_by_entity_pair[(left, right)].add(pair)
     if not indices_by_entity_pair:
-        return decided, None
+        return decided
     pairs = [list(pair) for pair in sorted(indices_by_entity_pair)]
-    try:
-        rows = await graph_store.execute_read(
-            fetch_decided_pairs_query(),
-            {"pairs": pairs, "job_id": str(job_id) if job_id else None},
-        )
-    except Exception as exc:  # noqa: BLE001
-        trace_id, span_id = record_stage_failure(exc)
-        return decided, StageFailure(
-            item_id="already_decided_pairs",
-            error_type=type(exc).__name__,
-            error_message=str(exc),
-            trace_id=trace_id,
-            span_id=span_id,
-        )
+    with get_tracer(tracer).start_as_current_span(
+        "agrag.resolution.decided_pairs"
+    ) as span:
+        if not span.is_recording():
+            return decided
+        try:
+            rows = await graph_store.execute_read(
+                fetch_decided_pairs_query(),
+                {"pairs": pairs, "job_id": str(job_id) if job_id else None},
+            )
+        except Exception as exc:  # noqa: BLE001
+            record_swallowed_exception(exc)
+            return decided
     for row in rows:
         entity_pair = tuple(sorted((str(row.get("a_id")), str(row.get("b_id")))))
         decided.update(indices_by_entity_pair.get(entity_pair, ()))
-    return decided, None
+    return decided
 
 
 @dataclass
@@ -140,7 +140,7 @@ class BatchResolution:
         persisted_ids: Index of each synthetic candidate mention to the id of
             the persisted entity it stands for.
         candidate_entities: Persisted candidates by id.
-        failures: Candidate-read failures and any telemetry-read failure.
+        failures: Candidate-read failures.
         unresolved_indices: Mentions whose candidate read failed. They do
             not start or join a comparison.
     """
@@ -302,13 +302,12 @@ async def resolve_batch(  # noqa: PLR0915
         on_progress: Receives completed batches, total batches and elapsed seconds.
         error_policy: RAISE propagates candidate-read failures.
             Other policies record candidate-read failures and leave those
-            mentions unresolved. Every policy reports telemetry-read failures
-            without changing comparisons.
+            mentions unresolved. Telemetry reads never change the result.
         job_id: The in-flight Cutover Job's id for the exact-match read.
 
     Returns:
         The exact matches, exact groups, resolver result, persisted
-        candidates, candidate-read failures, and any telemetry-read failure.
+        candidates, and candidate-read failures.
 
     Raises:
         Exception: A candidate read failed and ``error_policy`` is RAISE.
@@ -426,17 +425,16 @@ async def resolve_batch(  # noqa: PLR0915
             for index, entity_id in persisted_ids.items()
         }
     )
-    decided, telemetry_failure = await _already_decided_pairs(
+    decided = await _already_decided_pairs(
         {
             **{index: entity.id for index, entity in exact_matches.items()},
             **persisted_ids,
         },
         candidates_by_index,
         graph_store,
+        tracer=tracer,
         job_id=job_id,
     )
-    if telemetry_failure is not None:
-        read_failures.append(telemetry_failure)
     result = (
         await resolver.resolve(
             combined_mentions,
@@ -484,12 +482,11 @@ async def resolve_persisted(
         llm_concurrency: Maximum simultaneous verification requests.
         error_policy: RAISE propagates candidate-read failures.
             Other policies record candidate-read failures and leave those
-            entities out of this pass. Every policy reports telemetry-read
-            failures without changing comparisons.
+            entities out of this pass. Telemetry reads never change the result.
 
     Returns:
         The resolver result, indexed like ``entities``, candidate-read
-        failures, and any telemetry-read failure.
+        failures.
 
     Raises:
         Exception: A candidate read failed and ``error_policy`` is RAISE.
@@ -524,13 +521,12 @@ async def resolve_persisted(
         max_llm_pairs=max_llm_pairs,
         llm_concurrency=llm_concurrency,
     )
-    already_decided, telemetry_failure = await _already_decided_pairs(
+    already_decided = await _already_decided_pairs(
         {index: entity.id for index, entity in enumerate(entities)},
         candidate_indices,
         graph_store,
+        tracer=tracer,
     )
-    if telemetry_failure is not None:
-        failures.append(telemetry_failure)
     result = await resolver.resolve(
         mentions,
         neighbors_by_index=neighbors_by_index,
@@ -572,13 +568,11 @@ async def resolve_created(
         llm_concurrency: Maximum simultaneous verification requests.
         error_policy: RAISE propagates candidate-read failures.
             Other policies record candidate-read failures and leave those
-            entities out of this pass. Every policy reports telemetry-read
-            failures without changing comparisons.
+            entities out of this pass. Telemetry reads never change the result.
 
     Returns:
         The created entities followed by the candidates they found, the
-        resolver result indexed like that list, candidate-read failures, and
-        any telemetry-read failure.
+        resolver result indexed like that list, and candidate-read failures.
 
     Raises:
         Exception: A candidate read failed and ``error_policy`` is RAISE.
@@ -666,13 +660,12 @@ async def resolve_created(
         max_llm_pairs=max_llm_pairs,
         llm_concurrency=llm_concurrency,
     )
-    already_decided, telemetry_failure = await _already_decided_pairs(
+    already_decided = await _already_decided_pairs(
         {index: entity.id for index, entity in enumerate(pool)},
         peers_by_index,
         graph_store,
+        tracer=tracer,
     )
-    if telemetry_failure is not None:
-        failures.append(telemetry_failure)
     result = await resolver.resolve(
         mentions,
         neighbors_by_index={

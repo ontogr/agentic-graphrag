@@ -4,6 +4,9 @@ from unittest.mock import AsyncMock, patch
 from uuid import uuid4
 
 import pytest
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
 from agrag.common.data_models.extraction import ExtractedEntity
 from agrag.ingestion.resolve.resolution import (
@@ -56,43 +59,43 @@ class TestAlreadyDecidedPairs:
             {"a_id": str(first_id), "b_id": str(other_id)},
         ]
 
-        decided, failure = await _already_decided_pairs(
+        decided = await _already_decided_pairs(
             {0: first_id, 1: second_id, 2: other_id},
             {0: [1], 1: [0]},
             store,
+            tracer=TracerProvider().get_tracer(__name__),
         )
 
         assert decided == {(0, 1)}
-        assert failure is None
         params = store.execute_read.await_args.args[1]
         assert params["pairs"] == [sorted((str(first_id), str(second_id)))]
 
-    async def test_skips_read_failure_and_returns_a_stage_failure(self) -> None:
-        """A non-raising policy reports telemetry failure without raising."""
+    async def test_skips_read_without_recording(self) -> None:
+        """Disabled tracing never issues the diagnostic database read."""
         store = AsyncMock()
         store.execute_read.side_effect = RuntimeError("database unavailable")
 
-        decided, failure = await _already_decided_pairs(
+        decided = await _already_decided_pairs(
             {0: uuid4(), 1: uuid4()},
             {0: [1]},
             store,
         )
 
         assert decided == set()
-        assert failure is not None
-        assert failure.item_id == "already_decided_pairs"
-        assert failure.error_type == "RuntimeError"
-        assert failure.error_message == "database unavailable"
+        store.execute_read.assert_not_awaited()
 
 
 class TestResolveBatchTelemetryRead:
     """Failure of the already-decided read does not change comparisons."""
 
     @pytest.mark.parametrize("error_policy", [ErrorPolicy.SKIP, ErrorPolicy.RAISE])
-    async def test_reports_failure_and_keeps_candidate_comparisons(
+    async def test_traces_failure_and_keeps_candidate_comparisons(
         self, error_policy: ErrorPolicy
     ) -> None:
-        """A telemetry read failure is reported without marking mentions failed."""
+        """Telemetry failure is traced without entering ingestion failures."""
+        exporter = InMemorySpanExporter()
+        provider = TracerProvider()
+        provider.add_span_processor(SimpleSpanProcessor(exporter))
         first_id, second_id = uuid4(), uuid4()
         store = AsyncMock()
         store.execute_read.side_effect = [
@@ -114,7 +117,7 @@ class TestResolveBatchTelemetryRead:
                 graph_store=store,
                 embedder=_FakeEmbedder(),
                 entity_labels=["Person"],
-                tracer=None,
+                tracer=provider.get_tracer(__name__),
                 max_llm_pairs=0,
                 error_policy=error_policy,
             )
@@ -122,7 +125,16 @@ class TestResolveBatchTelemetryRead:
         assert batch.result is not None
         assert {0, 1} in [set(group.entity_indices) for group in batch.result.groups]
         assert batch.unresolved_indices == set()
-        assert len(batch.failures) == 1
-        assert batch.failures[0].item_id == "already_decided_pairs"
-        assert batch.failures[0].error_message == "telemetry read unavailable"
+        assert batch.failures == []
         assert store.execute_read.await_count == 2
+        diagnostic = next(
+            span
+            for span in exporter.get_finished_spans()
+            if span.name == "agrag.resolution.decided_pairs"
+        )
+        assert any(
+            event.name == "exception"
+            and (event.attributes or {}).get("exception.message")
+            == "telemetry read unavailable"
+            for event in diagnostic.events
+        )
