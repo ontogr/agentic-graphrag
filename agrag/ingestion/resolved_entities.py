@@ -43,7 +43,18 @@ from agrag.ingestion.resolve.resolver import ResolvedMatch
 
 
 class MatchDecision(BaseModel):
-    """A confirmed non-exact entity match ready to persist."""
+    """A confirmed non-exact entity match ready to persist.
+
+    Attributes:
+        entity_a_id: Id of the first matched entity.
+        entity_b_id: Id of the second matched entity.
+        comparator: Name of the comparator that confirmed the match.
+        score: Comparator score, if available.
+        reasoning: Comparator reasoning, if available.
+        decided_at: Time when the match was confirmed.
+        similarity: Candidate similarity, if available.
+        batch_id: Resolution batch id, if available.
+    """
 
     entity_a_id: UUID
     entity_b_id: UUID
@@ -51,6 +62,8 @@ class MatchDecision(BaseModel):
     score: float | None = None
     reasoning: str | None = None
     decided_at: datetime
+    similarity: float | None = None
+    batch_id: UUID | None = None
 
 
 MatchComponent = tuple[list[MatchDecision], list[Entity]]
@@ -102,6 +115,8 @@ def decisions_by_component(
                 score=match.score,
                 reasoning=match.reasoning,
                 decided_at=match.decided_at,
+                similarity=match.similarity,
+                batch_id=match.batch_id,
             )
         )
 
@@ -260,6 +275,10 @@ async def write_matches_and_rebuild(
                 "score": decision.score,
                 "reasoning": decision.reasoning,
                 "decided_at": decision.decided_at.isoformat(),
+                "similarity": decision.similarity,
+                "batch_id": str(decision.batch_id)
+                if decision.batch_id is not None
+                else None,
                 "pending_job_id": pending_job_id,
             }
             match_rows = await transaction.execute_write(

@@ -49,8 +49,8 @@ pytestmark = pytest.mark.asyncio(loop_scope="module")
 
 
 # Names built by ``_grow_component``: a component prefix, a space, then a
-# uuid4 hex stem and one index digit.
-_COMPONENT_NAME = re.compile(r"(.+) [0-9a-f]{32}\d")
+# random alphabetic stem and one member letter to avoid numeric conflicts.
+_COMPONENT_NAME = re.compile(r"(.+) [a-p]{32}[a-c]")
 
 
 def _embedding_key(text: str) -> str:
@@ -366,8 +366,8 @@ async def _grow_component(
     """
     store = build_graph_store("neo4j")
     await store.connect()
-    name_stem = uuid4().hex
-    names = [f"{prefix} {name_stem}{index}" for index in range(3)]
+    name_stem = uuid4().hex.translate(str.maketrans("0123456789", "ghijklmnop"))
+    names = [f"{prefix} {name_stem}{suffix}" for suffix in "abc"]
     keys = [
         f"crash://{prefix.split(maxsplit=1)[0].lower()}-{i}-{uuid4().hex}"
         for i in range(3)

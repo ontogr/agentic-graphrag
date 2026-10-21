@@ -12,7 +12,7 @@ state.
 import asyncio
 import contextlib
 import time
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from uuid import UUID
 
@@ -64,7 +64,10 @@ from agrag.ingestion._storage import (
 from agrag.ingestion.extract import Extractor, LLMExtractor, validate_extraction
 from agrag.ingestion.reports import AddResult
 from agrag.ingestion.reports.escalation_report import EscalationReport
-from agrag.ingestion.resolve.zone_classifier import MAX_LLM_PAIRS
+from agrag.ingestion.resolve.zone_classifier import (
+    DEFAULT_LLM_CONCURRENCY,
+    MAX_LLM_PAIRS,
+)
 from agrag.ingestion.resolved_entities import MatchComponent
 from agrag.ingestion.settings import ExtractionSettings, effective_mode
 from agrag.ingestion.stats import (
@@ -613,6 +616,8 @@ async def _resolve_and_merge(
     graph_schema: GraphSchema,
     rebuilt_components: list[MatchComponent] | None,
     max_llm_pairs: int,
+    llm_concurrency: int,
+    on_progress: Callable[[AddResult], None] | None,
 ) -> tuple[ResolutionStats, MergeStageResult]:
     """Resolve and merge the mentions of a batch.
 
@@ -636,6 +641,8 @@ async def _resolve_and_merge(
         ctx,
         graph_schema=graph_schema,
         max_llm_pairs=max_llm_pairs,
+        llm_concurrency=llm_concurrency,
+        on_progress=on_progress,
     )
     merge = await merge_stage(
         entities,
@@ -667,6 +674,8 @@ async def ingest_chunks(
     tracer: Tracer | None = None,
     embed_heading_path: bool = True,
     max_llm_pairs: int = MAX_LLM_PAIRS,
+    llm_concurrency: int = DEFAULT_LLM_CONCURRENCY,
+    on_progress: Callable[[AddResult], None] | None = None,
     candidates: Sequence[CandidateRecord] = (),
     dropped: Sequence[DroppedCount] = (),
     write_candidates: bool = True,
@@ -702,6 +711,8 @@ async def ingest_chunks(
         tracer: Opens the spans. None disables them.
         embed_heading_path: Whether the chunk embedder gets each heading path.
         max_llm_pairs: The cap on LLM verifications for this batch.
+        llm_concurrency: Maximum concurrent LLM verification requests.
+        on_progress: Receives resolver progress as partial AddResults.
         deferred: Receives the writes over committed rows that a job must not
             apply itself. Required when ``job_id`` is set; the caller replays
             it in the job's commit transaction.
@@ -738,6 +749,8 @@ async def ingest_chunks(
             graph_schema=graph_schema,
             rebuilt_components=rebuilt_components,
             max_llm_pairs=max_llm_pairs,
+            llm_concurrency=llm_concurrency,
+            on_progress=on_progress,
         )
         nodes = await write_nodes_stage(
             chunks, documents, placements, ctx, document_only=reuse_chunks

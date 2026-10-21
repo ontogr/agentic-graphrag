@@ -28,7 +28,7 @@ class AddResult(BaseModel):
             budget left to the first extractor, how many escalations failed,
             and the wall time of each phase. Only the chunk count and the
             first-phase time are set when the graph has no LLM extractor.
-        resolution: Resolution's tier-by-tier match counts.
+        resolution: Resolution's match counts and resolver batch progress.
         merge: What merge mechanics did with resolution's groups.
         storage: What made it to GraphStore, and what didn't.
         chunks: Every Chunk this call produced. Empty unless

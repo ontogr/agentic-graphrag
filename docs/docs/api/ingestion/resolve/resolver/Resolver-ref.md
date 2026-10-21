@@ -6,7 +6,7 @@ sidebar_label: Resolver
 # `agrag.ingestion.resolve.resolver.Resolver` \{#agrag-ingestion-resolve-resolver-Resolver}
 
 ```python
-Resolver(*, comparators:list[Comparator], candidate_source:CandidateSource, embedder:Embedder | None = None, hard_merge_threshold:float = HARD_MERGE_THRESHOLD, discard_threshold:float = DISCARD_THRESHOLD, max_llm_pairs:int = MAX_LLM_PAIRS, llm_batch_size:int = 10, tracer:Tracer | None = None) -> None
+Resolver(*, comparators:list[Comparator], candidate_source:CandidateSource, embedder:Embedder | None = None, hard_merge_threshold:float = HARD_MERGE_THRESHOLD, discard_threshold:float = DISCARD_THRESHOLD, max_llm_pairs:int = MAX_LLM_PAIRS, llm_batch_size:int = 10, llm_concurrency:int = DEFAULT_LLM_CONCURRENCY, on_progress:Callable[[int, int, float], None] | None = None, tracer:Tracer | None = None) -> None
 ```
 
 Routes blocked candidate pairs through exact, fuzzy, embedding, and LLM zones.
@@ -30,7 +30,9 @@ merge without spending LLM calls.
 - [**embedder**](#agrag-ingestion-resolve-resolver-Resolver-embedder) –
 - [**hard_merge_threshold**](#agrag-ingestion-resolve-resolver-Resolver-hard_merge_threshold) –
 - [**llm_batch_size**](#agrag-ingestion-resolve-resolver-Resolver-llm_batch_size) –
+- [**llm_concurrency**](#agrag-ingestion-resolve-resolver-Resolver-llm_concurrency) –
 - [**max_llm_pairs**](#agrag-ingestion-resolve-resolver-Resolver-max_llm_pairs) –
+- [**on_progress**](#agrag-ingestion-resolve-resolver-Resolver-on_progress) –
 
 **Parameters:**
 
@@ -50,12 +52,15 @@ merge without spending LLM calls.
   most similar first. The rest are undecided.
 - **llm_batch_size** (<code>int</code>) – Pairs per LLM request. Must fit the
   LLMVerify comparator's max_pairs_per_batch.
+- **llm_concurrency** (<code>int</code>) – Maximum simultaneous verification requests per resolve
+  call, at least 1. Concurrent resolve calls have separate limits.
+- **on_progress** (<code>Callable\\[[int, int, float\], None\] | None</code>) – Receives completed batches, total batches and elapsed seconds.
 - **tracer** (<code>Tracer | None</code>) – Opens this resolver's spans.
 
 **Raises:**
 
-- <code>ValueError</code> – llm_batch_size is not positive, or exceeds the
-  LLMVerify comparator's max_pairs_per_batch.
+- <code>ValueError</code> – llm_concurrency or llm_batch_size is not positive,
+  or llm_batch_size exceeds the comparator's max_pairs_per_batch.
 
 ## `candidate_source` \{#agrag-ingestion-resolve-resolver-Resolver-candidate_source}
 
@@ -93,16 +98,28 @@ hard_merge_threshold = hard_merge_threshold
 llm_batch_size = llm_batch_size
 ```
 
+## `llm_concurrency` \{#agrag-ingestion-resolve-resolver-Resolver-llm_concurrency}
+
+```python
+llm_concurrency = llm_concurrency
+```
+
 ## `max_llm_pairs` \{#agrag-ingestion-resolve-resolver-Resolver-max_llm_pairs}
 
 ```python
 max_llm_pairs = max_llm_pairs
 ```
 
+## `on_progress` \{#agrag-ingestion-resolve-resolver-Resolver-on_progress}
+
+```python
+on_progress = on_progress
+```
+
 ## `resolve` \{#agrag-ingestion-resolve-resolver-Resolver-resolve}
 
 ```python
-resolve(entities:list[ExtractedEntity], *, neighbors_by_index:dict[int, list[str]] | None = None, similarity_by_pair:dict[tuple[int, int], float] | None = None) -> ResolutionResult
+resolve(entities:list[ExtractedEntity], *, neighbors_by_index:dict[int, list[str]] | None = None, similarity_by_pair:dict[tuple[int, int], float] | None = None, chunk_ids_by_index:dict[int, set[UUID]] | None = None, already_decided_pairs:set[tuple[int, int]] | None = None) -> ResolutionResult
 ```
 
 Resolve entity groups and retain each confirmed non-exact match.
@@ -123,6 +140,9 @@ Resolve entity groups and retain each confirmed non-exact match.
   but reaches the LLM as decision context, preferred over a
   freshly embedded score, for a pair that lands on the boundary
   anyway. Not mutated.
+- **chunk_ids_by_index** (<code>dict\[int, set\[UUID\]\] | None</code>) – Actual source chunks per mention or persisted entity.
+  Omitted entries mean unknown; None uses mention chunk ids.
+- **already_decided_pairs** (<code>set\[tuple\[int, int\]\] | None</code>) – Previously joined pairs to count, not skip.
 
 **Returns:**
 

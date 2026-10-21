@@ -6,7 +6,7 @@ sidebar_label: resolve_persisted
 # `agrag.ingestion.resolve.resolution.resolve_persisted` \{#agrag-ingestion-resolve-resolution-resolve_persisted}
 
 ```python
-resolve_persisted(entities:list[Entity], *, graph_store:GraphStore, embedder:Embedder, entity_labels:Sequence[str], tracer:Tracer | None, max_llm_pairs:int, error_policy:ErrorPolicy) -> tuple[ResolutionResult, list[StageFailure]]
+resolve_persisted(entities:list[Entity], *, graph_store:GraphStore, embedder:Embedder, entity_labels:Sequence[str], tracer:Tracer | None, max_llm_pairs:int, error_policy:ErrorPolicy, llm_concurrency:int = DEFAULT_LLM_CONCURRENCY) -> tuple[ResolutionResult, list[StageFailure]]
 ```
 
 Resolve persisted entities against each other.
@@ -21,13 +21,15 @@ ANN search bounds the pairs the resolver compares.
 - **entity_labels** (<code>Sequence\[str\]</code>) – The labels the schema defines.
 - **tracer** (<code>Tracer | None</code>) – Traces the resolver.
 - **max_llm_pairs** (<code>int</code>) – The most ambiguous pairs per label sent to the LLM.
-- **error_policy** (<code>[ErrorPolicy](../../../loaders/types/ErrorPolicy.md)</code>) – RAISE propagates a failed candidate read; any other
-  policy records it and leaves that entity out of this pass.
+- **llm_concurrency** (<code>int</code>) – Maximum simultaneous verification requests.
+- **error_policy** (<code>[ErrorPolicy](../../../loaders/types/ErrorPolicy.md)</code>) – RAISE propagates candidate-read failures.
+  Other policies record candidate-read failures and leave those
+  entities out of this pass. Telemetry reads never change the result.
 
 **Returns:**
 
-- <code>[ResolutionResult](../resolver/ResolutionResult.md)</code> – The resolver result, indexed like `entities`, and one StageFailure
-- <code>list\[[StageFailure](../../../common/data_models/stage_failure/StageFailure.md)\]</code> – per entity whose candidate read failed.
+- <code>[ResolutionResult](../resolver/ResolutionResult.md)</code> – The resolver result, indexed like `entities`, candidate-read
+- <code>list\[[StageFailure](../../../common/data_models/stage_failure/StageFailure.md)\]</code> – failures.
 
 **Raises:**
 

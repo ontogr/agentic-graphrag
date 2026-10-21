@@ -10,6 +10,7 @@ from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.graph_record import RelationRecord
 from agrag.common.data_models.graph_schema import EntityType, GraphSchema, RelationType
 from agrag.cypher.entities import validate_identifier
+from agrag.cypher.resolution_read import fetch_decided_pairs_query
 from agrag.graphdb import build_graph_store
 from agrag.ingestion.resolved_entities import (
     MatchDecision,
@@ -119,6 +120,79 @@ class TestMatchRebuildIntegration:
                 "MATCH (node:ResolvedEntity) "
                 "WHERE any(member_id IN node.member_ids "
                 "WHERE member_id IN $ids) DETACH DELETE node",
+                {"ids": [str(first.id), str(second.id)]},
+            )
+            await store.close()
+
+    async def test_persists_match_provenance_and_clears_unset_values(self) -> None:
+        """Match similarity and batch id persist or clear with each decision."""
+        store = build_graph_store("neo4j")
+        await store.connect()
+        label = validate_identifier(f"Person_{uuid4().hex[:8]}")
+        first = Entity(id=uuid4(), label=label, name="Ada")
+        second = Entity(id=uuid4(), label=label, name="Ada Lovelace")
+        schema = _schema(label)
+        batch_id = uuid4()
+        try:
+            await store.upsert_nodes(
+                label, [first.to_node_record(), second.to_node_record()]
+            )
+            await write_matches_and_rebuild(
+                [
+                    MatchDecision(
+                        entity_a_id=first.id,
+                        entity_b_id=second.id,
+                        comparator="FuzzyMatch",
+                        similarity=0.91,
+                        batch_id=batch_id,
+                        decided_at=datetime.now(UTC),
+                    )
+                ],
+                graph_store=store,
+                schema=schema,
+                members=[first, second],
+            )
+
+            rows = await store.execute_read(
+                "MATCH ()-[match:MATCHES {id: $match_id}]->() "
+                "RETURN match.similarity AS similarity, match.batch_id AS batch_id",
+                {"match_id": str(matches_id(first.id, second.id))},
+            )
+            assert rows == [{"similarity": 0.91, "batch_id": str(batch_id)}]
+
+            decided = await store.execute_read(
+                fetch_decided_pairs_query(),
+                {"pairs": [[str(first.id), str(second.id)]], "job_id": None},
+            )
+            assert {(row["a_id"], row["b_id"]) for row in decided} == {
+                (str(first.id), str(second.id)),
+            }
+
+            await write_matches_and_rebuild(
+                [
+                    MatchDecision(
+                        entity_a_id=first.id,
+                        entity_b_id=second.id,
+                        comparator="FuzzyMatch",
+                        decided_at=datetime.now(UTC),
+                    )
+                ],
+                graph_store=store,
+                schema=schema,
+                members=[first, second],
+            )
+            unset_rows = await store.execute_read(
+                "MATCH ()-[match:MATCHES {id: $match_id}]->() "
+                "RETURN match.similarity AS similarity, match.batch_id AS batch_id",
+                {"match_id": str(matches_id(first.id, second.id))},
+            )
+            assert unset_rows == [{"similarity": None, "batch_id": None}]
+        finally:
+            await store.execute_write(f"MATCH (node:{label}) DETACH DELETE node")
+            await store.execute_write(
+                "MATCH (node:ResolvedEntity) "
+                "WHERE any(member_id IN node.member_ids WHERE member_id IN $ids) "
+                "DETACH DELETE node",
                 {"ids": [str(first.id), str(second.id)]},
             )
             await store.close()

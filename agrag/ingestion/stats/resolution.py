@@ -22,6 +22,9 @@ class ResolutionStats(BaseModel):
             ``max_llm_pairs`` cap. They never reached the LLM.
         llm_unavailable_pairs: Ambiguous pairs skipped because no LLM
             settings were found.
+        batches_done: Resolver request batches completed so far.
+        batches_total: Total resolver request batches.
+        elapsed_seconds: Time spent resolving, in seconds.
     """
 
     exact_match_hits: int = 0
@@ -30,3 +33,6 @@ class ResolutionStats(BaseModel):
     failed_llm_requests: int = 0
     cap_truncated_pairs: int = 0
     llm_unavailable_pairs: int = 0
+    batches_done: int = 0
+    batches_total: int = 0
+    elapsed_seconds: float = 0.0

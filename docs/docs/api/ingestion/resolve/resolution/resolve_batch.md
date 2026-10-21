@@ -6,7 +6,7 @@ sidebar_label: resolve_batch
 # `agrag.ingestion.resolve.resolution.resolve_batch` \{#agrag-ingestion-resolve-resolution-resolve_batch}
 
 ```python
-resolve_batch(mentions:list[ExtractedEntity], relations:Sequence[ExtractedRelation], chunks_by_id:dict[UUID, Chunk], *, graph_store:GraphStore, embedder:Embedder, entity_labels:Sequence[str], tracer:Tracer | None, max_llm_pairs:int, error_policy:ErrorPolicy, job_id:UUID | str | None = None) -> BatchResolution
+resolve_batch(mentions:list[ExtractedEntity], relations:Sequence[ExtractedRelation], chunks_by_id:dict[UUID, Chunk], *, graph_store:GraphStore, embedder:Embedder, entity_labels:Sequence[str], tracer:Tracer | None, max_llm_pairs:int, error_policy:ErrorPolicy, job_id:UUID | str | None = None, llm_concurrency:int = DEFAULT_LLM_CONCURRENCY, on_progress:Callable[[int, int, float], None] | None = None) -> BatchResolution
 ```
 
 Resolve one extraction batch against itself and the persisted graph.
@@ -26,14 +26,17 @@ through one pass. Synthetic mentions never initiate a comparison.
 - **entity_labels** (<code>Sequence\[str\]</code>) – The labels the schema defines.
 - **tracer** (<code>Tracer | None</code>) – Opens the phase spans and traces the resolver.
 - **max_llm_pairs** (<code>int</code>) – The most ambiguous pairs per label sent to the LLM.
-- **error_policy** (<code>[ErrorPolicy](../../../loaders/types/ErrorPolicy.md)</code>) – RAISE propagates a failed candidate read; any other
-  policy records it and leaves that mention unresolved.
+- **llm_concurrency** (<code>int</code>) – Maximum simultaneous verification requests.
+- **on_progress** (<code>Callable\\[[int, int, float\], None\] | None</code>) – Receives completed batches, total batches and elapsed seconds.
+- **error_policy** (<code>[ErrorPolicy](../../../loaders/types/ErrorPolicy.md)</code>) – RAISE propagates candidate-read failures.
+  Other policies record candidate-read failures and leave those
+  mentions unresolved. Telemetry reads never change the result.
 - **job_id** (<code>UUID | str | None</code>) – The in-flight Cutover Job's id for the exact-match read.
 
 **Returns:**
 
 - <code>[BatchResolution](BatchResolution.md)</code> – The exact matches, exact groups, resolver result, persisted
-- <code>[BatchResolution](BatchResolution.md)</code> – candidates, and candidate-read failures for the batch.
+- <code>[BatchResolution](BatchResolution.md)</code> – candidates, and candidate-read failures.
 
 **Raises:**
 

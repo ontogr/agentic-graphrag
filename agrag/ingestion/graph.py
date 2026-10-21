@@ -78,7 +78,10 @@ from agrag.ingestion.reports import (
     UpdateResult,
 )
 from agrag.ingestion.resolve import SYSTEM_RELATION_TYPES
-from agrag.ingestion.resolve.zone_classifier import MAX_LLM_PAIRS
+from agrag.ingestion.resolve.zone_classifier import (
+    DEFAULT_LLM_CONCURRENCY,
+    MAX_LLM_PAIRS,
+)
 from agrag.ingestion.settings import (
     EXTRACTION_PROMPT_ID,
     CutoverJobSettings,
@@ -244,6 +247,7 @@ class Graph:
         chunker: Chunker | None = None,
         embed_heading_path: bool = True,
         max_llm_pairs: int = MAX_LLM_PAIRS,
+        llm_concurrency: int = DEFAULT_LLM_CONCURRENCY,
     ) -> None:
         """Create a graph bound to a schema, store, embedder, and extractor.
 
@@ -278,7 +282,14 @@ class Graph:
                 to the LLM for each label. A lower value bounds the number of
                 verification calls and leaves more pairs undecided. Zero sends
                 no pairs to the LLM.
+            llm_concurrency: Maximum concurrent LLM verification requests per
+                resolution call. Concurrent operations have separate limits.
+
+        Raises:
+            ValueError: ``llm_concurrency`` is less than one.
         """
+        if llm_concurrency < 1:
+            raise ValueError("llm_concurrency must be at least 1")
         self._schema = (
             schema if isinstance(schema, GraphSchema) else load_schema(schema)
         )
@@ -312,6 +323,7 @@ class Graph:
         self._chunker = chunker or Chunker()
         self._embed_heading_path = embed_heading_path
         self._max_llm_pairs = max_llm_pairs
+        self._llm_concurrency = llm_concurrency
         self._cutover_settings = cutover_settings or CutoverJobSettings()
 
     @classmethod
@@ -329,6 +341,7 @@ class Graph:
         chunker: Chunker | None = None,
         embed_heading_path: bool = True,
         max_llm_pairs: int = MAX_LLM_PAIRS,
+        llm_concurrency: int = DEFAULT_LLM_CONCURRENCY,
     ) -> "Graph":
         """Open a graph, connecting and fully provisioning graph_store.
 
@@ -367,11 +380,14 @@ class Graph:
                 see __init__.
             max_llm_pairs: The most ambiguous entity pairs sent to the LLM for each
                 label during resolution; see __init__.
+            llm_concurrency: Maximum concurrent LLM verification requests per
+                resolution call. Concurrent operations have separate limits.
 
         Returns:
             A graph connected to graph_store and ready to accept add() calls.
 
         Raises:
+            ValueError: ``llm_concurrency`` is less than one.
             EmbeddingDimensionMismatchError: A vector index in graph_store
                 already exists with a different dimension than the embedder
                 produces.
@@ -379,6 +395,8 @@ class Graph:
                 setup, or vector-index provisioning raises. graph_store is
                 closed first, so a failed open() never leaks a connection.
         """
+        if llm_concurrency < 1:
+            raise ValueError("llm_concurrency must be at least 1")
         schema = schema if isinstance(schema, GraphSchema) else load_schema(schema)
         resolved_tracer = get_tracer(tracer)
         with resolved_tracer.start_as_current_span("agrag.ingestion.open"):
@@ -455,6 +473,7 @@ class Graph:
                     chunker=chunker,
                     embed_heading_path=embed_heading_path,
                     max_llm_pairs=max_llm_pairs,
+                    llm_concurrency=llm_concurrency,
                 )
                 # Crash recovery, last: every index and collection the
                 # recovery paths rely on now exists. A pending job (its worker
@@ -539,7 +558,9 @@ class Graph:
                 raises an error.
             error_policy: The action to take on a per-source error.
             on_progress: A callback the call runs after each batch and once more
-                at the end with the fully-populated result.
+                at the end with the fully-populated result. During entity
+                resolution it also receives progress snapshots with resolver
+                batch counts and elapsed time.
             return_chunks: Whether to include the produced chunks in the
                 returned AddResult. False by default to avoid holding full text
                 for a large corpus when not needed. Chunks of a document that
@@ -599,6 +620,7 @@ class Graph:
             registry=self._registry,
             embed_heading_path=self._embed_heading_path,
             max_llm_pairs=self._max_llm_pairs,
+            llm_concurrency=self._llm_concurrency,
             write_candidates=self.extraction_settings.candidates_enabled,
             cleanup=self._cleanup(error_policy),
             tracer=self._tracer,
@@ -709,6 +731,7 @@ class Graph:
             registry=self._registry,
             embed_heading_path=self._embed_heading_path,
             max_llm_pairs=self._max_llm_pairs,
+            llm_concurrency=self._llm_concurrency,
             write_candidates=self.extraction_settings.candidates_enabled,
             cleanup=self._cleanup(error_policy),
             tracer=self._tracer,
@@ -830,6 +853,7 @@ class Graph:
             embedder=self._embedder,
             tracer=self._tracer,
             max_llm_pairs=self._max_llm_pairs,
+            llm_concurrency=self._llm_concurrency,
             error_policy=error_policy,
         )
 
@@ -897,6 +921,7 @@ class Graph:
             embedder=self._embedder,
             tracer=self._tracer,
             max_llm_pairs=self._max_llm_pairs,
+            llm_concurrency=self._llm_concurrency,
         )
 
     async def convert_candidates(
@@ -975,6 +1000,7 @@ class Graph:
             embedder=self._embedder,
             tracer=self._tracer,
             max_llm_pairs=self._max_llm_pairs,
+            llm_concurrency=self._llm_concurrency,
         )
 
     async def detect_communities(

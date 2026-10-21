@@ -19,7 +19,7 @@ Return type of Graph.add(). One summary per pipeline stage.
   budget left to the first extractor, how many escalations failed,
   and the wall time of each phase. Only the chunk count and the
   first-phase time are set when the graph has no LLM extractor.
-- [**resolution**](#agrag-ingestion-reports-add_result-AddResult-resolution) (<code>[ResolutionStats](../../stats/resolution/ResolutionStats.md)</code>) – Resolution's tier-by-tier match counts.
+- [**resolution**](#agrag-ingestion-reports-add_result-AddResult-resolution) (<code>[ResolutionStats](../../stats/resolution/ResolutionStats.md)</code>) – Resolution's match counts and resolver batch progress.
 - [**merge**](#agrag-ingestion-reports-add_result-AddResult-merge) (<code>[MergeStats](../../stats/merge/MergeStats.md)</code>) – What merge mechanics did with resolution's groups.
 - [**storage**](#agrag-ingestion-reports-add_result-AddResult-storage) (<code>[StorageStats](../../stats/storage/StorageStats.md)</code>) – What made it to GraphStore, and what didn't.
 - [**chunks**](#agrag-ingestion-reports-add_result-AddResult-chunks) (<code>list\[[Chunk](../../../common/data_models/chunk/Chunk-ref.md)\]</code>) – Every Chunk this call produced. Empty unless
