@@ -222,6 +222,7 @@ def _relations(
             source_index=source,
             target_index=target,
             confidence=score,
+            extractors=["gliner"],
         )
         for (source, target, label), score in sorted(kept.items())
     ]

@@ -58,6 +58,8 @@ class ExtractedRelation(BaseModel):
         source_index: Index of the source entity in the same ExtractionResult.entities.
         target_index: Index of the target entity in the same ExtractionResult.entities.
         confidence: The extractor's confidence in this mention, when available.
+        extractors: The names of the extractors that found this mention, such
+            as ``gliner`` or ``llm``. Empty when no extractor is named.
     """
 
     chunk_id: UUID
@@ -65,6 +67,7 @@ class ExtractedRelation(BaseModel):
     source_index: int
     target_index: int
     confidence: float | None = None
+    extractors: list[str] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def _validate_indices(self) -> "ExtractedRelation":

@@ -11,8 +11,11 @@ from uuid import uuid4
 
 import pytest
 
+from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.extraction import ExtractedEntity
+from agrag.common.data_models.graph_record import RelationRecord
 from agrag.common.data_models.graph_schema import EntityType, GraphSchema
+from agrag.cypher.cutover_job_write import fold_pending_relations_query
 from agrag.cypher.entities import validate_identifier
 from agrag.cypher.schema import merge_key_constraint_query
 from agrag.graphdb import build_graph_store
@@ -98,4 +101,101 @@ class TestApplyMergeAliasConflictIntegration:
                 "MATCH (a:_MergeAlias) WHERE a.merge_key STARTS WITH $prefix DELETE a",
                 {"prefix": f"{label}:"},
             )
+            await store.close()
+
+
+@pytest.mark.skipif(neo4j_missing, reason="neo4j extra not installed")
+class TestRelationProvenanceIntegration:
+    """Relation confidence and extractors are kept across repeated upserts."""
+
+    async def test_keeps_the_largest_confidence_and_unions_extractors(self) -> None:
+        """Repeated writes keep the highest confidence and both extractor names."""
+        store = build_graph_store("neo4j")
+        await store.connect()
+        label = validate_identifier(f"Thing_{uuid4().hex[:8]}")
+        rel_type = validate_identifier(f"LINKS_{uuid4().hex[:8]}")
+        alpha = Entity(id=uuid4(), label=label, name="Alpha")
+        beta = Entity(id=uuid4(), label=label, name="Beta")
+        relation_id = uuid4()
+
+        def _record(properties: dict[str, object]) -> RelationRecord:
+            return RelationRecord(
+                id=relation_id,
+                type=rel_type,
+                start_id=alpha.id,
+                end_id=beta.id,
+                properties=properties,
+            )
+
+        async def _read_edge() -> dict[str, object]:
+            [row] = await store.execute_read(
+                f"MATCH ()-[r:{rel_type} {{id: $id}}]->() "
+                "RETURN r.confidence AS confidence, r.extractors AS extractors",
+                {"id": str(relation_id)},
+            )
+            return row
+
+        try:
+            await store.upsert_nodes(
+                label, [alpha.to_node_record(), beta.to_node_record()]
+            )
+            await store.upsert_relations(
+                [_record({"confidence": 0.6, "extractors": ["gliner"]})]
+            )
+            await store.upsert_relations(
+                [_record({"confidence": 0.4, "extractors": ["llm"]})]
+            )
+
+            edge = await _read_edge()
+            assert edge["confidence"] == 0.6
+            assert edge["extractors"] == ["gliner", "llm"]
+
+            await store.upsert_relations([_record({"extractors": ["gliner"]})])
+
+            edge = await _read_edge()
+            assert edge["confidence"] == 0.6
+            assert sorted(edge["extractors"]) == ["gliner", "llm"]
+        finally:
+            await store.execute_write(f"MATCH (n:{label}) DETACH DELETE n")
+            await store.close()
+
+    async def test_folding_a_pending_edge_keeps_the_best_provenance(self) -> None:
+        """A job's new edge folds into the committed one without losing either side."""
+        store = build_graph_store("neo4j")
+        await store.connect()
+        label = validate_identifier(f"Thing_{uuid4().hex[:8]}")
+        rel_type = validate_identifier(f"LINKS_{uuid4().hex[:8]}")
+        committed_id, pending_id, job_id = str(uuid4()), str(uuid4()), str(uuid4())
+
+        try:
+            await store.execute_write(
+                f"CREATE (a:_Node:{label} {{id: $a}}), (b:_Node:{label} {{id: $b}}), "
+                f"(a)-[:{rel_type} {{id: $committed, confidence: 0.4, "
+                "extractors: ['gliner']}]->(b), "
+                f"(a)-[:{rel_type} {{id: $pending, _pending_job_id: $job, "
+                "_canonical_id: $committed, confidence: 0.7, "
+                "extractors: ['llm']}]->(b)",
+                {
+                    "a": str(uuid4()),
+                    "b": str(uuid4()),
+                    "committed": committed_id,
+                    "pending": pending_id,
+                    "job": job_id,
+                },
+            )
+
+            await store.execute_write(
+                fold_pending_relations_query(rel_type), {"job_id": job_id}
+            )
+
+            rows = await store.execute_read(
+                f"MATCH ()-[r:{rel_type}]->() "
+                "RETURN r.id AS id, r.confidence AS confidence, "
+                "r.extractors AS extractors"
+            )
+            assert [row["id"] for row in rows] == [committed_id]
+            assert rows[0]["confidence"] == 0.7
+            assert sorted(rows[0]["extractors"]) == ["gliner", "llm"]
+        finally:
+            await store.execute_write(f"MATCH (n:{label}) DETACH DELETE n")
             await store.close()
