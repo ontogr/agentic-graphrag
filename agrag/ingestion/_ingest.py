@@ -397,6 +397,11 @@ def _merge_add_results(
             llm_unavailable_pairs=sum(
                 result.resolution.llm_unavailable_pairs for result in results
             ),
+            batches_done=sum(result.resolution.batches_done for result in results),
+            batches_total=sum(result.resolution.batches_total for result in results),
+            elapsed_seconds=sum(
+                result.resolution.elapsed_seconds for result in results
+            ),
         ),
         merge=MergeStats(
             nodes_created=sum(result.merge.nodes_created for result in results),
@@ -470,6 +475,8 @@ async def _commit_batch(  # noqa: PLR0913
     tracer: Tracer,
     embed_heading_path: bool,
     max_llm_pairs: int,
+    llm_concurrency: int,
+    on_progress: Callable[[AddResult], None] | None,
     write_candidates: bool,
     cleanup: CleanupStep,
     previous_hashes: Mapping[str, str | None],
@@ -491,6 +498,8 @@ async def _commit_batch(  # noqa: PLR0913
         tracer: The tracer for the write spans.
         embed_heading_path: Whether chunk vectors include the heading path.
         max_llm_pairs: The cap on LLM-judged entity pairs per document.
+        llm_concurrency: Maximum concurrent LLM verification requests.
+        on_progress: Receives resolver progress as partial AddResults.
         write_candidates: Whether candidates are written to the graph.
         cleanup: The post-commit cleanup step of each Cutover Job.
         previous_hashes: The content hash each key held before this call, for
@@ -579,6 +588,8 @@ async def _commit_batch(  # noqa: PLR0913
                 tracer=tracer,
                 embed_heading_path=embed_heading_path,
                 max_llm_pairs=max_llm_pairs,
+                llm_concurrency=llm_concurrency,
+                on_progress=on_progress,
                 candidates=slice_candidates,
                 dropped=slice_dropped,
                 write_candidates=write_candidates,
@@ -638,6 +649,7 @@ async def add_documents(  # noqa: PLR0912,PLR0915,PLR0913
     registry: LoaderRegistry,
     embed_heading_path: bool,
     max_llm_pairs: int,
+    llm_concurrency: int,
     write_candidates: bool,
     cleanup: CleanupStep,
     tracer: Tracer,
@@ -751,6 +763,7 @@ async def add_documents(  # noqa: PLR0912,PLR0915,PLR0913
                     registry=registry,
                     embed_heading_path=embed_heading_path,
                     max_llm_pairs=max_llm_pairs,
+                    llm_concurrency=llm_concurrency,
                     write_candidates=write_candidates,
                     cleanup=cleanup,
                     tracer=tracer,
@@ -801,6 +814,8 @@ async def add_documents(  # noqa: PLR0912,PLR0915,PLR0913
                     tracer=tracer,
                     embed_heading_path=embed_heading_path,
                     max_llm_pairs=max_llm_pairs,
+                    llm_concurrency=llm_concurrency,
+                    on_progress=on_progress,
                     write_candidates=write_candidates,
                     cleanup=cleanup,
                     previous_hashes=previous_hashes,
@@ -855,6 +870,7 @@ async def update_document(  # noqa: PLR0913
     registry: LoaderRegistry,
     embed_heading_path: bool,
     max_llm_pairs: int,
+    llm_concurrency: int,
     write_candidates: bool,
     cleanup: CleanupStep,
     tracer: Tracer,
@@ -1018,6 +1034,7 @@ async def update_document(  # noqa: PLR0913
                 tracer=tracer,
                 embed_heading_path=embed_heading_path,
                 max_llm_pairs=max_llm_pairs,
+                llm_concurrency=llm_concurrency,
                 candidates=extracted.candidates,
                 dropped=extracted.dropped,
                 write_candidates=write_candidates,

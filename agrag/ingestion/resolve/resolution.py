@@ -7,7 +7,7 @@ returns the result.
 
 import hashlib
 from collections import defaultdict
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from uuid import UUID, uuid4
 
@@ -27,6 +27,7 @@ from agrag.common.data_models.structure import (
 )
 from agrag.common.text import normalize_text
 from agrag.cypher.entities import fetch_all_by_label_query, fetch_by_merge_keys_query
+from agrag.cypher.resolution_read import fetch_decided_pairs_query
 from agrag.embedding.base import Embedder
 from agrag.graphdb.base import GraphStore
 from agrag.graphdb.serialize import parse_entity_node
@@ -70,6 +71,36 @@ SYSTEM_RELATION_TYPES = [
 # The most committed entities of one label compared whole when the candidate
 # search finds none.
 FALLBACK_ENTITY_LIMIT = 128
+
+
+async def _already_decided_pairs(
+    ids_by_index: dict[int, UUID],
+    graph_store: GraphStore,
+    job_id: UUID | str | None = None,
+) -> set[tuple[int, int]]:
+    """Count previously joined candidates without changing pair selection."""
+    indices_by_id: dict[str, list[int]] = defaultdict(list)
+    for index, entity_id in ids_by_index.items():
+        indices_by_id[str(entity_id)].append(index)
+    decided = {
+        (min(left, right), max(left, right))
+        for indices in indices_by_id.values()
+        for left in indices
+        for right in indices
+        if left != right
+    }
+    if len(indices_by_id) < 2:
+        return decided
+    rows = await graph_store.execute_read(
+        fetch_decided_pairs_query(),
+        {"ids": list(indices_by_id), "job_id": str(job_id) if job_id else None},
+    )
+    for row in rows:
+        for left in indices_by_id.get(str(row.get("a_id")), []):
+            for right in indices_by_id.get(str(row.get("b_id")), []):
+                if left != right:
+                    decided.add((min(left, right), max(left, right)))
+    return decided
 
 
 @dataclass
@@ -224,6 +255,8 @@ async def resolve_batch(  # noqa: PLR0915
     max_llm_pairs: int,
     error_policy: ErrorPolicy,
     job_id: UUID | str | None = None,
+    llm_concurrency: int = 2,
+    on_progress: Callable[[int, int, float], None] | None = None,
 ) -> BatchResolution:
     """Resolve one extraction batch against itself and the persisted graph.
 
@@ -241,6 +274,8 @@ async def resolve_batch(  # noqa: PLR0915
         entity_labels: The labels the schema defines.
         tracer: Opens the phase spans and traces the resolver.
         max_llm_pairs: The most ambiguous pairs per label sent to the LLM.
+        llm_concurrency: Maximum simultaneous verification requests.
+        on_progress: Receives completed batches, total batches and elapsed seconds.
         error_policy: RAISE propagates a failed candidate read; any other
             policy records it and leaves that mention unresolved.
         job_id: The in-flight Cutover Job's id for the exact-match read.
@@ -353,12 +388,33 @@ async def resolve_batch(  # noqa: PLR0915
         embedder=embedder,
         tracer=tracer,
         max_llm_pairs=max_llm_pairs,
+        llm_concurrency=llm_concurrency,
+        on_progress=on_progress,
+    )
+    chunk_ids_by_index = {
+        index: {mention.chunk_id} for index, mention in enumerate(mentions)
+    }
+    chunk_ids_by_index.update(
+        {
+            index: set(candidate_entities[entity_id].source_chunk_ids)
+            for index, entity_id in persisted_ids.items()
+        }
+    )
+    decided = await _already_decided_pairs(
+        {
+            **{index: entity.id for index, entity in exact_matches.items()},
+            **persisted_ids,
+        },
+        graph_store,
+        job_id,
     )
     result = (
         await resolver.resolve(
             combined_mentions,
             neighbors_by_index=neighbors_by_index,
             similarity_by_pair=similarity_by_pair,
+            chunk_ids_by_index=chunk_ids_by_index,
+            already_decided_pairs=decided,
         )
         if mentions
         else None
@@ -383,6 +439,7 @@ async def resolve_persisted(
     tracer: Tracer | None,
     max_llm_pairs: int,
     error_policy: ErrorPolicy,
+    llm_concurrency: int = 2,
 ) -> tuple[ResolutionResult, list[StageFailure]]:
     """Resolve persisted entities against each other.
 
@@ -395,6 +452,7 @@ async def resolve_persisted(
         entity_labels: The labels the schema defines.
         tracer: Traces the resolver.
         max_llm_pairs: The most ambiguous pairs per label sent to the LLM.
+        llm_concurrency: Maximum simultaneous verification requests.
         error_policy: RAISE propagates a failed candidate read; any other
             policy records it and leaves that entity out of this pass.
 
@@ -433,11 +491,18 @@ async def resolve_persisted(
         embedder=embedder,
         tracer=tracer,
         max_llm_pairs=max_llm_pairs,
+        llm_concurrency=llm_concurrency,
     )
     result = await resolver.resolve(
         mentions,
         neighbors_by_index=neighbors_by_index,
         similarity_by_pair=similarity_by_pair,
+        chunk_ids_by_index={
+            index: set(entity.source_chunk_ids) for index, entity in enumerate(entities)
+        },
+        already_decided_pairs=await _already_decided_pairs(
+            {index: entity.id for index, entity in enumerate(entities)}, graph_store
+        ),
     )
     return result, failures
 
@@ -451,6 +516,7 @@ async def resolve_created(
     tracer: Tracer | None,
     max_llm_pairs: int,
     error_policy: ErrorPolicy,
+    llm_concurrency: int = 2,
 ) -> tuple[list[Entity], ResolutionResult, list[StageFailure]]:
     """Resolve newly committed entities against everything committed.
 
@@ -467,6 +533,7 @@ async def resolve_created(
         entity_labels: The labels the schema defines.
         tracer: Traces the resolver.
         max_llm_pairs: The most ambiguous pairs per label sent to the LLM.
+        llm_concurrency: Maximum simultaneous verification requests.
         error_policy: RAISE propagates a failed candidate read; any other
             policy records it and leaves that entity out of this pass.
 
@@ -559,6 +626,7 @@ async def resolve_created(
         embedder=embedder,
         tracer=tracer,
         max_llm_pairs=max_llm_pairs,
+        llm_concurrency=llm_concurrency,
     )
     result = await resolver.resolve(
         mentions,
@@ -567,6 +635,12 @@ async def resolve_created(
             for index, entity in enumerate(pool)
         },
         similarity_by_pair=similarity_by_pair,
+        chunk_ids_by_index={
+            index: set(entity.source_chunk_ids) for index, entity in enumerate(pool)
+        },
+        already_decided_pairs=await _already_decided_pairs(
+            {index: entity.id for index, entity in enumerate(pool)}, graph_store
+        ),
     )
     return pool, result, failures
 
@@ -577,6 +651,7 @@ async def resolve_among(
     embedder: Embedder,
     tracer: Tracer | None,
     max_llm_pairs: int,
+    llm_concurrency: int = 2,
 ) -> ResolutionResult:
     """Resolve a fixed set of persisted entities by comparing same-label pairs.
 
@@ -586,6 +661,7 @@ async def resolve_among(
         embedder: Embeds entity names for fuzzy review.
         tracer: Traces the resolver.
         max_llm_pairs: The most ambiguous pairs per label sent to the LLM.
+        llm_concurrency: Maximum simultaneous verification requests.
 
     Returns:
         The resolver result, indexed like ``entities``.
@@ -605,8 +681,14 @@ async def resolve_among(
         embedder=embedder,
         tracer=tracer,
         max_llm_pairs=max_llm_pairs,
+        llm_concurrency=llm_concurrency,
     )
-    return await resolver.resolve(mentions)
+    return await resolver.resolve(
+        mentions,
+        chunk_ids_by_index={
+            index: set(entity.source_chunk_ids) for index, entity in enumerate(entities)
+        },
+    )
 
 
 def _build_resolver(
@@ -616,6 +698,8 @@ def _build_resolver(
     embedder: Embedder,
     tracer: Tracer | None,
     max_llm_pairs: int,
+    llm_concurrency: int = 2,
+    on_progress: Callable[[int, int, float], None] | None = None,
 ) -> Resolver:
     """Build the zone-routed resolver: ExactMatch, FuzzyMatch, then LLMVerify."""
     comparators: list[Comparator] = [
@@ -629,4 +713,6 @@ def _build_resolver(
         embedder=embedder,
         tracer=tracer,
         max_llm_pairs=max_llm_pairs,
+        llm_concurrency=llm_concurrency,
+        on_progress=on_progress,
     )

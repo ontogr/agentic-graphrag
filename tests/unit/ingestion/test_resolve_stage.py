@@ -1,5 +1,6 @@
 """Tests for the entity resolution stage of one ingestion batch."""
 
+from collections.abc import Callable
 from unittest import mock
 from unittest.mock import AsyncMock
 from uuid import uuid4
@@ -9,6 +10,7 @@ from agrag.common.data_models.extraction import ExtractedEntity
 from agrag.ingestion import _resolve_stage
 from agrag.ingestion._resolve_stage import resolve_stage
 from agrag.ingestion._stage_context import StageContext
+from agrag.ingestion.reports import AddResult
 from agrag.ingestion.resolve.resolution import BatchResolution
 from agrag.ingestion.resolve.resolver import ResolutionGroup, ResolutionResult
 from agrag.loaders.types import ErrorPolicy
@@ -23,6 +25,56 @@ def _mention(text: str) -> ExtractedEntity:
 
 class TestResolveStage:
     """Counting what the resolver decided for one batch."""
+
+    async def test_forwards_monotonic_resolution_progress(self) -> None:
+        """Resolution progress reports monotonic counts and completes at total."""
+        progress: list[AddResult] = []
+        batch = BatchResolution(exact_matches={}, groups=[], result=None)
+
+        async def _resolve(
+            *_args: object,
+            on_progress: Callable[[int, int, float], None],
+            **_kwargs: object,
+        ) -> BatchResolution:
+            on_progress(1, 3, 0.1)
+            on_progress(2, 3, 0.2)
+            on_progress(3, 3, 0.3)
+            return batch
+
+        with mock.patch.object(
+            _resolve_stage, "resolve_batch", AsyncMock(side_effect=_resolve)
+        ):
+            ctx = StageContext(
+                graph_store=AsyncMock(),
+                embedder=AsyncMock(),
+                error_policy=ErrorPolicy.RAISE,
+                tracer=get_tracer(None),
+                job_id=None,
+                deferred=None,
+            )
+            stage = await resolve_stage(
+                [_mention("Alice")],
+                [],
+                [],
+                ctx,
+                graph_schema=DEFAULT_SCHEMA,
+                max_llm_pairs=10,
+                on_progress=progress.append,
+            )
+
+        assert [
+            (
+                item.resolution.batches_done,
+                item.resolution.batches_total,
+                item.resolution.elapsed_seconds,
+            )
+            for item in progress
+        ] == [(1, 3, 0.1), (2, 3, 0.2), (3, 3, 0.3)]
+        assert (
+            stage.stats.batches_done,
+            stage.stats.batches_total,
+            stage.stats.elapsed_seconds,
+        ) == (3, 3, 0.3)
 
     async def test_counts_groups_with_two_incoming_mentions_and_copies_failures(
         self,

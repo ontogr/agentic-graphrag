@@ -34,6 +34,7 @@ async def finish_job(
     embedder: Embedder,
     tracer: Tracer,
     max_llm_pairs: int,
+    llm_concurrency: int = 2,
     error_policy: ErrorPolicy = ErrorPolicy.RAISE,
 ) -> list[StageFailure]:
     """Run the cleanup phase of one committed Cutover Job.
@@ -56,6 +57,7 @@ async def finish_job(
         embedder: Embeds rebuilt resolved entities.
         tracer: A tracer to record spans.
         max_llm_pairs: The most ambiguous pairs per label sent to the LLM.
+        llm_concurrency: Maximum concurrent LLM verification requests.
         error_policy: RAISE propagates the first failure; any other
             policy records it and continues. Recovery uses RAISE, so a
             failure leaves the job in ``cleaning`` for a later open.
@@ -79,6 +81,7 @@ async def finish_job(
             embedder=embedder,
             tracer=tracer,
             max_llm_pairs=max_llm_pairs,
+            llm_concurrency=llm_concurrency,
         )
     )
     await prune_document_entities(

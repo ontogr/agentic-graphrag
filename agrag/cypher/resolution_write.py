@@ -30,8 +30,9 @@ def upsert_matches_query() -> str:
 
     Returns:
         Parameterized Cypher expecting $entity_a_id, $entity_b_id,
-        $match_id, $comparator, $score, $reasoning, $decided_at, and
-        $pending_job_id (the in-flight job's id, or null outside a job).
+        $match_id, $comparator, $score, $reasoning, $decided_at,
+        $similarity, $batch_id, and $pending_job_id (the in-flight job's id,
+        or null outside a job). Null provenance values are not stored.
         It returns ``id`` and ``written`` for the matched edge.
     """
     own = own_row_expression("r", "$pending_job_id")
@@ -43,7 +44,8 @@ def upsert_matches_query() -> str:
         f"WITH r, {own} AS own "
         "FOREACH (_ IN CASE WHEN own THEN [1] ELSE [] END | "
         "SET r.active = true, r.comparator = $comparator, r.score = $score, "
-        "r.reasoning = $reasoning, r.decided_at = $decided_at) "
+        "r.reasoning = $reasoning, r.decided_at = $decided_at, "
+        "r.similarity = $similarity, r.batch_id = $batch_id) "
         "RETURN r.id AS id, own AS written"
     )
 

@@ -1,5 +1,6 @@
 """Pair selection and sub-clustering for entity-resolution LLM review."""
 
+import re
 from collections.abc import Mapping
 from uuid import UUID
 
@@ -11,6 +12,19 @@ from agrag.ingestion._clustering import average_linkage_clusters
 HARD_MERGE_THRESHOLD = 0.95
 DISCARD_THRESHOLD = 0.80
 MAX_LLM_PAIRS = 500
+LONG_NAME_CHARS = 80
+DIGIT_TOKEN_PATTERN = re.compile(r"\d+(?:\.\d+)*")
+
+
+def name_pair_gate(first: str, second: str) -> str | None:
+    """Return the reason non-exact names cannot merge, or None if allowed."""
+    first_digits = set(DIGIT_TOKEN_PATTERN.findall(first))
+    second_digits = set(DIGIT_TOKEN_PATTERN.findall(second))
+    if first_digits and second_digits and first_digits != second_digits:
+        return "digit_mismatch"
+    if max(len(first), len(second)) > LONG_NAME_CHARS:
+        return "long_name"
+    return None
 
 
 def select_llm_pairs(

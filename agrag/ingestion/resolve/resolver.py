@@ -1,12 +1,14 @@
 """Entity resolution: deciding which ExtractedEntity mentions are the same thing."""
 
+import asyncio
 import logging
 import math
 from abc import ABC, abstractmethod
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
+from time import monotonic
 from uuid import UUID, uuid4
 
 from opentelemetry.trace import Tracer
@@ -22,6 +24,7 @@ from agrag.ingestion.resolve.zone_classifier import (
     DISCARD_THRESHOLD,
     HARD_MERGE_THRESHOLD,
     MAX_LLM_PAIRS,
+    name_pair_gate,
     precluster_ambiguous,
     select_llm_pairs,
 )
@@ -48,6 +51,8 @@ class ResolvedMatch(BaseModel):
 
     Exact-name identity matches group mentions but do not create a match-graph
     edge. Every other confirmed comparator decision creates one record.
+    Similarity retains candidate evidence separately from the comparator score.
+    A batch id identifies the model request; non-model matches have no batch id.
     """
 
     left_index: int
@@ -56,6 +61,8 @@ class ResolvedMatch(BaseModel):
     score: float | None = None
     reasoning: str | None = None
     decided_at: datetime
+    similarity: float | None = None
+    batch_id: UUID | None = None
 
 
 class ResolutionResult(BaseModel):
@@ -491,6 +498,8 @@ def _match_record(
     comparator: str,
     score: float | None = None,
     reasoning: str | None = None,
+    similarity: float | None = None,
+    batch_id: UUID | None = None,
 ) -> ResolvedMatch:
     """Build a ResolvedMatch stamped with the current time."""
     return ResolvedMatch(
@@ -500,7 +509,53 @@ def _match_record(
         score=score,
         reasoning=reasoning,
         decided_at=datetime.now(UTC),
+        similarity=similarity,
+        batch_id=batch_id,
     )
+
+
+def _constrain_matches(
+    entity_count: int,
+    edges: list[tuple[int, int]],
+    matches: list[ResolvedMatch],
+    cannot_link: set[tuple[int, int]],
+) -> set[tuple[int, int]]:
+    """Reject weaker edges that would connect a forbidden pair transitively.
+
+    Comparator score ranks edges first, with candidate similarity when no score
+    is available. Index pairs break ties. Exact identity edges rank first.
+    """
+    if not cannot_link:
+        return set()
+    parent = list(range(entity_count))
+
+    def find(index: int) -> int:
+        while parent[index] != index:
+            parent[index] = parent[parent[index]]
+            index = parent[index]
+        return index
+
+    confidence = {
+        (match.left_index, match.right_index): (
+            match.score if match.score is not None else match.similarity or 0.0
+        )
+        for match in matches
+    }
+    rejected: set[tuple[int, int]] = set()
+    for left, right in sorted(
+        edges, key=lambda pair: (-confidence.get(pair, 1.0), pair)
+    ):
+        left_root, right_root = find(left), find(right)
+        if left_root == right_root:
+            continue
+        if any(
+            {find(first), find(second)} == {left_root, right_root}
+            for first, second in cannot_link
+        ):
+            rejected.add((left, right))
+        else:
+            parent[left_root] = right_root
+    return rejected
 
 
 @dataclass(frozen=True)
@@ -513,6 +568,8 @@ class _LlmTier:
     unavailable_pairs: int = 0
     unavailable_reason: str | None = None
     unresolved_pairs: tuple[tuple[int, int], ...] = ()
+    cannot_link: frozenset[tuple[int, int]] = frozenset()
+    pairs_sent_to_model: int = 0
 
 
 class Resolver:
@@ -536,6 +593,8 @@ class Resolver:
         discard_threshold: float = DISCARD_THRESHOLD,
         max_llm_pairs: int = MAX_LLM_PAIRS,
         llm_batch_size: int = 10,
+        llm_concurrency: int = 2,
+        on_progress: Callable[[int, int, float], None] | None = None,
         tracer: Tracer | None = None,
     ) -> None:
         """Create a zone-routed resolver from comparators and a candidate source.
@@ -557,14 +616,18 @@ class Resolver:
                 most similar first. The rest are undecided.
             llm_batch_size: Pairs per LLM request. Must fit the
                 LLMVerify comparator's max_pairs_per_batch.
+            llm_concurrency: Maximum simultaneous verification requests, at least 1.
+            on_progress: Receives completed batches, total batches and elapsed seconds.
             tracer: Opens this resolver's spans.
 
         Raises:
-            ValueError: llm_batch_size is not positive, or exceeds the
-                LLMVerify comparator's max_pairs_per_batch.
+            ValueError: llm_concurrency or llm_batch_size is not positive,
+                or llm_batch_size exceeds the comparator's max_pairs_per_batch.
         """
         if llm_batch_size <= 0:
             raise ValueError("llm_batch_size must be positive")
+        if llm_concurrency < 1:
+            raise ValueError("llm_concurrency must be positive")
         self.comparators = comparators
         self.candidate_source = candidate_source
         self.embedder = embedder
@@ -572,6 +635,8 @@ class Resolver:
         self.discard_threshold = discard_threshold
         self.max_llm_pairs = max_llm_pairs
         self.llm_batch_size = llm_batch_size
+        self.llm_concurrency = llm_concurrency
+        self.on_progress = on_progress
         self._tracer = get_tracer(tracer)
         self._exact = next(
             (c for c in comparators if isinstance(c, ExactMatch)), ExactMatch()
@@ -591,6 +656,8 @@ class Resolver:
         *,
         neighbors_by_index: dict[int, list[str]] | None = None,
         similarity_by_pair: dict[tuple[int, int], float] | None = None,
+        chunk_ids_by_index: dict[int, set[UUID]] | None = None,
+        already_decided_pairs: set[tuple[int, int]] | None = None,
     ) -> ResolutionResult:
         """Resolve entity groups and retain each confirmed non-exact match.
 
@@ -609,6 +676,9 @@ class Resolver:
                 but reaches the LLM as decision context, preferred over a
                 freshly embedded score, for a pair that lands on the boundary
                 anyway. Not mutated.
+            chunk_ids_by_index: Actual source chunks per mention or persisted entity.
+                Omitted entries mean unknown; None uses mention chunk ids.
+            already_decided_pairs: Previously joined pairs to count, not skip.
 
         Returns:
             Groups and evidence, plus counts of uncertain verdicts, failed
@@ -628,10 +698,51 @@ class Resolver:
                         continue
                     compared.add(pair)
                     pairs.append(pair)
-            edges, matches, tier = await self._resolve_pairs(
-                pairs, entities, neighbors_by_index or {}, similarity_by_pair or {}
+            gated: set[tuple[int, int]] = set()
+            counts = {"long_name": 0, "digit_mismatch": 0}
+            for left, right in pairs:
+                first, second = entities[left].text, entities[right].text
+                if _normalize(first) == _normalize(second):
+                    continue
+                reason = name_pair_gate(first, second)
+                if reason is not None:
+                    counts[reason] += 1
+                    gated.add((left, right))
+            chunks = (
+                chunk_ids_by_index
+                if chunk_ids_by_index is not None
+                else {index: {entity.chunk_id} for index, entity in enumerate(entities)}
             )
+            span.set_attribute(
+                "agrag.same_chunk_pairs",
+                sum(
+                    bool(chunks.get(left, set()) & chunks.get(right, set()))
+                    for left, right in pairs
+                ),
+            )
+            span.set_attribute(
+                "agrag.already_decided_pairs",
+                len(compared & (already_decided_pairs or set())),
+            )
+            edges, matches, tier = await self._resolve_pairs(
+                [pair for pair in pairs if pair not in gated],
+                entities,
+                neighbors_by_index or {},
+                similarity_by_pair or {},
+            )
+            rejected = _constrain_matches(
+                len(entities), edges, matches, set(tier.cannot_link) | gated
+            )
+            edges = [edge for edge in edges if edge not in rejected]
+            matches = [
+                match
+                for match in matches
+                if (match.left_index, match.right_index) not in rejected
+            ]
             span.set_attribute("agrag.pair_count", len(pairs))
+            span.set_attribute("agrag.long_name_pairs", counts["long_name"])
+            span.set_attribute("agrag.digit_mismatch_pairs", counts["digit_mismatch"])
+            span.set_attribute("agrag.pairs_sent_to_model", tier.pairs_sent_to_model)
             span.set_attribute("agrag.ambiguous_count", tier.ambiguous_count)
             span.set_attribute("agrag.failed_llm_requests", tier.failed_requests)
             span.set_attribute("agrag.cap_truncated_pairs", tier.cap_truncated_pairs)
@@ -644,7 +755,7 @@ class Resolver:
                 failed_llm_requests=tier.failed_requests,
                 cap_truncated_pairs=tier.cap_truncated_pairs,
                 llm_unavailable_pairs=tier.unavailable_pairs,
-                unresolved_pairs=sorted(set(tier.unresolved_pairs)),
+                unresolved_pairs=sorted(set(tier.unresolved_pairs) | gated | rejected),
             )
             if result.unresolved_pairs:
                 reason = (
@@ -790,7 +901,11 @@ class Resolver:
                     edges.append((left, right))
                     matches.append(
                         _match_record(
-                            left, right, comparator="embedding", score=similarity
+                            left,
+                            right,
+                            comparator="embedding",
+                            score=similarity,
+                            similarity=similarity,
                         )
                     )
                     hard_merges += 1
@@ -870,6 +985,7 @@ class Resolver:
                                     pair[1],
                                     comparator="embedding",
                                     score=similarities_by_pair[pair],
+                                    similarity=similarities_by_pair[pair],
                                 )
                             )
                 auto_merged_total += len(auto_merged)
@@ -880,7 +996,7 @@ class Resolver:
             span.set_attribute("agrag.boundary_pairs_after", len(boundary))
             return boundary
 
-    async def _llm_tier(
+    async def _llm_tier(  # noqa: PLR0915
         self,
         boundary: list[tuple[int, int, float]],
         entities: list[ExtractedEntity],
@@ -930,42 +1046,79 @@ class Resolver:
             failed_before = self._llm.failed_requests
             unavailable_before = self._llm.unavailable_pairs
             ambiguous_count = 0
-            for start in range(0, len(selected), self.llm_batch_size):
-                selected_chunk = selected[start : start + self.llm_batch_size]
-                with self._tracer.start_as_current_span(
-                    "agrag.resolution.llm_batch",
-                    attributes={"agrag.batch_size": len(selected_chunk)},
-                ) as batch_span:
-                    chunk = [
-                        (left, right, entities[left], entities[right])
-                        for left, right in selected_chunk
-                    ]
-                    chunk_similarities = {
-                        (left, right): similarity_by_pair.get((left, right), similarity)
-                        for left, right, similarity in boundary
-                        if (left, right) in selected_chunk
-                    }
-                    results, chunk_uncertain = await self._llm.compare_batch_detailed(
-                        chunk,
-                        similarities=chunk_similarities,
-                        neighbors_by_index=neighbors_by_index,
-                    )
-                    batch_span.set_attribute("agrag.uncertain_count", chunk_uncertain)
-                    ambiguous_count += chunk_uncertain
-                    for (left, right), comparison in results.items():
-                        if comparison.verdict is ComparisonVerdict.MATCH:
-                            edges.append((left, right))
-                            matches.append(
-                                _match_record(
-                                    left,
-                                    right,
-                                    comparator="llm",
-                                    score=comparison.score,
-                                    reasoning=comparison.reasoning,
-                                )
+            cannot_link: set[tuple[int, int]] = set()
+            batches = [
+                selected[start : start + self.llm_batch_size]
+                for start in range(0, len(selected), self.llm_batch_size)
+            ]
+            semaphore = asyncio.Semaphore(self.llm_concurrency)
+            started = monotonic()
+            done = 0
+            verifier = self._llm
+            similarities = {
+                (left, right): similarity_by_pair.get((left, right), score)
+                for left, right, score in boundary
+            }
+            if self.on_progress is not None:
+                self.on_progress(0, len(batches), 0.0)
+
+            async def verify(
+                selected_chunk: list[tuple[int, int]],
+            ) -> tuple[dict[tuple[int, int], ComparisonResult], int, UUID]:
+                nonlocal done
+                async with semaphore:
+                    batch_id = uuid4()
+                    with self._tracer.start_as_current_span(
+                        "agrag.resolution.llm_batch",
+                        attributes={
+                            "agrag.batch_size": len(selected_chunk),
+                            "agrag.batch_id": str(batch_id),
+                        },
+                    ) as batch_span:
+                        results, uncertain = await verifier.compare_batch_detailed(
+                            [
+                                (left, right, entities[left], entities[right])
+                                for left, right in selected_chunk
+                            ],
+                            similarities={
+                                pair: similarities[pair] for pair in selected_chunk
+                            },
+                            neighbors_by_index=neighbors_by_index,
+                        )
+                        batch_span.set_attribute("agrag.uncertain_count", uncertain)
+                        done += 1
+                        if self.on_progress is not None:
+                            self.on_progress(done, len(batches), monotonic() - started)
+                        return results, uncertain, batch_id
+
+            tasks = [asyncio.create_task(verify(batch)) for batch in batches]
+            try:
+                outcomes = await asyncio.gather(*tasks)
+            except BaseException:
+                for task in tasks:
+                    task.cancel()
+                await asyncio.gather(*tasks, return_exceptions=True)
+                raise
+            for results, chunk_uncertain, batch_id in outcomes:
+                ambiguous_count += chunk_uncertain
+                for (left, right), comparison in results.items():
+                    if comparison.verdict is ComparisonVerdict.MATCH:
+                        edges.append((left, right))
+                        matches.append(
+                            _match_record(
+                                left,
+                                right,
+                                comparator="llm",
+                                score=comparison.score,
+                                reasoning=comparison.reasoning,
+                                similarity=similarities[(left, right)],
+                                batch_id=batch_id,
                             )
-                        elif comparison.verdict is ComparisonVerdict.UNCERTAIN:
-                            unresolved.append((left, right))
+                        )
+                    elif comparison.verdict is ComparisonVerdict.NO_MATCH:
+                        cannot_link.add((left, right))
+                    elif comparison.verdict is ComparisonVerdict.UNCERTAIN:
+                        unresolved.append((left, right))
             failed_llm_requests = self._llm.failed_requests - failed_before
             unavailable_pairs = self._llm.unavailable_pairs - unavailable_before
             span.set_attribute("agrag.ambiguous_count", ambiguous_count)
@@ -978,4 +1131,6 @@ class Resolver:
             unavailable_pairs=unavailable_pairs,
             unavailable_reason=self._llm.unavailable_reason,
             unresolved_pairs=tuple(unresolved),
+            cannot_link=frozenset(cannot_link),
+            pairs_sent_to_model=len(selected),
         )

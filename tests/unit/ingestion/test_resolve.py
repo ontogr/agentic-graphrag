@@ -714,7 +714,7 @@ class TestZoneRouting:
         """Boundary pairs past max_llm_pairs never reach the LLM."""
         chunk = _llm_chunk()
         client = _CountingClient("no_match")
-        entities = [_llm_entity(f"branch-{index}", chunk) for index in range(4)]
+        entities = [_llm_entity(f"branch-{name}", chunk) for name in "abcd"]
         resolver = Resolver(
             comparators=[
                 ExactMatch(),
@@ -742,7 +742,7 @@ class TestZoneRouting:
         """A zero cap makes no verifier call and leaves each boundary pair undecided."""
         chunk = _llm_chunk()
         client = _CountingClient("no_match")
-        entities = [_llm_entity(f"branch-{index}", chunk) for index in range(4)]
+        entities = [_llm_entity(f"branch-{name}", chunk) for name in "abcd"]
         resolver = Resolver(
             comparators=[
                 ExactMatch(),

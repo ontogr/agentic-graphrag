@@ -1,17 +1,20 @@
 """Tests for resolving mentions and persisted entities without a Graph."""
 
+import asyncio
 from unittest.mock import AsyncMock, patch
 from uuid import uuid4
 
 from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.extraction import ExtractedEntity
 from agrag.common.data_models.vector_record import VectorHit
+from agrag.ingestion.resolve.candidate_source import PersistedCandidateSource
 from agrag.ingestion.resolve.resolution import (
     _synthesize_mentions,
     find_exact_matches,
     resolve_among,
     resolve_batch,
 )
+from agrag.ingestion.resolve.resolver import FuzzyMatch, LLMVerify, Resolver
 from agrag.loaders.types import ErrorPolicy
 
 
@@ -186,6 +189,7 @@ class TestResolveBatch:
                 {"n": _node(other_id, "Ada L.", "Person:ada l.")},
             ],
             [],
+            [],
         ]
         hits = [
             VectorHit(
@@ -249,3 +253,130 @@ class TestResolveBatch:
             0 not in group.entity_indices or len(group.entity_indices) == 1
             for group in batch.result.groups
         )
+
+
+class TestBoundedVerification:
+    """Batch completion order must not change merges or hide request failures."""
+
+    async def test_reverse_completion_preserves_order_and_caps_requests(self) -> None:
+        """Six independent batches reach the cap and retain selection order."""
+        entities, chunks = _synthesize_mentions(
+            [
+                Entity(id=uuid4(), label="Person", name=name)
+                for name in ("A", "B", "C", "D")
+            ]
+        )
+        source = PersistedCandidateSource({0: [1, 2, 3], 1: [2, 3], 2: [3]})
+        expected = [(0, 1), (0, 2), (0, 3), (1, 2), (1, 3), (2, 3)]
+        for cap in (1, 3):
+            active = peak = 0
+            progress = []
+
+            class Client:
+                async def VerifyEntityMatches(self, pairs, options):  # noqa: N802
+                    nonlocal active, peak
+                    active += 1
+                    peak = max(peak, active)
+                    left, right = map(int, pairs[0]["pair_id"].split(":"))
+                    await asyncio.sleep(0.03 - expected.index((left, right)) * 0.004)
+                    active -= 1
+                    return [{"pair_id": pairs[0]["pair_id"], "verdict": "match"}]
+
+            verifier = LLMVerify(chunks_by_id=chunks, client=Client())
+            resolver = Resolver(
+                comparators=[FuzzyMatch(match_above=1.0), verifier],
+                candidate_source=source,
+                llm_batch_size=1,
+                llm_concurrency=cap,
+                on_progress=lambda done, total, elapsed, events=progress: events.append(
+                    (done, total)
+                ),
+            )
+            result = await resolver.resolve(entities)
+            assert [(m.left_index, m.right_index) for m in result.matches] == expected
+            assert peak == cap
+            assert progress == [(done, 6) for done in range(7)]
+            assert all(m.batch_id is not None for m in result.matches)
+
+    async def test_failed_batch_keeps_other_matches(self) -> None:
+        """A failed request is counted once while independent batches survive."""
+        entities, chunks = _synthesize_mentions(
+            [Entity(id=uuid4(), label="Person", name=name) for name in ("A", "B", "C")]
+        )
+
+        class Client:
+            async def VerifyEntityMatches(self, pairs, options):  # noqa: N802
+                if pairs[0]["pair_id"] == "0:2":
+                    raise RuntimeError("endpoint failed")
+                return [{"pair_id": pairs[0]["pair_id"], "verdict": "match"}]
+
+        resolver = Resolver(
+            comparators=[LLMVerify(chunks_by_id=chunks, client=Client())],
+            candidate_source=PersistedCandidateSource({0: [1, 2]}),
+            llm_batch_size=1,
+            llm_concurrency=2,
+        )
+        result = await resolver.resolve(entities)
+        assert result.failed_llm_requests == 1
+        assert result.unresolved_pairs == [(0, 2)]
+        assert [(m.left_index, m.right_index) for m in result.matches] == [(0, 1)]
+
+    async def test_rejected_pair_cannot_join_through_weaker_match(self) -> None:
+        """A rejection constrains the whole group, independent of pair order."""
+        entities, chunks = _synthesize_mentions(
+            [
+                Entity(id=uuid4(), label="Person", name=name)
+                for name in ("A", "B", "C", "D")
+            ]
+        )
+
+        class Client:
+            async def VerifyEntityMatches(self, pairs, options):  # noqa: N802
+                return [
+                    {
+                        "pair_id": pair["pair_id"],
+                        "verdict": "no_match" if pair["pair_id"] == "0:2" else "match",
+                        "reasoning": "different"
+                        if pair["pair_id"] == "0:2"
+                        else "alias",
+                    }
+                    for pair in pairs
+                ]
+
+        for peers in ([1, 2], [2, 1]):
+            resolver = Resolver(
+                comparators=[LLMVerify(chunks_by_id=chunks, client=Client())],
+                candidate_source=PersistedCandidateSource({0: peers, 1: [2]}),
+                llm_batch_size=1,
+            )
+            result = await resolver.resolve(
+                entities, similarity_by_pair={(0, 1): 0.94, (1, 2): 0.81}
+            )
+            assert [g.entity_indices for g in result.groups] == [[0, 1], [2], [3]]
+            assert [(m.left_index, m.right_index) for m in result.matches] == [(0, 1)]
+
+    async def test_name_gates_apply_before_fuzzy_and_embedding(self) -> None:
+        """Near-identical sentences and conflicting numbers cannot merge."""
+        for first, second, allowed in (
+            (
+                "must return " + "all records " * 20,
+                "must retain " + "all records " * 20,
+                False,
+            ),
+            ("clause 4.1", "clause 4.2", False),
+            ("three (3) years", "2 years", False),
+            ("3 years", "three (3) years", True),
+            ("x" * 79 + "a", "x" * 79 + "b", True),
+            ("x" * 80 + "a", "x" * 80 + "b", False),
+            ("x" * 200, "x" * 200, True),
+        ):
+            resolver = Resolver(
+                comparators=[],
+                candidate_source=PersistedCandidateSource({0: [1]}),
+                embedder=_Embedder(),
+            )
+            result = await resolver.resolve([_mention(first), _mention(second)])
+            assert [g.entity_indices for g in result.groups] == (
+                [[0, 1]] if allowed else [[0], [1]]
+            )
+            assert result.unresolved_pairs == ([] if allowed else [(0, 1)])

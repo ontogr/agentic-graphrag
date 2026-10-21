@@ -10,6 +10,31 @@ from agrag.cypher._pending_filter import pending_filter_clause
 from agrag.cypher.entities import NODE_IDENTITY_LABEL
 
 
+def fetch_decided_pairs_query() -> str:
+    """Return visible candidate pairs with an active match or shared cluster."""
+    return (
+        "UNWIND $ids AS entity_id "
+        f"MATCH (a:{NODE_IDENTITY_LABEL} {{id: entity_id}}) "
+        f"MATCH (a)-[r:{MATCHES_RELATION}]-(b:{NODE_IDENTITY_LABEL}) "
+        "WHERE b.id IN $ids AND r.active = true "
+        f"AND {pending_filter_clause('a', 'job_id')} "
+        f"AND {pending_filter_clause('b', 'job_id')} "
+        f"AND {pending_filter_clause('r', 'job_id')} "
+        "RETURN a.id AS a_id, b.id AS b_id UNION "
+        "UNWIND $ids AS entity_id "
+        f"MATCH (a:{NODE_IDENTITY_LABEL} {{id: entity_id}})"
+        f"-[first:{RESOLVED_AS_RELATION}]->(group:{RESOLVED_ENTITY_LABEL})"
+        f"<-[second:{RESOLVED_AS_RELATION}]-(b:{NODE_IDENTITY_LABEL}) "
+        "WHERE b.id IN $ids "
+        f"AND {pending_filter_clause('a', 'job_id')} "
+        f"AND {pending_filter_clause('b', 'job_id')} "
+        f"AND {pending_filter_clause('group', 'job_id')} "
+        f"AND {pending_filter_clause('first', 'job_id')} "
+        f"AND {pending_filter_clause('second', 'job_id')} "
+        "RETURN a.id AS a_id, b.id AS b_id"
+    )
+
+
 def fetch_match_endpoints_query() -> str:
     """Build Cypher returning both endpoints of one match edge."""
     return (

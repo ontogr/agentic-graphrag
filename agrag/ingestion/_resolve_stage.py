@@ -4,12 +4,15 @@ The stage matches the batch's mentions against each other and against the
 entities already in the graph. Its output feeds the merge stage.
 """
 
+import contextlib
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from agrag.common.data_models.chunk import Chunk
 from agrag.common.data_models.extraction import ExtractedEntity, ExtractedRelation
 from agrag.common.data_models.graph_schema import GraphSchema
 from agrag.ingestion._stage_context import StageContext
+from agrag.ingestion.reports import AddResult
 from agrag.ingestion.resolve import resolve_batch
 from agrag.ingestion.resolve.resolution import BatchResolution
 from agrag.ingestion.stats import ResolutionStats
@@ -36,6 +39,8 @@ async def resolve_stage(
     *,
     graph_schema: GraphSchema,
     max_llm_pairs: int,
+    llm_concurrency: int = 2,
+    on_progress: Callable[[AddResult], None] | None = None,
 ) -> ResolveStageResult:
     """Resolve the batch's mentions and count what the resolver decided.
 
@@ -47,11 +52,28 @@ async def resolve_stage(
             error policy, the job and the tracer.
         graph_schema: The schema whose entity labels scope the resolver.
         max_llm_pairs: The cap on LLM verifications for this batch.
+        llm_concurrency: Maximum concurrent LLM verification requests.
+        on_progress: Receives resolver progress as partial AddResults.
 
     Returns:
         The resolver output and its counts.
     """
     chunks_by_id = {chunk.id: chunk for chunk in chunks if chunk.id is not None}
+    progress = ResolutionStats()
+
+    def _report_progress(done: int, total: int, elapsed: float) -> None:
+        nonlocal progress
+        progress = progress.model_copy(
+            update={
+                "batches_done": done,
+                "batches_total": total,
+                "elapsed_seconds": elapsed,
+            }
+        )
+        if on_progress is not None:
+            with contextlib.suppress(Exception):
+                on_progress(AddResult(resolution=progress))
+
     batch = await resolve_batch(
         entities,
         relations,
@@ -61,8 +83,10 @@ async def resolve_stage(
         entity_labels=[entity.label for entity in graph_schema.entities],
         tracer=ctx.tracer,
         max_llm_pairs=max_llm_pairs,
+        llm_concurrency=llm_concurrency,
         error_policy=ctx.error_policy,
         job_id=ctx.job_id,
+        on_progress=_report_progress,
     )
     result = batch.result
     in_batch_groups = (
@@ -83,5 +107,8 @@ async def resolve_stage(
         llm_unavailable_pairs=(
             result.llm_unavailable_pairs if result is not None else 0
         ),
+        batches_done=progress.batches_done,
+        batches_total=progress.batches_total,
+        elapsed_seconds=progress.elapsed_seconds,
     )
     return ResolveStageResult(batch=batch, stats=stats)

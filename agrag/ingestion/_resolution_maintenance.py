@@ -196,6 +196,7 @@ async def reconcile_created_entities(
     embedder: Embedder,
     tracer: Tracer,
     max_llm_pairs: int,
+    llm_concurrency: int = 2,
 ) -> list[StageFailure]:
     """Resolve entities a committed job created against everything committed.
 
@@ -212,6 +213,7 @@ async def reconcile_created_entities(
         embedder: Embeds entity names and rebuilt resolved entities.
         tracer: A tracer to record spans.
         max_llm_pairs: The most ambiguous pairs per label sent to the LLM.
+        llm_concurrency: Maximum concurrent LLM verification requests.
 
     Returns:
         The recorded failures.
@@ -234,6 +236,7 @@ async def reconcile_created_entities(
                 entity_labels=[entity.label for entity in schema.entities],
                 tracer=tracer,
                 max_llm_pairs=max_llm_pairs,
+                llm_concurrency=llm_concurrency,
                 error_policy=ErrorPolicy.SKIP,
             )
             decisions = [
@@ -244,6 +247,8 @@ async def reconcile_created_entities(
                     score=match.score,
                     reasoning=match.reasoning,
                     decided_at=match.decided_at,
+                    similarity=match.similarity,
+                    batch_id=match.batch_id,
                 )
                 for match in result.matches
             ]
@@ -288,6 +293,7 @@ async def consolidate(
     embedder: Embedder,
     tracer: Tracer,
     max_llm_pairs: int,
+    llm_concurrency: int = 2,
 ) -> ConsolidationReport:
     """Run resolution against every persisted entity. See ``Graph.consolidate``."""
     with tracer.start_as_current_span("agrag.ingestion.consolidate"):
@@ -311,6 +317,7 @@ async def consolidate(
                 entity_labels=[entity.label for entity in schema.entities],
                 tracer=tracer,
                 max_llm_pairs=max_llm_pairs,
+                llm_concurrency=llm_concurrency,
                 error_policy=ErrorPolicy.SKIP,
             )
             candidate_read_failures.extend(candidate_failures)
@@ -328,6 +335,8 @@ async def consolidate(
                         score=match.score,
                         reasoning=match.reasoning,
                         decided_at=match.decided_at,
+                        similarity=match.similarity,
+                        batch_id=match.batch_id,
                     )
                 )
 
@@ -377,6 +386,7 @@ async def reevaluate(
     embedder: Embedder,
     tracer: Tracer,
     max_llm_pairs: int,
+    llm_concurrency: int = 2,
 ) -> ReevaluationReport:
     """Reevaluate matches among the given entities. See ``Graph.reevaluate``."""
     with tracer.start_as_current_span(
@@ -398,6 +408,7 @@ async def reevaluate(
             embedder=embedder,
             tracer=tracer,
             max_llm_pairs=max_llm_pairs,
+            llm_concurrency=llm_concurrency,
         )
         confirmed = {
             frozenset((unique_ids[m.left_index], unique_ids[m.right_index])): m
@@ -439,6 +450,8 @@ async def reevaluate(
                     score=match.score,
                     reasoning=match.reasoning,
                     decided_at=match.decided_at,
+                    similarity=match.similarity,
+                    batch_id=match.batch_id,
                 )
                 for pair, match in confirmed.items()
                 if pair not in active
