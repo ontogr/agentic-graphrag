@@ -60,7 +60,7 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
-`search_evidence` returns a `EvidenceSearchResult`. Its `status` is `ok`, `partial`, `no_match`, `empty_scope`, `index_not_ready`, or `failed`. `partial` means that one search leg failed and the other returned hits, and `truncated` is `true` when the candidate list was cut. Each hit has an `evidence_id`, a `title`, a `location`, a `snippet` of up to 240 characters, and a `score`.
+`search_evidence` returns an `EvidenceSearchResult`. Its `status` is `ok`, `partial`, `no_match`, `empty_scope`, `index_not_ready`, or `failed`. `partial` means that one search leg failed and the other returned hits, and `truncated` is `true` when the candidate list was cut. Each hit has an `evidence_id`, a `title`, a `location`, a `snippet` of up to 240 characters, and a `score`.
 
 `search_evidence` takes three modes. `EvidenceSearchMode.LEXICAL` runs a keyword search, `EvidenceSearchMode.SEMANTIC` runs a vector search, and `EvidenceSearchMode.HYBRID` runs both and combines them. Use the embedder that you used for ingestion.
 

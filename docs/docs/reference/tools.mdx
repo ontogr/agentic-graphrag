@@ -75,7 +75,7 @@ Searches the text of current document versions in scope and returns ranked passa
 | `mode` | `lexical`, `semantic`, or `hybrid` | `hybrid` | `hybrid` runs both searches and fuses them. |
 | `limit` | integer | agent 8, MCP `MCP_MAX_HITS` | Agent 1 to 50. MCP at least 1, capped at `MCP_MAX_HITS`. Python any positive integer. |
 
-Returns a `EvidenceSearchResult` with `status`, `hits`, `truncated`, `index_state`, and `failures`. A hit has `evidence_id`, `document_key`, `title`, `content_hash`, `location`, `snippet`, `score`, and `legs`.
+Returns an `EvidenceSearchResult` with `status`, `hits`, `truncated`, `index_state`, and `failures`. A hit has `evidence_id`, `document_key`, `title`, `content_hash`, `location`, `snippet`, `score`, and `legs`.
 
 ### Fetch
 

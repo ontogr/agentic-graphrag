@@ -58,6 +58,8 @@ A recipe that names a method outside the list raises `UnknownRecipeMethodError`,
 The example uses the notes from [Set up the example](./example-setup.mdx), and it reuses `store` and `embedder` from that page. The output comes from a real run. Search the notes with the `HYBRID` recipe and print the first four results:
 
 ```python notest
+from agrag.common.data_models.chunk import Chunk
+from agrag.common.data_models.entity import Entity
 from agrag.retrieval.recipes import HYBRID
 from agrag.retrieval.search_engine import SearchEngine
 
@@ -65,7 +67,12 @@ engine = SearchEngine(graph_store=store, embedder=embedder)
 results = await engine.search("Who wrote the Orion Planner?", HYBRID)
 for result in results[:4]:
     item = result.item
-    label = getattr(item, "name", None) or item.text[:40].replace("\n", " ")
+    if isinstance(item, Entity):
+        label = item.name
+    elif isinstance(item, Chunk):
+        label = item.text[:40].replace("\n", " ")
+    else:
+        label = ""
     print(f"{result.method:<7} {result.score:.4f}  {type(item).__name__:<7} {label}")
 ```
 

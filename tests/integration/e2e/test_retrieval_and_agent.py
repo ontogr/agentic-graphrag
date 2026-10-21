@@ -31,7 +31,7 @@ from agrag.graphdb import build_graph_store
 from agrag.ingestion.extract import Extractor
 from agrag.ingestion.graph import Graph
 from agrag.ingestion.merge import mentioned_in_id
-from agrag.retrieval.recipes import CHUNK, ENTITY, HYBRID
+from agrag.retrieval.recipes import CHUNK, ENTITY, HYBRID, Recipe
 from agrag.retrieval.search_engine import SearchEngine
 from agrag.retrieval.settings import RetrievalSettings
 from tests.conftest import FAKE_EMBEDDING_DIMENSIONS
@@ -587,7 +587,11 @@ class TestRetrievalE2E:
         )
         await self._ensure_retrieval_indexes()
 
-        results = await self._engine().search("drug treatment", ENTITY)
+        # The text-tilted vectors score below 1 against the run vector, so entities
+        # that other suites left in the shared database can outrank them. A wide
+        # recipe keeps this test's own entities inside the result list.
+        wide_entity_recipe = Recipe(methods=["entity"], limit=500)
+        results = await self._engine().search("drug treatment", wide_entity_recipe)
         own = await self._own_entities()
         names = sorted(own[str(r.item.id)] for r in results if str(r.item.id) in own)
         chunks = await self._token_chunks()

@@ -12,9 +12,9 @@ Passage search finds the chunks of your documents that match a query and returns
 | Python function | `search_evidence` |
 | Built-in agent tool | `search_evidence` |
 | MCP tool | `search_evidence` |
-| Required inputs | `query`. Python also needs `store`, `embedder`, `mode`, `limit`, and `scope`. |
-| Optional inputs | `mode` (default `hybrid`) and `limit` |
-| Returns | A `EvidenceSearchResult` with ranked `hits`. Each hit has an evidence id and a preview. |
+| Required inputs | `query`. Python also requires `store`, `embedder`, `mode`, `limit`, and `scope`. |
+| Optional inputs | On the agent and MCP tools, `mode` (default `hybrid`) and `limit` (default 8 on the agent and 10 on MCP). In Python, `timeout`. |
+| Returns | An `EvidenceSearchResult` with ranked `hits`. Each hit has an evidence id and a preview. |
 | Needs | The full-text index and the vector index on chunks. An embedder for `semantic` and `hybrid`. |
 | Reads | The current versions of the documents in scope |
 | API reference | [`agrag.evidence.search_evidence`](../api/evidence/search/search_evidence.md) |
@@ -111,7 +111,7 @@ The parameter ranges and the MCP caps are in the [passage search parameters](../
 
 ## Result
 
-A call returns a `EvidenceSearchResult`.
+A call returns an `EvidenceSearchResult`.
 
 | Field | Meaning |
 |---|---|
@@ -187,7 +187,7 @@ This is `found.model_dump_json(indent=2)` for the question above with `limit=2`.
 }
 ```
 
-The first score is 1/61 + 1/61, because both searches ranked the chunk first. The second score is 1/62, because only the keyword search found the chunk, at rank 2. Reciprocal rank fusion adds `1 / (60 + rank)` for each search that found a chunk.
+The first score is 1/61 + 1/61, because both searches ranked the chunk first. The second score is 1/62, because only the keyword search found the chunk, at rank 2. With `limit=2` each search keeps only its top two chunks, so the semantic search, which ranked this chunk third in the example above, does not count it. That is why its score differs from the 0.0320 of the three-hit example. Reciprocal rank fusion adds `1 / (60 + rank)` for each search that found a chunk.
 
 </details>
 
