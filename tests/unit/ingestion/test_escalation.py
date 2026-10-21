@@ -146,7 +146,8 @@ class TestRanking:
 
         assert selected == [1, 0]
 
-    def test_two_kept_spans_without_relations_rank_first(self) -> None:
+    @staticmethod
+    def test_two_kept_spans_without_relations_rank_first() -> None:
         """A chunk with two kept spans and no relation ranks ahead of a weak one."""
         chunks = [_chunk(), _chunk()]
         results = [
@@ -163,7 +164,8 @@ class TestRanking:
 
         assert selected == [0]
 
-    def test_relation_free_chunks_rank_by_weakest_score(self) -> None:
+    @staticmethod
+    def test_relation_free_chunks_rank_by_weakest_score() -> None:
         """Within the relation-free group, the weaker chunk ranks first."""
         chunks = [_chunk(), _chunk()]
         results = [
@@ -180,7 +182,8 @@ class TestRanking:
 
         assert selected == [1, 0]
 
-    def test_single_kept_span_without_relation_does_not_rank_first(self) -> None:
+    @staticmethod
+    def test_single_kept_span_without_relation_does_not_rank_first() -> None:
         """One kept span with no relation stays behind a chunk with a relation."""
         chunks = [_chunk(), _chunk()]
         results = [
@@ -197,7 +200,8 @@ class TestRanking:
 
         assert selected == [1, 0]
 
-    def test_without_relations_single_span_chunks_rank_weakest_first(self) -> None:
+    @staticmethod
+    def test_without_relations_single_span_chunks_rank_weakest_first() -> None:
         """Without relations, single kept spans rank weakest first, then no span."""
         chunks = [_chunk() for _ in range(4)]
         results = [
@@ -216,7 +220,8 @@ class TestRanking:
 
         assert selected == [1, 2, 0, 3]
 
-    def test_zero_relation_count_includes_chunks_the_budget_cuts(self) -> None:
+    @staticmethod
+    def test_zero_relation_count_includes_chunks_the_budget_cuts() -> None:
         """Eligible relation-free chunks are counted even when the budget cuts them."""
         chunks = [_chunk() for _ in range(4)]
         results = [

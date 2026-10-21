@@ -997,11 +997,12 @@ class TestExtractChunksEscalation:
         assert [f.error_type for f in failures] == ["RuntimeError"]
         assert (report.escalated, report.failed) == (2, 1)
 
+    @staticmethod
     @pytest.mark.parametrize(
         "policy", [ErrorPolicy.RAISE, ErrorPolicy.SKIP, ErrorPolicy.QUARANTINE]
     )
     async def test_every_escalation_error_keeps_the_first_results(
-        self, policy: ErrorPolicy
+        policy: ErrorPolicy,
     ) -> None:
         """In hybrid mode, every chunk keeps its GLiNER result if all LLM calls fail."""
         error = RuntimeError("llm down")

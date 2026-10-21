@@ -514,6 +514,8 @@ def upsert_relation_query(rel_type: str) -> str:
     either side keeps the other one. ``extractors`` is the union of the stored
     and written lists, stored items first. Without this, a write from one
     extractor would erase the provenance that another extractor recorded.
+    Neither value is recomputed when a source chunk is later retracted, because
+    the edge keeps no per-chunk scores.
 
     Both endpoints must carry the identity label. Candidate edge types are
     reserved for the candidate store and cannot be written here.

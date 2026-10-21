@@ -108,7 +108,8 @@ class TestApplyMergeAliasConflictIntegration:
 class TestRelationProvenanceIntegration:
     """Relation confidence and extractors are kept across repeated upserts."""
 
-    async def test_keeps_the_largest_confidence_and_unions_extractors(self) -> None:
+    @staticmethod
+    async def test_keeps_the_largest_confidence_and_unions_extractors() -> None:
         """Repeated writes keep the highest confidence and both extractor names."""
         store = build_graph_store("neo4j")
         await store.connect()
@@ -159,7 +160,8 @@ class TestRelationProvenanceIntegration:
             await store.execute_write(f"MATCH (n:{label}) DETACH DELETE n")
             await store.close()
 
-    async def test_folding_a_pending_edge_keeps_the_best_provenance(self) -> None:
+    @staticmethod
+    async def test_folding_a_pending_edge_keeps_the_best_provenance() -> None:
         """A job's new edge folds into the committed one without losing either side."""
         store = build_graph_store("neo4j")
         await store.connect()

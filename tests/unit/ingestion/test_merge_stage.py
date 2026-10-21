@@ -370,9 +370,10 @@ class TestMergeStage:
         assert result.relation_records == []
         assert len(result.mentioned_in_records) == 2
 
-    async def test_mentions_of_one_triple_merge_into_one_record_with_provenance(
-        self,
-    ) -> None:
+    @staticmethod
+    async def test_mentions_of_one_triple_merge_into_one_record_with_provenance() -> (
+        None
+    ):
         """Two extractors' mentions of one relation give one record with both names."""
         chunk_id = uuid4()
         alice, acme = _existing("Alice"), _existing("Acme")

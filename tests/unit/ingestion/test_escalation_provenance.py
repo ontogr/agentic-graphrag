@@ -83,7 +83,8 @@ def _summary(result: ExtractionResult) -> list[tuple[object, ...]]:
 class TestCombineProvenance:
     """Relation provenance survives the union of two extractors."""
 
-    def test_shared_relation_keeps_one_copy_with_both_extractors(self) -> None:
+    @staticmethod
+    def test_shared_relation_keeps_one_copy_with_both_extractors() -> None:
         """A relation both extractors found gets the first confidence and both names."""
         chunk = _chunk()
         primary = ExtractionResult(
@@ -125,9 +126,8 @@ class TestCombineProvenance:
 
         assert _summary(combined) == [("KNOWS", 0, 1, 0.4, ["gliner", "llm"])]
 
-    def test_first_result_only_relation_keeps_its_extractor_and_confidence(
-        self,
-    ) -> None:
+    @staticmethod
+    def test_first_result_only_relation_keeps_its_extractor_and_confidence() -> None:
         """A relation the LLM did not return keeps GLiNER's confidence and name."""
         chunk = _chunk()
         primary = ExtractionResult(
@@ -161,9 +161,8 @@ class TestCombineProvenance:
 
         assert _summary(combined) == [("LOCATED_IN", 1, 2, 0.6, ["gliner"])]
 
-    def test_llm_only_relation_keeps_its_extractor_and_has_no_confidence(
-        self,
-    ) -> None:
+    @staticmethod
+    def test_llm_only_relation_keeps_its_extractor_and_has_no_confidence() -> None:
         """A relation only the LLM found is kept with the LLM name and no score."""
         chunk = _chunk()
         primary = ExtractionResult(
