@@ -16,7 +16,7 @@ from agrag.common.data_models.evidence import (
     FetchStatus,
     VersionStatus,
 )
-from agrag.evidence import fetch
+from agrag.evidence import fetch_evidence
 from agrag.evidence.ids import encode_evidence_id
 from tests.integration.retrieval.evidence._corpus import (
     GOLD_SENTENCE,
@@ -75,7 +75,9 @@ async def _fetch_one(
         if scope_keys is not None
         else frozenset({env.keep, env.viber, env.harbor})
     )
-    outcomes = await fetch(env.store, [evidence_id], scope=scope, max_chars=max_chars)
+    outcomes = await fetch_evidence(
+        env.store, [evidence_id], scope=scope, max_chars=max_chars
+    )
     assert len(outcomes) == 1
     return outcomes[0]
 

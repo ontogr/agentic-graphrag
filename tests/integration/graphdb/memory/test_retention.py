@@ -71,7 +71,7 @@ class TestRetentionMemory:
         assert rows[0]["event"]["seq"] == event.event.seq
         assert rows[0]["event"]["kind"] == event.event.kind.value
         assert rows[0]["event"]["redacted_at"] is not None
-        exact = await tasks.get_event("notes", event.event.seq)
+        exact = await tasks.fetch_event("notes", event.event.seq)
         assert exact.event is not None
         assert exact.event.redacted_at is not None
         assert exact.event.payload == "[REDACTED]"

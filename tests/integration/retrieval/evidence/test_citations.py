@@ -14,7 +14,7 @@ from agrag.common.data_models.evidence import (
     EvidenceReference,
     FetchStatus,
 )
-from agrag.evidence import check_citations, fetch
+from agrag.evidence import check_citations, fetch_evidence
 from agrag.evidence.ids import encode_evidence_id
 from tests.integration.retrieval.evidence._corpus import (
     GOLD_SENTENCE,
@@ -33,7 +33,7 @@ _OTHER_START, _OTHER_END = locate(
 
 async def _fetched_ids(env: EvidenceEnv, evidence_ids: list[str]) -> list[str]:
     """Fetch ids with every corpus document in scope and keep the ok ones."""
-    outcomes = await fetch(
+    outcomes = await fetch_evidence(
         env.store,
         evidence_ids,
         scope=frozenset({env.keep, env.viber, env.harbor}),

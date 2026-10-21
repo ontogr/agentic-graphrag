@@ -1,0 +1,58 @@
+---
+sidebar_position: 14
+title: Evidence ids and citations
+description: What an evidence id names, how versions and deletion affect it, and why a fetch must be complete before an id is citable.
+---
+
+import Diagram from '@site/src/components/Diagram';
+
+# Evidence ids and citations
+
+An evidence id names one version of one document and a chunk or a range of characters in it. [Fetch evidence](../tools/fetch-evidence.mdx) returns the exact stored text behind an id, and [check citations](../tools/check-citations.mdx) confirms that each id an answer cites was fetched in scope. Together they make each claim in an answer traceable to text that was read in the current run.
+
+A model that writes "the policy requires deletion within 30 days" can be wrong, and a reader cannot tell. A citation to text the system read in this run lets the reader open the passage.
+
+## Evidence ids
+
+An id has one of two forms. The decoder accepts only the exact canonical string, so two ids for the same reference are the same string.
+
+| Kind | Form | Names |
+|---|---|---|
+| Chunk | `ev1:c:<document>:<hash>:<chunk>` | One whole chunk. Search and navigation return chunk ids. |
+| Span | `ev1:s:<document>:<hash>:<start>-<end>` | A range of characters of a document version. |
+
+`ev1` is the format version. `<document>` is the document node id, and `<chunk>` is the chunk id, both lowercase hyphenated UUIDs. `<hash>` is the first 16 hexadecimal characters of the content hash of the version, so an id points to the text of that version even after the document changes. `<start>` and `<end>` are character offsets.
+
+Copy ids from tool results and do not build them by hand.
+
+## Versions and deleted documents
+
+Search returns the current version only, and fetch can read earlier text. An id from an earlier version of an updated document still returns its text, and the outcome is labeled `superseded` while the source stays live and its history is retained. Soft deletion hides all text for a source, and a purge removes it. An answer that cites a superseded id keeps working, and a reader sees that the text is out of date. [Update and delete documents](../guides/update-and-delete-documents.mdx) describes both operations.
+
+## What makes an id citable
+
+<Diagram folder="docs" name="evidence-fetch" alt="An evidence id is decoded and checked against the scope. Fetch reads the chunks of the version named by the content hash. A chunk id returns the chunk text. A span id returns the range, cut to the covered part and marked partial when no chunk covers all of it. Text longer than max_chars is cut and marked truncated. Only a complete result makes the id citable." />
+
+Fetch reads the chunks of the version that the content hash names, so a span is never assembled from two versions. Only a status of `ok` adds the id to the fetched ids. A truncated or partial result shows less text than the id names, and citing it would let an answer rest on text nobody read.
+
+A missing id gets the same answer as an unreadable id. A different answer for each case would tell a caller which document keys exist outside its scope.
+
+## How the citation check keeps its record
+
+| Where | The fetched ids | When the check runs |
+|---|---|---|
+| Python | The list you pass in. | When you call it. |
+| Built-in agent | The ids the agent fetched in this run, from complete fetches only. | As the `check_citations` tool, and again after the answer. If some ids are invalid and the tool budget has room, one repair pass runs. |
+| MCP | The ids this server session fetched since it started. | When the client calls the `check_citations` tool. |
+
+A `valid` verdict is weaker than "supports the claim". The check only compares ids, and it catches invented, unread, and out-of-scope citations. Whether a passage supports a sentence is a separate question.
+
+## Numbered references
+
+`render_citations` replaces valid ids in an answer with numbered references and adds a Sources list. Numbers follow first appearance, and passages of the same document version share a number. A source with a valid HTTP or HTTPS address becomes a link. A local file or an inline document appears as a plain numbered reference with its title. A superseded source is labeled "superseded version".
+
+## Related
+
+- [Fetch evidence](../tools/fetch-evidence.mdx) lists the fetch inputs, the outcome fields, and the statuses.
+- [Check citations](../tools/check-citations.mdx) lists the verdicts and shows the calls.
+- [Agent loop](./agent-loop.mdx) describes the repair pass that runs after the agent's answer.

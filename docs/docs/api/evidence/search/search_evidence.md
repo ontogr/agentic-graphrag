@@ -1,19 +1,19 @@
 ---
-title: agrag.evidence.discover.discover
-sidebar_label: discover
+title: agrag.evidence.search.search_evidence
+sidebar_label: search_evidence
 ---
 
-# `agrag.evidence.discover.discover` \{#agrag-evidence-discover-discover}
+# `agrag.evidence.search.search_evidence` \{#agrag-evidence-search-search_evidence}
 
 ```python
-discover(store:GraphStore, embedder:Embedder, query:str, *, mode:DiscoveryMode, limit:int, scope:frozenset[str], timeout:float | None = None) -> DiscoveryResult
+search_evidence(store:GraphStore, embedder:Embedder, query:str, *, mode:EvidenceSearchMode, limit:int, scope:frozenset[str], timeout:float | None = None) -> EvidenceSearchResult
 ```
 
 Find up to `limit` visible passages that match a query.
 
 The lexical leg matches the words of the query against chunk text. The
 semantic leg embeds the query and searches the chunk embeddings. The hybrid
-mode runs both and fuses them. Discovery returns status `index_not_ready`
+mode runs both and fuses them. Search returns status `index_not_ready`
 when a needed index is missing or not ONLINE. It returns `empty_scope`
 without searching when `scope` is empty.
 
@@ -24,7 +24,7 @@ without searching when `scope` is empty.
   use it.
 - **query** (<code>str</code>) – The query text. Lucene syntax is not applied: each word is
   searched as a plain term.
-- **mode** (<code>[DiscoveryMode](../../common/data_models/evidence/DiscoveryMode.md)</code>) – Which legs to run.
+- **mode** (<code>[EvidenceSearchMode](../../common/data_models/evidence/EvidenceSearchMode.md)</code>) – Which legs to run.
 - **limit** (<code>int</code>) – The most hits to return. Must be positive.
 - **scope** (<code>frozenset\[str\]</code>) – Keys of the documents that may be searched.
 - **timeout** (<code>float | None</code>) – Server-side transaction timeout in seconds for each store read.
@@ -32,8 +32,8 @@ without searching when `scope` is empty.
 
 **Returns:**
 
-- <code>[DiscoveryResult](../../common/data_models/evidence/DiscoveryResult.md)</code> – The hits, best first, with the status, truncation flag, index state and
-- <code>[DiscoveryResult](../../common/data_models/evidence/DiscoveryResult.md)</code> – any failed legs.
+- <code>[EvidenceSearchResult](../../common/data_models/evidence/EvidenceSearchResult.md)</code> – The hits, best first, with the status, truncation flag, index state and
+- <code>[EvidenceSearchResult](../../common/data_models/evidence/EvidenceSearchResult.md)</code> – any failed legs.
 
 **Raises:**
 

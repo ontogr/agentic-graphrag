@@ -1,0 +1,133 @@
+---
+title: Check citations
+description: Check that each evidence id an answer cites traces to text that was fetched in scope.
+---
+
+# Check citations
+
+Check citations returns one verdict for each cited evidence id. A `valid` verdict shows that the id names text that was fetched in scope. It does not show that the text supports the claim.
+
+| | |
+|---|---|
+| Python function | `check_citations` |
+| Built-in agent tool | `check_citations` |
+| MCP tool | `check_citations` |
+| Required inputs | The cited ids. Python also takes the fetched ids and `scope`. The agent tool and the MCP tool name them `evidence_ids`. |
+| Optional inputs | None |
+| Returns | One `CitationCheck` for each cited id, with a `verdict` |
+| Needs | The ids that were fetched. The agent and the MCP server keep them for you. |
+| Reads | Nothing from the graph. It compares ids and the scope. |
+| API reference | [`agrag.evidence.check_citations`](../api/evidence/citation/check_citations.md) |
+
+## Overview
+
+Run the check before you return an answer that cites evidence. The check is mechanical, so it does not depend on the model. An id the model invented does not decode. An id from a document outside the scope is `unavailable`, and an id the model never fetched is `not_fetched`.
+
+| Verdict | Meaning |
+|---|---|
+| `valid` | The id decodes, its document is in scope, and it was fetched. A span id is also valid when its range lies inside a fetched span of the same document and version. |
+| `not_fetched` | The id is in scope and was not fetched, or its range reaches past every fetched span. A chunk id must equal a fetched id. |
+| `unavailable` | The id names a document outside the scope, even when the caller fetched it earlier. |
+| `malformed` | The string does not decode. |
+
+Pass only ids whose fetch returned `ok`. An id from a `partial` or `truncated` outcome names more text than the caller received, so it is not citable.
+
+:::note[A valid citation shows traceability only]
+Judging whether a passage supports a sentence is a separate step that the check does not perform.
+:::
+
+## Example
+
+The examples use the notes from [Set up the example](./example-setup.mdx), and they reuse `store`, `scope`, and `short` from that page. `retention_id` and `table_id` are the ids of the retention chunk and the table chunk from the earlier examples. Outputs come from a real run.
+
+Fetch the retention passage with a budget that is too small, and count the ids that count as fetched:
+
+```python notest
+outcomes = await fetch_evidence(store, [retention_id], scope=scope, max_chars=60)
+fetched = [o.evidence_id for o in outcomes if o.status is FetchStatus.OK]
+print(len(fetched))
+```
+
+```text
+0
+```
+
+The fetch was `truncated`, so no id counts as fetched. Fetch again with a full budget, then check an answer that cites three ids:
+
+```python notest
+outcomes = await fetch_evidence(store, [retention_id], scope=scope, max_chars=4000)
+fetched = [o.evidence_id for o in outcomes if o.status is FetchStatus.OK]
+cited_ids = [retention_id, table_id, "ev1:c:oops"]
+checks = await check_citations(cited_ids, fetched, scope=scope)
+for check in checks:
+    print(f"{short(check.cited_id):<28} {check.verdict.value}")
+```
+
+```text
+ev1:c:f24b301d...d7c4d6ef    valid
+ev1:c:f24b301d...12cd16fb    not_fetched
+ev1:c:oops                   malformed
+```
+
+The first id was fetched. The second names a real passage, the table, that nobody fetched. The third is not an id.
+
+### The scope applies
+
+The same id is `unavailable` when the check runs with a different scope:
+
+```python notest
+elsewhere = await check_citations(
+    [retention_id], fetched, scope=frozenset({"/elsewhere.md"})
+)
+print("other scope:", elsewhere[0].verdict.value)
+```
+
+```text
+other scope: unavailable
+```
+
+### Make numbered references
+
+`render_citations` replaces valid ids in an answer with numbered references and adds a Sources list:
+
+```python notest
+answer = f"Customer data is deleted within 10 business days. [{retention_id}]"
+rendered, sources = render_citations(answer, [retention_id], outcomes)
+print(rendered)
+```
+
+```text
+Customer data is deleted within 10 business days. [1]
+
+### Sources
+
+[1] Acme Robotics engineering notes
+```
+
+Pass `render_citations` only ids that `check_citations` marked valid, together with the fetch outcomes of the same run. The reference has a link only when the source has a valid HTTP or HTTPS address. A local file such as `acme-notes.md` gives a plain numbered reference with the title.
+
+## Usage
+
+### In Python
+
+Call `check_citations` as in the example above. It takes the cited ids, the fetched ids, and the `scope`.
+
+### In the built-in agent
+
+The agent has a `check_citations` tool, and the run checks the answer again after the agent finishes. If some ids are invalid and the tool budget has room, one repair pass asks the agent to remove or fetch them. The agent compares against the ids it fetched in this run, from complete fetches only. The agent formats the numbered references itself and returns them in `answer`.
+
+### On the MCP server
+
+An MCP client calls `check_citations` with the ids its answer cites. The server compares them with the ids it fetched since it started. The client builds its own numbered references from the `citation_markdown` of each complete fetch, as described in [Citations in MCP clients](../concepts/agent-loop.mdx#citations-in-mcp-clients).
+
+```json
+{"evidence_ids": ["ev1:c:f24b301d-f73a-5291-9d80-7ea3cbd5291c:c174f9d9eba7d79c:efae06f9-f4e7-5a7a-af99-d7f5d7c4d6ef"]}
+```
+
+The id limit is in the [citation check parameters](../reference/tools.mdx#citation-check).
+
+## Related
+
+- [Evidence ids and citations](../concepts/evidence-and-citations.mdx) describes the id formats and why `valid` is weaker than "supports the claim".
+- [Fetch evidence](./fetch-evidence.mdx) produces the fetched ids that this check compares against.
+- [Record decisions and review them](../guides/connected-memory.mdx) describes decisions, which must rest on text that the same session fetched.

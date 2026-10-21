@@ -9,4 +9,4 @@ Fetch the exact text behind evidence ids, limited to the caller's scope.
 
 **Functions:**
 
-- [**fetch**](fetch-ref.md) – Return the text of each evidence id, in the order given.
+- [**fetch_evidence**](fetch_evidence.md) – Return the text of each evidence id, in the order given.

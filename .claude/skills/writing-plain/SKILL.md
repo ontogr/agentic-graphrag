@@ -10,15 +10,17 @@ Use plain, literal language that readers can understand in one pass. Apply this 
 
 ## Scope and precedence
 
-The numbered rules below adapt docwriter's plain-writing skill. They take precedence over the STE guidance in this file. Task skills govern technical content, document structure, and required formatting, not competing prose styles. Preserve technical meaning, uncertainty, requirement strength, and necessary qualifications.
+The numbered rules below adapt docwriter's plain-writing skill. They take precedence over the STE guidance in this file. Task skills govern technical content, document structure, and required formatting. They do not govern competing prose styles. Preserve technical meaning, uncertainty, requirement strength, and necessary qualifications.
+
+On documentation pages, [writing-diataxis-docs](../writing-diataxis-docs/SKILL.md) takes precedence over the rules below where they conflict. That skill sets how procedures, headings, bold text, lists, tables, and demonstratives work on a page, and it forbids narrating the documentation (rules 26 to 29 below).
 
 Apply prose rules to comments and docstrings when the task edits them, including examples inside code fences. Preserve code syntax, identifiers, commands, paths, URLs, exact quotations, official names, and required notices. Do not rewrite BAML prompts, test fixtures, expected outputs, protocol payloads, or generated files solely to satisfy prose style. English text used as data is not automatically editable prose.
 
 ## Word choice and tone
 
-1. Use simple, everyday words when they express the meaning precisely. Avoid fancy synonyms and overused AI wording such as "delve", "tapestry", "robust", and "leverage".
+1. Use simple, everyday words when they express the meaning precisely. Avoid fancy synonyms and the inflated vocabulary that AI tools overuse, such as abstract nouns for systems and adjectives that praise without measuring. Check a draft with the slop checker when one is available.
 2. Use familiar language instead of jargon or invented shorthand. Keep established technical terms when they are most precise, and briefly define them when the audience may not know them.
-3. Remove puffery and empty emphasis. Replace claims such as "pivotal" or "carries weight" with a concrete fact, or cut the claim.
+3. Remove puffery and empty emphasis. Replace a claim that something is important or carries weight with a concrete fact, or cut the claim.
 4. Use consistent terminology. Use one name for one concept, but preserve distinctions among different concepts. A document, file, and database record can represent different objects.
 5. Allow contractions when they sound natural. Do not require them.
 6. Avoid invented hyphenated adjectives. Established compounds such as "well-crafted" are fine.
@@ -27,10 +29,10 @@ Apply prose rules to comments and docstrings when the task edits them, including
 ## Sentences and paragraphs
 
 8. Write complete sentences with subjects and verbs. Join related ideas with ordinary conjunctions, and separate unrelated ideas. Do not join unrelated clauses with colons or semicolons.
-9. Present workflows in order. Give each step its own sentence with "First", "Second", and "Third", or use numbered steps. Semicolons may separate steps in a closely related workflow.
+9. Present workflows in order. In running prose, give each step its own sentence with "First", "Second", and "Third". In documentation procedures, use a numbered list of imperative steps. Semicolons may separate steps in a closely related workflow.
 10. Start a paragraph with its main point, then give supporting facts or examples. Introduce further support with a plain connective when needed.
 11. Use at most two related clauses in an ordinary prose sentence. Do not give three or more example sentences in a row to support the same point. Use an ordered sequence or brief list when more points are necessary.
-12. Prefer full explanatory sentences over a stack of short, punchy sentences. Keep related ideas together without padding. Short lines are fine in labeled briefs, bullets, and ordered sequences.
+12. Prefer full explanatory sentences over a stack of short, punchy sentences. Keep related ideas together without padding, and keep one idea in a sentence. Split a sentence that carries two ideas, and keep a long sentence that carries one idea with its condition. Short lines are fine in labeled briefs, bullets, and ordered sequences.
 13. State exactly what changes, who acts, or how something works. Remove side clauses that add no information, and retain qualifications that affect meaning.
 14. In chat, give brief problem context before explaining a change. Write for a reader who may have forgotten the context. Do not repeat the full history. Essays do not need chat-style setup.
 
@@ -39,17 +41,21 @@ Apply prose rules to comments and docstrings when the task edits them, including
 15. Do not use em dashes, en dashes, or middle dots in authored prose. Write ranges with "to", and separate ideas with periods, commas, or conjunctions. Ordinary hyphens and required syntax remain valid.
 16. Use colons to introduce lists or short labels in updates, briefs, and PR descriptions. Do not use colons to join clauses in ordinary prose.
 17. Use straight quotes rather than curly quotes.
-18. Use sentence case in headings and plain formatting. Do not use bold for decoration.
-19. Keep explanatory lists to three or four points where practical, and group additional points. Use lists and tables sparingly in essays. Preserve complete procedures, API inventories, and required checklists even when they need more entries.
+18. Use sentence case in headings and plain formatting. Do not use bold for decoration, and on documentation pages do not bold the lead-in of a bullet. Bold is for UI labels and for a distinction the reader might miss.
+19. Keep explanatory lists to three or four points where practical, and group additional points. Use lists and tables sparingly in essays. Preserve complete procedures, API inventories, and required checklists even when they need more entries. On documentation pages, put contract fields, comparisons, options, and errors in tables whatever their length.
 
 ## Patterns to avoid
 
 20. Name the real actor instead of giving objects human intent. Factual system verbs are valid, such as "The API returns JSON" or "The job writes the file".
 21. Explain the actual subject without analogies, imagery, or metaphors. Preserve official names and established technical terms.
-22. State what something is instead of using "not just X, but Y" or "not only X, but Y". Plain refusals and factual corrections are fine.
+22. State what something is. Do not stage a point as a contrast between what a thing is not and what it is. Plain refusals and factual corrections are fine.
 23. State the problem directly instead of stacking rhetorical questions.
-24. Replace demonstrative pronouns such as "this", "that", "these", and "those" with explicit subjects. Do not open a paragraph with a sentence containing a demonstrative. The grammatical connector "that", as in "Check that the file exists", is not a demonstrative.
+24. Replace a bare demonstrative that points at a whole clause, such as "This makes it fast", with an explicit subject. A demonstrative followed by a concrete noun is fine, as in "This request deletes the collection". Do not open a paragraph with a sentence whose subject is a bare demonstrative. The grammatical connector "that", as in "Check that the file exists", is not a demonstrative.
 25. Start with the point instead of announcing how many points will follow. Use a list when the content needs multiple entries.
+26. Do not narrate the document. Delete a sentence whose only content is that a page, a section, a table, or an example exists or what it covers. That includes openers that say what the page explains, sentences that announce a table or an example, and references to text that appears earlier or later. State the fact, compare the choices, or delete the sentence. Keep signposting that helps the reader act, such as "Run the commands in order" or "The example reuses the client created in Set up the connection".
+27. Do not write pointer-only sentences. A sentence such as "Each strategy has its own page with the full detail" names no fact, and an invitation to read more names no destination. Give the distinction between the choices, or link the task or contract by name, as in "Configure retries to handle temporary connection failures". End a page with a link list only when each entry says what the destination does for the reader.
+28. Say what the thing does and cut claims of ease or power. Replace marketing phrases and chatty openers with the capability or the step, as in "Pass a custom extractor to `extractor`".
+29. Use simple headings that name a task, a subject, or an exact symbol, in plain words a new reader understands at once. Avoid jargon labels and vague headings such as "Advanced", "More details", "Additional information", and "Final step".
 
 ## Compatible STE guidance
 
@@ -78,7 +84,7 @@ Follow the repository's 88-character limit for Python comments and docstrings. W
 
 When the user invokes `/writing-plain deslopify`, says `/plain-writing deslopify`, or asks to deslopify text, rewrite the supplied text. If no text follows the request, rewrite the previous agent response. Return only the rewrite.
 
-Start with the main conclusion, then give the background and explain how it works in logical order. Write for a technical reader without project context. Use established terminology and define unfamiliar terms. Preserve facts, caveats, numbers, technical contracts, and protected text.
+Start with the answer, then give the background and explain how it works in logical order. Write for a technical reader without project context. Use established terminology and define unfamiliar terms. Preserve facts, caveats, numbers, technical contracts, and protected text.
 
 ## Review before delivery
 

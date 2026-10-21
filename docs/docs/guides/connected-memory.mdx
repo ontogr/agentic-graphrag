@@ -28,20 +28,20 @@ import asyncio
 from pathlib import Path
 
 from agrag.common.data_models.decision import DocumentSupportInput
-from agrag.common.data_models.evidence import DiscoveryMode, FetchStatus
+from agrag.common.data_models.evidence import EvidenceSearchMode, FetchStatus
 from agrag.embedding import build_embedder
-from agrag.evidence import discover, fetch
+from agrag.evidence import fetch_evidence, search_evidence
 from agrag.graphdb import build_graph_store
 from agrag.ingestion import ExtractionSettings, Graph
 from agrag.memory import DecisionMemory, TaskMemory
 
 
 async def read(store, embedder, scope, query):
-    found = await discover(
-        store, embedder, query, mode=DiscoveryMode.HYBRID, limit=3, scope=scope
+    found = await search_evidence(
+        store, embedder, query, mode=EvidenceSearchMode.HYBRID, limit=3, scope=scope
     )
     ids = [hit.evidence_id for hit in found.hits]
-    outcomes = await fetch(store, ids, scope=scope, max_chars=4000)
+    outcomes = await fetch_evidence(store, ids, scope=scope, max_chars=4000)
     return [o for o in outcomes if o.status is FetchStatus.OK]
 
 
@@ -101,7 +101,7 @@ Add the next snippets to the `try` block of the script above. Edit `policy.md`, 
 document.write_text(document.read_text() + "\nVendors must also pass a security review.\n")
 await graph.add(document)
 
-review = await decisions.list_review(task_name="vendor-review")
+review = await decisions.list_decisions_for_review(task_name="vendor-review")
 for flagged in review.decisions:
     print(flagged.choice_key, flagged.review_state, flagged.review_reason)
 ```

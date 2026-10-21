@@ -1,0 +1,205 @@
+---
+title: Fetch evidence
+description: Read the exact stored text behind evidence ids, with the document title, source, and version status.
+---
+
+# Fetch evidence
+
+Fetch evidence returns the exact stored text for each evidence id you give it, in the order you give them. Only a complete fetch makes an id citable.
+
+| | |
+|---|---|
+| Python function | `fetch_evidence` |
+| Built-in agent tool | `fetch_evidence` |
+| MCP tool | `fetch_evidence` |
+| Required inputs | `evidence_ids`. Python also needs `store`, `scope`, and `max_chars`. |
+| Optional inputs | `max_chars` on MCP |
+| Returns | One `FetchOutcome` for each id |
+| Needs | Evidence ids from a search, an entity hit, or a navigation result |
+| Reads | The version of the document that each id names, current or superseded |
+| API reference | [`agrag.evidence.fetch_evidence`](../api/evidence/fetch/fetch_evidence.md) |
+
+## Overview
+
+A search result holds only a short preview. Fetch returns the whole passage, along with the document title, the source address, and whether the version is still current. The agent and the MCP server record every complete fetch, and the [citation check](./check-citations.mdx) accepts only recorded ids.
+
+- A chunk id returns the stored text of that chunk.
+- A span id returns the text of its character range.
+- A range that no chunk fully covers comes back cut to the covered part and marked `partial`.
+- Text longer than `max_chars` comes back cut and marked `truncated`.
+
+An id from an earlier version of an updated document still returns its text, and the outcome is labeled `superseded`. A missing id and an id outside the scope both return `unavailable`, so the response does not reveal which documents exist.
+
+## Example
+
+The examples use the notes from [Set up the example](./example-setup.mdx), and they reuse `store`, `embedder`, `scope`, and `short` from that page. `retention_id` is the id of the first hit for the question "How soon is customer data erased?" in the [passage search example](./passage-search.mdx#example). Outputs come from a real run.
+
+Read the passage and print its status, its version, and its text:
+
+```python notest
+outcomes = await fetch_evidence(store, [retention_id], scope=scope, max_chars=4000)
+for outcome in outcomes:
+    print(outcome.status.value, outcome.status_of_version.value, outcome.title)
+    print(outcome.text)
+    print(outcome.citation_markdown)
+```
+
+```text
+ok current Acme Robotics engineering notes
+Data retention
+
+Robot logs are kept for 30 days and then deleted. A customer can ask Acme Robotics to erase their delivery data. After the request is verified, the data is deleted within 10 business days.
+Acme Robotics engineering notes
+```
+
+The status is `ok`, so the text is complete and the id is citable. The last line is the `citation_markdown` that a client can use as a source reference.
+
+### A short budget and a bad id
+
+Fetch two ids with a budget of 60 characters. The second id is not an id:
+
+```python notest
+outcomes = await fetch_evidence(store, [retention_id, "ev1:c:oops"], scope=scope, max_chars=60)
+for outcome in outcomes:
+    print(outcome.status.value, repr(outcome.text))
+```
+
+```text
+truncated 'Data retention\n\nRobot logs are kept for 30 days and then del'
+malformed None
+```
+
+A `truncated` result stops at `max_chars` and does not make the id citable. Fetch again with a larger budget. A `malformed` result has no text.
+
+### After the document changes
+
+Change `10 business days` to `7 business days` in `acme-notes.md`, and add the file again:
+
+```python notest
+await graph.add(source="acme-notes.md")
+```
+
+The old id still returns the old text, and the outcome says that the version is superseded:
+
+```python notest
+old = await fetch_evidence(store, [retention_id], scope=scope, max_chars=4000)
+print(old[0].status.value, old[0].status_of_version.value)
+print(old[0].citation_markdown)
+print(old[0].text.split("\n")[-1])
+```
+
+```text
+ok superseded
+Acme Robotics engineering notes, superseded version
+Robot logs are kept for 30 days and then deleted. A customer can ask Acme Robotics to erase their delivery data. After the request is verified, the data is deleted within 10 business days.
+```
+
+A new search finds the new text under a different id:
+
+```python notest
+new = await search_evidence(
+    store,
+    embedder,
+    "How soon is customer data erased?",
+    mode=EvidenceSearchMode.HYBRID,
+    limit=1,
+    scope=scope,
+)
+print(short(new.hits[0].evidence_id), "differs from old:", new.hits[0].evidence_id != retention_id)
+print(new.hits[0].snippet.split("\n")[-1])
+```
+
+```text
+ev1:c:f24b301d...861019eb differs from old: True
+Robot logs are kept for 30 days and then deleted. A customer can ask Acme Robotics to erase their delivery data. After the request is verified, the data is deleted within 7 business days.
+```
+
+An answer that cited the old id keeps working, and a reader sees that its source is superseded.
+
+## Usage
+
+### In Python
+
+Call `fetch_evidence` as in the example above. Python needs the connected `store`, a list of ids, the `scope`, and a `max_chars` greater than zero.
+
+### In the built-in agent
+
+The agent calls `fetch_evidence` on its own, with at most 20 ids per call. It can cite an id only after a fetch returned the id in full.
+
+### On the MCP server
+
+An MCP client calls `fetch_evidence` with the ids and an optional `max_chars`. The server remembers each complete fetch for the session.
+
+```json
+{"evidence_ids": ["ev1:c:f24b301d-f73a-5291-9d80-7ea3cbd5291c:c174f9d9eba7d79c:efae06f9-f4e7-5a7a-af99-d7f5d7c4d6ef"], "max_chars": 4000}
+```
+
+The id counts and character caps are in the [fetch parameters](../reference/tools.mdx#fetch).
+
+## Result
+
+An outcome has these fields.
+
+| Field | Meaning |
+|---|---|
+| `evidence_id` | The id as you gave it. |
+| `status` | The status in the table below. |
+| `text` | The exact stored text, or `null` when no text is returned. |
+| `document_key`, `title`, `uri` | The document the text belongs to. `uri` is set only for a valid HTTP or HTTPS address, so it is `null` for a local file. |
+| `location` | Page numbers, and character offsets when the loader recorded them. |
+| `content_hash` | The full content hash of the version. |
+| `status_of_version` | `current` when the hash is the document's current hash, and `superseded` when the document has changed since. |
+| `covered_range` | The offsets of the returned text, when it is a range. |
+| `partial` | True when the requested range was not fully covered. |
+| `citation_markdown` | A source reference for a complete fetch, or `null`. |
+
+| Status | Meaning |
+|---|---|
+| `ok` | The text is complete. Only this status makes the id citable. |
+| `partial` | Part of the range is covered by no chunk. Only the covered part is returned. |
+| `truncated` | The text was cut at `max_chars`. |
+| `unavailable` | The id names no evidence this caller may read. |
+| `malformed` | The id does not decode. |
+| `failed` | The store failed while reading. |
+
+A `partial` or `truncated` result shows less text than the id names. Fetch again with a larger budget, or narrow the id.
+
+<details>
+<summary>Full JSON of the first outcome</summary>
+
+This is `outcomes[0].model_dump_json(indent=2)` for the first example.
+
+```json
+{
+  "evidence_id": "ev1:c:f24b301d-f73a-5291-9d80-7ea3cbd5291c:c174f9d9eba7d79c:efae06f9-f4e7-5a7a-af99-d7f5d7c4d6ef",
+  "status": "ok",
+  "text": "Data retention\n\nRobot logs are kept for 30 days and then deleted. A customer can ask Acme Robotics to erase their delivery data. After the request is verified, the data is deleted within 10 business days.",
+  "reference": {
+    "kind": "chunk",
+    "document_node_id": "f24b301d-f73a-5291-9d80-7ea3cbd5291c",
+    "content_hash_prefix": "c174f9d9eba7d79c",
+    "char_start": null,
+    "char_end": null,
+    "chunk_id": "efae06f9-f4e7-5a7a-af99-d7f5d7c4d6ef"
+  },
+  "document_key": "/home/you/acme-notes.md",
+  "title": "Acme Robotics engineering notes",
+  "uri": null,
+  "location": { "char_start": null, "char_end": null, "page_numbers": [] },
+  "content_hash": "c174f9d9eba7d79cd7977a4ed29bc23b0cd2ad6a91d7ebf98162c554ba82601d",
+  "status_of_version": "current",
+  "observed_activation_seq": 1,
+  "covered_range": null,
+  "partial": false,
+  "detail": null,
+  "citation_markdown": "Acme Robotics engineering notes"
+}
+```
+
+</details>
+
+## Related
+
+- [Evidence ids and citations](../concepts/evidence-and-citations.mdx) describes the id formats, how versions work, and why a fetch must be complete.
+- [Check citations](./check-citations.mdx) compares the ids an answer cites with the ids you fetched.
+- [Update and delete documents](../guides/update-and-delete-documents.mdx) describes soft deletion and purge, which hide or remove fetchable text.

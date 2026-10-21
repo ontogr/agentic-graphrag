@@ -220,9 +220,9 @@ Then add the server to your MCP client. Replace the document path with the full 
         "NEO4J_URI": "bolt://localhost:7687",
         "NEO4J_USERNAME": "neo4j",
         "NEO4J_PASSWORD": "your-neo4j-password",
-        "AGRAG_MCP_SCOPE_DOCUMENT_KEYS": "/full/path/to/your-document.md",
-        "AGRAG_MCP_PROJECT_ID": "my-project",
-        "AGRAG_MCP_AGENT_ID": "researcher"
+        "MCP_SCOPE_DOCUMENT_KEYS": "/full/path/to/your-document.md",
+        "MCP_PROJECT_ID": "my-project",
+        "MCP_AGENT_ID": "researcher"
       }
     }
   }
@@ -230,6 +230,25 @@ Then add the server to your MCP client. Replace the document path with the full 
 ```
 
 If your client cannot find `agrag-mcp`, use its full path inside the virtual environment, for example `/full/path/to/.venv/bin/agrag-mcp`. The server starts read-only and reads only the documents you list. The project and agent IDs enable task and decision memory tools; writes remain disabled until you change the server settings. See the [MCP server guide](https://ontogr.github.io/agentic-graphrag/stable/guides/run-the-mcp-server) for the other settings.
+
+## Tools
+
+The built-in agent and the MCP server offer the same evidence tools. Every tool reads only the documents you allow.
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/ontogr/agentic-graphrag/main/docs/static/img/readme/tools.png" alt="A query goes to search_evidence, or to entity search and relationship exploration. Both return evidence ids. fetch_evidence turns an id into exact text, and document tree navigation returns neighboring ids. The citation check compares cited ids with fetched ids." width="860">
+</p>
+
+| Tool | What it does | Use it when |
+| --- | --- | --- |
+| `search_evidence` | Finds passages by keyword, by meaning, or both. Each hit has an evidence id and a short preview. | You have a question and no passage yet. |
+| `fetch_evidence` | Returns the exact text of an evidence id, with its title, source, and version status. | You are about to quote or cite a passage. |
+| `navigate_document_tree` | Moves from a passage to its section, its neighbors, or the rows around a table cell. | A hit is cut off, or you need its surroundings. |
+| `entity_search` | Finds entities by name or meaning, with the passages that mention them. | The question names a person, product, or clause. |
+| `explore_relationships` | Follows the relations around an entity up to two steps. Each relation is marked as stated by a passage or as only a connection. | The question asks how things connect. |
+| `check_citations` | Checks that each cited id was fetched in scope. | Your answer cites evidence. |
+
+The agent and the MCP server also have tools that record and read tasks and decisions. The [tools reference](https://ontogr.github.io/agentic-graphrag/latest/reference/tools) lists every tool with its parameters and limits, and [Retrieval](https://ontogr.github.io/agentic-graphrag/latest/concepts/retrieval) compares the search strategies by mechanism and limit.
 
 ## Contributing
 

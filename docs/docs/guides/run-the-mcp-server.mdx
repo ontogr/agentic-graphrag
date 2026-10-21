@@ -25,7 +25,7 @@ uv pip install "agentic-graphrag[neo4j,mcp]"
 
 ## Choose the documents the server can read
 
-Set `AGRAG_MCP_SCOPE_DOCUMENT_KEYS` to a comma-separated list of document keys. The server reads only those documents, and a tool call cannot widen the list. A document you added from a file has the resolved absolute path as its key, for example `/home/you/notes/policy.md`. A document you added with `graph.add(text=...)` has a key of the form `inline://<16-hex-hash>`. A prebuilt `Document` uses its `uri` as the key unless you set `document_key` yourself. To choose a readable key, give the document a stable `uri` or set `document_key` explicitly.
+Set `MCP_SCOPE_DOCUMENT_KEYS` to a comma-separated list of document keys. The server reads only those documents, and a tool call cannot widen the list. A document you added from a file has the resolved absolute path as its key, for example `/home/you/notes/policy.md`. A document you added with `graph.add(text=...)` has a key of the form `inline://<16-hex-hash>`. A prebuilt `Document` uses its `uri` as the key unless you set `document_key` yourself. To choose a readable key, give the document a stable `uri` or set `document_key` explicitly.
 
 ## Add the server to your client
 
@@ -40,7 +40,7 @@ Add an entry like this one to the MCP configuration of your client:
         "NEO4J_URI": "bolt://localhost:7687",
         "NEO4J_USERNAME": "neo4j",
         "NEO4J_PASSWORD": "your-password",
-        "AGRAG_MCP_SCOPE_DOCUMENT_KEYS": "/home/you/notes/policy.md"
+        "MCP_SCOPE_DOCUMENT_KEYS": "/home/you/notes/policy.md"
       }
     }
   }
@@ -51,26 +51,30 @@ The server starts read-only. It loads the embedding model on the first semantic 
 
 ## Read evidence
 
-These tools work with only a document scope.
+These tools work with only a document scope. Each tool reads the documents you listed in `MCP_SCOPE_DOCUMENT_KEYS`, and none of them can read more.
 
-| Tool | What it does |
-| --- | --- |
-| `search_evidence` | Finds passages by full-text search, semantic search, or both. Each hit has an evidence id. |
-| `fetch_evidence` | Returns the exact text for evidence ids, with the title, source, and version status. |
-| `navigate_document_tree` | Moves from a passage to its parent, children, siblings, previous or next chunk, or table context. |
-| `entity_search` | Finds entities and the passages that mention them. |
-| `explore_relationships` | Follows the relations of an entity. |
-| `check_citations` | Checks cited ids against the ids this session fetched. |
+| Tool | What it does | Call it when |
+| --- | --- | --- |
+| `search_evidence` | Finds passages by full-text search, semantic search, or both. Each hit has an evidence id and a 240-character preview. | You have a question and no passage yet. |
+| `fetch_evidence` | Returns the exact text for evidence ids, with the title, source, and version status. | You are about to quote or cite a passage. |
+| `navigate_document_tree` | Moves from a passage to its parent section, the other passages under the same parent, sibling sections, the previous or next passage, or table context. | A hit is cut off, or you need the section or the table rows around it. |
+| `entity_search` | Finds entities by name or meaning, each with up to three passages that mention it. | The question names a person, product, clause, or other thing from the schema. |
+| `explore_relationships` | Follows the relations of an entity out to two steps. Each relation is an assertion that a passage states, or a path that no passage states. | The question asks how things connect. |
+| `check_citations` | Checks cited ids against the ids this session fetched. | Your answer cites evidence and you want to confirm each citation before you return it. |
 
-`fetch_evidence` also returns a `citation_markdown` field for complete fetches. Use it to build a numbered claim reference and a Sources list in your client's answer. The server keeps the fetched ids in memory for the session, and `check_citations` compares against them.
+A typical session starts with `search_evidence`, fetches the best hits with `fetch_evidence`, and then writes an answer that cites the fetched ids. When the question names an entity, start with `entity_search` and `explore_relationships`, then fetch the passages on the edges you use. Run `check_citations` on the ids you cite, and build the numbered references from the `citation_markdown` of each fetch.
+
+`fetch_evidence` also returns a `citation_markdown` field for complete fetches. Use it to build a numbered claim reference and a Sources list in your client's answer. The server keeps the fetched ids in memory for the session, and `check_citations` compares against them. A valid citation shows that the text was fetched. It does not show that the text supports the claim, and a search with no hits does not prove that the documents lack the answer. The server says so in the instructions it gives your client.
+
+The parameters, defaults, and caps of each tool are in the [tools reference](../reference/tools.mdx#evidence-tools).
 
 ## Keep task and decision memory
 
-Set `AGRAG_MCP_PROJECT_ID` and `AGRAG_MCP_AGENT_ID` to turn on the memory tools. Tasks and decisions belong to the project, and the agent id is recorded as the author of each write.
+Set `MCP_PROJECT_ID` and `MCP_AGENT_ID` to turn on the memory tools. Tasks and decisions belong to the project, and the agent id is recorded as the author of each write.
 
-The read tools are `get_task`, `list_events`, `fetch_event`, `list_steps`, `search_decisions`, `list_conflicts`, `get_decision`, `list_support_history`, `list_decisions`, and `list_needing_review`.
+The built-in agent uses the same names. The [tools reference](../reference/tools.mdx#tool-names) lists them. The read tools are `get_task`, `list_events`, `fetch_event`, `list_steps`, `search_decisions`, `list_conflicts`, `get_decision`, `list_support_history`, `list_decisions`, and `list_decisions_for_review`.
 
-To let the client write, set `AGRAG_MCP_READ_ONLY=false`. The write tools are `create_task`, `record_event`, `set_step`, `record_decision`, `supersede_decision`, `reaffirm_decision`, and `continue_review_propagation`. The request-based writes take a `request_id`, and a retry with the same id returns the saved result. `continue_review_propagation` takes a bounded `limit` instead. A decision lists the evidence it rests on, and the server accepts document evidence that the same session fetched. Set `AGRAG_MCP_ALLOW_REJECT=true` to add `reject_decision`.
+To let the client write, set `MCP_READ_ONLY=false`. The write tools are `create_task`, `record_event`, `set_step`, `record_decision`, `supersede_decision`, `reaffirm_decision`, and `continue_decision_review`. The request-based writes take a `request_id`, and a retry with the same id returns the saved result. `continue_decision_review` takes a bounded `limit` instead. A decision lists the evidence it rests on, and the server accepts document evidence that the same session fetched. Set `MCP_ALLOW_REJECT=true` to add `reject_decision`.
 
 Document scope applies to evidence reads. Task and decision tools act on the configured project.
 
@@ -80,12 +84,12 @@ The server caps what it returns. A result states when it left items out.
 
 | Variable | Default | Limits |
 | --- | --- | --- |
-| `AGRAG_MCP_MAX_HITS` | `10` | Hits per search. |
-| `AGRAG_MCP_MAX_SNIPPET_CHARS` | `240` | Characters in one snippet. |
-| `AGRAG_MCP_MAX_FETCH_CHARS` | `4000` | Characters for each fetched id. |
-| `AGRAG_MCP_MAX_FETCH_IDS` | `20` | Ids in one fetch or citation check. |
-| `AGRAG_MCP_MAX_RESPONSE_CHARS` | `60000` | Characters in one result. |
-| `AGRAG_MCP_REQUEST_DEADLINE_SECONDS` | `30.0` | Seconds for each store read. |
+| `MCP_MAX_HITS` | `10` | Hits per search. |
+| `MCP_MAX_SNIPPET_CHARS` | `240` | Characters in one snippet. |
+| `MCP_MAX_FETCH_CHARS` | `4000` | Characters for each fetched id. |
+| `MCP_MAX_FETCH_IDS` | `20` | Ids in one fetch or citation check. |
+| `MCP_MAX_RESPONSE_CHARS` | `60000` | Characters in one result. |
+| `MCP_REQUEST_DEADLINE_SECONDS` | `30.0` | Seconds for each store read. |
 
 The [Configuration reference](../reference/configuration.mdx#mcp-server) lists every variable.
 
@@ -93,4 +97,5 @@ The [Configuration reference](../reference/configuration.mdx#mcp-server) lists e
 
 - How-to: [Find and cite evidence](./find-and-cite-evidence.mdx) calls the same operations from Python.
 - How-to: [Record decisions and review them](./connected-memory.mdx).
-- Explanation: [Retrieval](../concepts/retrieval.mdx).
+- [Retrieval](../concepts/retrieval.mdx) compares the search strategies, and [Evidence ids and citations](../concepts/evidence-and-citations.mdx) describes the fetch and citation check that a client runs.
+- Reference: [Tools](../reference/tools.mdx) for tool parameters, [Configuration](../reference/configuration.mdx#mcp-server) for server settings.

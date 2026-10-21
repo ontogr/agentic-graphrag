@@ -1,4 +1,4 @@
-"""Models for entity discovery and bounded entity exploration.
+"""Models for entity search and bounded entity exploration.
 
 An entity hit carries the passages that mention the entity, as evidence ids. An
 exploration edge is either an assertion, with supporting passages, or a path,
@@ -12,9 +12,9 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from agrag.common.data_models.evidence import (
-    DiscoveryLeg,
-    DiscoveryStatus,
     EvidenceLocation,
+    EvidenceSearchLeg,
+    EvidenceSearchStatus,
     IndexState,
     LegFailure,
 )
@@ -48,7 +48,7 @@ class SupportingPassage(BaseModel):
 
 
 class EntityHit(BaseModel):
-    """One entity found by entity discovery.
+    """One entity found by entity search.
 
     Attributes:
         entity_id: The id of the entity node.
@@ -70,12 +70,12 @@ class EntityHit(BaseModel):
     properties: dict[str, Any] = Field(default_factory=dict)
     kind: EntityKind
     score: float
-    legs: list[DiscoveryLeg]
+    legs: list[EvidenceSearchLeg]
     support: list[SupportingPassage] = Field(default_factory=list)
 
 
 class EntityResult(BaseModel):
-    """The result of one entity discovery call.
+    """The result of one entity search call.
 
     Attributes:
         status: The overall outcome. A failed leg never shows as NO_MATCH.
@@ -87,7 +87,7 @@ class EntityResult(BaseModel):
         failures: The legs that failed. Empty when every leg ran.
     """
 
-    status: DiscoveryStatus
+    status: EvidenceSearchStatus
     hits: list[EntityHit] = Field(default_factory=list)
     truncated: bool = False
     index_state: IndexState | None = None

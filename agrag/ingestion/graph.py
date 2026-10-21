@@ -340,8 +340,8 @@ class Graph:
         text. A brand-new database is fully ready,
         including the merge_key uniqueness constraints the global exact-match
         tier relies on, the embedding vector indexes native search needs, the
-        entity name indexes that entity discovery reads, and the chunk full-text
-        index that evidence discovery reads, before this call returns.
+        entity name indexes that entity search reads, and the chunk full-text
+        index that evidence search reads, before this call returns.
 
         Args:
             schema: The schema the extractor receives. A ``GraphSchema`` is
@@ -751,7 +751,7 @@ class Graph:
         )
 
     async def source_status(self, document_key: str) -> SourceStatus:
-        """Read a source's version, job lease and discovery index state."""
+        """Read a source's version, job lease and search index state."""
         return await read_source_status(self._graph_store, document_key)
 
     async def purge_document(self, document_key: str) -> UpdateResult:

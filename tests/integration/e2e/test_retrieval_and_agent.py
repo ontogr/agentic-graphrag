@@ -259,7 +259,7 @@ class TestRetrievalE2E:
         for label in (self.drug_label, self.condition_label):
             await self.store.ensure_fulltext_index(label=label, properties=["name"])
         await self.store.ensure_fulltext_index(label=CHUNK_LABEL, properties=["text"])
-        # New indexes populate asynchronously; discovery reports
+        # New indexes populate asynchronously; search reports
         # INDEX_NOT_READY until they are ONLINE.
         await self.store.execute_read("CALL db.awaitIndexes(60)")
 

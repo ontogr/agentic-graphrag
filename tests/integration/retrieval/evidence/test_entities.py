@@ -1,4 +1,4 @@
-"""Integration tests for entity discovery and bounded entity exploration.
+"""Integration tests for entity search and bounded entity exploration.
 
 The fixture adds three short documents through the public Graph API with a
 keyword extractor, so entities, mentions and typed relations come from the real
@@ -24,8 +24,8 @@ from agrag.common.data_models.entity_search import (
     ExplorationStatus,
 )
 from agrag.common.data_models.evidence import (
-    DiscoveryMode,
-    DiscoveryStatus,
+    EvidenceSearchMode,
+    EvidenceSearchStatus,
     FetchStatus,
 )
 from agrag.common.data_models.extraction import (
@@ -41,7 +41,7 @@ from agrag.common.data_models.graph_schema import (
 )
 from agrag.cypher.evidence import entity_labels_query
 from agrag.embedding.base import Embedder
-from agrag.evidence import entity_search, explore_relationships, fetch
+from agrag.evidence import entity_search, explore_relationships, fetch_evidence
 from agrag.graphdb import build_graph_store
 from agrag.graphdb.base import GraphStore
 from agrag.ingestion.extract import Extractor
@@ -307,7 +307,7 @@ async def _entity_id(env: EntityEnv, name: str, scope: frozenset[str]) -> str:
         scope=scope,
         labels=[env.drug, env.condition],
         limit=5,
-        mode=DiscoveryMode.LEXICAL,
+        mode=EvidenceSearchMode.LEXICAL,
     )
     [hit] = [hit for hit in result.hits if hit.name == name]
     return hit.entity_id
@@ -319,7 +319,7 @@ def _names(result: EntityResult) -> list[str]:
 
 
 class TestFindEntities:
-    """Entity discovery returns entities with their visible supporting passages."""
+    """Entity search returns entities with their visible supporting passages."""
 
     async def test_label_query_lists_the_labels_with_a_vector_index(
         self, entity_env: EntityEnv
@@ -343,15 +343,15 @@ class TestFindEntities:
             scope=scope,
             labels=[entity_env.drug, entity_env.condition],
             limit=10,
-            mode=DiscoveryMode.LEXICAL,
+            mode=EvidenceSearchMode.LEXICAL,
         )
 
-        assert result.status is DiscoveryStatus.OK
+        assert result.status is EvidenceSearchStatus.OK
         assert _names(result)
         for hit in result.hits:
             assert hit.kind is EntityKind.SUPPORTED
             assert hit.support
-            fetched = await fetch(
+            fetched = await fetch_evidence(
                 entity_env.store,
                 [support.evidence_id for support in hit.support],
                 scope=scope,
@@ -363,10 +363,14 @@ class TestFindEntities:
 
     @pytest.mark.parametrize(
         "mode",
-        [DiscoveryMode.LEXICAL, DiscoveryMode.SEMANTIC, DiscoveryMode.HYBRID],
+        [
+            EvidenceSearchMode.LEXICAL,
+            EvidenceSearchMode.SEMANTIC,
+            EvidenceSearchMode.HYBRID,
+        ],
     )
     async def test_each_mode_finds_the_entity_by_its_name(
-        self, entity_env: EntityEnv, mode: DiscoveryMode
+        self, entity_env: EntityEnv, mode: EvidenceSearchMode
     ) -> None:
         """Lexical, semantic and hybrid search all return the named entity."""
         result = await entity_search(
@@ -379,7 +383,7 @@ class TestFindEntities:
             mode=mode,
         )
 
-        assert result.status is DiscoveryStatus.OK
+        assert result.status is EvidenceSearchStatus.OK
         assert _names(result)[0] == "Aspirin"
 
     async def test_operator_characters_in_the_query_are_plain_terms(
@@ -393,10 +397,10 @@ class TestFindEntities:
             scope=frozenset({entity_env.headache_note, entity_env.aspirin_fever_note}),
             labels=[entity_env.drug],
             limit=5,
-            mode=DiscoveryMode.LEXICAL,
+            mode=EvidenceSearchMode.LEXICAL,
         )
 
-        assert result.status is DiscoveryStatus.OK
+        assert result.status is EvidenceSearchStatus.OK
         assert "Aspirin" in _names(result)
 
     async def test_scope_removes_an_entity_supported_only_out_of_scope(
@@ -410,7 +414,7 @@ class TestFindEntities:
             scope=frozenset({entity_env.headache_note}),
             labels=[entity_env.drug],
             limit=5,
-            mode=DiscoveryMode.LEXICAL,
+            mode=EvidenceSearchMode.LEXICAL,
         )
         in_scope = await entity_search(
             entity_env.store,
@@ -419,7 +423,7 @@ class TestFindEntities:
             scope=frozenset({entity_env.fever_note}),
             labels=[entity_env.drug],
             limit=5,
-            mode=DiscoveryMode.LEXICAL,
+            mode=EvidenceSearchMode.LEXICAL,
         )
 
         assert "Ibuprofen" not in _names(out_of_scope)
@@ -445,7 +449,7 @@ class TestFindEntities:
             scope=frozenset({entity_env.fever_note}),
             labels=[entity_env.drug],
             limit=5,
-            mode=DiscoveryMode.LEXICAL,
+            mode=EvidenceSearchMode.LEXICAL,
         )
 
         for hit in result.hits:
@@ -464,7 +468,7 @@ class TestFindEntities:
             scope=frozenset({entity_env.fever_note, entity_env.aspirin_fever_note}),
             labels=[entity_env.condition],
             limit=5,
-            mode=DiscoveryMode.LEXICAL,
+            mode=EvidenceSearchMode.LEXICAL,
             support_limit=1,
         )
 
@@ -494,7 +498,7 @@ class TestExplore:
         assert edge.relation_type == entity_env.treats
         assert edge.kind is EdgeKind.ASSERTION
         assert edge.evidence
-        fetched = await fetch(
+        fetched = await fetch_evidence(
             entity_env.store,
             [passage.evidence_id for passage in edge.evidence],
             scope=scope,

@@ -1,1 +1,1 @@
-"""Integration tests for evidence discovery, fetch and citations."""
+"""Integration tests for evidence search, fetch and citations."""

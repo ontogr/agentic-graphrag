@@ -15,7 +15,7 @@ class TestStartupRefusal:
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
         """Reject an empty scope before trying to connect to a graph store."""
-        monkeypatch.setenv("AGRAG_MCP_SCOPE_DOCUMENT_KEYS", "")
+        monkeypatch.setenv("MCP_SCOPE_DOCUMENT_KEYS", "")
 
         with pytest.raises(SystemExit) as raised:
             main()

@@ -5,7 +5,7 @@ sidebar_label: entity_search
 
 # `agrag.common.data_models.entity_search` \{#agrag-common-data_models-entity_search}
 
-Models for entity discovery and bounded entity exploration.
+Models for entity search and bounded entity exploration.
 
 An entity hit carries the passages that mention the entity, as evidence ids. An
 exploration edge is either an assertion, with supporting passages, or a path,
@@ -15,9 +15,9 @@ that these calls exchange with callers.
 **Classes:**
 
 - [**EdgeKind**](EdgeKind.md) – Whether an exploration edge is supported by a passage.
-- [**EntityHit**](EntityHit.md) – One entity found by entity discovery.
+- [**EntityHit**](EntityHit.md) – One entity found by entity search.
 - [**EntityKind**](EntityKind.md) – Whether an entity hit has a visible passage that mentions it.
-- [**EntityResult**](EntityResult.md) – The result of one entity discovery call.
+- [**EntityResult**](EntityResult.md) – The result of one entity search call.
 - [**ExplorationBound**](ExplorationBound.md) – A bound that cut an exploration.
 - [**ExplorationEdge**](ExplorationEdge.md) – One relation between two entities found by exploration.
 - [**ExplorationNode**](ExplorationNode.md) – An entity reached by exploration.

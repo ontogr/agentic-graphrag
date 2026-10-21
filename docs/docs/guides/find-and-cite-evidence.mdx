@@ -22,9 +22,9 @@ Evidence search and read functions take a `scope`, a `frozenset` of the document
 import asyncio
 from pathlib import Path
 
-from agrag.common.data_models.evidence import DiscoveryMode, FetchStatus
+from agrag.common.data_models.evidence import EvidenceSearchMode, FetchStatus
 from agrag.embedding import build_embedder
-from agrag.evidence import check_citations, discover, fetch
+from agrag.evidence import check_citations, fetch_evidence, search_evidence
 from agrag.graphdb import build_graph_store
 
 
@@ -34,11 +34,11 @@ async def main() -> None:
     scope = frozenset({str(Path("your-document.md").resolve())})
     try:
         await store.connect()
-        found = await discover(
+        found = await search_evidence(
             store,
             embedder,
             "What does the document require?",
-            mode=DiscoveryMode.HYBRID,
+            mode=EvidenceSearchMode.HYBRID,
             limit=5,
             scope=scope,
         )
@@ -46,7 +46,7 @@ async def main() -> None:
             print(hit.evidence_id, hit.snippet)
 
         ids = [hit.evidence_id for hit in found.hits[:2]]
-        outcomes = await fetch(store, ids, scope=scope, max_chars=4000)
+        outcomes = await fetch_evidence(store, ids, scope=scope, max_chars=4000)
         for outcome in outcomes:
             print(outcome.status, outcome.status_of_version, outcome.text)
 
@@ -60,11 +60,11 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
-`discover` returns a `DiscoveryResult`. Its `status` is `ok`, `partial`, `no_match`, `empty_scope`, `index_not_ready`, or `failed`. `partial` means that one search leg failed and the other returned hits, and `truncated` is `true` when the candidate list was cut. Each hit has an `evidence_id`, a `title`, a `location`, a `snippet` of up to 240 characters, and a `score`.
+`search_evidence` returns a `EvidenceSearchResult`. Its `status` is `ok`, `partial`, `no_match`, `empty_scope`, `index_not_ready`, or `failed`. `partial` means that one search leg failed and the other returned hits, and `truncated` is `true` when the candidate list was cut. Each hit has an `evidence_id`, a `title`, a `location`, a `snippet` of up to 240 characters, and a `score`.
 
-`discover` takes three modes. `DiscoveryMode.LEXICAL` runs a keyword search, `DiscoveryMode.SEMANTIC` runs a vector search, and `DiscoveryMode.HYBRID` runs both and combines them. Use the embedder that you used for ingestion.
+`search_evidence` takes three modes. `EvidenceSearchMode.LEXICAL` runs a keyword search, `EvidenceSearchMode.SEMANTIC` runs a vector search, and `EvidenceSearchMode.HYBRID` runs both and combines them. Use the embedder that you used for ingestion.
 
-`fetch` returns one `FetchOutcome` for each id. Its `text` is the exact stored text, cut to `max_chars`. The `status` is `ok`, `partial`, `truncated`, `unavailable`, `malformed`, `index_not_ready`, or `failed`, and `status_of_version` is `current` or `superseded`. An id from an earlier version of an updated document still returns its text and is labeled superseded.
+`fetch_evidence` returns one `FetchOutcome` for each id. Its `text` is the exact stored text, cut to `max_chars`. The `status` is `ok`, `partial`, `truncated`, `unavailable`, `malformed`, `index_not_ready`, or `failed`, and `status_of_version` is `current` or `superseded`. An id from an earlier version of an updated document still returns its text and is labeled superseded.
 
 `check_citations` returns one verdict for each cited id. A verdict is `valid` when you fetched the id in scope. The other verdicts are `not_fetched`, `unavailable`, and `malformed`.
 
@@ -138,7 +138,9 @@ Pass only ids that `check_citations` marked valid, together with the fetch outco
 
 ## Related
 
-- Explanation: [Retrieval](../concepts/retrieval.mdx).
+- [Retrieval](../concepts/retrieval.mdx) compares the strategies and shows which tool fits a question.
+- [Passage search](../tools/passage-search.mdx), [Entity search](../tools/entity-search.mdx), [Explore relationships](../tools/explore-relationships.mdx), [Document tree navigation](../tools/navigate-document-tree.mdx), [Fetch evidence](../tools/fetch-evidence.mdx), and [Check citations](../tools/check-citations.mdx) list the inputs, the result fields, and the statuses of each call.
+- [Evidence ids and citations](../concepts/evidence-and-citations.mdx) describes id formats, fetch statuses, and citation verdicts.
 - Explanation: [Agent loop](../concepts/agent-loop.mdx).
 - How-to: [Run the MCP server](./run-the-mcp-server.mdx).
-- Reference: [Evidence API](../api/evidence/index.md).
+- Reference: [Tools](../reference/tools.mdx) for parameters and limits, [Evidence API](../api/evidence/index.md) for signatures.

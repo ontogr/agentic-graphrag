@@ -18,7 +18,7 @@ from mcp import Client, StdioServerParameters
 from agrag.common.data_models.evidence import (
     CitationResult,
     CitationVerdict,
-    DiscoveryResult,
+    EvidenceSearchResult,
     FetchResult,
     FetchStatus,
 )
@@ -36,7 +36,7 @@ def _server_environment(scope_keys: str) -> dict[str, str]:
     return {
         **os.environ,
         "PYTHONPATH": str(_REPO_ROOT),
-        "AGRAG_MCP_SCOPE_DOCUMENT_KEYS": scope_keys,
+        "MCP_SCOPE_DOCUMENT_KEYS": scope_keys,
         "OPENAI_API_KEY": "",
         "LLM_API_KEY": "",
         "LLM_BASE_URL": "",
@@ -65,13 +65,13 @@ class TestStdioSession:
             search = await client.call_tool(
                 "search_evidence", {"query": _QUERY, "mode": "lexical"}
             )
-            hits = DiscoveryResult.model_validate(search.structured_content).hits
+            hits = EvidenceSearchResult.model_validate(search.structured_content).hits
             fetched = await client.call_tool(
                 "fetch_evidence", {"evidence_ids": [hits[0].evidence_id]}
             )
             outcome = FetchResult.model_validate(fetched.structured_content).outcomes[0]
             checked = await client.call_tool(
-                "check_citations", {"cited_evidence_ids": [hits[0].evidence_id]}
+                "check_citations", {"evidence_ids": [hits[0].evidence_id]}
             )
 
         assert sorted(tool.name for tool in listing.tools) == [

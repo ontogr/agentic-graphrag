@@ -13,11 +13,11 @@ Write and search durable decisions for one configured project.
 
 **Functions:**
 
-- [**continue_review_propagation**](#agrag-memory-decisions-DecisionMemory-continue_review_propagation) – Expand at most `limit` queued decisions by one dependency hop each.
+- [**continue_decision_review**](#agrag-memory-decisions-DecisionMemory-continue_decision_review) – Expand at most `limit` queued decisions by one dependency hop each.
 - [**get_decision**](#agrag-memory-decisions-DecisionMemory-get_decision) – Read a decision only when it belongs to this project.
 - [**list_conflicts**](#agrag-memory-decisions-DecisionMemory-list_conflicts) – List active same-choice decisions with different conclusions.
 - [**list_decisions**](#agrag-memory-decisions-DecisionMemory-list_decisions) – List decisions for a task, including lifecycle history by default.
-- [**list_review**](#agrag-memory-decisions-DecisionMemory-list_review) – List active decisions that need a look, within this project's bounds.
+- [**list_decisions_for_review**](#agrag-memory-decisions-DecisionMemory-list_decisions_for_review) – List active decisions that need a look, within this project's bounds.
 - [**list_support_history**](#agrag-memory-decisions-DecisionMemory-list_support_history) – Read exact historical support associations and who reviewed them.
 - [**reaffirm_decision**](#agrag-memory-decisions-DecisionMemory-reaffirm_decision) – Confirm a decision still stands on the current version of its documents.
 - [**record_decision**](#agrag-memory-decisions-DecisionMemory-record_decision) – Record a decision only when every support is valid and in scope.
@@ -26,10 +26,10 @@ Write and search durable decisions for one configured project.
 - [**search_decisions**](#agrag-memory-decisions-DecisionMemory-search_decisions) – Find same-project decisions as precedents, with their task context.
 - [**supersede_decision**](#agrag-memory-decisions-DecisionMemory-supersede_decision) – Record a same-choice replacement and preserve the old decision.
 
-## `continue_review_propagation` \{#agrag-memory-decisions-DecisionMemory-continue_review_propagation}
+## `continue_decision_review` \{#agrag-memory-decisions-DecisionMemory-continue_decision_review}
 
 ```python
-continue_review_propagation(*, limit:int = 100) -> int
+continue_decision_review(*, limit:int = 100) -> int
 ```
 
 Expand at most `limit` queued decisions by one dependency hop each.
@@ -58,10 +58,10 @@ list_decisions(task_name:str, *, include_history:bool = True) -> DecisionPageLoo
 
 List decisions for a task, including lifecycle history by default.
 
-## `list_review` \{#agrag-memory-decisions-DecisionMemory-list_review}
+## `list_decisions_for_review` \{#agrag-memory-decisions-DecisionMemory-list_decisions_for_review}
 
 ```python
-list_review(*, task_name:str | None = None, limit:int = 20) -> DecisionReviewList
+list_decisions_for_review(*, task_name:str | None = None, limit:int = 20) -> DecisionReviewList
 ```
 
 List active decisions that need a look, within this project's bounds.

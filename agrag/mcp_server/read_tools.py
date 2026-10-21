@@ -16,7 +16,7 @@ from agrag.common.data_models.decision import (
     SupportHistoryPage,
 )
 from agrag.common.data_models.entity_search import EntityResult, ExplorationResult
-from agrag.common.data_models.evidence import DiscoveryMode
+from agrag.common.data_models.evidence import EvidenceSearchMode
 from agrag.common.data_models.navigation import NavigationRelation, NavigationResult
 from agrag.common.data_models.task import (
     EventLookup,
@@ -71,7 +71,7 @@ def register_evidence_read_tools(
     async def entity_search(
         query: Annotated[str, Field(min_length=1, max_length=1000)],
         labels: Annotated[list[str] | None, Field(max_length=20)] = None,
-        mode: DiscoveryMode = DiscoveryMode.HYBRID,
+        mode: EvidenceSearchMode = EvidenceSearchMode.HYBRID,
         limit: Annotated[int, Field(ge=1, le=50)] = 10,
     ) -> Annotated[CallToolResult, EntityResult]:
         """Find entities using only the configured document scope."""
@@ -159,10 +159,10 @@ def register_memory_read_tools(
         description="Read the bounded task resume view in the configured project.",
     )
     async def get_task(
-        name: Annotated[str, Field(min_length=1, max_length=200)],
+        task_name: Annotated[str, Field(min_length=1, max_length=200)],
     ) -> Annotated[CallToolResult, TaskLookup]:
         """Return task state without event bodies."""
-        return await _bounded(settings, tasks.get_task(name))
+        return await _bounded(settings, tasks.get_task(task_name))
 
     @server.tool(
         annotations=_READ_ONLY,
@@ -188,7 +188,7 @@ def register_memory_read_tools(
         seq: Annotated[int, Field(ge=1)],
     ) -> Annotated[CallToolResult, EventLookup]:
         """Return exactly the requested event, or not-found."""
-        return await _bounded(settings, tasks.get_event(task_name, seq))
+        return await _bounded(settings, tasks.fetch_event(task_name, seq))
 
     @server.tool(
         annotations=_READ_ONLY, description="Read one bounded page of task steps."
@@ -202,7 +202,7 @@ def register_memory_read_tools(
         """Return steps in one state, with a continuation cursor."""
         return await _bounded(
             settings,
-            tasks.list_steps_page(task_name, state, after_name=after_name, limit=limit),
+            tasks.list_steps(task_name, state, after_name=after_name, limit=limit),
         )
 
     @server.tool(
@@ -272,13 +272,14 @@ def register_memory_read_tools(
     @server.tool(
         annotations=_READ_ONLY, description="List active decisions that need review."
     )
-    async def list_needing_review(
+    async def list_decisions_for_review(
         task_name: Annotated[str | None, Field(max_length=200)] = None,
         limit: Annotated[int, Field(ge=1, le=100)] = 20,
     ) -> Annotated[CallToolResult, DecisionReviewList]:
         """Return decisions needing review, optionally limited to one task."""
         return await _bounded(
-            settings, decisions.list_review(task_name=task_name, limit=limit)
+            settings,
+            decisions.list_decisions_for_review(task_name=task_name, limit=limit),
         )
 
 

@@ -7,17 +7,17 @@ sidebar_label: LegFailure
 
 Bases: <code>BaseModel</code>
 
-A search leg that failed during discovery.
+A search leg that failed during search.
 
 **Attributes:**
 
-- [**leg**](#agrag-common-data_models-evidence-LegFailure-leg) (<code>[DiscoveryLeg](DiscoveryLeg.md)</code>) – The leg that failed.
+- [**leg**](#agrag-common-data_models-evidence-LegFailure-leg) (<code>[EvidenceSearchLeg](EvidenceSearchLeg.md)</code>) – The leg that failed.
 - [**message**](#agrag-common-data_models-evidence-LegFailure-message) (<code>str</code>) – The error message from the store.
 
 ## `leg` \{#agrag-common-data_models-evidence-LegFailure-leg}
 
 ```python
-leg: DiscoveryLeg
+leg: EvidenceSearchLeg
 ```
 
 ## `message` \{#agrag-common-data_models-evidence-LegFailure-message}

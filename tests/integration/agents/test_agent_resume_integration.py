@@ -176,7 +176,7 @@ class TestAgentResumeIntegration:
             )
             context = _text(model.seen[1])
             assert f'"task_name": "{task_name}", "seq": {saved.seq}' in context
-            lookup = await memory.get_event(task_name, saved.seq)
+            lookup = await memory.fetch_event(task_name, saved.seq)
             assert lookup.event is not None
             content = json.loads(lookup.event.payload)["content"]
             assert json.loads(content)["found"] is True
@@ -387,7 +387,7 @@ class TestAgentResumeIntegration:
                         "set_step",
                         {
                             "name": "interrupted-0",
-                            "state_name": "completed",
+                            "state": "completed",
                             "kind": "other",
                             "result": "Finished interrupted-0.",
                             "result_basis": "independent",
@@ -424,10 +424,10 @@ class TestAgentResumeIntegration:
         task_name = f"error-task-{uuid4().hex}"
         memory = TaskMemory(store, project_id=project_id, agent_id="resume-test")
 
-        async def fail_discovery(*args: Any, **kwargs: Any) -> Any:
-            raise RuntimeError("discovery unavailable")
+        async def fail_search(*args: Any, **kwargs: Any) -> Any:
+            raise RuntimeError("search unavailable")
 
-        monkeypatch.setattr("agrag.agents.tools.core.discover", fail_discovery)
+        monkeypatch.setattr("agrag.agents.tools.core.search_evidence", fail_search)
         try:
             model = _ScriptedModel(
                 replies=[
@@ -435,11 +435,11 @@ class TestAgentResumeIntegration:
                         "set_step",
                         {
                             "name": "failing step",
-                            "state_name": "in_progress",
+                            "state": "in_progress",
                             "kind": "analysis",
                         },
                     ),
-                    _call("discover_evidence", {"query": "trigger failure"}),
+                    _call("search_evidence", {"query": "trigger failure"}),
                     _answer("I recovered and completed the task."),
                 ]
             )
@@ -456,7 +456,7 @@ class TestAgentResumeIntegration:
             ]
             assert len(error_responses) == 1
             assert error_responses[0].status == "error"
-            assert "discovery unavailable" in str(error_responses[0].content)
+            assert "search unavailable" in str(error_responses[0].content)
             persisted = await memory.get_task(task_name)
             assert persisted.view is not None
             assert persisted.view.step_counts[StepState.FAILED] == 1
@@ -469,7 +469,7 @@ class TestAgentResumeIntegration:
                 for event in events.events
                 if event.seq == failed_step.result_event_seq
             )
-            assert "discovery unavailable" in error_result.payload
+            assert "search unavailable" in error_result.payload
         finally:
             await _delete_project_memory(store, project_id)
             await store.close()

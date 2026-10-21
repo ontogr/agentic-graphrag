@@ -47,7 +47,7 @@ def build_agent(
 
     Args:
         graph_store: Store used by evidence and memory operations.
-        embedder: Embedder used for semantic evidence discovery.
+        embedder: Embedder used for semantic evidence search.
         scope: Document keys the agent may read.
         project_id: Trusted project identifier for task and decision memory.
         agent_id: Trusted author identifier for memory writes.
@@ -145,7 +145,7 @@ class _TaskAgent:
         if lookup.view is not None and lookup.view.step_counts[StepState.IN_PROGRESS]:
             await _mark_interrupted_steps(self._memory, task_name, run_state)
             lookup = await self._memory.get_task(task_name)
-        await self._decisions.continue_review_propagation(limit=20)
+        await self._decisions.continue_decision_review(limit=20)
         lookup = await self._memory.get_task(task_name)
         view = lookup.view
         view_json = view.model_dump_json() if view is not None else "{}"
@@ -318,7 +318,7 @@ async def _mark_interrupted_steps(
     """
     after_name = None
     while True:
-        page = await memory.list_steps_page(
+        page = await memory.list_steps(
             task_name,
             StepState.IN_PROGRESS,
             after_name=after_name,
@@ -351,7 +351,7 @@ async def _completed_results(
     used = 0
     after_name = None
     while True:
-        page = await memory.list_steps_page(
+        page = await memory.list_steps(
             task_name, StepState.COMPLETED, after_name=after_name, limit=50
         )
         for step in page.steps:
@@ -378,7 +378,7 @@ async def _completed_results(
             if step.result_event_seq is None:
                 text = "(no stored result)"
             else:
-                lookup = await memory.get_event(task_name, step.result_event_seq)
+                lookup = await memory.fetch_event(task_name, step.result_event_seq)
                 event = lookup.event if lookup.found else None
                 text = event.payload if event is not None else "(stored result missing)"
                 if event is not None and event.redacted_at:

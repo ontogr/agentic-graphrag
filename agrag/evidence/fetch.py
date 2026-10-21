@@ -30,7 +30,7 @@ _LOGGER = logging.getLogger(__name__)
 _STORE_ERROR_MESSAGE = "evidence store error"
 
 
-async def fetch(
+async def fetch_evidence(
     store: GraphStore,
     evidence_ids: Sequence[str],
     *,

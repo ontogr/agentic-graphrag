@@ -23,9 +23,9 @@ from agrag.common.data_models.document import (
     UnitKind,
 )
 from agrag.common.data_models.evidence import (
-    DiscoveryMode,
     EvidenceKind,
     EvidenceReference,
+    EvidenceSearchMode,
     FetchStatus,
     VersionStatus,
 )
@@ -36,7 +36,7 @@ from agrag.common.data_models.navigation import (
     TruncationReason,
 )
 from agrag.common.data_models.provenance import BoundingBox, PageSpan
-from agrag.evidence import discover, fetch, navigate_document_tree
+from agrag.evidence import fetch_evidence, navigate_document_tree, search_evidence
 from agrag.evidence.ids import encode_evidence_id
 from agrag.graphdb import build_graph_store
 from agrag.graphdb.base import GraphStore
@@ -235,11 +235,11 @@ async def nav_env() -> AsyncGenerator[NavEnv, None]:
 
 async def _id_of(env: NavEnv, marker: str, key: str) -> str:
     """Return the evidence id of the chunk whose text holds a marker word."""
-    result = await discover(
+    result = await search_evidence(
         env.store,
         BagOfWordsEmbedder(),
         marker,
-        mode=DiscoveryMode.LEXICAL,
+        mode=EvidenceSearchMode.LEXICAL,
         limit=5,
         scope=frozenset({key}),
     )
@@ -573,7 +573,7 @@ class TestNavigate:
             )
             items.extend(result.items)
 
-        fetched = await fetch(
+        fetched = await fetch_evidence(
             nav_env.store,
             [item.evidence_id for item in items],
             scope=scope,

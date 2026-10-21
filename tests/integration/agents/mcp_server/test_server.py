@@ -19,11 +19,11 @@ from agrag.common.data_models.chunk import CHUNK_LABEL
 from agrag.common.data_models.evidence import (
     CitationResult,
     CitationVerdict,
-    DiscoveryHit,
-    DiscoveryLeg,
-    DiscoveryMode,
-    DiscoveryResult,
-    DiscoveryStatus,
+    EvidenceSearchHit,
+    EvidenceSearchLeg,
+    EvidenceSearchMode,
+    EvidenceSearchResult,
+    EvidenceSearchStatus,
     FetchOutcome,
     FetchResult,
     FetchStatus,
@@ -31,7 +31,7 @@ from agrag.common.data_models.evidence import (
 )
 from agrag.cypher.schema import fulltext_index_name, vector_index_name
 from agrag.embedding.base import Embedder
-from agrag.evidence import check_citations, discover, fetch
+from agrag.evidence import check_citations, fetch_evidence, search_evidence
 from agrag.graphdb.neo4j import Neo4jGraphStore
 from agrag.graphdb.settings import Neo4jSettings
 from agrag.mcp_server.server import build_server
@@ -256,8 +256,8 @@ class TestToolListing:
             "get_task",
             "list_conflicts",
             "list_decisions",
+            "list_decisions_for_review",
             "list_events",
-            "list_needing_review",
             "list_steps",
             "list_support_history",
             "navigate_document_tree",
@@ -316,7 +316,7 @@ class TestEquivalenceWithDirectCalls:
             assert capped["truncated"] is True
             assert len(capped["outcomes"]) == 1
             checked = await _structured(
-                client, "check_citations", {"cited_evidence_ids": ids}
+                client, "check_citations", {"evidence_ids": ids}
             )
             assert [item["verdict"] for item in checked["checks"]] == [
                 "valid",
@@ -326,17 +326,17 @@ class TestEquivalenceWithDirectCalls:
     @pytest.mark.parametrize(
         ("mode", "query"),
         [
-            (DiscoveryMode.LEXICAL, _LEXICAL_QUERY),
-            (DiscoveryMode.HYBRID, _HYBRID_QUERY),
+            (EvidenceSearchMode.LEXICAL, _LEXICAL_QUERY),
+            (EvidenceSearchMode.HYBRID, _HYBRID_QUERY),
         ],
     )
-    async def test_search_result_equals_direct_discover(
-        self, evidence_env: EvidenceEnv, mode: DiscoveryMode, query: str
+    async def test_search_result_equals_direct_search_evidence(
+        self, evidence_env: EvidenceEnv, mode: EvidenceSearchMode, query: str
     ) -> None:
-        """Return the same hits and status as a direct discovery call."""
+        """Return the same hits and status as a direct search call."""
         env = evidence_env
         scope = _settings(env).scope
-        direct = await discover(
+        direct = await search_evidence(
             env.store,
             BagOfWordsEmbedder(),
             query,
@@ -352,8 +352,8 @@ class TestEquivalenceWithDirectCalls:
                 {"query": query, "mode": mode.value, "limit": 5},
             )
 
-        assert direct.status is DiscoveryStatus.OK
-        result = DiscoveryResult.model_validate(structured)
+        assert direct.status is EvidenceSearchStatus.OK
+        result = EvidenceSearchResult.model_validate(structured)
         assert result.hits
         assert all(hit.score > 0 for hit in result.hits)
         # Parallel corpus writes change full-text scores between the two calls.
@@ -369,7 +369,7 @@ class TestEquivalenceWithDirectCalls:
         viber_id = span_evidence_id(env.viber, VIBER_TEXT, 0, 40)
         missing_id = span_evidence_id(env.key("missing"), KEEP_TEXT, 0, 40)
         ids = [_gold_span_id(env), viber_id, missing_id]
-        direct = await fetch(env.store, ids, scope=scope, max_chars=10_000)
+        direct = await fetch_evidence(env.store, ids, scope=scope, max_chars=10_000)
 
         async with Client(_server(env.store, env)) as client:
             structured = await _structured(
@@ -402,7 +402,7 @@ class TestEquivalenceWithDirectCalls:
         async with Client(_server(env.store, env)) as client:
             await _structured(client, "fetch_evidence", {"evidence_ids": [gold]})
             structured = await _structured(
-                client, "check_citations", {"cited_evidence_ids": cited}
+                client, "check_citations", {"evidence_ids": cited}
             )
 
         direct = await check_citations(cited, [gold], scope=scope)
@@ -427,7 +427,7 @@ class TestEquivalenceWithDirectCalls:
 
         async with Client(_server(env.store, env)) as client:
             structured = await _structured(
-                client, "check_citations", {"cited_evidence_ids": [gold]}
+                client, "check_citations", {"evidence_ids": [gold]}
             )
 
         verdicts = CitationResult.model_validate(structured).checks
@@ -486,7 +486,7 @@ class TestOutputLimits:
                 {"query": "privacy notice data", "mode": "lexical", "limit": 50},
             )
 
-        result = DiscoveryResult.model_validate(structured)
+        result = EvidenceSearchResult.model_validate(structured)
         assert len(result.hits) == 2
         assert result.truncated is True
 
@@ -525,7 +525,7 @@ class TestOutputLimits:
         env = evidence_env
         arguments = {"query": "privacy notice data", "mode": "lexical", "limit": 10}
         async with Client(_server(env.store, env)) as client:
-            full = DiscoveryResult.model_validate(
+            full = EvidenceSearchResult.model_validate(
                 await _structured(client, "search_evidence", arguments)
             )
         full_size = 2 * len(full.model_dump_json())
@@ -535,7 +535,7 @@ class TestOutputLimits:
         ) as client:
             structured = await _structured(client, "search_evidence", arguments)
 
-        capped = DiscoveryResult.model_validate(structured)
+        capped = EvidenceSearchResult.model_validate(structured)
         assert len(capped.hits) < len(full.hits)
         assert capped.truncated is True
         assert 2 * len(capped.model_dump_json()) <= full_size // 2
@@ -579,8 +579,8 @@ class TestStoreFailures:
                 {"query": _LEXICAL_QUERY, "mode": "lexical"},
             )
 
-        result = DiscoveryResult.model_validate(structured)
-        assert result.status is DiscoveryStatus.INDEX_NOT_READY
+        result = EvidenceSearchResult.model_validate(structured)
+        assert result.status is EvidenceSearchStatus.INDEX_NOT_READY
 
 
 class TestEmbeddingModelMismatch:
@@ -597,8 +597,8 @@ class TestEmbeddingModelMismatch:
                 structured = await _structured(
                     client, "search_evidence", {"query": _HYBRID_QUERY, "mode": mode}
                 )
-                result = DiscoveryResult.model_validate(structured)
-                assert result.status is DiscoveryStatus.INDEX_NOT_READY
+                result = EvidenceSearchResult.model_validate(structured)
+                assert result.status is EvidenceSearchStatus.INDEX_NOT_READY
                 assert result.failures == []
 
             store.vector_dimensions = VECTOR_DIMENSIONS
@@ -606,7 +606,8 @@ class TestEmbeddingModelMismatch:
                 client, "search_evidence", {"query": _HYBRID_QUERY, "mode": "semantic"}
             )
             assert (
-                DiscoveryResult.model_validate(structured).status is DiscoveryStatus.OK
+                EvidenceSearchResult.model_validate(structured).status
+                is EvidenceSearchStatus.OK
             )
 
             store.vector_dimensions = VECTOR_DIMENSIONS + 1
@@ -618,19 +619,19 @@ class TestEmbeddingModelMismatch:
             structured = await _structured(
                 client, "search_evidence", {"query": _LEXICAL_QUERY, "mode": "hybrid"}
             )
-            result = DiscoveryResult.model_validate(structured)
-            assert result.status is DiscoveryStatus.PARTIAL
+            result = EvidenceSearchResult.model_validate(structured)
+            assert result.status is EvidenceSearchStatus.PARTIAL
             assert result.hits
-            assert all(hit.legs == [DiscoveryLeg.LEXICAL] for hit in result.hits)
+            assert all(hit.legs == [EvidenceSearchLeg.LEXICAL] for hit in result.hits)
 
             store.vector_dimensions = VECTOR_DIMENSIONS
             structured = await _structured(
                 client, "search_evidence", {"query": _HYBRID_QUERY, "mode": "semantic"}
             )
-            result = DiscoveryResult.model_validate(structured)
-            assert result.status is DiscoveryStatus.OK
+            result = EvidenceSearchResult.model_validate(structured)
+            assert result.status is EvidenceSearchStatus.OK
             assert result.hits
-            assert all(hit.legs == [DiscoveryLeg.SEMANTIC] for hit in result.hits)
+            assert all(hit.legs == [EvidenceSearchLeg.SEMANTIC] for hit in result.hits)
 
     async def test_semantic_search_refuses_the_mismatched_embedder(
         self, evidence_env: EvidenceEnv
@@ -660,30 +661,30 @@ class TestEmbeddingModelMismatch:
                 "search_evidence",
                 {"query": _LEXICAL_QUERY, "mode": "hybrid", "limit": 5},
             )
-        lexical = await discover(
+        lexical = await search_evidence(
             env.store,
             _FiveDimensionEmbedder(),
             _LEXICAL_QUERY,
-            mode=DiscoveryMode.LEXICAL,
+            mode=EvidenceSearchMode.LEXICAL,
             limit=5,
             scope=_settings(env).scope,
         )
 
-        result = DiscoveryResult.model_validate(structured)
-        assert result.status is DiscoveryStatus.PARTIAL
+        result = EvidenceSearchResult.model_validate(structured)
+        assert result.status is EvidenceSearchStatus.PARTIAL
         assert result.failures == [
-            LegFailure(leg=DiscoveryLeg.SEMANTIC, message=_EMBEDDING_MISMATCH)
+            LegFailure(leg=EvidenceSearchLeg.SEMANTIC, message=_EMBEDDING_MISMATCH)
         ]
         assert result.hits
         assert [hit.evidence_id for hit in result.hits] == [
             hit.evidence_id for hit in lexical.hits
         ]
-        assert all(hit.legs == [DiscoveryLeg.LEXICAL] for hit in result.hits)
+        assert all(hit.legs == [EvidenceSearchLeg.LEXICAL] for hit in result.hits)
 
     async def test_lexical_search_is_unaffected_by_the_mismatched_embedder(
         self, evidence_env: EvidenceEnv
     ) -> None:
-        """Answer a lexical search the same as a direct lexical discovery."""
+        """Answer a lexical search the same as a direct lexical search."""
         env = evidence_env
         server = _server(env.store, env, embedder=_FiveDimensionEmbedder())
         async with Client(server) as client:
@@ -692,16 +693,16 @@ class TestEmbeddingModelMismatch:
                 "search_evidence",
                 {"query": _LEXICAL_QUERY, "mode": "lexical", "limit": 5},
             )
-        direct = await discover(
+        direct = await search_evidence(
             env.store,
             _FiveDimensionEmbedder(),
             _LEXICAL_QUERY,
-            mode=DiscoveryMode.LEXICAL,
+            mode=EvidenceSearchMode.LEXICAL,
             limit=5,
             scope=_settings(env).scope,
         )
 
-        result = DiscoveryResult.model_validate(structured)
+        result = EvidenceSearchResult.model_validate(structured)
         assert result.hits
         assert all(hit.score > 0 for hit in result.hits)
         # Parallel corpus writes change full-text scores between the two calls.
@@ -720,11 +721,11 @@ class TestEmbeddingModelMismatch:
                 {"query": _HYBRID_QUERY, "mode": "semantic", "limit": 5},
             )
 
-        result = DiscoveryResult.model_validate(structured)
-        assert result.status is DiscoveryStatus.OK
+        result = EvidenceSearchResult.model_validate(structured)
+        assert result.status is EvidenceSearchStatus.OK
         assert result.failures == []
         assert result.hits
-        assert all(DiscoveryLeg.SEMANTIC in hit.legs for hit in result.hits)
+        assert all(EvidenceSearchLeg.SEMANTIC in hit.legs for hit in result.hits)
 
     async def test_citation_checks_fit_the_response_budget(
         self, evidence_env: EvidenceEnv
@@ -736,7 +737,7 @@ class TestEmbeddingModelMismatch:
             _server(env.store, env, max_response_chars=300, max_fetch_ids=2)
         ) as client:
             structured = await _structured(
-                client, "check_citations", {"cited_evidence_ids": cited_ids}
+                client, "check_citations", {"evidence_ids": cited_ids}
             )
 
         result = CitationResult.model_validate(structured)
@@ -780,7 +781,7 @@ class TestCancellation:
             assert await _counts(env) == before
             structured = await _structured(client, "search_evidence", arguments)
 
-        assert DiscoveryResult.model_validate(structured).hits
+        assert EvidenceSearchResult.model_validate(structured).hits
 
 
 def _without_id(outcome: FetchOutcome) -> dict[str, Any]:
@@ -793,4 +794,4 @@ def _text(result: Any) -> str:
     return result.content[0].text
 
 
-__all__ = ["DiscoveryHit"]
+__all__ = ["EvidenceSearchHit"]

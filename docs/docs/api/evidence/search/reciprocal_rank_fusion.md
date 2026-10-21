@@ -1,9 +1,9 @@
 ---
-title: agrag.evidence.discover.reciprocal_rank_fusion
+title: agrag.evidence.search.reciprocal_rank_fusion
 sidebar_label: reciprocal_rank_fusion
 ---
 
-# `agrag.evidence.discover.reciprocal_rank_fusion` \{#agrag-evidence-discover-reciprocal_rank_fusion}
+# `agrag.evidence.search.reciprocal_rank_fusion` \{#agrag-evidence-search-reciprocal_rank_fusion}
 
 ```python
 reciprocal_rank_fusion(rankings:Sequence[Sequence[str]], *, constant:int = RRF_CONSTANT) -> dict[str, float]

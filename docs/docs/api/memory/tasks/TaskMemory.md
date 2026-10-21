@@ -19,10 +19,10 @@ returns `request_id_reused`.
 **Functions:**
 
 - [**create_task**](#agrag-memory-tasks-TaskMemory-create_task) – Create a task, or return the existing task of that name.
-- [**get_event**](#agrag-memory-tasks-TaskMemory-get_event) – Read one exact event and its redaction state from this project.
+- [**fetch_event**](#agrag-memory-tasks-TaskMemory-fetch_event) – Read one exact event and its redaction state from this project.
 - [**get_task**](#agrag-memory-tasks-TaskMemory-get_task) – Read the bounded resume view of a task.
 - [**list_events**](#agrag-memory-tasks-TaskMemory-list_events) – Read events of a task in sequence order, one page at a time.
-- [**list_steps_page**](#agrag-memory-tasks-TaskMemory-list_steps_page) – Read one bounded page of steps, with a name cursor for continuation.
+- [**list_steps**](#agrag-memory-tasks-TaskMemory-list_steps) – Read one bounded page of steps, with a name cursor for continuation.
 - [**record_event**](#agrag-memory-tasks-TaskMemory-record_event) – Append one raw event to a task.
 - [**set_step**](#agrag-memory-tasks-TaskMemory-set_step) – Create or update a step of a task.
 
@@ -36,14 +36,14 @@ returns `request_id_reused`.
 ## `create_task` \{#agrag-memory-tasks-TaskMemory-create_task}
 
 ```python
-create_task(name:str, goal:str, *, request_id:str | None = None) -> CreateTaskResult
+create_task(task_name:str, goal:str, *, request_id:str | None = None) -> CreateTaskResult
 ```
 
 Create a task, or return the existing task of that name.
 
 **Parameters:**
 
-- **name** (<code>str</code>) – The task name, unique within the project.
+- **task_name** (<code>str</code>) – The task name, unique within the project.
 - **goal** (<code>str</code>) – The goal. An existing task of the same name must have the
   same goal.
 - **request_id** (<code>str | None</code>) – Optional id of at most 64 characters for a safe retry.
@@ -53,10 +53,10 @@ Create a task, or return the existing task of that name.
 - <code>[CreateTaskResult](../../common/data_models/task/CreateTaskResult.md)</code> – The task when recorded. Otherwise `task_exists` when the name is
 - <code>[CreateTaskResult](../../common/data_models/task/CreateTaskResult.md)</code> – taken by a task with another goal.
 
-## `get_event` \{#agrag-memory-tasks-TaskMemory-get_event}
+## `fetch_event` \{#agrag-memory-tasks-TaskMemory-fetch_event}
 
 ```python
-get_event(task_name:str, seq:int) -> EventLookup
+fetch_event(task_name:str, seq:int) -> EventLookup
 ```
 
 Read one exact event and its redaction state from this project.
@@ -64,7 +64,7 @@ Read one exact event and its redaction state from this project.
 ## `get_task` \{#agrag-memory-tasks-TaskMemory-get_task}
 
 ```python
-get_task(name:str) -> TaskLookup
+get_task(task_name:str) -> TaskLookup
 ```
 
 Read the bounded resume view of a task.
@@ -75,7 +75,7 @@ bodies.
 
 **Parameters:**
 
-- **name** (<code>str</code>) – The task name.
+- **task_name** (<code>str</code>) – The task name.
 
 **Returns:**
 
@@ -101,10 +101,10 @@ Read events of a task in sequence order, one page at a time.
 - <code>[EventPage](../../common/data_models/task/EventPage.md)</code> – The page. When the task does not exist, `found` is false and the
 - <code>[EventPage](../../common/data_models/task/EventPage.md)</code> – page is empty.
 
-## `list_steps_page` \{#agrag-memory-tasks-TaskMemory-list_steps_page}
+## `list_steps` \{#agrag-memory-tasks-TaskMemory-list_steps}
 
 ```python
-list_steps_page(task_name:str, state:StepState, *, after_name:str | None = None, limit:int = 50) -> StepPage
+list_steps(task_name:str, state:StepState, *, after_name:str | None = None, limit:int = 50) -> StepPage
 ```
 
 Read one bounded page of steps, with a name cursor for continuation.

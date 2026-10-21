@@ -11,7 +11,7 @@ A passage the caller fetched, named by its evidence id.
 
 **Attributes:**
 
-- [**evidence_id**](#agrag-common-data_models-decision-DocumentSupportInput-evidence_id) (<code>str</code>) – An evidence id returned by discovery or fetch.
+- [**evidence_id**](#agrag-common-data_models-decision-DocumentSupportInput-evidence_id) (<code>str</code>) – An evidence id returned by search or fetch.
 
 ## `evidence_id` \{#agrag-common-data_models-decision-DocumentSupportInput-evidence_id}
 

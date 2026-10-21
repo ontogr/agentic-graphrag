@@ -21,7 +21,7 @@ The committed version, active job and index state for one source.
 - [**lease_expires_at**](#agrag-common-data_models-evidence-SourceStatus-lease_expires_at) (<code>str | None</code>) – Lease expiry timestamp rendered as text.
 - [**job_age_seconds**](#agrag-common-data_models-evidence-SourceStatus-job_age_seconds) (<code>float | None</code>) – Age of the latest incomplete job.
 - [**job_error**](#agrag-common-data_models-evidence-SourceStatus-job_error) (<code>str | None</code>) – Stored job error or expired-lease reason.
-- [**indexes**](#agrag-common-data_models-evidence-SourceStatus-indexes) (<code>list\[[SourceIndexStatus](SourceIndexStatus.md)\]</code>) – Full-text and vector index states used by discovery.
+- [**indexes**](#agrag-common-data_models-evidence-SourceStatus-indexes) (<code>list\[[SourceIndexStatus](SourceIndexStatus.md)\]</code>) – Full-text and vector index states used by search.
 
 ## `activation_seq` \{#agrag-common-data_models-evidence-SourceStatus-activation_seq}
 

@@ -7,7 +7,7 @@ sidebar_label: EntityHit
 
 Bases: <code>BaseModel</code>
 
-One entity found by entity discovery.
+One entity found by entity search.
 
 **Attributes:**
 
@@ -19,7 +19,7 @@ One entity found by entity discovery.
 - [**kind**](#agrag-common-data_models-entity_search-EntityHit-kind) (<code>[EntityKind](EntityKind.md)</code>) – Whether the entity has a visible supporting passage.
 - [**score**](#agrag-common-data_models-entity_search-EntityHit-score) (<code>float</code>) – An ordering value. Higher scores rank first. It is not a
   confidence, and it is not a probability that the entity is correct.
-- [**legs**](#agrag-common-data_models-entity_search-EntityHit-legs) (<code>list\[[DiscoveryLeg](../evidence/DiscoveryLeg.md)\]</code>) – The search legs that found the entity.
+- [**legs**](#agrag-common-data_models-entity_search-EntityHit-legs) (<code>list\[[EvidenceSearchLeg](../evidence/EvidenceSearchLeg.md)\]</code>) – The search legs that found the entity.
 - [**support**](#agrag-common-data_models-entity_search-EntityHit-support) (<code>list\[[SupportingPassage](SupportingPassage.md)\]</code>) – Visible passages that mention the entity, up to the support
   limit of the call. Empty for an unsupported entity.
 
@@ -44,7 +44,7 @@ label: str
 ## `legs` \{#agrag-common-data_models-entity_search-EntityHit-legs}
 
 ```python
-legs: list[DiscoveryLeg]
+legs: list[EvidenceSearchLeg]
 ```
 
 ## `name` \{#agrag-common-data_models-entity_search-EntityHit-name}

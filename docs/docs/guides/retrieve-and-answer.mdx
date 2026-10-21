@@ -143,7 +143,7 @@ The agent uses the supplied document keys as its read scope. It does not search 
 ### Set the document scope
 
 Pass the exact document keys the agent may read as a set of strings. The
-scope is fixed when the agent is built and applies to discovery, fetch, and
+scope is fixed when the agent is built and applies to search, fetch, and
 citation checks.
 
 {/* pmd-metadata: fixture:llm_env */}
@@ -205,19 +205,13 @@ Set the scope when your application builds the agent. The tools enforce the
 scope. The model cannot see or change it.
 
 Use the standalone `SearchEngine` API for recipes and graph retrieval methods.
-The task-scoped agent uses evidence discovery and fetch operations. To call
-them from your own code, see [Find and cite evidence](./find-and-cite-evidence.mdx).
+The task-scoped agent uses the evidence tools. To call them from your own code,
+see [Find and cite evidence](./find-and-cite-evidence.mdx). The agent's tools are
+listed in the [tools reference](../reference/tools.mdx).
 
 ## Available recipes
 
-| Recipe | Methods | BFS | Reranker |
-|--------|---------|-----|----------|
-| `ENTITY` | entity | No | None |
-| `CHUNK` | chunk | No | None |
-| `HYBRID` | entity, chunk | No | None |
-| `HYBRID_RERANKED` | entity, chunk | No | cross_encoder |
-| `GRAPH_EXPAND` | entity | Yes | None |
-| `THEMATIC` | community | No | None |
+Six preset recipes cover entity, passage, hybrid, re-ranked, graph-expanded, and topic searches. [Recipe search](../tools/recipe-search.mdx#overview) compares what each one runs and when it fits.
 
 ## Configuration
 

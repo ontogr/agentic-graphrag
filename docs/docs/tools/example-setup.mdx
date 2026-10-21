@@ -1,0 +1,120 @@
+---
+title: Set up the example
+description: Load a short sample document into a graph so that you can run the examples on the tool pages and get the same kind of output.
+---
+
+# Set up the example
+
+The examples on the tool pages run against one short document, `acme-notes.md`. Load it into a graph once, and every example on the next pages works with the same objects: `store`, `embedder`, `scope`, and the helper `short`.
+
+The names in the document are invented.
+
+## The document
+
+Save this text as `acme-notes.md`.
+
+```markdown
+# Acme Robotics engineering notes
+
+## Route planning
+
+Maria Chen works for Acme Robotics and wrote the Orion Planner. The Orion Planner schedules delivery routes for the warehouse robots in the Berlin warehouse. It replans a route within two seconds when an aisle is blocked.
+
+## Dependencies
+
+The Orion Planner depends on Orion Maps, a map service that Daniel Okafor maintains. Daniel Okafor also works for Acme Robotics. Orion Maps supplies the floor plans that the planner uses to find free aisles.
+
+| Component | Owner | Purpose |
+| --- | --- | --- |
+| Orion Planner | Maria Chen | Plans delivery routes |
+| Orion Maps | Daniel Okafor | Serves warehouse floor maps |
+| Fleet Monitor | Priya Raman | Tracks robot battery and health |
+
+## Data retention
+
+Robot logs are kept for 30 days and then deleted. A customer can ask Acme Robotics to erase their delivery data. After the request is verified, the data is deleted within 10 business days.
+```
+
+## Load the document
+
+You need a running Neo4j database, the `NEO4J_*` variables in a `.env` file, and the `neo4j` and `extract` extras. [Ingest documents](../guides/ingest-documents.mdx) describes each step of `Graph.add`.
+
+```python notest
+import asyncio
+from pathlib import Path
+
+from agrag.common.data_models import DEFAULT_SCHEMA
+from agrag.embedding import build_embedder
+from agrag.graphdb import build_graph_store
+from agrag.ingestion import Graph
+from agrag.ingestion.extract import GlinerExtractor
+
+
+def short(evidence_id: str) -> str:
+    if len(evidence_id) <= 24:
+        return evidence_id
+    return evidence_id[:14] + "..." + evidence_id[-8:]
+
+
+async def main() -> None:
+    store = build_graph_store("neo4j")
+    embedder = build_embedder("ibm-granite/granite-embedding-small-english-r2")
+    graph = await Graph.open(
+        schema=DEFAULT_SCHEMA,
+        graph_store=store,
+        embedder=embedder,
+        extractor=GlinerExtractor(),
+    )
+    try:
+        result = await graph.add(source="acme-notes.md")
+        print(result.ingestion)
+        scope = frozenset({str(Path("acme-notes.md").resolve())})
+        ...  # the example snippets go here
+    finally:
+        await store.close()
+
+
+asyncio.run(main())
+```
+
+The output of the load:
+
+```text
+documents=1 sources=1 skipped=0 unchanged=0 quarantined=0 quarantined_items=[]
+```
+
+`scope` is the set of document keys that the tools may read. The key of a file is its absolute path, so the set holds the one document that you loaded. `short` shortens an evidence id for printing, because a full id is long.
+
+## What the graph holds
+
+The loader cut the document into three chunks. A chunk is the unit that search returns.
+
+| Chunk | Holds |
+|---|---|
+| `...3e66aa77` | The title, the "Route planning" section, and the "Dependencies" section without its table |
+| `...12cd16fb` | The table in "Dependencies" |
+| `...d7c4d6ef` | The "Data retention" section |
+
+The extractor found these entities:
+
+| Label | Names |
+|---|---|
+| `Person` | Maria Chen, Daniel Okafor, Priya Raman |
+| `Organization` | Acme Robotics, Orion |
+| `Software` | Orion Planner, Orion Maps, Fleet Monitor |
+| `Dataset` | floor plans |
+| `Product` | warehouse robots, robot battery |
+
+It also found the relations `Maria Chen AUTHORED Orion Planner` and `Maria Chen WORKS_FOR Acme Robotics`.
+
+:::note[The extractor misses and invents some facts]
+A small local model did the extraction. It created an entity named `Orion` from a word that appears only inside the names of the planner and the map service, and it did not record that the planner depends on Orion Maps. The examples show these results as they are.
+:::
+
+Your ids, paths, and scores differ from the ones on the next pages. An id depends on the path of the file and on its content, so the same file at the same path gives the same ids.
+
+## Related
+
+- [Passage search](./passage-search.mdx) runs the first examples against this document.
+- [Ingest documents](../guides/ingest-documents.mdx) describes how to load your own files.
+- [Configure chunking](../guides/configure-chunking.mdx) describes the chunk size that produced these three chunks.

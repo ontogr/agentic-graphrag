@@ -11,10 +11,10 @@ from agrag.common.data_models.decision import (
     EventSupportInput,
     ReviewState,
 )
-from agrag.common.data_models.evidence import DiscoveryMode, FetchStatus
+from agrag.common.data_models.evidence import EvidenceSearchMode, FetchStatus
 from agrag.common.data_models.memory_result import MemoryErrorCode
 from agrag.common.data_models.task import EventKind
-from agrag.evidence import discover, fetch
+from agrag.evidence import fetch_evidence, search_evidence
 from agrag.memory.decisions import DecisionMemory
 from agrag.memory.tasks import TaskMemory
 from tests.integration.retrieval.evidence._corpus import (
@@ -78,16 +78,16 @@ async def test_decisions_require_fetched_documents_and_support_events(
     task = TaskMemory(store, project_id=project, agent_id="agent")
     await task.create_task("analysis", "choose a harbor")
     event = await task.record_event("analysis", EventKind.NOTE, payload="checked log")
-    found = await discover(
+    found = await search_evidence(
         store,
         BagOfWordsEmbedder(),
         "harbor",
-        mode=DiscoveryMode.LEXICAL,
+        mode=EvidenceSearchMode.LEXICAL,
         scope=frozenset({documents.harbor}),
         limit=5,
     )
     evidence_id = found.hits[0].evidence_id
-    fetched = await fetch(
+    fetched = await fetch_evidence(
         store, [evidence_id], scope=frozenset({documents.harbor}), max_chars=500
     )
     assert fetched[0].status is FetchStatus.OK
@@ -295,16 +295,16 @@ async def test_changed_document_support_records_full_old_hash_and_current_activa
     """A fetched version superseded before recording needs review."""
     tasks = TaskMemory(store, project_id=project, agent_id="agent")
     await tasks.create_task("currency", "choose")
-    found = await discover(
+    found = await search_evidence(
         store,
         BagOfWordsEmbedder(),
         "harbor",
-        mode=DiscoveryMode.LEXICAL,
+        mode=EvidenceSearchMode.LEXICAL,
         scope=frozenset({documents.harbor}),
         limit=5,
     )
     evidence_id = found.hits[0].evidence_id
-    fetched = await fetch(
+    fetched = await fetch_evidence(
         store, [evidence_id], scope=frozenset({documents.harbor}), max_chars=500
     )
     old_hash = fetched[0].content_hash

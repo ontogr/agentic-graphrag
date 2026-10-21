@@ -1,11 +1,11 @@
-"""Unit tests for reciprocal rank fusion, the hybrid discovery step.
+"""Unit tests for reciprocal rank fusion, the hybrid search step.
 
 Fusion is pure arithmetic over ranked id lists, so these tests need no store.
 """
 
 import pytest
 
-from agrag.evidence.discover import reciprocal_rank_fusion
+from agrag.evidence.search import reciprocal_rank_fusion
 
 
 class TestReciprocalRankFusion:

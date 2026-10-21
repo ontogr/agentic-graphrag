@@ -50,7 +50,7 @@ from tests.conftest import FAKE_EMBEDDING_DIMENSIONS
 
 neo4j_missing = importlib.util.find_spec("neo4j") is None
 
-_OUTPUT_DIR = Path(os.environ.get("AGRAG_TRACING_OUTPUT_DIR", "test-output"))
+_OUTPUT_DIR = Path(os.environ.get("TRACING_OUTPUT_DIR", "test-output"))
 
 
 def _span_tree(spans: tuple[ReadableSpan, ...]) -> dict:

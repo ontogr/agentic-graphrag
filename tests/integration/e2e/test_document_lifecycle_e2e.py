@@ -27,8 +27,8 @@ from agrag.common.data_models.chunk import Chunk
 from agrag.common.data_models.document import Document, DocumentFamily, SourceFormat
 from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.evidence import (
-    DiscoveryMode,
-    DiscoveryStatus,
+    EvidenceSearchMode,
+    EvidenceSearchStatus,
     FetchStatus,
     SourceState,
     VersionStatus,
@@ -38,7 +38,7 @@ from agrag.common.data_models.graph_schema import EntityType, GraphSchema
 from agrag.common.data_models.resolved_entity import ResolvedEntity
 from agrag.cypher.entities import validate_identifier
 from agrag.embedding.base import Embedder
-from agrag.evidence import discover, fetch
+from agrag.evidence import fetch_evidence, search_evidence
 from agrag.graphdb import build_graph_store
 from agrag.graphdb.base import GraphStore
 from agrag.ingestion.extract import Extractor
@@ -436,18 +436,18 @@ class TestDocumentLifecycleE2E:
 
         # Step 4: delete document b. Its own entities go, and headache stays
         # because the new version of document a still mentions it.
-        historical = await discover(
+        historical = await search_evidence(
             env.store,
             env.embedder,
             "ibuprofen",
-            mode=DiscoveryMode.LEXICAL,
+            mode=EvidenceSearchMode.LEXICAL,
             limit=10,
             scope=frozenset({key_a, key_b}),
         )
         historical_hit = next(
             hit for hit in historical.hits if hit.document_key == key_b
         )
-        before_delete = await fetch(
+        before_delete = await fetch_evidence(
             env.store,
             [historical_hit.evidence_id],
             scope=frozenset({key_b}),
@@ -471,16 +471,16 @@ class TestDocumentLifecycleE2E:
         ]
         hits_deleted = await env.chunk_hits("ibuprofen fever")
         assert "fever+headache+ibuprofen" not in hits_deleted
-        deleted_discovery = await discover(
+        deleted_search = await search_evidence(
             env.store,
             env.embedder,
             "ibuprofen",
-            mode=DiscoveryMode.LEXICAL,
+            mode=EvidenceSearchMode.LEXICAL,
             limit=10,
             scope=frozenset({key_b}),
         )
-        assert deleted_discovery.status is DiscoveryStatus.NO_MATCH
-        historical_fetch = await fetch(
+        assert deleted_search.status is EvidenceSearchStatus.NO_MATCH
+        historical_fetch = await fetch_evidence(
             env.store,
             [historical_hit.evidence_id],
             scope=frozenset({key_b}),

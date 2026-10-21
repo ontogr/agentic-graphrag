@@ -64,7 +64,7 @@ class DocumentSupportInput(BaseModel):
     """A passage the caller fetched, named by its evidence id.
 
     Attributes:
-        evidence_id: An evidence id returned by discovery or fetch.
+        evidence_id: An evidence id returned by search or fetch.
     """
 
     model_config = ConfigDict(frozen=True)

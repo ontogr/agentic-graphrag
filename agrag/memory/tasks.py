@@ -248,12 +248,12 @@ class TaskMemory:
         self._schema_lock = asyncio.Lock()
 
     async def create_task(
-        self, name: str, goal: str, *, request_id: str | None = None
+        self, task_name: str, goal: str, *, request_id: str | None = None
     ) -> CreateTaskResult:
         """Create a task, or return the existing task of that name.
 
         Args:
-            name: The task name, unique within the project.
+            task_name: The task name, unique within the project.
             goal: The goal. An existing task of the same name must have the
                 same goal.
             request_id: Optional id of at most 64 characters for a safe retry.
@@ -262,13 +262,13 @@ class TaskMemory:
             The task when recorded. Otherwise ``task_exists`` when the name is
             taken by a task with another goal.
         """
-        arguments = {"name": name, "goal": goal}
+        arguments = {"task_name": task_name, "goal": goal}
         return await self._write(
             operation="create_task",
             arguments=arguments,
             request_id=request_id,
             result_type=CreateTaskResult,
-            effect=lambda tx: self._create_task_effect(tx, name, goal),
+            effect=lambda tx: self._create_task_effect(tx, task_name, goal),
         )
 
     async def record_event(
@@ -382,7 +382,7 @@ class TaskMemory:
             ),
         )
 
-    async def get_task(self, name: str) -> TaskLookup:
+    async def get_task(self, task_name: str) -> TaskLookup:
         """Read the bounded resume view of a task.
 
         The view has the goal, status, last event sequence number and the first
@@ -390,13 +390,13 @@ class TaskMemory:
         bodies.
 
         Args:
-            name: The task name.
+            task_name: The task name.
 
         Returns:
             The view when the task exists in this project. Otherwise
             ``found`` is false.
         """
-        task = await _find_task(self._store, self._project_id, name)
+        task = await _find_task(self._store, self._project_id, task_name)
         if task is None:
             return TaskLookup(found=False)
         params = {"project_id": self._project_id, "task_id": str(task.id)}
@@ -474,7 +474,7 @@ class TaskMemory:
         )
         return TaskLookup(found=True, view=view)
 
-    async def list_steps_page(
+    async def list_steps(
         self,
         task_name: str,
         state: StepState,
@@ -590,7 +590,7 @@ class TaskMemory:
             next_after_seq=events[-1].seq if truncated else None,
         )
 
-    async def get_event(self, task_name: str, seq: int) -> EventLookup:
+    async def fetch_event(self, task_name: str, seq: int) -> EventLookup:
         """Read one exact event and its redaction state from this project."""
         task = await _find_task(self._store, self._project_id, task_name)
         if task is None:
@@ -709,22 +709,22 @@ class TaskMemory:
         return result
 
     async def _create_task_effect(
-        self, tx: GraphStoreTransaction, name: str, goal: str
+        self, tx: GraphStoreTransaction, task_name: str, goal: str
     ) -> CreateTaskResult:
         """Create the task, or return the existing one when the goal matches."""
-        existing = await _find_task(tx, self._project_id, name)
+        existing = await _find_task(tx, self._project_id, task_name)
         if existing is not None:
             if existing.goal != goal:
                 raise _WriteRefusedError(MemoryErrorCode.TASK_EXISTS)
             return CreateTaskResult(recorded=True, task=existing)
-        task_id = _uuid(self._project_id, name)
+        task_id = _uuid(self._project_id, task_name)
         created_at = datetime.now(UTC)
         await tx.execute_write(
             create_task_query(),
             {
                 "project_id": self._project_id,
                 "id": str(task_id),
-                "name": name,
+                "name": task_name,
                 "goal": goal,
                 "status": TaskStatus.OPEN.value,
                 "author": self._agent_id,
@@ -734,7 +734,7 @@ class TaskMemory:
         task = Task(
             id=task_id,
             project_id=self._project_id,
-            name=name,
+            name=task_name,
             goal=goal,
             status=TaskStatus.OPEN,
             event_seq=0,

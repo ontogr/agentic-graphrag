@@ -1,0 +1,135 @@
+---
+title: Recipe search
+description: Run a SearchEngine recipe to get ranked entities, passages, and community reports as data.
+---
+
+import Diagram from '@site/src/components/Diagram';
+
+# Recipe search
+
+`SearchEngine.search` runs a recipe over the graph and returns up to `recipe.limit` ranked results. A recipe is a named list of settings that says which search methods to run, whether to walk the graph, whether to add community reports, and whether to re-rank.
+
+| | |
+|---|---|
+| Python function | `SearchEngine.search(query, recipe, filters=...)` |
+| Built-in agent tool | None. The agent uses the evidence tools. |
+| MCP tool | None |
+| Required inputs | `query` and `recipe`. The engine needs a `graph_store` and an `embedder`. |
+| Optional inputs | `filters`, a `SearchFilters` object |
+| Returns | A list of `SearchResult` items. Each has an `item`, a `score`, and the `method` that found it. |
+| Needs | The entity, chunk, and community indexes that ingestion creates. The `embed-local` extra for the cross-encoder re-ranker. |
+| Reads | The stored graph. There is no document scope. |
+| API reference | [Retrieval API](../api/retrieval/index.md) |
+
+## Overview
+
+Use recipe search when your application wants entities, passages, or topic reports as data. Answers that cite sources use the [evidence tools](../concepts/retrieval.mdx) instead, because recipe search has no document scope and no citation support. An item in a result is an `Entity`, a `ResolvedEntity`, a `Relation`, a `Chunk`, or a `Community`.
+
+Pick a preset from `agrag.retrieval.recipes`.
+
+| Recipe | Methods | Extra steps | Results | Use it when |
+|---|---|---|---|---|
+| `ENTITY` | entity | none | 10 | You want the entities that match a name or a description. |
+| `CHUNK` | chunk | none | 10 | You want source passages ranked by meaning and you do not need entities. |
+| `HYBRID` | entity, chunk | none | 10 | You want entities and passages in one list. It is the usual starting point. |
+| `HYBRID_RERANKED` | entity, chunk | community reports, cross-encoder re-rank | 10 | A cross-encoder model is available and you want it to re-order the candidates against the query. |
+| `GRAPH_EXPAND` | entity | graph walk, community reports | 20 | The query names an entity and you want its neighbors and the topic reports around it. |
+| `THEMATIC` | community | none | 5 | The query asks about the themes of the whole corpus. |
+
+A recipe is data, so you can copy one and change its fields.
+
+| Field | Default | Effect |
+|---|---|---|
+| `methods` | required | The methods to run, by name: `entity`, `chunk`, or `community`. |
+| `bfs` | `False` | Run a graph walk after the methods, seeded from the entity results. |
+| `bfs_depth` | none | Hops of the walk. `None` uses `RETRIEVAL_TRAVERSAL_DEPTH`. |
+| `reranker` | none | `cross_encoder` or `node_distance`. `None` skips re-ranking. |
+| `min_score` | none | Drop results that the reranker scores below this value. `None` uses `RETRIEVAL_RERANKER_MIN_SCORE`. |
+| `limit` | 10 | The most results returned. |
+| `community_expand` | `False` | Fuse in the reports of communities that overlap the entities found. |
+| `community_top_k` | 3 | How many community reports to add, and how many slots they keep after a cross-encoder re-rank. |
+
+A recipe that names a method outside the list raises `UnknownRecipeMethodError`, so a misspelled name raises an error and never returns an empty result.
+
+## Usage
+
+### In Python
+
+The example uses the notes from [Set up the example](./example-setup.mdx), and it reuses `store` and `embedder` from that page. The output comes from a real run. Search the notes with the `HYBRID` recipe and print the first four results:
+
+```python notest
+from agrag.retrieval.recipes import HYBRID
+from agrag.retrieval.search_engine import SearchEngine
+
+engine = SearchEngine(graph_store=store, embedder=embedder)
+results = await engine.search("Who wrote the Orion Planner?", HYBRID)
+for result in results[:4]:
+    item = result.item
+    label = getattr(item, "name", None) or item.text[:40].replace("\n", " ")
+    print(f"{result.method:<7} {result.score:.4f}  {type(item).__name__:<7} {label}")
+```
+
+```text
+entity  0.0164  Entity  Orion Planner
+chunk   0.0164  Chunk   Acme Robotics engineering notes  Route p
+entity  0.0161  Entity  Orion
+chunk   0.0161  Chunk   | Component | Owner | Purpose | | --- | 
+```
+
+Entities and chunks come back in one list, and the `method` column tells you which method found each item. The planner entity ranks first, and the chunk that names its author ranks second. The entity `Orion` is the extractor's invented entity from the notes, and the recipe returns it like any other.
+
+A recipe search returns items and no passage ids that you can cite. To answer with citations, use the [evidence tools](../concepts/retrieval.mdx) on the same documents.
+
+### Filters
+
+A `SearchFilters` object limits a search to matching items.
+
+| Field | Effect |
+|---|---|
+| `labels` | Entity labels a result must have. Applies to entity search only. |
+| `relation_types` | Relation types a graph walk may cross. |
+| `document_ids` | Only entities and chunks from these source documents. Applies to entity, chunk, and community search. |
+| `properties` | Exact-match property filters. A list value means any of. Applies to entity, chunk, and community search. |
+
+Filters limit what a recipe returns. They are not the document scope of the evidence tools, which the caller sets once and which the tools enforce inside every query.
+
+### Other engine calls
+
+| Call | What it does |
+|---|---|
+| `find_entity(name, filters=...)` | Resolves a name to its top entity hit, or `None`. |
+| `traverse(seed, ...)` | Expands one resolved entity into its neighbors, with `relation_type`, `direction`, `depth`, and `limit`. |
+| `list_relationship_types(seed, ...)` | Lists the relation types attached to an entity, at depth 1. |
+
+`search_candidates(query, ...)` searches candidates that extraction kept out of the graph. It has no scope filter, so a scoped caller must not expose it.
+
+## How a recipe runs
+
+<Diagram folder="docs" name="recipe" alt="The engine runs the recipe's methods at the same time and fuses the ranked lists. A recipe can then walk the graph from entity hits and fuse again, add community reports, and re-rank. The engine keeps the top results up to the limit of the recipe." />
+
+The steps in the box run only when the recipe asks.
+
+1. Run the methods. The engine runs the methods the recipe names at the same time. If one method fails, the others still return results. If every method fails, the engine raises `AllRetrievalMethodsFailedError`.
+2. Fuse. The engine merges the ranked lists into one list and removes duplicates.
+3. Walk the graph (optional). The engine follows relations outward from the entity hits and fuses the neighbors into the list.
+4. Add communities (optional). The engine adds the reports of communities that overlap the entities found.
+5. Re-rank (optional). A cross-encoder model, or the graph distance to the top entity hits, sets a new order.
+6. Cut. The engine keeps the top results, up to the limit of the recipe.
+
+| Method | What it finds |
+|---|---|
+| `entity` | Entities and resolved entities whose embedding is closest to the query. |
+| `chunk` | Passages of source text. Each hit is one chunk, with the headings above it. |
+| `community` | Reports on topics. |
+
+Reciprocal rank fusion scores an item from its rank in each list and ignores raw scores. `RETRIEVAL_RRF_K` sets the constant for `SearchEngine`, and the evidence tools use a fixed constant of 60. An item found by several methods can outrank an item found by one method. Each method gives an item one vote at its best rank, so duplicate hits from one method add no weight. Fusion runs even when a recipe has one method, so the re-ranker never sees the same item twice.
+
+With the cross-encoder, the recipe keeps up to `community_top_k` slots for community reports after the re-rank, so the re-rank cannot push every report out of the results.
+
+One failed method does not fail the search. A timeout in one method must not hide good results from another, so the engine logs the failure and records it on the trace. With a positive limit, a method returns an empty list only when the search ran and found nothing, and it raises on any failure it cannot recover from.
+
+## Related
+
+- [Retrieve and answer](../guides/retrieve-and-answer.mdx) runs a recipe search and an agent answer end to end.
+- [Communities](../concepts/communities.mdx) explains the reports that the `community` method and the `THEMATIC` recipe return.
+- [Configuration](../reference/configuration.mdx) lists the `RETRIEVAL_` settings, including `RETRIEVAL_RRF_K` and `RETRIEVAL_RERANKER_MIN_SCORE`.

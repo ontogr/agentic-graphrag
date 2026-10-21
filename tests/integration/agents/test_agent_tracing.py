@@ -40,7 +40,7 @@ from tests.integration.retrieval.evidence._corpus import (
 )
 
 
-_OUTPUT_DIR = Path(os.environ.get("AGRAG_TRACING_OUTPUT_DIR", "test-output"))
+_OUTPUT_DIR = Path(os.environ.get("TRACING_OUTPUT_DIR", "test-output"))
 
 _PROMPT = (
     "I need two independent facts. Fact 1: who founded Zephyra Robotics? "
@@ -250,7 +250,7 @@ class TestAgentTracing:
 
         tools = [span for span in spans if _is_tool(span)]
         assert tools, "the agent made no tool calls"
-        # Evidence discovery and fetch read the graph through the store, so
+        # Evidence search and fetch read the graph through the store, so
         # each read sits under the evidence TOOL call that issued it.
         owners: dict[int, str | None] = {}
         for span in spans:
@@ -261,7 +261,7 @@ class TestAgentTracing:
                 owners[tool.context.span_id] = _tool_name(tool)
         assert owners, "no graph read ran under a tool span"
         assert set(owners.values()) <= {
-            "discover_evidence",
+            "search_evidence",
             "entity_search",
             "explore_relationships",
             "fetch_evidence",

@@ -14,7 +14,7 @@ from langgraph.errors import GraphBubbleUp
 
 from agrag.agents.middleware import RunState, TaskEventMiddleware, record_event_or_flag
 from agrag.agents.tools.core import make_core_tools
-from agrag.common.data_models.evidence import DiscoveryResult, DiscoveryStatus
+from agrag.common.data_models.evidence import EvidenceSearchResult, EvidenceSearchStatus
 from agrag.common.data_models.task import (
     EventKind,
     SetStepResult,
@@ -329,10 +329,14 @@ class TestToolBudgetAdmission:
     ) -> None:
         """Direct core-tool invocation leaves admission and events to middleware."""
 
-        async def discover(*args: object, **kwargs: object) -> DiscoveryResult:
-            return DiscoveryResult(status=DiscoveryStatus.NO_MATCH)
+        async def fake_search_evidence(
+            *args: object, **kwargs: object
+        ) -> EvidenceSearchResult:
+            return EvidenceSearchResult(status=EvidenceSearchStatus.NO_MATCH)
 
-        monkeypatch.setattr("agrag.agents.tools.core.discover", discover)
+        monkeypatch.setattr(
+            "agrag.agents.tools.core.search_evidence", fake_search_evidence
+        )
         memory = _FakeMemory()
         tools, run_state = make_core_tools(
             graph_store=object(),
@@ -348,7 +352,7 @@ class TestToolBudgetAdmission:
         )
 
         result = await next(
-            tool for tool in tools if tool.name == "discover_evidence"
+            tool for tool in tools if tool.name == "search_evidence"
         ).ainvoke({"query": "q"})
 
         assert result

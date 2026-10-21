@@ -80,7 +80,7 @@ def register_write_tools(
         ),
     )
     async def create_task(
-        name: Annotated[str, Field(min_length=1, max_length=200)],
+        task_name: Annotated[str, Field(min_length=1, max_length=200)],
         goal: Annotated[str, Field(min_length=1, max_length=4000)],
         request_id: Annotated[str, Field(min_length=1, max_length=64)],
     ) -> Annotated[CallToolResult, CreateTaskResult]:
@@ -88,7 +88,7 @@ def register_write_tools(
         return await bounded_result(
             deadline,
             settings.max_response_chars,
-            tasks.create_task(name, goal, request_id=request_id),
+            tasks.create_task(task_name, goal, request_id=request_id),
         )
 
     @server.tool(
@@ -227,19 +227,18 @@ def register_write_tools(
     async def reaffirm_decision(
         ctx: Context[Any, Any],
         decision_id: UUID,
-        evidence: Annotated[
-            list[DocumentSupportInput], Field(min_length=1, max_length=20)
-        ],
+        evidence_ids: Annotated[list[str], Field(min_length=1, max_length=20)],
         explanation: Annotated[str, Field(min_length=1, max_length=4000)],
         request_id: Annotated[str, Field(min_length=1, max_length=64)],
     ) -> Annotated[CallToolResult, ReaffirmDecisionResult]:
         """Reaffirm a decision with evidence fetched in this server session."""
+        supports = [DocumentSupportInput(evidence_id=item) for item in evidence_ids]
         return await bounded_result(
             deadline,
             settings.max_response_chars,
             decisions.reaffirm_decision(
                 decision_id,
-                evidence,
+                supports,
                 fetched_evidence=list(fetched_evidence_for(ctx)),
                 explanation=explanation,
                 request_id=request_id,
@@ -250,14 +249,14 @@ def register_write_tools(
         annotations=_WRITE,
         description="Continue bounded project-scoped decision review propagation.",
     )
-    async def continue_review_propagation(
+    async def continue_decision_review(
         limit: Annotated[int, Field(ge=1, le=100)] = 20,
     ) -> Annotated[CallToolResult, int]:
         """Process at most the requested number of queued review units."""
         return await bounded_result(
             deadline,
             settings.max_response_chars,
-            decisions.continue_review_propagation(limit=limit),
+            decisions.continue_decision_review(limit=limit),
         )
 
     if settings.allow_reject:

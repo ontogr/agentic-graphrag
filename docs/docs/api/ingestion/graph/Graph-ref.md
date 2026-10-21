@@ -22,7 +22,7 @@ A knowledge graph that a caller can open and add content to.
 - [**open**](#agrag-ingestion-graph-Graph-open) – Open a graph, connecting and fully provisioning graph_store.
 - [**purge_document**](#agrag-ingestion-graph-Graph-purge_document) – Hard-delete every stored version of a document and its evidence.
 - [**reevaluate**](#agrag-ingestion-graph-Graph-reevaluate) – Reevaluate matches among the given entities.
-- [**source_status**](#agrag-ingestion-graph-Graph-source_status) – Read a source's version, job lease and discovery index state.
+- [**source_status**](#agrag-ingestion-graph-Graph-source_status) – Read a source's version, job lease and search index state.
 - [**update**](#agrag-ingestion-graph-Graph-update) – Replace one document version, or re-extract it in place.
 
 **Attributes:**
@@ -344,8 +344,8 @@ indexes for every schema entity label, then the full-text index on chunk
 text. A brand-new database is fully ready,
 including the merge_key uniqueness constraints the global exact-match
 tier relies on, the embedding vector indexes native search needs, the
-entity name indexes that entity discovery reads, and the chunk full-text
-index that evidence discovery reads, before this call returns.
+entity name indexes that entity search reads, and the chunk full-text
+index that evidence search reads, before this call returns.
 
 **Parameters:**
 
@@ -478,7 +478,7 @@ highest-similarity pairs are verified first.
 source_status(document_key:str) -> SourceStatus
 ```
 
-Read a source's version, job lease and discovery index state.
+Read a source's version, job lease and search index state.
 
 ## `update` \{#agrag-ingestion-graph-Graph-update}
 
