@@ -134,7 +134,11 @@ class WeaviateVectorStore(VectorStore):
         await self._connected_client()
 
     async def close(self) -> None:
-        """Close connections; repeated calls are harmless."""
+        """Close connections after all requests have finished.
+
+        The caller owns request lifetimes and must await active operations
+        before closing the store. Repeated calls are harmless.
+        """
         async with self._connect_lock:
             if self._client is not None:
                 client, self._client = self._client, None
