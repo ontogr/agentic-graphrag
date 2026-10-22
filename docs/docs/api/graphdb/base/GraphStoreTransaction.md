@@ -18,8 +18,10 @@ anything here.
 
 - [**execute_read**](#agrag-graphdb-base-GraphStoreTransaction-execute_read) – Run a read inside the surrounding transaction.
 - [**execute_write**](#agrag-graphdb-base-GraphStoreTransaction-execute_write) – Run a write inside the surrounding transaction.
+- [**fulltext_copy_set**](#agrag-graphdb-base-GraphStoreTransaction-fulltext_copy_set) – Return `SET` clauses a backend needs to keep written text searchable.
 - [**upsert_nodes**](#agrag-graphdb-base-GraphStoreTransaction-upsert_nodes) – Write or merge nodes inside the surrounding transaction.
 - [**upsert_relations**](#agrag-graphdb-base-GraphStoreTransaction-upsert_relations) – Write or merge relationships inside the surrounding transaction.
+- [**vector_value**](#agrag-graphdb-base-GraphStoreTransaction-vector_value) – Wrap a Cypher expression that holds an embedding for a property write.
 
 ## `execute_read` \{#agrag-graphdb-base-GraphStoreTransaction-execute_read}
 
@@ -36,6 +38,19 @@ execute_write(query:str, parameters:Mapping[str, Any] | None = None) -> list[dic
 ```
 
 Run a write inside the surrounding transaction.
+
+## `fulltext_copy_set` \{#agrag-graphdb-base-GraphStoreTransaction-fulltext_copy_set}
+
+```python
+fulltext_copy_set(alias:str, source:str, properties:Iterable[str]) -> str
+```
+
+Return `SET` clauses a backend needs to keep written text searchable.
+
+**Returns:**
+
+- <code>str</code> – Clauses to add to the write, or an empty string when the backend
+- <code>str</code> – searches the stored text directly.
 
 ## `upsert_nodes` \{#agrag-graphdb-base-GraphStoreTransaction-upsert_nodes}
 
@@ -71,3 +86,16 @@ which is required when `pending_job_id` is set.
 - <code>GraphStoreWriteConflictError</code> – `deferred` is None and a
   relationship is owned by another in-flight job. The
   transaction rolls back.
+
+## `vector_value` \{#agrag-graphdb-base-GraphStoreTransaction-vector_value}
+
+```python
+vector_value(expression:str) -> str
+```
+
+Wrap a Cypher expression that holds an embedding for a property write.
+
+**Returns:**
+
+- <code>str</code> – The expression to assign to a vector property. Backends that store
+- <code>str</code> – a plain float list return `expression` unchanged.

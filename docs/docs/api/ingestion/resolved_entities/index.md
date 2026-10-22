@@ -19,6 +19,7 @@ Non-destructive match persistence and resolved-entity computation.
 - [**compute_resolved_entity**](compute_resolved_entity.md) – Compute a resolved entity from its current member data only.
 - [**deactivate_match_and_rebuild**](deactivate_match_and_rebuild.md) – Deactivate a match and return its replacements and deleted derived IDs.
 - [**decisions_by_component**](decisions_by_component.md) – Map resolution evidence to raw ids and group it by connected component.
+- [**fetch_active_component_members**](fetch_active_component_members.md) – Return the entities joined to each seed by active matches, seed included.
 - [**match_decision_components**](match_decision_components.md) – Group persisted match decisions by their connected raw component.
 - [**matches_id**](matches_id.md) – Return the order-independent deterministic id for an entity match.
 - [**prune_orphaned_entities**](prune_orphaned_entities.md) – Delete candidates with no open-chunk evidence and rebuild clusters.

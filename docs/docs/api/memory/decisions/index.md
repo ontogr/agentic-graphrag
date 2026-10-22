@@ -14,4 +14,5 @@ Evidence-linked decisions scoped to one project.
 **Attributes:**
 
 - [**DECISION_PAGE_LIMIT**](DECISION_PAGE_LIMIT.md) –
+- [**DECISION_TEXT_PROPERTIES**](DECISION_TEXT_PROPERTIES.md) –
 - [**MAX_DECISIONS**](MAX_DECISIONS.md) –

@@ -11,14 +11,18 @@ Graph storage backends and the build shortcut.
 **Modules:**
 
 - [**base**](base/index.md) – The GraphStore abstraction and its build shortcut helpers.
+- [**cypher_store**](cypher_store/index.md) – Write and bookkeeping logic shared by graph stores that speak Cypher.
 - [**entities**](entities/index.md) – Load persisted entities by id.
 - [**errors**](errors/index.md) – Errors that the graph-store layer raises.
+- [**falkordb**](falkordb/index.md) – FalkorDB graph-store backend.
 - [**neo4j**](neo4j/index.md) – Neo4j graph-store backend.
 - [**serialize**](serialize/index.md) – Convert graph records to driver parameters and graph node rows to models.
-- [**settings**](settings/index.md) – Settings for the Neo4j graph-store backend.
+- [**settings**](settings/index.md) – Settings for the graph-store backends.
 
 **Classes:**
 
+- [**FalkorDBGraphStore**](falkordb/FalkorDBGraphStore.md) – A `GraphStore` backed by FalkorDB, using native vector indexes.
+- [**FalkorDBSettings**](settings/FalkorDBSettings.md) – FalkorDB connection configuration.
 - [**GraphStore**](base/GraphStore.md) – A graph database backend: schema, writes, and native vector search.
 - [**GraphStoreError**](errors/GraphStoreError.md) – The base class for every graph-store error.
 - [**GraphStoreMissingExtraError**](errors/GraphStoreMissingExtraError.md) – A graph store exists, but its package extra is not installed.
