@@ -36,7 +36,7 @@ An entity with passages in scope and no visible passage is returned with kind
 - **mode** (<code>[EvidenceSearchMode](../../common/data_models/evidence/EvidenceSearchMode.md)</code>) – Which legs to run.
 - **support_limit** (<code>int</code>) – The most supporting passages listed for each entity. Must
   be positive.
-- **vector_store** (<code>VectorStore | None</code>) – Optional external vector store. Placement is not validated
+- **vector_store** (<code>[VectorStore](../../vectordb/base/VectorStore.md) | None</code>) – Optional external vector store. Placement is not validated
   by this function.
 
 **Returns:**

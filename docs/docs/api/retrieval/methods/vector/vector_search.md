@@ -27,7 +27,7 @@ caller never receives an uncommitted job's node or vector.
 - **filters** (<code>[SearchFilters](../../filters/SearchFilters.md) | None</code>) – Constraints applied as node property filters. Labels choose
   the searched indexes, so they are not sent as property filters.
 - **query_vector** (<code>Sequence\[float\] | None</code>) – Precomputed query embedding. None embeds `query`.
-- **vector_store** (<code>VectorStore | None</code>) – Optional external store for vector candidates.
+- **vector_store** (<code>[VectorStore](../../../vectordb/base/VectorStore.md) | None</code>) – Optional external store for vector candidates.
 - **hybrid** (<code>bool</code>) – Use the store's dense and lexical hybrid search when available.
 - **alpha** (<code>float</code>) – Dense weight for external hybrid search.
 - **tracer** (<code>Tracer | None</code>) – Opens the search span. None opens no recorded span.

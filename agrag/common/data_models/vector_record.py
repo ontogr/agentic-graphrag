@@ -83,7 +83,8 @@ class CollectionInfo(BaseModel):
     Attributes:
         dimensions: Number of dense values in each vector.
         distance: Metric used for dense search.
-        count: Number of records stored in the collection.
+        count: Number of records stored in the collection. A store may report an
+            estimate when the caller declines an exact count.
     """
 
     dimensions: int

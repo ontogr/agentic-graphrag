@@ -45,6 +45,7 @@ docling = ["docling>=2.135"]
 embed-local = ["sentence-transformers>=5"]
 neo4j = ["neo4j>=5.22"]
 falkordb = ["falkordb>=1.8,<2"]
+qdrant = ["qdrant-client>=1.17"]
 mcp = ["mcp>=2.3,<3"]
 observability = [
   "opentelemetry-sdk>=1.20",

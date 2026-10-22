@@ -49,6 +49,8 @@ Add an entry like this one to the MCP configuration of your client:
 
 To read from FalkorDB, set `MCP_GRAPH_STORE` to `falkordb` and set `FALKORDB_URL` (and `FALKORDB_GRAPH` if you use another graph name) in place of the `NEO4J_*` variables. The default is `neo4j`.
 
+If ingestion uses Qdrant, also install the `qdrant` extra and set `MCP_VECTOR_STORE=qdrant`, `QDRANT_URL`, and `QDRANT_COLLECTION_PREFIX` to the ingestion values. Set `QDRANT_API_KEY` for an authenticated endpoint. MCP checks recorded placement before serving requests. [Choose where vectors live](./choose-where-vectors-live.mdx) describes collection configuration and repair. Hybrid evidence searches use one internally fused Qdrant leg, reported as `semantic`; lexical-only search still uses graph full-text indexes.
+
 The server starts read-only. It loads the embedding model on the first semantic or hybrid search. Logs go to stderr, and stdout carries only protocol messages.
 
 ## Read evidence

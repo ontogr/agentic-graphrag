@@ -41,6 +41,21 @@ Class: `FalkorDBSettings`. Prefix: `FALKORDB_`.
 
 `connect` raises `GraphStoreError` when the server's graph module is older than version `42202`, or when the server's `RESULTSET_SIZE` is not `-1`. See [Configure storage backends](../guides/configure-storage-backends.mdx#start-a-falkordb-server-locally) for the server arguments.
 
+## Qdrant
+
+Class: `QdrantSettings`. Prefix: `QDRANT_`. Requires the `qdrant` extra and Qdrant 1.17.0 or later. The graph database remains required.
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `QDRANT_URL` | `http://localhost:6333` | HTTP endpoint. The repository's compose service publishes port `7961`, so set this explicitly for local compose. Remote credentials require HTTPS. The port must be 1 to 65535. |
+| `QDRANT_API_KEY` | none | Authentication secret. Leave unset for an unauthenticated local server. |
+| `QDRANT_REQUIRE_TLS` | `false` | Require HTTPS for remote connections even without a credential. Loopback hosts remain exempt. |
+| `QDRANT_COLLECTION_PREFIX` | required | Unique graph prefix matching `^[A-Za-z][A-Za-z0-9_]{0,40}$`. Four collections use this prefix. |
+| `MCP_VECTOR_STORE` | none | `qdrant` selects external placement in MCP. Unset selects graph-native placement. |
+| `RETRIEVAL_HYBRID_ALPHA` | `0.5` | Dense weight in external hybrid search, from `0.0` (lexical only) to `1.0` (dense only). Graph-native search does not use it. |
+
+Qdrant limits one search to 16384 results. Dense scores use the graph-native scale; hybrid scores carry rank only. Labels are the only payload pre-filter. Document scope and properties are filtered after joining results to the graph. [Choose where vectors live](../guides/choose-where-vectors-live.mdx) describes placement and repair.
+
 ## Embeddings
 
 Class: `EmbeddingSettings`. Prefix: `EMBEDDING_`.

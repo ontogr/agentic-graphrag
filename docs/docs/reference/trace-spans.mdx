@@ -170,6 +170,29 @@ The Neo4j store opens these spans. Reads and writes carry the query text and the
 | `agrag.graphdb.upsert_candidates` | `agrag.record_count` |
 | `agrag.graphdb.vector_search` | `db.collection.name` (the label), `agrag.limit`, `agrag.k_final`, `agrag.index_missing` (when the index does not exist. The search then returns no hits) |
 
+## Qdrant spans
+
+Qdrant operations open spans when a tracer is supplied to `QdrantVectorStore`. Every span carries `db.system.name="qdrant"` and `server.address` containing only the hostname. Collection operations also carry `db.collection.name`. Spans do not record endpoint URLs, API keys, vectors, query text, or source text. SDK errors are translated to sanitized messages before the span ends.
+
+Operations that send a request open a `CLIENT` span. `qdrant.upsert` and `qdrant.delete` open an `INTERNAL` span that groups one `CLIENT` span for each batch.
+
+| Span | Kind | Attributes | Opens when |
+|---|---|---|---|
+| `qdrant.initialize` | `CLIENT` | none | A new client checks server access |
+| `qdrant.close` | `CLIENT` | none | An initialized client closes |
+| `qdrant.ensure_collection` | `CLIENT` | none | Collection schema is created or checked |
+| `qdrant.collection_info` | `CLIENT` | none | Collection configuration is read, with an exact count unless the caller opts out |
+| `qdrant.delete_collection` | `CLIENT` | none | A collection is removed |
+| `qdrant.upsert` | `INTERNAL` | `agrag.record_count` | Records are written in batches |
+| `qdrant.upsert_batch` | `CLIENT` | `db.operation.batch.size` (absent for a single record) | One batch of dense and BM25 vectors is written |
+| `qdrant.search` | `CLIENT` | `agrag.limit` | Dense vectors are searched, including hybrid alpha one |
+| `qdrant.hybrid_search` | `CLIENT` | `agrag.limit`, `agrag.alpha` | BM25 or fused ranks are searched with alpha below one |
+| `qdrant.delete` | `INTERNAL` | `agrag.record_count` | Point IDs are deleted in batches |
+| `qdrant.delete_batch` | `CLIENT` | `db.operation.batch.size` (absent for a single ID) | One batch of point IDs is deleted |
+| `qdrant.list_ids` | `CLIENT` | `agrag.limit` | IDs are read in ascending UUID order |
+
+Every span except `qdrant.initialize` and `qdrant.close` also carries `db.collection.name`.
+
 ## Embedding spans
 
 | Span | Attributes |

@@ -1,0 +1,83 @@
+---
+title: Choose where vectors live
+sidebar_position: 3
+---
+
+# Choose where vectors live
+
+Keep vectors in Neo4j or FalkorDB by default, or store them exclusively in Qdrant. The graph database always keeps documents, entities, relations, provenance, and full-text indexes. One vector placement covers chunks, entities, resolved entities, and communities for the lifetime of a graph.
+
+## Prepare a Qdrant server
+
+You need a configured [graph backend](./configure-storage-backends.mdx), the same embedder for ingestion and search, and Qdrant 1.17.0 or later. Qdrant runs as a separate service. FastEmbed computes BM25 sparse vectors locally from the exact text used for dense embedding.
+
+1. Install the graph driver and the Qdrant extra. Replace `neo4j` with `falkordb` if needed.
+
+   ```bash
+   uv pip install "agentic-graphrag[neo4j,qdrant]"
+   ```
+
+2. For local development from a source checkout, start an isolated Qdrant service. The development volume persists until you explicitly remove it.
+
+   ```bash
+   docker compose -p agrag-qdrant -f docker/docker-compose.dev.yml up -d --wait qdrant
+   ```
+
+   HTTP listens on `127.0.0.1:7961` and gRPC on `127.0.0.1:7962`. Override `QDRANT_HTTP_PORT` and `QDRANT_GRPC_PORT` when another project uses those ports. Use HTTPS and authentication for a remote server.
+
+3. Set the endpoint and a unique prefix for this graph in `.env`.
+
+   ```dotenv
+   QDRANT_URL=http://localhost:7961
+   QDRANT_COLLECTION_PREFIX=project_notes
+   ```
+
+   For an authenticated remote endpoint, also set `QDRANT_API_KEY` and use an `https://` URL. The prefix must start with a letter and contain at most 41 letters, digits, or underscores. Each graph must use its own prefix. Collections are named `<prefix>_chunks`, `<prefix>_entities`, `<prefix>_resolved_entities`, and `<prefix>_communities`.
+
+## Open and search the graph
+
+Pass the Qdrant instance to both ingestion and retrieval. The example assumes `graph_store`, `embedder`, `extractor`, and `schema` are configured as in [Ingest documents](./ingest-documents.mdx).
+
+```python notest
+from agrag.ingestion import Graph
+from agrag.retrieval import CHUNK, SearchEngine
+from agrag.vectordb import QdrantSettings, QdrantVectorStore
+
+vectors = QdrantVectorStore(settings=QdrantSettings())
+graph = await Graph.open(
+    graph_store=graph_store,
+    embedder=embedder,
+    extractor=extractor,
+    schema=schema,
+    vector_store=vectors,
+)
+try:
+    await graph.add(text="Ada worked on the Analytical Engine.")
+    engine = SearchEngine(
+        graph_store=graph_store, embedder=embedder, vector_store=vectors,
+    )
+    result = await engine.search("Who worked on the Analytical Engine?", CHUNK)
+finally:
+    await vectors.close()
+    await graph_store.close()
+```
+
+`Graph.open` creates the four collections and checks their dimensions and distance metric on reopening. With Qdrant configured, ingestion stores no embedding property on graph nodes and creates no graph vector indexes. Each external search result is joined back to graph data before visibility, document scope, and property filters are applied. Entity label filters match any requested label, including ancestor labels.
+
+Dense scores use the graph-native scale. Hybrid search uses Qdrant's weighted reciprocal rank fusion over dense and BM25 results. `RETRIEVAL_HYBRID_ALPHA` defaults to `0.5`; `1.0` returns dense order and graph-native dense scores, `0.0` returns BM25 order and scores while omitting nonmatches, and intermediate values return weighted RRF scores. Treat scores from the hybrid API as ranking values, not a common similarity scale across alpha settings. Resolution candidate searches remain dense. Qdrant searches are capped at 16384 results per call.
+
+Omit `vector_store` everywhere to keep graph-native placement. Placement is fixed per graph. Switching between graph-native and Qdrant, changing the prefix, or changing dimensions or distance requires a separate graph and re-ingestion. `VectorPlacementError` reports a mismatch with recorded placement; `CollectionMismatchError` reports a mismatch with an existing Qdrant collection. Do not delete collections to bypass either check on a graph you intend to keep.
+
+## Repair missing vectors
+
+A failure after a graph write can leave a committed node without a vector. The node cannot appear in vector results until its vector is restored. Reopen the graph with its original placement and run repair manually.
+
+```python notest
+report = await graph.repair_vectors()
+```
+
+The report gives checked, missing, upserted, and pruned counts and failures per kind. Repair adds missing vectors by default. To also delete orphan vectors that have no committed graph node, use `await graph.repair_vectors(prune=True)`. Run repair while ingestion is idle when pruning. Orphan vectors do not appear in search because the graph join drops them.
+
+## Use the same placement in MCP
+
+Install the `mcp` extra too, set `MCP_VECTOR_STORE=qdrant`, and supply the same `QDRANT_*` settings used during ingestion. MCP validates placement at startup. In hybrid evidence search, the store fuses both signals internally and the reported hit has `legs=["semantic"]`. Lexical-only evidence search continues to use the graph full-text index.

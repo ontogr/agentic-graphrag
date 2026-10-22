@@ -1,6 +1,9 @@
 """The in-memory store satisfies the public external-vector contract."""
 
-from collections.abc import AsyncIterator
+import json
+import threading
+from collections.abc import AsyncIterator, Iterator
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from uuid import UUID, uuid4
 
 import pytest
@@ -8,6 +11,7 @@ import pytest
 from agrag.common.data_models.vector_record import Distance, VectorKind, VectorRecord
 from agrag.vectordb.base import VectorStore
 from agrag.vectordb.errors import CollectionMismatchError, VectorStoreError
+from agrag.vectordb.qdrant import QdrantSettings, QdrantVectorStore
 from tests.integration._fake_vector_store import FakeVectorStore
 from tests.integration._vector_backend import build_vector_store, selected_vector_stores
 
@@ -53,6 +57,9 @@ class TestVectorStoreContract:
         info = await vector_store.collection_info(VectorKind.ENTITY)
         assert info is not None
         assert (info.dimensions, info.distance, info.count) == (2, Distance.COSINE, 0)
+        shape = await vector_store.collection_info(VectorKind.ENTITY, exact_count=False)
+        assert shape is not None
+        assert (shape.dimensions, shape.distance) == (2, Distance.COSINE)
 
         with pytest.raises(CollectionMismatchError):
             await vector_store.ensure_collection(
@@ -218,6 +225,12 @@ class TestVectorStoreContract:
         await vector_store.upsert(VectorKind.CHUNK, [replacement])
 
         assert await vector_store.list_ids(VectorKind.CHUNK, limit=1) == [first.id]
+        assert await vector_store.list_ids(VectorKind.CHUNK, limit=0) == []
+        assert await vector_store.list_ids(
+            VectorKind.CHUNK, limit=vector_store.max_results + 1
+        ) == [first.id, second.id]
+        with pytest.raises(ValueError, match="limit"):
+            await vector_store.list_ids(VectorKind.CHUNK, limit=-1)
         assert await vector_store.list_ids(VectorKind.CHUNK, after=first.id) == [
             second.id
         ]
@@ -267,3 +280,55 @@ class TestVectorStoreContract:
             await vector_store.delete(VectorKind.CHUNK, [record.id])
         await vector_store.delete(VectorKind.CHUNK, [record.id])
         assert await vector_store.list_ids(VectorKind.CHUNK) == []
+
+
+class _MisroutedProxy(BaseHTTPRequestHandler):
+    """Answer the reachability check but return 404 for every other route."""
+
+    def do_GET(self) -> None:  # noqa: N802
+        """Serve an empty collection list and reject all other paths."""
+        found = self.path.rstrip("/") == "/collections"
+        body = json.dumps({"result": {"collections": []}, "status": "ok"})
+        self.send_response(200 if found else 404)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        self.wfile.write(body.encode() if found else b"not found")
+
+    do_POST = do_PUT = do_DELETE = do_GET  # noqa: N815
+
+    def log_message(self, format: str, *args: object) -> None:  # noqa: A002
+        """Keep test output quiet."""
+
+
+@pytest.fixture
+def misrouted_url() -> Iterator[str]:
+    """Serve a stand-in for a proxy that forwards to the wrong place."""
+    server = ThreadingHTTPServer(("127.0.0.1", 0), _MisroutedProxy)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield f"http://127.0.0.1:{server.server_port}"
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join()
+
+
+@pytest.mark.skipif(
+    "qdrant" not in selected_vector_stores(), reason="Qdrant is not selected"
+)
+class TestQdrantMissingCollection:
+    """A 404 means an absent collection only when the server confirms it."""
+
+    async def test_unconfirmed_not_found_is_an_error_not_an_empty_result(
+        self, misrouted_url: str
+    ) -> None:
+        """A 404 from the wrong route fails instead of reading as no data."""
+        store = QdrantVectorStore(
+            settings=QdrantSettings(url=misrouted_url, collection_prefix="misrouted")
+        )
+        async with store:
+            with pytest.raises(VectorStoreError, match="HTTP 404"):
+                await store.search(VectorKind.CHUNK, [1.0], limit=1)
+            with pytest.raises(VectorStoreError, match="HTTP 404"):
+                await store.list_ids(VectorKind.CHUNK)

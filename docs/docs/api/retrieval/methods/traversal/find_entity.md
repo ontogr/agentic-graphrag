@@ -33,7 +33,7 @@ into traversal seeds.
   label override. An entity that exists only outside this
   scope resolves to None, the same as one that does not
   exist.
-- **vector_store** (<code>VectorStore | None</code>) – Optional external vector store for entity candidates.
+- **vector_store** (<code>[VectorStore](../../../vectordb/base/VectorStore.md) | None</code>) – Optional external vector store for entity candidates.
 - **tracer** (<code>Tracer | None</code>) – Opens the root span and flows to the entity retriever.
   None opens no recorded span.
 

@@ -407,7 +407,8 @@ async def _dimensions_mismatch(
             raise ToolError(_EMBEDDER_UNAVAILABLE) from None
         try:
             collections = [
-                await vector_store.collection_info(kind) for kind in VectorKind
+                await vector_store.collection_info(kind, exact_count=False)
+                for kind in VectorKind
             ]
         except Exception:
             _LOGGER.exception("Could not read external vector dimensions")

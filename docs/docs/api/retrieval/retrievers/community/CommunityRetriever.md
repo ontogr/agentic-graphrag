@@ -26,7 +26,7 @@ Dense search over community reports, for direct thematic questions.
 - **graph_store** (<code>[GraphStore](../../../graphdb/base/GraphStore.md)</code>) – Where community nodes live.
 - **embedder** (<code>[Embedder](../../../embedding/base/Embedder.md)</code>) – Produces query vectors.
 - **settings** (<code>[RetrievalSettings](../../settings/RetrievalSettings.md) | None</code>) – Retrieval configuration. Defaults from environment.
-- **vector_store** (<code>VectorStore | None</code>) – External vector store, when configured.
+- **vector_store** (<code>[VectorStore](../../../vectordb/base/VectorStore.md) | None</code>) – External vector store, when configured.
 - **tracer** (<code>Tracer | None</code>) – Opens spans for the retriever and its children. None
   opens no recorded span.
 

@@ -48,8 +48,14 @@ class VectorStore(ABC):
         """
 
     @abstractmethod
-    async def collection_info(self, kind: VectorKind) -> CollectionInfo | None:
-        """Return collection metadata, or None if it does not exist."""
+    async def collection_info(
+        self, kind: VectorKind, *, exact_count: bool = True
+    ) -> CollectionInfo | None:
+        """Return collection metadata, or None if it does not exist.
+
+        Callers that need only dimensions or existence pass ``exact_count=False``
+        so the store can skip a full count and report its cheaper estimate.
+        """
 
     @abstractmethod
     async def delete_collection(self, kind: VectorKind) -> None:
@@ -97,7 +103,11 @@ class VectorStore(ABC):
     async def list_ids(
         self, kind: VectorKind, *, after: UUID | None = None, limit: int = 1000
     ) -> list[UUID]:
-        """Return ids in ascending order, strictly after the exclusive cursor."""
+        """Return ids in ascending order, strictly after the exclusive cursor.
+
+        A limit of zero returns no ids and a negative limit raises ValueError.
+        Limits above max_results are allowed.
+        """
 
     def collection_name(self, kind: VectorKind) -> str:
         """Return the prefixed collection name for a kind."""

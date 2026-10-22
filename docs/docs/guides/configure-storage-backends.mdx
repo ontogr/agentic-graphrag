@@ -7,6 +7,8 @@ title: Configure storage backends
 
 Connect to Neo4j or FalkorDB to store the graph, embeddings, full-text indexes, and vector indexes. Both backends support ingestion, retrieval, and agent memory. Choose by [transaction and search behavior](../concepts/graph-storage.mdx#choose-a-backend), then follow the setup for that server.
 
+Vectors stay in the graph database by default. To use an exclusive Qdrant index instead, [choose where vectors live](./choose-where-vectors-live.mdx). The graph database and its full-text indexes are required in either case.
+
 ## Before you start
 
 You need Python 3.11 or newer and a running graph database. Install the Python driver extra for the backend you choose. The extra does not install the database server. Embedding and extraction models run separately from the database.

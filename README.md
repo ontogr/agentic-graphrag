@@ -40,6 +40,8 @@ Use Neo4j or FalkorDB for the graph, embeddings, full-text indexes, and vector i
 
 Pass the selected store to `Graph.open`, retrieval, or `build_agent`. For MCP, set `MCP_GRAPH_STORE=neo4j` or `MCP_GRAPH_STORE=falkordb`. The [backend setup guide](https://ontogr.github.io/agentic-graphrag/latest/guides/configure-storage-backends) includes server commands and connection settings. The [backend comparison](https://ontogr.github.io/agentic-graphrag/latest/concepts/graph-storage) explains search and transaction differences. Selecting another backend does not migrate existing data.
 
+To keep vectors exclusively in Qdrant instead of on graph nodes, install the `qdrant` extra and pass a `QdrantVectorStore` to ingestion and retrieval. The graph database still holds documents, relations, and full-text indexes. [Choose where vectors live](https://ontogr.github.io/agentic-graphrag/latest/guides/choose-where-vectors-live) to configure a unique collection prefix, use the same placement in MCP, and repair missing vectors.
+
 ## Features
 
 ### One graph for documents, tasks, and decisions
