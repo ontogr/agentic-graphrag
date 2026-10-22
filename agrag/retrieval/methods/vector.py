@@ -138,7 +138,7 @@ async def _external_search(
     kind = next(iter(kinds))
     search_labels = list(labels) if kind is VectorKind.ENTITY else None
     fetch = min(limit * 4, vector_store.max_results)
-    statement, params = external_hits_query(filters)
+    statement, params = external_hits_query(filters, kind=kind)
     hits: list[VectorHit] = []
     while True:
         if hybrid:

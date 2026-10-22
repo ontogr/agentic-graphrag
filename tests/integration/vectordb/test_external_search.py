@@ -9,7 +9,11 @@ from agrag.retrieval.recipes import Recipe
 from agrag.retrieval.search_engine import SearchEngine
 from tests.conftest import FAKE_EMBEDDING_DIMENSIONS
 from tests.integration._fake_vector_store import FakeVectorStore
-from tests.integration.retrieval.evidence._corpus import BagOfWordsEmbedder
+from tests.integration.retrieval.evidence._corpus import (
+    HARBOR_TEXT_V2,
+    BagOfWordsEmbedder,
+    sha256_of,
+)
 from tests.integration.retrieval.evidence.conftest import EvidenceEnv
 
 
@@ -43,6 +47,61 @@ async def _populate_chunks(env: EvidenceEnv, vector_store: FakeVectorStore) -> N
 
 class TestExternalSearch:
     """External search filters stale vector ids and fetches beyond orphans."""
+
+    async def test_retired_chunks_do_not_consume_the_external_fetch_limit(
+        self, evidence_env: EvidenceEnv
+    ) -> None:
+        """Current chunks fill the result after retired hits are filtered."""
+        vector_store = FakeVectorStore(collection_prefix=uuid4().hex[:8])
+        embedder = BagOfWordsEmbedder()
+        try:
+            await _populate_chunks(evidence_env, vector_store)
+            old_rows = await evidence_env.store.execute_read(
+                "MATCH (document:Document {document_key: $key})"
+                "-[part:HAS_PART]->(chunk:Chunk) "
+                "WHERE part.invalid_at IS NULL "
+                "RETURN chunk.id AS id, chunk.text AS text",
+                {"key": evidence_env.harbor},
+            )
+            assert len(old_rows) >= 4
+
+            await evidence_env.graph.update(evidence_env.harbor, text=HARBOR_TEXT_V2)
+            await _populate_chunks(evidence_env, vector_store)
+            retirement_probe = [0.01] * FAKE_EMBEDDING_DIMENSIONS
+            await vector_store.upsert(
+                VectorKind.CHUNK,
+                [
+                    VectorRecord(
+                        id=UUID(str(row["id"])),
+                        vector=retirement_probe,
+                        labels=["Chunk"],
+                        text="retirement probe",
+                    )
+                    for row in old_rows
+                ],
+            )
+            document_rows = await evidence_env.store.execute_read(
+                "MATCH (document:Document {document_key: $key}) "
+                "RETURN document.id AS id",
+                {"key": evidence_env.harbor},
+            )
+            document_id = str(document_rows[0]["id"])
+            engine = SearchEngine(
+                graph_store=evidence_env.store,
+                embedder=embedder,
+                vector_store=vector_store,
+            )
+
+            results = await engine.search(
+                "retirement probe",
+                Recipe(methods=["chunk"], limit=1),
+                filters=SearchFilters(document_ids=[document_id]),
+            )
+
+            assert len(results) == 1
+            assert results[0].item.content_hash == sha256_of(HARBOR_TEXT_V2)
+        finally:
+            await vector_store.close()
 
     async def test_document_filter_survives_orphan_overfetch(
         self, evidence_env: EvidenceEnv

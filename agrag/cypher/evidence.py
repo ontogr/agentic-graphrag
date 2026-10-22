@@ -106,13 +106,17 @@ def entity_candidates_from_rows_query() -> str:
 
     Returns:
         Parameterized Cypher expecting ``$rows`` with ``id`` and ``score`` and
-        returning entity ids and scores in score order.
+        ``$labels`` with the selected entity labels. It returns matching entity
+        ids, scores and labels in score order.
     """
     return (
         "UNWIND $rows AS row "
         f"MATCH (node:{NODE_IDENTITY_LABEL} {{id: row.id}}) "
         f"WHERE {pending_filter_clause('node')} "
-        "RETURN node.id AS entity_id, row.score AS score "
+        "AND any(selected_label IN $labels WHERE selected_label IN labels(node)) "
+        "RETURN node.id AS entity_id, row.score AS score, "
+        "head([selected_label IN $labels "
+        "WHERE selected_label IN labels(node)]) AS label "
         "ORDER BY score DESC, entity_id"
     )
 

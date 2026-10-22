@@ -202,42 +202,67 @@ async def entity_search(
             status=EvidenceSearchStatus.INDEX_NOT_READY, index_state=index_state
         )
 
-    candidate_count = min(limit * _CANDIDATE_MULTIPLIER, _MAX_CANDIDATES)
-    rankings: dict[EvidenceSearchLeg, _Ranked] = {}
-    failures: list[LegFailure] = []
-    for leg in legs:
-        try:
-            rankings[leg] = await _leg_candidates(
-                store,
-                embedder,
-                leg=leg,
-                query=query,
-                labels=entity_labels,
-                count=candidate_count,
-                vector_store=vector_store,
-                hybrid=mode is EvidenceSearchMode.HYBRID,
-                alpha=RetrievalSettings().hybrid_alpha,
-            )
-        except Exception:
-            _LOGGER.exception("Entity search leg %s failed", leg.value)
-            failures.append(LegFailure(leg=leg, message=_LEG_FAILED_MESSAGE))
+    candidate_cap = (
+        min(_MAX_CANDIDATES, vector_store.max_results)
+        if vector_store is not None and EvidenceSearchLeg.SEMANTIC in legs
+        else _MAX_CANDIDATES
+    )
+    candidate_count = min(limit * _CANDIDATE_MULTIPLIER, candidate_cap)
+    while True:
+        rankings: dict[EvidenceSearchLeg, _Ranked] = {}
+        failures: list[LegFailure] = []
+        for leg in legs:
+            try:
+                rankings[leg] = await _leg_candidates(
+                    store,
+                    embedder,
+                    leg=leg,
+                    query=query,
+                    labels=entity_labels,
+                    count=candidate_count,
+                    vector_store=vector_store,
+                    hybrid=mode is EvidenceSearchMode.HYBRID,
+                    alpha=RetrievalSettings().hybrid_alpha,
+                )
+            except Exception:
+                _LOGGER.exception("Entity search leg %s failed", leg.value)
+                failures.append(LegFailure(leg=leg, message=_LEG_FAILED_MESSAGE))
 
-    candidate_ids = {
-        candidate.entity_id
-        for ranked in rankings.values()
-        for candidate in ranked.candidates
-    }
-    try:
-        visible = await _load_visible(store, candidate_ids, scope, support_limit)
-    except Exception:
-        _LOGGER.exception("Entity support query failed")
-        return EntityResult(
-            status=EvidenceSearchStatus.FAILED,
-            index_state=index_state,
-            failures=[
-                LegFailure(leg=leg, message=_STORE_ERROR_MESSAGE) for leg in legs
-            ],
+        candidate_ids = {
+            candidate.entity_id
+            for ranked in rankings.values()
+            for candidate in ranked.candidates
+        }
+        try:
+            visible = await _load_visible(store, candidate_ids, scope, support_limit)
+        except Exception:
+            _LOGGER.exception("Entity support query failed")
+            return EntityResult(
+                status=EvidenceSearchStatus.FAILED,
+                index_state=index_state,
+                failures=[
+                    LegFailure(leg=leg, message=_STORE_ERROR_MESSAGE) for leg in legs
+                ],
+            )
+
+        external_ranking = rankings.get(EvidenceSearchLeg.SEMANTIC)
+        visible_count = (
+            sum(
+                candidate.entity_id in visible
+                for candidate in external_ranking.candidates
+            )
+            if external_ranking is not None
+            else 0
         )
+        if (
+            vector_store is None
+            or external_ranking is None
+            or not external_ranking.ceiling
+            or visible_count >= limit
+            or candidate_count >= candidate_cap
+        ):
+            break
+        candidate_count = min(candidate_count * _CANDIDATE_MULTIPLIER, candidate_cap)
 
     hits = _combine(rankings, visible, mode=mode, limit=limit)
     truncated = any(ranked.ceiling for ranked in rankings.values())
@@ -453,6 +478,45 @@ async def _leg_candidates(
 
     found: list[_Candidate] = []
     ceiling = False
+    if leg is EvidenceSearchLeg.SEMANTIC and vector_store is not None:
+        store_hits = (
+            await vector_store.hybrid_search(
+                VectorKind.ENTITY,
+                vector,
+                query,
+                limit=count,
+                alpha=alpha,
+                labels=labels,
+            )
+            if hybrid
+            else await vector_store.search(
+                VectorKind.ENTITY, vector, limit=count, labels=labels
+            )
+        )
+        rows = (
+            await store.execute_read(
+                entity_candidates_from_rows_query(),
+                {
+                    "rows": [
+                        {"id": str(hit.id), "score": hit.score} for hit in store_hits
+                    ],
+                    "labels": list(labels),
+                },
+            )
+            if store_hits
+            else []
+        )
+        ceiling = len(store_hits) >= count
+        found.extend(
+            _Candidate(str(row["entity_id"]), float(row["score"]), str(row["label"]))
+            for row in rows
+        )
+        found.sort(key=lambda candidate: (-candidate.score, candidate.entity_id))
+        first_seen: dict[str, _Candidate] = {}
+        for candidate in found:
+            first_seen.setdefault(candidate.entity_id, candidate)
+        return _Ranked(candidates=list(first_seen.values()), ceiling=ceiling)
+
     for label in labels:
         if leg is EvidenceSearchLeg.LEXICAL:
             call = await store.fulltext_search_call(
@@ -465,43 +529,6 @@ async def _leg_candidates(
                 "k": count,
             }
         else:
-            if vector_store is not None:
-                store_hits = (
-                    await vector_store.hybrid_search(
-                        VectorKind.ENTITY,
-                        vector,
-                        query,
-                        limit=count,
-                        alpha=alpha,
-                        labels=[label],
-                    )
-                    if hybrid
-                    else await vector_store.search(
-                        VectorKind.ENTITY,
-                        vector,
-                        limit=count,
-                        labels=[label],
-                    )
-                )
-                rows = (
-                    await store.execute_read(
-                        entity_candidates_from_rows_query(),
-                        {
-                            "rows": [
-                                {"id": str(hit.id), "score": hit.score}
-                                for hit in store_hits
-                            ]
-                        },
-                    )
-                    if store_hits
-                    else []
-                )
-                ceiling = ceiling or len(store_hits) >= count
-                found.extend(
-                    _Candidate(str(row["entity_id"]), float(row["score"]), label)
-                    for row in rows
-                )
-                continue
             call = await store.vector_search_call(
                 label=label, vector_property=_EMBEDDING_PROPERTY
             )
