@@ -8,6 +8,13 @@
 # Data persists in the falkordb-data volume. Run down -v to remove the volume.
 
 services:
+  qdrant:
+    extends:
+      file: docker-compose.ci.yml
+      service: qdrant
+    volumes:
+      - qdrant-data:/qdrant/storage
+
   falkordb:
     image: falkordb/falkordb:v4.22.2
     environment:
@@ -27,3 +34,4 @@ services:
 
 volumes:
   falkordb-data:
+  qdrant-data:

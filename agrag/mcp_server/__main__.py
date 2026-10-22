@@ -11,6 +11,7 @@ from agrag.embedding import EmbeddingSettings, FastEmbedEmbedder
 from agrag.graphdb import build_graph_store
 from agrag.mcp_server.errors import McpServerMissingExtraError
 from agrag.mcp_server.settings import McpServerSettings
+from agrag.vectordb import build_vector_store
 
 
 _EXIT_INVALID_SETTINGS = 2
@@ -46,8 +47,23 @@ def main() -> None:
 
     store = build_graph_store(settings.graph_store)
     embedder = FastEmbedEmbedder(settings=EmbeddingSettings())
-    server = build_server(store, embedder, settings)
-    anyio.run(serve_stdio, server, store)
+    if settings.vector_store is None:
+        server = build_server(store, embedder, settings)
+        anyio.run(serve_stdio, server, store)
+        return
+
+    vectors = build_vector_store(settings.vector_store)
+
+    async def serve() -> None:
+        """Keep vector client initialization and shutdown in the server loop."""
+        try:
+            await vectors.initialize()
+            server = build_server(store, embedder, settings, vector_store=vectors)
+            await serve_stdio(server, store)
+        finally:
+            await vectors.close()
+
+    anyio.run(serve)
 
 
 if __name__ == "__main__":

@@ -20,6 +20,8 @@ class McpServerSettings(BaseSettings):
         graph_store: The graph store the server reads, ``neo4j`` or
             ``falkordb``. The store's own settings come from its usual
             environment variables. Env: ``MCP_GRAPH_STORE``.
+        vector_store: Optional exclusive vector index. None keeps graph-native
+            placement. Env: ``MCP_VECTOR_STORE``.
         scope_document_keys: Comma-separated keys of the documents the server
             may read. Env: ``MCP_SCOPE_DOCUMENT_KEYS``.
         max_hits: The most hits one search returns. Env: ``MCP_MAX_HITS``.
@@ -57,6 +59,7 @@ class McpServerSettings(BaseSettings):
     )
 
     graph_store: Literal["neo4j", "falkordb"] = "neo4j"
+    vector_store: Literal["qdrant"] | None = None
     scope_document_keys: str = ""
     max_hits: int = Field(default=10, ge=1)
     max_snippet_chars: int = Field(default=240, ge=1)

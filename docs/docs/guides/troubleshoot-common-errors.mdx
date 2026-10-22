@@ -8,6 +8,18 @@ description: Find an Agentic GraphRAG error message, learn the cause, and apply 
 
 Neo4j examples use server version 5.26 and the driver version in the lock file. FalkorDB connection checks require version 4.22.2 or later. Exact error text can differ between versions.
 
+## External vector search fails
+
+| Symptom | Check | Fix |
+| --- | --- | --- |
+| `VectorPlacementError` on open or MCP startup | Compare the configured store, prefix, dimensions, and distance with those used for ingestion. | Restore the ingestion configuration. To change placement, re-ingest into a separate graph. |
+| `CollectionMismatchError` | Check the dimensions and metric of the named Qdrant collection. | Use the original embedder and collection prefix. Do not reuse another graph's prefix. |
+| `VectorStoreMissingExtraError` | Check whether the `qdrant` extra is installed. | Install `agentic-graphrag[qdrant]` alongside the graph driver extra. |
+| `VectorStoreError` during hybrid search | Check server version and connectivity. | Use Qdrant 1.17.0 or later for weighted RRF and verify `QDRANT_URL` and authentication. |
+| Committed nodes are absent from vector results after a failed write | Inspect the ingestion failure report and collection counts. | Run `await graph.repair_vectors()` with the original placement, then repeat the search. |
+
+[Configure external placement](./choose-where-vectors-live.mdx) before opening the graph or starting MCP.
+
 ## FalkorDB refuses to connect
 
 | Symptom | Cause | Fix |
