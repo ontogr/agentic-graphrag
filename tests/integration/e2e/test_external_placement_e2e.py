@@ -154,10 +154,11 @@ class TestExternalPlacementE2E:
                 "qdrant.delete_batch",
                 "qdrant.list_ids",
             }
-            groups = {"qdrant.upsert", "qdrant.delete"}
             for span in spans:
                 assert span.kind == (
-                    SpanKind.INTERNAL if span.name in groups else SpanKind.CLIENT
+                    SpanKind.INTERNAL
+                    if span.name in {"qdrant.upsert", "qdrant.delete"}
+                    else SpanKind.CLIENT
                 )
                 attributes = span.attributes or {}
                 assert attributes["db.system.name"] == "qdrant"
@@ -169,20 +170,27 @@ class TestExternalPlacementE2E:
                         == f"{settings.collection_prefix}_chunks"
                     )
                 assert "private trace sentinel" not in str(attributes)
-            attributes_by_name = {
-                span.name: dict(span.attributes or {}) for span in spans
+            counts = {
+                span.name: (span.attributes or {}).get("agrag.record_count")
+                for span in spans
+                if span.name in {"qdrant.upsert", "qdrant.delete"}
             }
-            assert attributes_by_name["qdrant.upsert"]["agrag.record_count"] == 2
-            assert attributes_by_name["qdrant.delete"]["agrag.record_count"] == 2
-            assert attributes_by_name["qdrant.search"]["agrag.limit"] == 1
-            assert attributes_by_name["qdrant.hybrid_search"]["agrag.limit"] == 1
+            assert counts == {"qdrant.upsert": 2, "qdrant.delete": 2}
+            limits = {
+                span.name: (span.attributes or {}).get("agrag.limit")
+                for span in spans
+                if span.name in {"qdrant.search", "qdrant.hybrid_search"}
+            }
+            assert limits == {"qdrant.search": 1, "qdrant.hybrid_search": 1}
             group = next(span for span in spans if span.name == "qdrant.upsert")
             batches = [span for span in spans if span.name == "qdrant.upsert_batch"]
-            assert len(batches) == 2
-            for batch in batches:
-                assert (batch.attributes or {})["db.operation.batch.size"] == 1
-                assert batch.parent is not None
-                assert batch.parent.span_id == group.context.span_id
+            assert [
+                (
+                    (batch.attributes or {})["db.operation.batch.size"],
+                    batch.parent.span_id if batch.parent else None,
+                )
+                for batch in batches
+            ] == [(1, group.context.span_id)] * 2
             artifact = write_artifact(
                 "external_placement_qdrant_tracing", {"spans": sorted(names)}
             )

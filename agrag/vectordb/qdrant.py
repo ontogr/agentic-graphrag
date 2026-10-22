@@ -228,7 +228,8 @@ class QdrantVectorStore(VectorStore):
                 raise CollectionMismatchError("Collection bm25 vector requires IDF")
             dense = vectors["dense"]
             if exact_count:
-                count = (await client.count(self.collection_name(kind), exact=True)).count
+                counted = await client.count(self.collection_name(kind), exact=True)
+                count = counted.count
             else:
                 count = info.points_count or 0
             return CollectionInfo(
