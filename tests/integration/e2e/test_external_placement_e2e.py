@@ -5,17 +5,26 @@ suite owns its graph database; collections use a unique prefix per test.
 """
 
 import hashlib
+import os
+import sys
 from collections.abc import Sequence
+from pathlib import Path
 from uuid import uuid4
 
 import pytest
+from mcp import Client, StdioServerParameters
 
 from agrag.common.data_models.chunk import Chunk
 from agrag.common.data_models.document import Document, DocumentFamily, SourceFormat
-from agrag.common.data_models.evidence import EvidenceSearchMode, EvidenceSearchStatus
+from agrag.common.data_models.evidence import (
+    EvidenceSearchMode,
+    EvidenceSearchResult,
+    EvidenceSearchStatus,
+)
 from agrag.common.data_models.extraction import ExtractionResult
 from agrag.common.data_models.graph_schema import EntityType, GraphSchema
 from agrag.common.data_models.vector_record import VectorKind
+from agrag.embedding import FastEmbedEmbedder
 from agrag.embedding.base import Embedder
 from agrag.evidence import search_evidence
 from agrag.ingestion.extract import Extractor
@@ -85,6 +94,73 @@ def _document(key: str, text: str) -> Document:
 @pytest.mark.neo4j_only
 class TestExternalPlacementE2E:
     """A real external index tracks committed graph data without graph embeddings."""
+
+    @pytest.mark.parametrize("backend", _BACKENDS)
+    async def test_mcp_subprocess_searches_external_placement(
+        self, backend: str
+    ) -> None:
+        """The configured CLI opens, searches and closes a real external index."""
+        store = build_test_store()
+        prefix = f"mcp_{uuid4().hex[:12]}"
+        vectors = build_vector_store(backend, collection_prefix=prefix)
+        key = "external://mcp"
+        schema = GraphSchema(
+            name="external_mcp",
+            version="1",
+            entities=[EntityType(label="ExternalTopic", description="A topic.")],
+            relations=[],
+        )
+        await store.connect()
+        await store.execute_write("MATCH (node) DETACH DELETE node")
+        try:
+            graph = await Graph.open(
+                schema=schema,
+                graph_store=store,
+                embedder=FastEmbedEmbedder(),
+                extractor=_Extractor(),
+                vector_store=vectors,
+            )
+            await graph.add(
+                documents=[_document(key, "Orbit mechanics describe satellite motion.")]
+            )
+            args = ["-m", "agrag.mcp_server"]
+            if os.environ.get("COVERAGE_FILE"):
+                args = ["-m", "coverage", "run", "--parallel-mode", *args]
+            parameters = StdioServerParameters(
+                command=sys.executable,
+                args=args,
+                env={
+                    **os.environ,
+                    "MCP_GRAPH_STORE": "neo4j",
+                    "MCP_VECTOR_STORE": backend,
+                    "MCP_SCOPE_DOCUMENT_KEYS": key,
+                    f"{backend.upper()}_COLLECTION_PREFIX": prefix,
+                },
+                cwd=str(Path(__file__).resolve().parents[3]),
+            )
+            async with Client(parameters, raise_exceptions=True) as client:
+                listing = await client.list_tools()
+                result = await client.call_tool(
+                    "search_evidence", {"query": "orbit", "mode": "hybrid"}
+                )
+                evidence = EvidenceSearchResult.model_validate(
+                    result.structured_content
+                )
+            assert "search_evidence" in [tool.name for tool in listing.tools]
+            assert evidence.status == EvidenceSearchStatus.OK
+            assert [hit.document_key for hit in evidence.hits] == [key]
+            assert "Orbit mechanics" in evidence.hits[0].snippet
+            artifact = write_artifact(
+                f"external_mcp_{backend}",
+                {"backend": backend, "hit": evidence.hits[0].snippet},
+            )
+            assert artifact["hit"] == "Orbit mechanics describe satellite motion."
+        finally:
+            for kind in VectorKind:
+                await vectors.delete_collection(kind)
+            await vectors.close()
+            await store.execute_write("MATCH (node) DETACH DELETE node")
+            await store.close()
 
     @pytest.mark.parametrize("backend", _BACKENDS)
     async def test_document_lifecycle_and_repair(self, backend: str) -> None:  # noqa: PLR0915
