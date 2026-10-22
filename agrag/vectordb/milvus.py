@@ -5,14 +5,15 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from collections.abc import AsyncGenerator, Sequence
+from collections.abc import AsyncGenerator, Mapping, Sequence
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, ClassVar
 from urllib.parse import urlparse
 from uuid import UUID
 from weakref import WeakKeyDictionary
 
-from opentelemetry.trace import SpanKind, Tracer, get_tracer
+from opentelemetry.trace import SpanKind, Tracer
+from opentelemetry.util.types import AttributeValue
 from pydantic import SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -27,6 +28,7 @@ from agrag.common.validation import (
     require_encrypted_remote_connection,
     require_positive_batch_size,
 )
+from agrag.observability import get_tracer
 from agrag.vectordb.base import VectorStore
 from agrag.vectordb.errors import (
     CollectionMismatchError,
@@ -120,7 +122,7 @@ class MilvusVectorStore(VectorStore):
         """Configure settings and operation tracing without connecting the SDK."""
         self.settings = settings if settings is not None else MilvusSettings()
         self.collection_prefix = self.settings.collection_prefix
-        self._tracer = tracer if tracer is not None else get_tracer(__name__)
+        self._tracer = get_tracer(tracer)
         self._client: AsyncMilvusClient | None = None
         self._connect_lock = asyncio.Lock()
 
@@ -285,13 +287,19 @@ class MilvusVectorStore(VectorStore):
                     f"of at most {_MAX_LABEL_BYTES} bytes"
                 )
         truncated = False
-        async with self._connection("upsert", kind) as client:
+        async with self._connection(
+            "upsert",
+            kind,
+            internal=True,
+            attributes={"agrag.record_count": len(records)},
+        ) as client:
             name = self.collection_name(kind)
             if not await client.has_collection(name):
                 raise VectorStoreError(f"Milvus collection {name!r} does not exist")
             for offset in range(0, len(records), batch_size):
+                batch = records[offset : offset + batch_size]
                 rows = []
-                for record in records[offset : offset + batch_size]:
+                for record in batch:
                     encoded = record.text.encode("utf-8")
                     truncated |= len(encoded) > _MAX_TEXT_BYTES
                     rows.append(
@@ -304,7 +312,8 @@ class MilvusVectorStore(VectorStore):
                             ),
                         }
                     )
-                await client.upsert(name, data=rows)
+                with self._batch_span("upsert_batch", kind, len(batch)):
+                    await client.upsert(name, data=rows)
         if truncated:
             _logger.warning(
                 "Milvus BM25 text truncated to %d UTF-8 bytes", _MAX_TEXT_BYTES
@@ -322,7 +331,9 @@ class MilvusVectorStore(VectorStore):
         self._validate_limit(limit)
         if labels is not None and not labels:
             return []
-        async with self._connection("search", kind) as client:
+        async with self._connection(
+            "search", kind, attributes={"agrag.limit": limit}
+        ) as client:
             name = self.collection_name(kind)
             if not await client.has_collection(name):
                 return []
@@ -368,7 +379,11 @@ class MilvusVectorStore(VectorStore):
             return await self.search(kind, vector, limit=limit, labels=labels)
         if labels is not None and not labels:
             return []
-        async with self._connection("hybrid_search", kind) as client:
+        async with self._connection(
+            "hybrid_search",
+            kind,
+            attributes={"agrag.limit": limit, "agrag.alpha": alpha},
+        ) as client:
             name = self.collection_name(kind)
             if not await client.has_collection(name):
                 return []
@@ -428,15 +443,19 @@ class MilvusVectorStore(VectorStore):
         """
         if not ids:
             return
-        async with self._connection("delete", kind) as client:
+        async with self._connection(
+            "delete",
+            kind,
+            internal=True,
+            attributes={"agrag.record_count": len(ids)},
+        ) as client:
             name = self.collection_name(kind)
             if not await client.has_collection(name):
                 return
             for offset in range(0, len(ids), 256):
-                await client.delete(
-                    name,
-                    ids=[str(record_id) for record_id in ids[offset : offset + 256]],
-                )
+                batch = ids[offset : offset + 256]
+                with self._batch_span("delete_batch", kind, len(batch)):
+                    await client.delete(name, ids=[str(item) for item in batch])
 
     async def list_ids(
         self, kind: VectorKind, *, after: UUID | None = None, limit: int = 1000
@@ -447,7 +466,9 @@ class MilvusVectorStore(VectorStore):
         which is also UUID numeric order. Pages do not form a concurrent snapshot.
         """
         self._validate_limit(limit)
-        async with self._connection("list_ids", kind) as client:
+        async with self._connection(
+            "list_ids", kind, attributes={"agrag.limit": limit}
+        ) as client:
             name = self.collection_name(kind)
             if not await client.has_collection(name):
                 return []
@@ -463,7 +484,12 @@ class MilvusVectorStore(VectorStore):
 
     @asynccontextmanager
     async def _connection(
-        self, operation: str, kind: VectorKind
+        self,
+        operation: str,
+        kind: VectorKind,
+        *,
+        internal: bool = False,
+        attributes: Mapping[str, AttributeValue] | None = None,
     ) -> AsyncGenerator[AsyncMilvusClient]:
         """Trace operations and translate SDK errors without credential values."""
         await self.initialize()
@@ -474,10 +500,11 @@ class MilvusVectorStore(VectorStore):
             raise VectorStoreError("Milvus client is closed")
         with self._tracer.start_as_current_span(
             f"agrag.vectordb.{operation}",
-            kind=SpanKind.CLIENT,
+            kind=SpanKind.INTERNAL if internal else SpanKind.CLIENT,
             attributes={
                 "db.system.name": "milvus",
                 "db.collection.name": self.collection_name(kind),
+                **(attributes or {}),
             },
             record_exception=False,
         ):
@@ -489,6 +516,21 @@ class MilvusVectorStore(VectorStore):
                 raise VectorStoreError(
                     f"Milvus {operation} failed ({type(error).__name__}{diagnostic})"
                 ) from None
+
+    def _batch_span(self, operation: str, kind: VectorKind, size: int):
+        """Open a client span for one batch, reporting size only above one."""
+        attributes: dict[str, AttributeValue] = {
+            "db.system.name": "milvus",
+            "db.collection.name": self.collection_name(kind),
+        }
+        if size > 1:
+            attributes["db.operation.batch.size"] = size
+        return self._tracer.start_as_current_span(
+            f"agrag.vectordb.{operation}",
+            kind=SpanKind.CLIENT,
+            attributes=attributes,
+            record_exception=False,
+        )
 
     async def _metadata(
         self, client: AsyncMilvusClient, name: str

@@ -46,7 +46,14 @@ class TestMilvusVectorStore:
         assert hits[0].score == pytest.approx(1.0, abs=0.001)
         assert record.text.endswith("é")
 
-        client = AsyncMilvusClient(uri=milvus_store.settings.uri)
+        client = AsyncMilvusClient(
+            uri=milvus_store.settings.uri,
+            token=(
+                milvus_store.settings.token.get_secret_value()
+                if milvus_store.settings.token
+                else ""
+            ),
+        )
         try:
             rows = await client.query(
                 milvus_store.collection_name(VectorKind.ENTITY),
@@ -116,7 +123,14 @@ class TestMilvusVectorStore:
         from pymilvus import AsyncMilvusClient  # noqa: PLC0415
 
         await milvus_store.delete_collection(VectorKind.ENTITY)
-        client = AsyncMilvusClient(uri=milvus_store.settings.uri)
+        client = AsyncMilvusClient(
+            uri=milvus_store.settings.uri,
+            token=(
+                milvus_store.settings.token.get_secret_value()
+                if milvus_store.settings.token
+                else ""
+            ),
+        )
         try:
             await client.create_collection(
                 milvus_store.collection_name(VectorKind.ENTITY),
