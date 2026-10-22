@@ -25,7 +25,7 @@ scale; hybrid scores are ranks only. Searches accept at most 16384 results.
 **Functions:**
 
 - [**close**](#agrag-vectordb-qdrant-QdrantVectorStore-close) – Release connections; a later initialize can reconnect.
-- [**collection_info**](#agrag-vectordb-qdrant-QdrantVectorStore-collection_info) – Return exact count and dense configuration, or None when absent.
+- [**collection_info**](#agrag-vectordb-qdrant-QdrantVectorStore-collection_info) – Return count and dense configuration, or None when absent.
 - [**collection_name**](#agrag-vectordb-qdrant-QdrantVectorStore-collection_name) – Return the prefixed collection name for a kind.
 - [**delete**](#agrag-vectordb-qdrant-QdrantVectorStore-delete) – Delete in batches of 256 and wait for the changes to become visible.
 - [**delete_collection**](#agrag-vectordb-qdrant-QdrantVectorStore-delete_collection) – Remove a collection; an absent collection is already deleted.
@@ -53,10 +53,16 @@ Release connections; a later initialize can reconnect.
 ## `collection_info` \{#agrag-vectordb-qdrant-QdrantVectorStore-collection_info}
 
 ```python
-collection_info(kind:VectorKind) -> CollectionInfo | None
+collection_info(kind:VectorKind, *, exact_count:bool = True) -> CollectionInfo | None
 ```
 
-Return exact count and dense configuration, or None when absent.
+Return count and dense configuration, or None when absent.
+
+**Parameters:**
+
+- **kind** (<code>[VectorKind](../../common/data_models/vector_record/VectorKind.md)</code>) – The collection to describe.
+- **exact_count** (<code>bool</code>) – Scan the collection for an exact count. When false, the
+  count is the server's estimate from collection metadata.
 
 ## `collection_name` \{#agrag-vectordb-qdrant-QdrantVectorStore-collection_name}
 
@@ -119,6 +125,8 @@ list_ids(kind:VectorKind, *, after:UUID | None = None, limit:int = 1000) -> list
 ```
 
 Page ascending UUIDs, excluding the cursor even if it still exists.
+
+A limit of zero returns no IDs; a negative limit raises ValueError.
 
 ## `max_results` \{#agrag-vectordb-qdrant-QdrantVectorStore-max_results}
 

@@ -295,6 +295,6 @@ async def stores_ready(
     if vector_store is None:
         return IndexState.READY
     for kind in kinds:
-        if await vector_store.collection_info(kind) is None:
+        if await vector_store.collection_info(kind, exact_count=False) is None:
             return IndexState.NOT_READY
     return IndexState.READY

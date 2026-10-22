@@ -116,19 +116,23 @@ class TestExternalPlacementE2E:
             labels=["Trace"],
             text="private trace sentinel",
         )
+        other = record.model_copy(update={"id": uuid4()})
         try:
             await vectors.initialize()
             await vectors.ensure_collection(
                 VectorKind.CHUNK, dimensions=2, distance=Distance.COSINE
             )
-            await vectors.upsert(VectorKind.CHUNK, [record])
+            await vectors.upsert(VectorKind.CHUNK, [record, other], batch_size=1)
             hits = await vectors.search(VectorKind.CHUNK, [1.0, 0.0], limit=1)
             assert [hit.id for hit in hits] == [record.id]
             await vectors.hybrid_search(
                 VectorKind.CHUNK, [1.0, 0.0], "trace", limit=1, alpha=0.5
             )
-            assert await vectors.list_ids(VectorKind.CHUNK) == [record.id]
-            await vectors.delete(VectorKind.CHUNK, [record.id])
+            assert set(await vectors.list_ids(VectorKind.CHUNK)) == {
+                record.id,
+                other.id,
+            }
+            await vectors.delete(VectorKind.CHUNK, [record.id, other.id])
             assert await vectors.list_ids(VectorKind.CHUNK) == []
         finally:
             await vectors.delete_collection(VectorKind.CHUNK)
@@ -143,13 +147,18 @@ class TestExternalPlacementE2E:
                 "qdrant.collection_info",
                 "qdrant.delete_collection",
                 "qdrant.upsert",
+                "qdrant.upsert_batch",
                 "qdrant.search",
                 "qdrant.hybrid_search",
                 "qdrant.delete",
+                "qdrant.delete_batch",
                 "qdrant.list_ids",
             }
+            groups = {"qdrant.upsert", "qdrant.delete"}
             for span in spans:
-                assert span.kind == SpanKind.CLIENT
+                assert span.kind == (
+                    SpanKind.INTERNAL if span.name in groups else SpanKind.CLIENT
+                )
                 attributes = span.attributes or {}
                 assert attributes["db.system.name"] == "qdrant"
                 assert attributes["server.address"]
@@ -160,6 +169,20 @@ class TestExternalPlacementE2E:
                         == f"{settings.collection_prefix}_chunks"
                     )
                 assert "private trace sentinel" not in str(attributes)
+            attributes_by_name = {
+                span.name: dict(span.attributes or {}) for span in spans
+            }
+            assert attributes_by_name["qdrant.upsert"]["agrag.record_count"] == 2
+            assert attributes_by_name["qdrant.delete"]["agrag.record_count"] == 2
+            assert attributes_by_name["qdrant.search"]["agrag.limit"] == 1
+            assert attributes_by_name["qdrant.hybrid_search"]["agrag.limit"] == 1
+            group = next(span for span in spans if span.name == "qdrant.upsert")
+            batches = [span for span in spans if span.name == "qdrant.upsert_batch"]
+            assert len(batches) == 2
+            for batch in batches:
+                assert (batch.attributes or {})["db.operation.batch.size"] == 1
+                assert batch.parent is not None
+                assert batch.parent.span_id == group.context.span_id
             artifact = write_artifact(
                 "external_placement_qdrant_tracing", {"spans": sorted(names)}
             )
@@ -213,11 +236,20 @@ class TestExternalPlacementE2E:
             async with Client(parameters, raise_exceptions=True) as client:
                 listing = await client.list_tools()
                 result = await client.call_tool(
-                    "search_evidence", {"query": "orbit", "mode": "hybrid"}
+                    "search_evidence",
+                    {"query": "spacecraft trajectories", "mode": "hybrid"},
                 )
                 evidence = EvidenceSearchResult.model_validate(
                     result.structured_content
                 )
+                lexical = await client.call_tool(
+                    "search_evidence",
+                    {"query": "spacecraft trajectories", "mode": "lexical"},
+                )
+                lexical_evidence = EvidenceSearchResult.model_validate(
+                    lexical.structured_content
+                )
+            assert lexical_evidence.hits == []
             assert "search_evidence" in [tool.name for tool in listing.tools]
             assert evidence.status == EvidenceSearchStatus.OK
             assert [hit.document_key for hit in evidence.hits] == [key]

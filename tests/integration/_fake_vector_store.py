@@ -60,7 +60,9 @@ class FakeVectorStore(VectorStore):
                 f"dimensions={dimensions}, distance={distance.value}"
             )
 
-    async def collection_info(self, kind: VectorKind) -> CollectionInfo | None:
+    async def collection_info(
+        self, kind: VectorKind, *, exact_count: bool = True
+    ) -> CollectionInfo | None:
         """Return collection shape and current record count, if present."""
         collection = self._collections.get(kind)
         if collection is None:

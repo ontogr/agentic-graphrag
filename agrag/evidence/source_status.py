@@ -120,7 +120,7 @@ async def _source_index_statuses(
         )
     if vector_store is not None:
         name = vector_store.collection_name(VectorKind.CHUNK)
-        info = await vector_store.collection_info(VectorKind.CHUNK)
+        info = await vector_store.collection_info(VectorKind.CHUNK, exact_count=False)
         ready = info is not None and (
             dimensions is None or info.dimensions == dimensions
         )

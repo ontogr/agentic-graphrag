@@ -47,7 +47,7 @@ Class: `QdrantSettings`. Prefix: `QDRANT_`. Requires the `qdrant` extra and Qdra
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `QDRANT_URL` | `http://localhost:6333` | HTTP endpoint. The repository's compose service publishes port `7961`, so set this explicitly for local compose. Remote credentials require HTTPS. |
+| `QDRANT_URL` | `http://localhost:6333` | HTTP endpoint. The repository's compose service publishes port `7961`, so set this explicitly for local compose. Remote credentials require HTTPS. The port must be 1 to 65535. |
 | `QDRANT_API_KEY` | none | Authentication secret. Leave unset for an unauthenticated local server. |
 | `QDRANT_REQUIRE_TLS` | `false` | Require HTTPS for remote connections even without a credential. Loopback hosts remain exempt. |
 | `QDRANT_COLLECTION_PREFIX` | required | Unique graph prefix matching `^[A-Za-z][A-Za-z0-9_]{0,40}$`. Four collections use this prefix. |

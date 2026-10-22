@@ -224,11 +224,7 @@ jobs:
 
       - name: Export coverage report
         if: ${{ !cancelled() }}
-        run: |
-          if [ "${{ matrix.suite.name }}" = "vector-qdrant" ]; then
-            uv run coverage combine --append
-          fi
-          uv run coverage xml -o coverage-integration.xml
+        run: uv run coverage xml -o coverage-integration.xml
 
       # Codecov merges the uploads for one commit, so the unit, integration,
       # and E2E coverage of the changed lines add up in the patch status.

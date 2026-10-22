@@ -1,13 +1,14 @@
 """Qdrant indexes with dense vectors and locally computed BM25 sparse vectors."""
 
 import asyncio
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import AsyncIterator, Mapping, Sequence
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, ClassVar
 from urllib.parse import urlsplit
 from uuid import UUID
 
 from opentelemetry.trace import SpanKind, Tracer
+from opentelemetry.util.types import AttributeValue
 from pydantic import SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -72,6 +73,8 @@ class QdrantSettings(BaseSettings):
                 raise ValueError("Use QDRANT_API_KEY instead of URL credentials")
             if parsed.query or parsed.fragment:
                 raise ValueError("QDRANT_URL cannot contain a query or fragment")
+            if parsed.port == 0:
+                raise ValueError("QDRANT_URL port must be between 1 and 65535")
             require_encrypted_remote_connection(
                 url=self.url,
                 has_credential=self.api_key is not None,
@@ -80,9 +83,9 @@ class QdrantSettings(BaseSettings):
             )
         except ValueError:
             raise ValueError(
-                "QDRANT_URL must be an HTTP(S) endpoint without URL credentials, "
-                "query or fragment; remote credentials and QDRANT_REQUIRE_TLS "
-                "require HTTPS"
+                "QDRANT_URL must be an HTTP(S) endpoint with a valid port and "
+                "without URL credentials, query or fragment; remote credentials "
+                "and QDRANT_REQUIRE_TLS require HTTPS"
             ) from None
         return self
 
@@ -121,20 +124,22 @@ class QdrantVectorStore(VectorStore):
                 from qdrant_client import AsyncQdrantClient  # noqa: PLC0415
             except ImportError:
                 raise VectorStoreMissingExtraError("qdrant") from None
-            client = AsyncQdrantClient(
-                url=self._settings.url,
-                api_key=(
-                    self._settings.api_key.get_secret_value()
-                    if self._settings.api_key is not None
-                    else None
-                ),
-                cloud_inference=False,
-            )
+            client: AsyncQdrantClient | None = None
             try:
                 async with self._errors("initialize"):
+                    client = AsyncQdrantClient(
+                        url=self._settings.url,
+                        api_key=(
+                            self._settings.api_key.get_secret_value()
+                            if self._settings.api_key is not None
+                            else None
+                        ),
+                        cloud_inference=False,
+                    )
                     await client.get_collections()
             except BaseException:
-                await client.close()
+                if client is not None:
+                    await client.close()
                 raise
             self._client = client
 
@@ -196,8 +201,16 @@ class QdrantVectorStore(VectorStore):
                 wait=True,
             )
 
-    async def collection_info(self, kind: VectorKind) -> CollectionInfo | None:
-        """Return exact count and dense configuration, or None when absent."""
+    async def collection_info(
+        self, kind: VectorKind, *, exact_count: bool = True
+    ) -> CollectionInfo | None:
+        """Return count and dense configuration, or None when absent.
+
+        Args:
+            kind: The collection to describe.
+            exact_count: Scan the collection for an exact count. When false, the
+                count is the server's estimate from collection metadata.
+        """
         client = await self._connected_client()
         async with self._errors("collection_info", kind=kind, missing_ok=True):
             info = await client.get_collection(self.collection_name(kind))
@@ -214,11 +227,14 @@ class QdrantVectorStore(VectorStore):
             if sparse["bm25"].modifier != models.Modifier.IDF:
                 raise CollectionMismatchError("Collection bm25 vector requires IDF")
             dense = vectors["dense"]
-            count = await client.count(self.collection_name(kind), exact=True)
+            if exact_count:
+                count = (await client.count(self.collection_name(kind), exact=True)).count
+            else:
+                count = info.points_count or 0
             return CollectionInfo(
                 dimensions=dense.size,
                 distance=Distance(dense.distance.value),
-                count=count.count,
+                count=count,
             )
         return None
 
@@ -240,27 +256,38 @@ class QdrantVectorStore(VectorStore):
         client = await self._connected_client()
         from qdrant_client import models  # noqa: PLC0415
 
-        async with self._errors("upsert", kind=kind):
+        async with self._errors(
+            "upsert",
+            kind=kind,
+            internal=True,
+            attributes={"agrag.record_count": len(records)},
+        ):
             if not await client.collection_exists(self.collection_name(kind)):
                 raise VectorStoreError("Cannot upsert into a missing collection")
             for start in range(0, len(records), batch_size):
-                await client.upsert(
-                    self.collection_name(kind),
-                    points=[
-                        models.PointStruct(
-                            id=str(record.id),
-                            vector={
-                                "dense": record.vector,
-                                "bm25": models.Document(
-                                    text=record.text, model="Qdrant/bm25"
-                                ),
-                            },
-                            payload={"labels": record.labels, "text": record.text},
-                        )
-                        for record in records[start : start + batch_size]
-                    ],
-                    wait=True,
-                )
+                batch = records[start : start + batch_size]
+                async with self._errors(
+                    "upsert_batch",
+                    kind=kind,
+                    attributes={"db.operation.batch.size": len(batch)},
+                ):
+                    await client.upsert(
+                        self.collection_name(kind),
+                        points=[
+                            models.PointStruct(
+                                id=str(record.id),
+                                vector={
+                                    "dense": record.vector,
+                                    "bm25": models.Document(
+                                        text=record.text, model="Qdrant/bm25"
+                                    ),
+                                },
+                                payload={"labels": record.labels, "text": record.text},
+                            )
+                            for record in batch
+                        ],
+                        wait=True,
+                    )
 
     async def search(
         self,
@@ -273,7 +300,9 @@ class QdrantVectorStore(VectorStore):
         """Return dense hits on the graph-native score scale."""
         self._validate_limit(limit)
         client = await self._connected_client()
-        async with self._errors("search", kind=kind, missing_ok=True):
+        async with self._errors(
+            "search", kind=kind, missing_ok=True, attributes={"agrag.limit": limit}
+        ):
             info = await client.get_collection(self.collection_name(kind))
             vectors = info.config.params.vectors
             if not isinstance(vectors, dict) or "dense" not in vectors:
@@ -320,7 +349,12 @@ class QdrantVectorStore(VectorStore):
         client = await self._connected_client()
         from qdrant_client import models  # noqa: PLC0415
 
-        async with self._errors("hybrid_search", kind=kind, missing_ok=True):
+        async with self._errors(
+            "hybrid_search",
+            kind=kind,
+            missing_ok=True,
+            attributes={"agrag.limit": limit, "agrag.alpha": alpha},
+        ):
             if not await client.collection_exists(self.collection_name(kind)):
                 return []
             lexical = models.Document(text=text, model="Qdrant/bm25")
@@ -370,25 +404,45 @@ class QdrantVectorStore(VectorStore):
         client = await self._connected_client()
         from qdrant_client import models  # noqa: PLC0415
 
-        async with self._errors("delete", kind=kind, missing_ok=True):
+        async with self._errors(
+            "delete",
+            kind=kind,
+            internal=True,
+            attributes={"agrag.record_count": len(ids)},
+        ):
+            if not await client.collection_exists(self.collection_name(kind)):
+                return
             for start in range(0, len(ids), 256):
-                await client.delete(
-                    self.collection_name(kind),
-                    models.PointIdsList(
-                        points=[str(id_) for id_ in ids[start : start + 256]]
-                    ),
-                    wait=True,
-                )
+                batch = ids[start : start + 256]
+                async with self._errors(
+                    "delete_batch",
+                    kind=kind,
+                    missing_ok=True,
+                    attributes={"db.operation.batch.size": len(batch)},
+                ):
+                    await client.delete(
+                        self.collection_name(kind),
+                        models.PointIdsList(points=[str(id_) for id_ in batch]),
+                        wait=True,
+                    )
 
     async def list_ids(
         self, kind: VectorKind, *, after: UUID | None = None, limit: int = 1000
     ) -> list[UUID]:
-        """Page ascending UUIDs, excluding the cursor even if it still exists."""
-        self._validate_limit(limit)
+        """Page ascending UUIDs, excluding the cursor even if it still exists.
+
+        A limit of zero returns no IDs; a negative limit raises ValueError.
+        """
+        if limit < 0:
+            raise ValueError("limit cannot be negative")
+        if limit == 0:
+            return []
         client = await self._connected_client()
         from qdrant_client import models  # noqa: PLC0415
 
-        async with self._errors("list_ids", kind=kind, missing_ok=True):
+        async with self._errors(
+            "list_ids", kind=kind, missing_ok=True, attributes={"agrag.limit": limit}
+        ):
             points, _ = await client.scroll(
                 self.collection_name(kind),
                 offset=str(after) if after is not None else None,
@@ -431,6 +485,15 @@ class QdrantVectorStore(VectorStore):
             ]
         )
 
+    async def _collection_missing(self, kind: VectorKind) -> bool:
+        """Confirm with the server that the collection is absent."""
+        if self._client is None:
+            return False
+        try:
+            return not await self._client.collection_exists(self.collection_name(kind))
+        except Exception:
+            return False
+
     @asynccontextmanager
     async def _errors(
         self,
@@ -438,20 +501,33 @@ class QdrantVectorStore(VectorStore):
         *,
         kind: VectorKind | None = None,
         missing_ok: bool = False,
+        internal: bool = False,
+        attributes: Mapping[str, AttributeValue] | None = None,
     ) -> AsyncIterator[None]:
-        """Translate SDK failures without exposing endpoint credentials or text."""
+        """Trace an operation and translate SDK failures without leaking secrets.
+
+        Args:
+            operation: Span suffix and failure label.
+            kind: Collection the operation targets, if any.
+            missing_ok: Suppress a 404 only after the server confirms that the
+                collection does not exist; other 404s, such as a proxy or wrong
+                URL prefix, still fail.
+            internal: Open an ``INTERNAL`` span that groups client spans.
+            attributes: Extra span attributes.
+        """
         from qdrant_client.http.exceptions import UnexpectedResponse  # noqa: PLC0415
 
-        attributes = {
+        span_attributes: dict[str, AttributeValue] = {
             "db.system.name": "qdrant",
             "server.address": str(urlsplit(self._settings.url).hostname),
+            **(attributes or {}),
         }
         if kind is not None:
-            attributes["db.collection.name"] = self.collection_name(kind)
+            span_attributes["db.collection.name"] = self.collection_name(kind)
         with self._tracer.start_as_current_span(
             f"qdrant.{operation}",
-            kind=SpanKind.CLIENT,
-            attributes=attributes,
+            kind=SpanKind.INTERNAL if internal else SpanKind.CLIENT,
+            attributes=span_attributes,
             record_exception=False,
         ):
             try:
@@ -459,7 +535,12 @@ class QdrantVectorStore(VectorStore):
             except VectorStoreError:
                 raise
             except UnexpectedResponse as exc:
-                if not (missing_ok and exc.status_code == 404):
+                if not (
+                    missing_ok
+                    and kind is not None
+                    and exc.status_code == 404
+                    and await self._collection_missing(kind)
+                ):
                     raise VectorStoreError(
                         f"Qdrant {operation} failed (HTTP {exc.status_code})"
                     ) from None

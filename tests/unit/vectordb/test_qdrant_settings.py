@@ -25,6 +25,19 @@ class TestQdrantSettings:
         assert "private-password" not in str(error.value)
 
     @pytest.mark.parametrize(
+        "url",
+        [
+            "http://localhost:99999",
+            "http://localhost:not-a-port",
+            "http://localhost:0",
+        ],
+    )
+    def test_rejects_invalid_ports(self, url: str) -> None:
+        """A port the client cannot connect to fails when settings load."""
+        with pytest.raises(ValidationError, match="valid port"):
+            QdrantSettings(_env_file=None, url=url, collection_prefix="unit")
+
+    @pytest.mark.parametrize(
         ("url", "credential", "require_tls", "valid"),
         [
             ("http://localhost:6333", True, False, True),

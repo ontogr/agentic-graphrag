@@ -47,10 +47,13 @@ Release the client's connections.
 ## `collection_info` \{#agrag-vectordb-base-VectorStore-collection_info}
 
 ```python
-collection_info(kind:VectorKind) -> CollectionInfo | None
+collection_info(kind:VectorKind, *, exact_count:bool = True) -> CollectionInfo | None
 ```
 
 Return collection metadata, or None if it does not exist.
+
+Callers that need only dimensions or existence pass `exact_count=False`
+so the store can skip a full count and report its cheaper estimate.
 
 ## `collection_name` \{#agrag-vectordb-base-VectorStore-collection_name}
 
@@ -115,6 +118,9 @@ list_ids(kind:VectorKind, *, after:UUID | None = None, limit:int = 1000) -> list
 ```
 
 Return ids in ascending order, strictly after the exclusive cursor.
+
+A limit of zero returns no ids and a negative limit raises ValueError.
+Limits above max_results are allowed.
 
 ## `max_results` \{#agrag-vectordb-base-VectorStore-max_results}
 
