@@ -59,10 +59,16 @@ before closing the store. Repeated calls are harmless.
 ## `collection_info` \{#agrag-vectordb-weaviate-WeaviateVectorStore-collection_info}
 
 ```python
-collection_info(kind:VectorKind) -> CollectionInfo | None
+collection_info(kind:VectorKind, *, exact_count:bool = True) -> CollectionInfo | None
 ```
 
 Return persisted dimensions, actual metric and count, or None if absent.
+
+**Parameters:**
+
+- **kind** (<code>[VectorKind](../../common/data_models/vector_record/VectorKind.md)</code>) – The collection to describe.
+- **exact_count** (<code>bool</code>) – Also fetch a sample vector to verify its dimensions. When
+  false, only schema metadata and the object count are read.
 
 ## `collection_name` \{#agrag-vectordb-weaviate-WeaviateVectorStore-collection_name}
 
