@@ -106,8 +106,9 @@ def record_activation_query() -> str:
     Returns:
         Parameterized Cypher expecting ``$document_node_id``, ``$id``,
         ``$document_key``, ``$verb``, ``$content_hash``,
-        ``$previous_content_hash``, ``$version_id`` and ``$job_id``. Null
-        hashes and version ids are left unset on the node. Returns the new
+        ``$previous_content_hash``, ``$version_id``, ``$activated_at`` and
+        ``$job_id``. ``$activated_at`` is an ISO-8601 string stored as given.
+        Null hashes and version ids are left unset on the node. Returns the new
         ``activation_seq``.
     """
     return (
@@ -120,7 +121,7 @@ def record_activation_query() -> str:
         "content_hash: $content_hash, "
         "previous_content_hash: $previous_content_hash, "
         "version_id: $version_id, activation_seq: d.activation_seq, "
-        "activated_at: datetime(), job_id: $job_id}) "
+        "activated_at: $activated_at, job_id: $job_id}) "
         "RETURN a.activation_seq AS activation_seq"
     )
 
@@ -180,19 +181,9 @@ def source_status_query() -> str:
         "THEN d.activation_seq END AS activation_seq, version_id, "
         "has_current, complete, "
         "activation.verb AS last_verb, job.id AS job_id, "
-        "job.status AS job_status, toString(job.lease_expires_at) AS lease_expires_at, "
-        "duration.inSeconds(datetime(job.created_at), datetime()).seconds "
-        "AS job_age_seconds, "
-        "job.error AS job_error, job.lease_expires_at < datetime() AS lease_expired"
-    )
-
-
-def indexes_not_ready_query() -> str:
-    """Build Cypher listing indexes that remain outside ONLINE after waiting."""
-    return (
-        "SHOW INDEXES YIELD name, state "
-        "WHERE state <> 'ONLINE' "
-        "RETURN name, state ORDER BY name"
+        "job.status AS job_status, job.lease_expires_at AS lease_expires_at, "
+        "job.created_at AS job_created_at, "
+        "job.error AS job_error, job.lease_expires_at < timestamp() AS lease_expired"
     )
 
 
@@ -243,14 +234,14 @@ def purge_relation_evidence_query() -> str:
     return (
         "MATCH ()-[r]->() "
         "WHERE r.source_chunk_ids IS NOT NULL "
-        "AND EXISTS { "
+        "CALL { WITH r "
         f"MATCH (c:{NODE_IDENTITY_LABEL}:{CHUNK_LABEL} "
         "{document_id: $document_node_id}) "
-        "WHERE c.id IN r.source_chunk_ids } "
+        "WHERE c.id IN r.source_chunk_ids "
+        "RETURN collect(c.id) AS present } "
+        "WITH r, present WHERE size(present) > 0 "
         "SET r.source_chunk_ids = "
-        "[cid IN r.source_chunk_ids WHERE NOT EXISTS { "
-        f"MATCH (c:{NODE_IDENTITY_LABEL}:{CHUNK_LABEL} "
-        "{document_id: $document_node_id, id: cid}) }] "
+        "[cid IN r.source_chunk_ids WHERE NOT (cid IN present)] "
         "WITH r WHERE size(r.source_chunk_ids) = 0 "
         "DELETE r RETURN count(r) AS deleted"
     )
@@ -270,10 +261,12 @@ def document_cited_relation_endpoints_query() -> str:
     return (
         f"MATCH (a:{NODE_IDENTITY_LABEL})-[r]->(b:{NODE_IDENTITY_LABEL}) "
         "WHERE r.source_chunk_ids IS NOT NULL "
-        "AND EXISTS { "
+        "CALL { WITH r "
         f"MATCH (c:{NODE_IDENTITY_LABEL}:{CHUNK_LABEL} "
         "{document_id: $document_node_id}) "
-        "WHERE c.id IN r.source_chunk_ids } "
+        "WHERE c.id IN r.source_chunk_ids "
+        "WITH 1 AS h LIMIT 1 RETURN count(h) AS n } "
+        "WITH a, b, n WHERE n > 0 "
         "UNWIND [a.id, b.id] AS id RETURN DISTINCT id LIMIT $limit"
     )
 
@@ -281,11 +274,14 @@ def document_cited_relation_endpoints_query() -> str:
 def document_cited_relation_ids_query() -> str:
     """Build Cypher reading a bounded set of relations citing document chunks."""
     return (
-        "MATCH ()-[r]->() WHERE r.source_chunk_ids IS NOT NULL AND EXISTS { "
+        "MATCH ()-[r]->() WHERE r.source_chunk_ids IS NOT NULL "
+        "CALL { WITH r "
         f"MATCH (c:{NODE_IDENTITY_LABEL}:{CHUNK_LABEL} "
         "{document_id: $document_node_id}) "
-        "WHERE c.id IN r.source_chunk_ids } "
-        "RETURN elementId(r) AS id LIMIT $limit"
+        "WHERE c.id IN r.source_chunk_ids "
+        "WITH 1 AS h LIMIT 1 RETURN count(h) AS n } "
+        "WITH r, n WHERE n > 0 "
+        "RETURN r.id AS id LIMIT $limit"
     )
 
 

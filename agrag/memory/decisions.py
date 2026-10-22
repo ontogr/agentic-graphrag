@@ -57,7 +57,7 @@ from agrag.cypher.memory import (
     decision_page_query,
     decision_status_query,
     find_task_query,
-    memory_schema_queries,
+    memory_unique_constraints,
     set_event_id_query,
     store_request_result_query,
 )
@@ -74,13 +74,14 @@ from agrag.cypher.memory_review import (
     replace_document_supports_query,
     support_history_query,
 )
-from agrag.cypher.schema import fulltext_index_name
 from agrag.evidence.ids import MalformedEvidenceIdError, decode_evidence_id
 from agrag.graphdb.base import GraphStore, GraphStoreTransaction
 from agrag.graphdb.errors import GraphStoreConstraintViolationError
 
 
 MAX_DECISIONS = 100
+DECISION_TEXT_PROPERTIES = ("conclusion", "rationale")
+_SEARCH_CANDIDATES = 1000
 DECISION_PAGE_LIMIT = 20
 
 
@@ -477,8 +478,11 @@ class DecisionMemory:
     ) -> list[DecisionHit]:
         """Find same-project decisions as precedents, with their task context."""
         size = max(1, min(limit, MAX_DECISIONS))
+        call = await self._store.fulltext_search_call(
+            label=DECISION_LABEL, properties=DECISION_TEXT_PROPERTIES
+        )
         rows = await self._store.execute_read(
-            "CALL db.index.fulltext.queryNodes($index, $query) YIELD node, score "
+            f"{call.text} "
             f"MATCH (t:{TASK_LABEL} {{project_id: $project_id}})-[:{MADE}]->(node) "
             f"WHERE node:{DECISION_LABEL} AND node.status = 'active' "
             "AND ($task_name IS NULL OR t.name = $task_name) "
@@ -492,10 +496,9 @@ class DecisionMemory:
             "coalesce(p.review_incomplete, false) AS review_incomplete "
             "ORDER BY score DESC LIMIT $limit",
             {
-                "index": fulltext_index_name(
-                    DECISION_LABEL, ["conclusion", "rationale"]
-                ),
-                "query": query,
+                **call.params,
+                "fulltext_terms": query,
+                "k": _SEARCH_CANDIDATES,
                 "project_id": self._project_id,
                 "task_name": task_name,
                 "limit": size + 1,
@@ -645,7 +648,11 @@ class DecisionMemory:
             "supersession_explanation": explanation,
         }
         await tx.execute_write(
-            create_decision_query(),
+            create_decision_query(
+                text_copy_set=self._store.fulltext_copy_set(
+                    "d", "$decision", DECISION_TEXT_PROPERTIES
+                )
+            ),
             {
                 "project_id": self._project_id,
                 "task_id": task["id"],
@@ -1096,9 +1103,11 @@ class DecisionMemory:
             await self._store.register_relation_types(
                 [MADE, HAS_SUPPORT, DEPENDS_ON, SUPERSEDES]
             )
-            for query in memory_schema_queries():
-                await self._store.execute_write(query)
+            for label, properties in memory_unique_constraints():
+                await self._store.ensure_unique_constraint(
+                    label=label, properties=properties
+                )
             await self._store.ensure_fulltext_index(
-                label=DECISION_LABEL, properties=["conclusion", "rationale"]
+                label=DECISION_LABEL, properties=DECISION_TEXT_PROPERTIES
             )
             self._schema_ready = True

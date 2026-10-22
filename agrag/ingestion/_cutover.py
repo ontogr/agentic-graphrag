@@ -20,6 +20,7 @@ from agrag.cypher.candidates import (
 )
 from agrag.cypher.cutover_job_write import (
     acquire_lease_query,
+    begin_commit_query,
     begin_rollback_query,
     claim_pending_job_query,
     commit_job_query,
@@ -91,6 +92,15 @@ S = TypeVar("S")
 _COMMIT_ATTEMPTS = 3
 
 
+def lease_expiry_millis(expires_at: datetime) -> int:
+    """Return a lease expiry as epoch milliseconds, the form the lease Cypher stores.
+
+    The Cypher compares the stored value with ``timestamp()``, which is also
+    epoch milliseconds, so both sides use the same clock and unit.
+    """
+    return int(expires_at.timestamp() * 1000)
+
+
 async def _acquire_lease(
     *,
     document_key: str,
@@ -122,9 +132,9 @@ async def _acquire_lease(
             "document_key": document_key,
             "verb": verb,
             "lease_token": str(token),
-            "lease_expires_at": (
+            "lease_expires_at": lease_expiry_millis(
                 now + timedelta(seconds=settings.lease_ttl_seconds)
-            ).isoformat(),
+            ),
             "affected_entity_ids": affected,
             "created_at": now.isoformat(),
         },
@@ -145,9 +155,9 @@ async def _acquire_lease(
                 "job_id": str(rows[0]["id"]),
                 "expected_lease_token": existing_token,
                 "lease_token": str(rollback_token),
-                "lease_expires_at": (
+                "lease_expires_at": lease_expiry_millis(
                     now + timedelta(seconds=settings.lease_ttl_seconds)
-                ).isoformat(),
+                ),
             },
         )
         if claimed:
@@ -173,9 +183,9 @@ async def _acquire_lease(
             "expected_lease_token": existing_token,
             "verb": verb,
             "lease_token": str(token),
-            "lease_expires_at": (
+            "lease_expires_at": lease_expiry_millis(
                 now + timedelta(seconds=settings.lease_ttl_seconds)
-            ).isoformat(),
+            ),
             "affected_entity_ids": affected,
             "created_at": now.isoformat(),
         },
@@ -214,9 +224,9 @@ async def _renew_periodically(
                 {
                     "job_id": str(job_id),
                     "lease_token": str(token),
-                    "lease_expires_at": (
+                    "lease_expires_at": lease_expiry_millis(
                         datetime.now(UTC) + timedelta(seconds=ttl_seconds)
-                    ).isoformat(),
+                    ),
                 },
             )
             if not renewed:
@@ -337,6 +347,7 @@ def _activation_params(job_id: UUID, change: DocumentChange) -> dict[str, object
         "previous_content_hash": change.previous_content_hash,
         "version_id": change.version_id,
         "job_id": str(job_id),
+        "activated_at": datetime.now(UTC).isoformat(),
     }
 
 
@@ -372,18 +383,10 @@ async def _commit_pending_writes(
     token_arg = str(token)
 
     async def commit(txn: GraphStoreTransaction) -> int:
-        committed = await txn.execute_write(
-            commit_job_query(),
-            {
-                "job_id": job_arg,
-                "lease_token": token_arg,
-                "component_seed_ids": [str(seed_id) for seed_id in component_seed_ids],
-                "created_entity_ids": [
-                    str(entity_id) for entity_id in created_entity_ids
-                ],
-            },
+        started = await txn.execute_write(
+            begin_commit_query(), {"job_id": job_arg, "lease_token": token_arg}
         )
-        if not committed:
+        if not started:
             raise CutoverJobLeaseError(f"Job {job_arg} lost its lease before commit.")
         # The delete must precede the replay: the replay re-creates the edges
         # the new run found again. It only matches committed edges, so the
@@ -451,6 +454,19 @@ async def _commit_pending_writes(
             {"job_id": job_arg, "parts_closed": parts_closed},
         )
         await clear_job_tags(txn, job_id=job_id)
+        committed = await txn.execute_write(
+            commit_job_query(),
+            {
+                "job_id": job_arg,
+                "lease_token": token_arg,
+                "component_seed_ids": [str(seed_id) for seed_id in component_seed_ids],
+                "created_entity_ids": [
+                    str(entity_id) for entity_id in created_entity_ids
+                ],
+            },
+        )
+        if not committed:
+            raise CutoverJobLeaseError(f"Job {job_arg} lost its lease before commit.")
         return parts_closed
 
     # Two jobs that commit the same new relation at once both try to give it

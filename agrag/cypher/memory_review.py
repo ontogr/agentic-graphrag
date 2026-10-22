@@ -54,7 +54,7 @@ def expand_review_unit_query() -> str:
         f"MATCH (p:{PROJECT_LABEL} {{project_id: $project_id}}) "
         f"MATCH (t:{TASK_LABEL} {{project_id: $project_id}})-[:{MADE}]->"
         f"(parent:{DECISION_LABEL} {{id: $decision_id}}) "
-        "CALL (parent, p) { "
+        "CALL { WITH parent, p "
         f"MATCH (child:{DECISION_LABEL} {{status: 'active'}})"
         f"-[:{DEPENDS_ON}]->(parent) "
         "WHERE child.id > coalesce(parent.review_cursor, '') "

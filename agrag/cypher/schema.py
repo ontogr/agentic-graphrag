@@ -93,6 +93,38 @@ def node_id_constraint_query(label: str) -> str:
     )
 
 
+def unique_constraint_query(label: str, properties: Sequence[str]) -> str:
+    """Build a CREATE CONSTRAINT query making a property combination unique.
+
+    Args:
+        label: The node label. Must already be validated.
+        properties: The property names whose combination is unique. A single
+            ``id`` uses the same name as ``node_id_constraint_query``.
+
+    Returns:
+        A Cypher query creating the constraint if absent.
+
+    Raises:
+        ValueError: ``properties`` is empty, or a name is not a safe identifier.
+    """
+    if not properties:
+        raise ValueError("a uniqueness constraint needs at least one property")
+    safe_label = validate_identifier_syntax(label)
+    safe_properties = [validate_identifier_syntax(prop) for prop in properties]
+    if safe_properties == ["id"]:
+        return node_id_constraint_query(safe_label)
+    name = f"{safe_label.lower()}_{'_'.join(safe_properties)}_unique"
+    target = (
+        f"n.{safe_properties[0]}"
+        if len(safe_properties) == 1
+        else "(" + ", ".join(f"n.{prop}" for prop in safe_properties) + ")"
+    )
+    return (
+        f"CREATE CONSTRAINT {name} IF NOT EXISTS "
+        f"FOR (n:{safe_label}) REQUIRE {target} IS UNIQUE"
+    )
+
+
 def relation_id_constraint_query(rel_type: str) -> str:
     """Build a CREATE CONSTRAINT query making ``id`` unique per relationship type.
 
@@ -322,28 +354,8 @@ def vector_index_query(
     )
 
 
-def vector_index_dimensions_query(
-    label: str, vector_property: str
-) -> tuple[str, dict[str, Any]]:
-    """Build a query that reads the dimension of an existing vector index.
-
-    Args:
-        label: The node label. Must already be validated.
-        vector_property: The vector property name. Must already be validated.
-
-    Returns:
-        The query and its parameters. The query returns one ``dimensions`` row
-        when the index exists and no rows when it does not.
-    """
-    return (
-        "SHOW INDEXES YIELD name, options WHERE name = $name "
-        "RETURN options.indexConfig['vector.dimensions'] AS dimensions",
-        {"name": vector_index_name(label, vector_property)},
-    )
-
-
 def vector_search_query(
-    index_name: str, filters: dict[str, Any] | None = None
+    search_call: str, filters: dict[str, Any] | None = None
 ) -> tuple[str, dict[str, Any]]:
     """Build a native vector search query and its filter parameters.
 
@@ -352,15 +364,16 @@ def vector_search_query(
     label can be returned, even if another label has a vector index.
 
     Args:
-        index_name: The vector index name from ``vector_index_name``.
+        search_call: The index search fragment from
+            ``GraphStore.vector_search_call``.
         filters: An optional flat-dict filter applied with ``WHERE``.
 
     Returns:
         The Cypher query yielding ``node`` and ``score``, and a parameter dict
-        holding only the filter parameters (the caller adds ``index``, ``k``,
-        and ``vector``).
+        holding only the filter parameters (the caller adds ``k``, ``vector``,
+        and the parameters that come with ``search_call``).
     """
-    query = "CALL db.index.vector.queryNodes($index, $k, $vector) YIELD node, score "
+    query = f"{search_call} "
     query += f"WHERE node:{NODE_IDENTITY_LABEL} AND {pending_filter_clause('node')} "
     params: dict[str, Any] = {}
     if filters:

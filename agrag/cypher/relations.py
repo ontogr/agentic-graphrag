@@ -92,16 +92,19 @@ def close_has_part_query() -> str:
     and the edge must outlive the close.
 
     Returns:
-        Parameterized Cypher expecting $document_node_id and $keep_node_ids
-        (a list of node id strings). Returns the number of committed edges
-        closed.
+        Parameterized Cypher expecting $document_node_id, $keep_node_ids
+        (a list of node id strings) and $closed_at (an ISO-8601 string that
+        becomes each closed edge's ``invalid_at``). Returns the number of
+        committed edges closed.
     """
+    # The caller supplies the close time so the query does not depend on a
+    # server-side clock function.
     return (
         f"MATCH (d:{NODE_IDENTITY_LABEL}:Document {{id: $document_node_id}})"
         f"-[r:{HAS_PART}]->(c) "
         f"WHERE r.invalid_at IS NULL AND {pending_filter_clause('r')} "
         "AND NOT c.id IN $keep_node_ids "
-        "SET r.invalid_at = datetime() RETURN count(r) AS closed"
+        "SET r.invalid_at = $closed_at RETURN count(r) AS closed"
     )
 
 
@@ -271,13 +274,18 @@ def bfs_expand_query(
         f"AND {_identity_path_clause('path')} "
         f"AND ALL(r IN relationships(path) WHERE {path_guard})"
     )
-    document_suffix = (
-        " AND EXISTS { "
+    # The document check runs after the other predicates, so the subquery only
+    # sees paths that already passed them. Its single row per path keeps the
+    # rows an EXISTS check would keep.
+    document_scope = (
+        "CALL { WITH neighbor "
         "MATCH (neighbor)<-[scoped_mention:MENTIONED_IN]-"
         f"(scoped_chunk:{NODE_IDENTITY_LABEL}:Chunk) "
         "WHERE scoped_chunk.document_id IN $document_ids "
         f"AND {pending_filter_clause('scoped_chunk', 'job_id')} "
-        f"AND {pending_filter_clause('scoped_mention', 'job_id')} }}"
+        f"AND {pending_filter_clause('scoped_mention', 'job_id')} "
+        "WITH 1 AS h LIMIT 1 RETURN count(h) AS n } "
+        "WITH path, neighbor, n WHERE n > 0 "
         if document_ids
         else ""
     )
@@ -288,7 +296,7 @@ def bfs_expand_query(
         if len(safe_labels) > 1
         else (f" AND {label_predicate}" if label_predicate else "")
     )
-    where = f"{base_where}{filter_suffix}{document_suffix}{label_suffix}"
+    where = f"{base_where}{filter_suffix}{label_suffix}"
     type_pattern = relationship_type_pattern(relation_types)
     left_arrow, right_arrow = _DIRECTION_ARROW[direction]
     query = (
@@ -297,6 +305,7 @@ def bfs_expand_query(
         f"MATCH path = (start){left_arrow}[{type_pattern}*1..{safe_depth}]"
         f"{right_arrow}(neighbor) "
         f"WHERE {where} "
+        f"{document_scope}"
         f"RETURN DISTINCT neighbor, neighbor.id AS id "
         f"LIMIT {safe_limit}"
     )
@@ -318,15 +327,17 @@ def entities_in_documents_query() -> str:
     return (
         f"MATCH (chunk:{NODE_IDENTITY_LABEL}:Chunk)-[mention:MENTIONED_IN]->"
         f"(entity:{NODE_IDENTITY_LABEL}) "
-        "WHERE EXISTS { "
+        f"WHERE {pending_filter_clause('entity', 'job_id')} "
+        f"AND {pending_filter_clause('chunk', 'job_id')} "
+        f"AND {pending_filter_clause('mention', 'job_id')} "
+        "CALL { WITH chunk "
         f"MATCH (document:{NODE_IDENTITY_LABEL}:Document)"
         f"-[part:{HAS_PART}]->(chunk) "
         "WHERE document.id IN $document_ids AND part.invalid_at IS NULL "
         f"AND {pending_filter_clause('document', 'job_id')} "
-        f"AND {pending_filter_clause('part', 'job_id')} }} "
-        f"AND {pending_filter_clause('entity', 'job_id')} "
-        f"AND {pending_filter_clause('chunk', 'job_id')} "
-        f"AND {pending_filter_clause('mention', 'job_id')} "
+        f"AND {pending_filter_clause('part', 'job_id')} "
+        "WITH 1 AS h LIMIT 1 RETURN count(h) AS n } "
+        "WITH entity, n WHERE n > 0 "
         "RETURN DISTINCT entity.id AS id"
     )
 
@@ -583,17 +594,35 @@ def upsert_relation_query(rel_type: str) -> str:
     )
 
 
-def shortest_path_distance_query() -> str:
+def shortest_path_distance_query(max_hops: int | None = None) -> str:
     """Build Cypher measuring the shortest committed path between entities.
 
     The path may cross committed nodes and relationships only, so an
     in-flight Cutover Job never shortens a distance.
+
+    Args:
+        max_hops: None searches with ``shortestPath``, which skips pending rows
+            while it searches. A number instead takes the shortest of the
+            committed paths up to that many relationships, for a backend whose
+            ``shortestPath`` cannot filter the rows it crosses. A pair with no
+            path inside the limit has no distance.
 
     Returns:
         Parameterized Cypher expecting ``$seed_ids`` and ``$target_ids``
         (lists of string ids). Returns one ``dist`` per seed and target pair
         joined by a path.
     """
+    if max_hops is not None:
+        return (
+            "UNWIND $seed_ids AS seed_id "
+            "UNWIND $target_ids AS target_id "
+            f"MATCH path = (seed:{NODE_IDENTITY_LABEL} {{id: seed_id}})"
+            f"-[*1..{int(max_hops)}]-"
+            f"(target:{NODE_IDENTITY_LABEL} {{id: target_id}}) "
+            f"WHERE {pending_path_filter_clause('path')} "
+            f"AND {_identity_path_clause('path')} "
+            "RETURN seed_id, target_id, min(length(path)) AS dist"
+        )
     return (
         "UNWIND $seed_ids AS seed_id "
         "UNWIND $target_ids AS target_id "

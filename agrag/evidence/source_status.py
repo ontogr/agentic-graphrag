@@ -1,5 +1,6 @@
 """Read the committed lifecycle and index state of a document source."""
 
+from datetime import UTC, datetime
 from typing import Any
 
 from agrag.common.data_models.chunk import CHUNK_LABEL
@@ -9,7 +10,6 @@ from agrag.common.data_models.evidence import (
     SourceStatus,
 )
 from agrag.cypher.documents import source_status_query
-from agrag.cypher.evidence import index_states_query
 from agrag.cypher.schema import fulltext_index_name, vector_index_name
 from agrag.graphdb.base import GraphStore
 
@@ -44,12 +44,13 @@ async def source_status(store: GraphStore, document_key: str) -> SourceStatus:
 
     row = rows[0]
     job_status = row.get("job_status")
+    lease_expires_at = _lease_expiry_iso(row.get("lease_expires_at"))
     if not row.get("document_exists") and job_status is None:
         state = SourceState.UNKNOWN
     elif job_status is not None:
         state = (
             SourceState.FAILED
-            if row.get("lease_expires_at") is None or _lease_expired(row)
+            if lease_expires_at is None or _lease_expired(row)
             else SourceState.PENDING
         )
     elif row.get("has_current") and row.get("complete"):
@@ -69,8 +70,8 @@ async def source_status(store: GraphStore, document_key: str) -> SourceStatus:
         version_id=row.get("version_id"),
         job_id=row.get("job_id"),
         job_status=job_status,
-        lease_expires_at=row.get("lease_expires_at"),
-        job_age_seconds=_float_or_none(row.get("job_age_seconds")),
+        lease_expires_at=lease_expires_at,
+        job_age_seconds=_job_age_seconds(row.get("job_created_at")),
         job_error=row.get("job_error")
         or (
             "job lease expired"
@@ -82,21 +83,27 @@ async def source_status(store: GraphStore, document_key: str) -> SourceStatus:
 
 
 async def _source_index_statuses(store: GraphStore) -> list[SourceIndexStatus]:
-    """Read readiness and population progress for source search indexes."""
-    rows = await store.execute_read(index_states_query(), {"names": list(_INDEXES)})
-    by_name = {str(row["name"]): row for row in rows}
-    return [
-        SourceIndexStatus(
-            name=name,
-            state=str(by_name[name]["state"]) if name in by_name else "MISSING",
-            population_percent=(
-                _float_or_none(by_name[name].get("populationPercent"))
-                if name in by_name
-                else None
-            ),
+    """Read readiness and population progress for source search indexes.
+
+    An index that the store does not list is reported as ``MISSING``.
+    """
+    found = {index.name: index for index in await store.list_indexes()}
+    statuses: list[SourceIndexStatus] = []
+    for name in _INDEXES:
+        index = found.get(name)
+        if index is None:
+            statuses.append(
+                SourceIndexStatus(name=name, state="MISSING", population_percent=None)
+            )
+            continue
+        statuses.append(
+            SourceIndexStatus(
+                name=name,
+                state=index.state,
+                population_percent=index.population_percent,
+            )
         )
-        for name in _INDEXES
-    ]
+    return statuses
 
 
 def _lease_expired(row: dict[str, Any]) -> bool:
@@ -104,8 +111,16 @@ def _lease_expired(row: dict[str, Any]) -> bool:
     return bool(row.get("lease_expired"))
 
 
-def _float_or_none(value: object) -> float | None:
-    """Convert a numeric database value while excluding booleans."""
-    if isinstance(value, bool) or not isinstance(value, (float, int)):
+def _lease_expiry_iso(epoch_ms: int | None) -> str | None:
+    """Render a lease expiry in epoch milliseconds as an ISO-8601 UTC string."""
+    if epoch_ms is None:
         return None
-    return float(value)
+    return datetime.fromtimestamp(epoch_ms / 1000, UTC).isoformat()
+
+
+def _job_age_seconds(created_at: str | None) -> float | None:
+    """Return the seconds elapsed since a job's ISO-8601 ``created_at``."""
+    if created_at is None:
+        return None
+    started = datetime.fromisoformat(created_at)
+    return (datetime.now(UTC) - started).total_seconds()

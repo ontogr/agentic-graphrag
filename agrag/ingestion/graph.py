@@ -22,6 +22,7 @@ from agrag.common.data_models.community import COMMUNITY_LABEL
 from agrag.common.data_models.document import DOCUMENT_LABEL, Document
 from agrag.common.data_models.evidence import SourceStatus
 from agrag.common.data_models.graph_schema import GraphSchema
+from agrag.common.data_models.index_record import INDEX_STATE_ONLINE
 from agrag.common.data_models.resolved_entity import (
     RESOLVED_ENTITY_LABEL,
     ResolvedEntity,
@@ -38,7 +39,6 @@ from agrag.common.schema_fingerprint import (
     RunRecord,
     run_record,
 )
-from agrag.cypher.documents import indexes_not_ready_query
 from agrag.embedding.base import Embedder
 from agrag.evidence.source_status import source_status as read_source_status
 from agrag.graphdb.base import GraphStore
@@ -219,7 +219,11 @@ async def _await_indexes_online(graph_store: GraphStore, timeout: float = 60.0) 
     """
     deadline = time.monotonic() + timeout
     while True:
-        pending = await graph_store.execute_read(indexes_not_ready_query())
+        pending = [
+            {"name": index.name, "state": index.state}
+            for index in await graph_store.list_indexes()
+            if index.state != INDEX_STATE_ONLINE
+        ]
         if not pending:
             return
         if time.monotonic() >= deadline:

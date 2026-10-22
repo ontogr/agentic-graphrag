@@ -54,47 +54,53 @@ def _candidate_tail() -> str:
     )
 
 
-def lexical_candidates_query() -> str:
+def lexical_candidates_query(search_call: str) -> str:
     """Build the full-text search query over the Chunk text index.
 
+    Args:
+        search_call: The index search fragment from
+            ``GraphStore.fulltext_search_call``.
+
     Returns:
-        Parameterized Cypher expecting $index (the index name), $fulltext_terms
-        (Lucene terms built from plain words), $k (candidates to read), and $scope_ids.
-        It returns every candidate, best score first. See ``_candidate_tail``.
+        Parameterized Cypher expecting $fulltext_terms (Lucene terms built from
+        plain words), $k (candidates to read), $scope_ids, and the parameters
+        that come with ``search_call``. It returns every candidate, best score
+        first. See ``_candidate_tail``.
     """
-    return (
-        "CALL db.index.fulltext.queryNodes($index, $fulltext_terms, {limit: $k}) "
-        "YIELD node, score " + _candidate_tail()
-    )
+    return f"{search_call} " + _candidate_tail()
 
 
-def semantic_candidates_query() -> str:
+def semantic_candidates_query(search_call: str) -> str:
     """Build the vector search query over the Chunk embedding index.
 
-    Returns:
-        Parameterized Cypher expecting $index (the index name), $vector (the query
-        embedding), $k (candidates to read), and $scope_ids. It returns every
-        candidate, best score first. See ``_candidate_tail``.
-    """
-    return (
-        "CALL db.index.vector.queryNodes($index, $k, $vector) YIELD node, score "
-        + _candidate_tail()
-    )
-
-
-def index_states_query() -> str:
-    """Build the query that reads the state of named indexes.
+    Args:
+        search_call: The index search fragment from
+            ``GraphStore.vector_search_call``.
 
     Returns:
-        Parameterized Cypher expecting $names and returning one row per index that
-        exists, with its ``state``, ``type``, ``labelsOrTypes`` and ``properties``.
-        A missing index has no row.
+        Parameterized Cypher expecting $vector (the query embedding), $k
+        (candidates to read), $scope_ids, and the parameters that come with
+        ``search_call``. It returns every candidate, best score first. See
+        ``_candidate_tail``.
+    """
+    return f"{search_call} " + _candidate_tail()
+
+
+def _document_has_open_chunk_clause() -> str:
+    """Return a clause keeping the bound document rows that have an open chunk edge.
+
+    The clause expects ``document``, ``part`` and ``chunk`` in scope and
+    passes on the rows whose document still has an open ``HAS_PART`` edge to
+    some committed chunk. The subquery yields one row per input row, so the
+    filter keeps the same rows an ``EXISTS`` check would keep.
     """
     return (
-        "SHOW INDEXES YIELD name, state, populationPercent, type, labelsOrTypes, "
-        "properties "
-        "WHERE name IN $names "
-        "RETURN name, state, populationPercent, type, labelsOrTypes, properties"
+        "CALL { WITH document "
+        f"MATCH (document)-[open:{HAS_PART}]->"
+        f"(:{NODE_IDENTITY_LABEL}:{CHUNK_LABEL}) "
+        f"WHERE open.invalid_at IS NULL AND {pending_filter_clause('open')} "
+        "WITH 1 AS h LIMIT 1 RETURN count(h) AS n } "
+        "WITH document, part, chunk, n WHERE n > 0 "
     )
 
 
@@ -118,11 +124,6 @@ def evidence_chunks_query(*, by_chunk_id: bool) -> str:
     chunk_filter = "AND chunk.id = $chunk_id " if by_chunk_id else ""
     # A deleted document has no open edge left, so none of its versions is read.
     # Superseded versions stay readable while the document has a current version.
-    still_present = (
-        f"EXISTS {{ MATCH (document)-[open:{HAS_PART}]->"
-        f"(:{NODE_IDENTITY_LABEL}:{CHUNK_LABEL}) "
-        f"WHERE open.invalid_at IS NULL AND {pending_filter_clause('open')} }}"
-    )
     return (
         f"MATCH (document:{NODE_IDENTITY_LABEL}:{DOCUMENT_LABEL} {{id: $document_id}})"
         f"-[part:{HAS_PART}]->(chunk:{NODE_IDENTITY_LABEL}:{CHUNK_LABEL}) "
@@ -131,7 +132,7 @@ def evidence_chunks_query(*, by_chunk_id: bool) -> str:
         f"AND {pending_filter_clause('document')} "
         f"AND {pending_filter_clause('part')} "
         f"AND {pending_filter_clause('chunk')} "
-        f"AND {still_present} "
+        f"{_document_has_open_chunk_clause()}"
         f"RETURN chunk {_CHUNK_FIELDS} AS chunk, part.version_id AS version_id, "
         "toString(part.invalid_at) AS closed_at, "
         "document.document_key AS document_key, document.title AS title, "
@@ -143,11 +144,6 @@ def evidence_chunks_query(*, by_chunk_id: bool) -> str:
 
 def evidence_chunk_at_offset_query() -> str:
     """Build a bounded query for the chunk covering one text offset."""
-    still_present = (
-        f"EXISTS {{ MATCH (document)-[open:{HAS_PART}]->"
-        f"(:{NODE_IDENTITY_LABEL}:{CHUNK_LABEL}) "
-        f"WHERE open.invalid_at IS NULL AND {pending_filter_clause('open')} }}"
-    )
     return (
         f"MATCH (document:{NODE_IDENTITY_LABEL}:{DOCUMENT_LABEL} {{id: $document_id}})"
         f"-[part:{HAS_PART}]->(chunk:{NODE_IDENTITY_LABEL}:{CHUNK_LABEL}) "
@@ -156,7 +152,7 @@ def evidence_chunk_at_offset_query() -> str:
         f"AND {pending_filter_clause('document')} "
         f"AND {pending_filter_clause('part')} "
         f"AND {pending_filter_clause('chunk')} "
-        f"AND {still_present} "
+        f"{_document_has_open_chunk_clause()}"
         f"RETURN chunk {_CHUNK_FIELDS} AS chunk, part.version_id AS version_id, "
         "toString(part.invalid_at) AS closed_at, "
         "document.document_key AS document_key, document.title AS title, "
@@ -311,35 +307,17 @@ def navigation_sections_query(relation: NavigationRelation) -> str:
     )
 
 
-def entity_labels_query() -> str:
-    """Build the query that lists the entity labels with a vector index.
-
-    Every entity label has a vector index on ``embedding``, and no other label
-    needs one of that name, so the labels of those indexes are the entity labels.
-
-    Returns:
-        Cypher returning one row per such index, with its ``labels`` list. It
-        takes no parameters. ``SHOW INDEXES`` cannot be followed by ``UNWIND``,
-        so the caller flattens the lists.
-    """
-    return (
-        "SHOW INDEXES YIELD labelsOrTypes, properties, type "
-        "WHERE type = 'VECTOR' AND properties = ['embedding'] "
-        "RETURN labelsOrTypes AS labels"
-    )
-
-
-def entity_candidates_query(label: str, *, lexical: bool) -> str:
+def entity_candidates_query(label: str, search_call: str) -> str:
     """Build the query that finds entity candidates of one label.
 
     Args:
         label: The entity label whose index is searched. It is validated here.
-        lexical: True to search the full-text index of ``name``, or False to search
-            the vector index of ``embedding``.
+        search_call: The index search fragment from ``GraphStore``, for either the
+            full-text index of ``name`` or the vector index of ``embedding``.
 
     Returns:
-        Parameterized Cypher. The lexical form expects $index, $fulltext_terms and
-        $k. The vector form expects $index, $vector and $k. Each row holds the
+        Parameterized Cypher expecting $k, $fulltext_terms or $vector, and the
+        parameters that come with ``search_call``. Each row holds the
         ``entity_id`` and the search ``score``, best first. Pending entities are
         left out.
 
@@ -347,14 +325,8 @@ def entity_candidates_query(label: str, *, lexical: bool) -> str:
         ValueError: ``label`` is not a safe identifier.
     """
     safe_label = validate_identifier(label)
-    if lexical:
-        call = (
-            "CALL db.index.fulltext.queryNodes($index, $fulltext_terms, {limit: $k}) "
-        )
-    else:
-        call = "CALL db.index.vector.queryNodes($index, $k, $vector) "
     return (
-        f"{call}YIELD node, score "
+        f"{search_call} "
         f"WHERE node:{safe_label} AND {pending_filter_clause('node')} "
         "RETURN node.id AS entity_id, score ORDER BY score DESC, entity_id"
     )
@@ -431,7 +403,7 @@ def explore_edges_query() -> str:
         "AND CASE WHEN size($relation_types) > 0 "
         "THEN type(relation) IN $relation_types "
         "ELSE NOT type(relation) IN $system_types END "
-        "AND EXISTS { "
+        "CALL { WITH other "
         f"MATCH (scope_document:{NODE_IDENTITY_LABEL}:{DOCUMENT_LABEL})"
         f"-[scope_part:{HAS_PART}]->"
         f"(scope_chunk:{NODE_IDENTITY_LABEL}:{CHUNK_LABEL})"
@@ -440,7 +412,8 @@ def explore_edges_query() -> str:
         f"AND {pending_filter_clause('scope_document')} "
         f"AND {pending_filter_clause('scope_part')} "
         f"AND {pending_filter_clause('scope_chunk')} "
-        "} "
+        "WITH 1 AS h LIMIT 1 RETURN count(h) AS n } "
+        "WITH relation, other, n WHERE n > 0 "
         "WITH DISTINCT relation, other, startNode(relation) AS source, "
         "endNode(relation) AS target ORDER BY relation.id LIMIT $row_limit "
         "CALL { "

@@ -983,7 +983,9 @@ async def _embed_and_upsert_chunks(
             )
         await write_or_defer(
             graph_store,
-            set_chunk_embedding_query("embedding"),
+            set_chunk_embedding_query(
+                "embedding", vector_value=graph_store.vector_value("record.vector")
+            ),
             records,
             deferred=deferred,
         )
@@ -1084,7 +1086,9 @@ async def _embed_and_upsert_survivors(
             )
         await write_or_defer(
             graph_store,
-            set_embedding_query("embedding"),
+            set_embedding_query(
+                "embedding", vector_value=graph_store.vector_value("record.vector")
+            ),
             records,
             deferred=deferred,
         )

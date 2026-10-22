@@ -1,7 +1,9 @@
 """Non-destructive match persistence and resolved-entity computation."""
 
 from collections import defaultdict
+from collections.abc import Sequence
 from datetime import datetime
+from typing import Any
 from uuid import NAMESPACE_OID, UUID, uuid5
 
 from opentelemetry.trace import Tracer
@@ -20,11 +22,12 @@ from agrag.common.data_models.resolved_entity import (
     ResolvedEntity,
 )
 from agrag.cypher.resolution_read import (
-    fetch_active_component_members_query,
+    fetch_active_match_neighbors_query,
     fetch_committed_component_decided_at_query,
     fetch_entities_with_open_evidence_query,
     fetch_entity_cluster_memberships_query,
     fetch_match_endpoints_query,
+    fetch_visible_nodes_query,
 )
 from agrag.cypher.resolution_write import (
     deactivate_match_query,
@@ -40,6 +43,56 @@ from agrag.graphdb.serialize import parse_entity_node
 from agrag.ingestion._deferred import run_staged_transaction
 from agrag.ingestion.merge import compute_merge
 from agrag.ingestion.resolve.resolver import ResolvedMatch
+
+
+async def fetch_active_component_members(
+    transaction: GraphStoreTransaction,
+    seed_ids: Sequence[str],
+    job_id: str | None,
+) -> list[dict[str, Any]]:
+    """Return the entities joined to each seed by active matches, seed included.
+
+    The component grows one match at a time, so the work follows the size of
+    the component and not the number of paths through it.
+
+    Args:
+        transaction: The transaction to read in.
+        seed_ids: Ids of the entities to start from.
+        job_id: The in-flight job's id, or None outside a job.
+
+    Returns:
+        One ``{"seed_id", "member"}`` row per seed and member, where ``member``
+        is the node's property dict. A seed that is not visible has no rows.
+    """
+    params: dict[str, Any] = {"ids": list(seed_ids), "job_id": job_id}
+    nodes = {
+        str(row["id"]): row["member"]
+        for row in await transaction.execute_read(fetch_visible_nodes_query(), params)
+    }
+    reached = {seed_id: {seed_id} for seed_id in seed_ids if seed_id in nodes}
+    frontier = {seed_id: {seed_id} for seed_id in reached}
+    while any(frontier.values()):
+        rows = await transaction.execute_read(
+            fetch_active_match_neighbors_query(),
+            {
+                "ids": sorted({i for ids in frontier.values() for i in ids}),
+                "job_id": job_id,
+            },
+        )
+        neighbors: dict[str, set[str]] = defaultdict(set)
+        for row in rows:
+            neighbor_id = str(row["neighbor_id"])
+            nodes[neighbor_id] = row["member"]
+            neighbors[str(row["id"])].add(neighbor_id)
+        for seed_id, ids in frontier.items():
+            found = {n for i in ids for n in neighbors.get(i, set())} - reached[seed_id]
+            reached[seed_id] |= found
+            frontier[seed_id] = found
+    return [
+        {"seed_id": seed_id, "member": nodes[member_id]}
+        for seed_id, members in reached.items()
+        for member_id in sorted(members)
+    ]
 
 
 class MatchDecision(BaseModel):
@@ -291,12 +344,10 @@ async def write_matches_and_rebuild(
                     upsert_matches_query(),
                     {**match_params, "pending_job_id": None},
                 )
-        component_rows = await transaction.execute_read(
-            fetch_active_component_members_query(),
-            {
-                "seed_ids": [str(member.id) for member in component_members],
-                "job_id": pending_job_id,
-            },
+        component_rows = await fetch_active_component_members(
+            transaction,
+            [str(member.id) for member in component_members],
+            pending_job_id,
         )
         if component_rows:
             persisted_members = {
@@ -359,9 +410,8 @@ async def rebuild_resolved_entities(
             transaction: GraphStoreTransaction,
             seed_id: UUID = seed_id,
         ) -> tuple[RebuildResult | None, list[Entity]]:
-            component_rows = await transaction.execute_read(
-                fetch_active_component_members_query(),
-                {"seed_ids": [str(seed_id)], "job_id": None},
+            component_rows = await fetch_active_component_members(
+                transaction, [str(seed_id)], None
             )
             members = sorted(
                 {
@@ -501,12 +551,8 @@ async def deactivate_match_and_rebuild(
             deactivate_match_query(), {"match_id": str(match_id)}
         ):
             raise ValueError(f"Match {match_id} does not exist")
-        component_rows = await transaction.execute_read(
-            fetch_active_component_members_query(),
-            {
-                "seed_ids": [str(endpoint_id) for endpoint_id in endpoints],
-                "job_id": None,
-            },
+        component_rows = await fetch_active_component_members(
+            transaction, [str(endpoint_id) for endpoint_id in endpoints], None
         )
         by_seed: dict[str, list[Entity]] = defaultdict(list)
         for row in component_rows:

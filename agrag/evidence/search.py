@@ -228,18 +228,18 @@ async def _run_leg(
         terms = lucene_terms(query)
         if not terms:
             return [], False
-        statement = lexical_candidates_query()
-        parameters: dict[str, Any] = {
-            "index": fulltext_index_name(CHUNK_LABEL, _FULLTEXT_PROPERTIES),
-            "fulltext_terms": terms,
-        }
+        call = await store.fulltext_search_call(
+            label=CHUNK_LABEL, properties=_FULLTEXT_PROPERTIES
+        )
+        statement = lexical_candidates_query(call.text)
+        parameters: dict[str, Any] = {**call.params, "fulltext_terms": terms}
     else:
         [vector] = await embedder.embed([query])
-        statement = semantic_candidates_query()
-        parameters = {
-            "index": vector_index_name(CHUNK_LABEL, _EMBEDDING_PROPERTY),
-            "vector": list(vector),
-        }
+        call = await store.vector_search_call(
+            label=CHUNK_LABEL, vector_property=_EMBEDDING_PROPERTY
+        )
+        statement = semantic_candidates_query(call.text)
+        parameters = {**call.params, "vector": list(vector)}
 
     candidates = min(limit, _MAX_CANDIDATES)
     while True:

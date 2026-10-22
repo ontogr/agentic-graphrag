@@ -40,7 +40,6 @@ from agrag.common.data_models.graph_schema import RESERVED_RELATION_TYPES
 from agrag.common.data_models.resolved_entity import RESOLVED_ENTITY_LABEL
 from agrag.cypher.evidence import (
     entity_candidates_query,
-    entity_labels_query,
     entity_mentions_query,
     explore_edges_query,
 )
@@ -349,8 +348,12 @@ async def _entity_labels(store: GraphStore, labels: Sequence[str] | None) -> lis
     """Return the labels to search, given or discovered from the vector indexes."""
     if labels is not None:
         return sorted(set(labels))
-    rows = await store.execute_read(entity_labels_query())
-    found = {str(label) for row in rows for label in row["labels"]}
+    found = {
+        label
+        for index in await store.list_indexes()
+        if index.type == _VECTOR_TYPE and index.properties == [_EMBEDDING_PROPERTY]
+        for label in index.labels
+    }
     return sorted(found - _NON_ENTITY_LABELS)
 
 
@@ -405,19 +408,21 @@ async def _leg_candidates(
     ceiling = False
     for label in labels:
         if leg is EvidenceSearchLeg.LEXICAL:
-            statement = entity_candidates_query(label, lexical=True)
+            call = await store.fulltext_search_call(
+                label=label, properties=[_NAME_PROPERTY]
+            )
+            statement = entity_candidates_query(label, call.text)
             parameters: dict[str, Any] = {
-                "index": fulltext_index_name(label, [_NAME_PROPERTY]),
+                **call.params,
                 "fulltext_terms": terms,
                 "k": count,
             }
         else:
-            statement = entity_candidates_query(label, lexical=False)
-            parameters = {
-                "index": vector_index_name(label, _EMBEDDING_PROPERTY),
-                "vector": vector,
-                "k": count,
-            }
+            call = await store.vector_search_call(
+                label=label, vector_property=_EMBEDDING_PROPERTY
+            )
+            statement = entity_candidates_query(label, call.text)
+            parameters = {**call.params, "vector": vector, "k": count}
         rows = await store.execute_read(statement, parameters)
         ceiling = ceiling or len(rows) >= count
         found.extend(

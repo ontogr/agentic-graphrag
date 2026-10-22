@@ -109,7 +109,7 @@ def own_row_expression(row: str, job: str) -> str:
     return f"coalesce({row}.{PENDING_JOB_ID_PROPERTY}, '') = coalesce({job}, '')"
 
 
-def upsert_node_query(labels: Sequence[str]) -> str:
+def upsert_node_query(labels: Sequence[str], *, extra_set: str = "") -> str:
     """Build the Cypher for an UNWIND-batched node upsert.
 
     MERGE identity is anchored to ``NODE_IDENTITY_LABEL``, not to ``labels``
@@ -136,6 +136,9 @@ def upsert_node_query(labels: Sequence[str]) -> str:
     Args:
         labels: The node's labels to add, in addition to the identity anchor.
             Must already be validated, and non-empty.
+        extra_set: Extra ``SET`` clauses applied after the properties, for a
+            backend that must convert some property values (such as embeddings)
+            when it stores them. Empty by default.
 
     Returns:
         A parameterized Cypher query expecting a ``$records`` list parameter
@@ -158,6 +161,7 @@ def upsert_node_query(labels: Sequence[str]) -> str:
         f"FOREACH (_ IN CASE WHEN own THEN [1] ELSE [] END | "
         f"SET n:{label_expr} "
         f"SET n += record.properties "
+        f"{extra_set + ' ' if extra_set else ''}"
         f"SET n.id = record.id) "
         f"RETURN record.id AS id, own AS written"
     )
@@ -241,7 +245,7 @@ def upsert_merge_alias_query() -> str:
     )
 
 
-def upsert_survivor_query(labels: Sequence[str]) -> str:
+def upsert_survivor_query(labels: Sequence[str], *, extra_set: str = "") -> str:
     """Build Cypher upserting a merge survivor with atomic accumulation.
 
     Unlike ``upsert_node_query``'s plain ``SET n += record.properties``
@@ -264,6 +268,8 @@ def upsert_survivor_query(labels: Sequence[str]) -> str:
     Args:
         labels: The node's labels: the leaf label first, then ancestor
             labels. Must be non-empty. Each is validated here.
+        extra_set: Extra ``SET`` clauses applied after the properties. Empty by
+            default.
 
     Returns:
         A parameterized Cypher query expecting a ``$records`` list
@@ -295,12 +301,15 @@ def upsert_survivor_query(labels: Sequence[str]) -> str:
         f"WHERE NOT x IN record.new_source_chunk_ids] "
         f"+ record.new_source_chunk_ids "
         f"SET n.merge_count = existing_merge_count + record.merge_count_delta "
+        f"{extra_set + ' ' if extra_set else ''}"
         f"SET n.id = record.id) "
         f"RETURN record.id AS id, own AS written"
     )
 
 
-def set_embedding_query(vector_property: str) -> str:
+def set_embedding_query(
+    vector_property: str, *, vector_value: str = "record.vector"
+) -> str:
     """Build Cypher setting one vector property per node, guarded by its text.
 
     Touches only ``vector_property``, unlike a full node upsert: another
@@ -319,6 +328,8 @@ def set_embedding_query(vector_property: str) -> str:
 
     Args:
         vector_property: The property to set. Must already be validated.
+        vector_value: The Cypher expression stored in the property. Backends
+            that need a typed vector pass ``GraphStore.vector_value(...)``.
 
     Returns:
         Parameterized Cypher expecting $records, a list of dicts with the keys
@@ -339,7 +350,7 @@ def set_embedding_query(vector_property: str) -> str:
         f"AND coalesce(n.description, '') = record.expected_description) "
         f"OR (NOT own AND record.pending_job_id IS NOT NULL) "
         f"FOREACH (_ IN CASE WHEN own THEN [1] ELSE [] END | "
-        f"SET n.{safe_property} = record.vector) "
+        f"SET n.{safe_property} = {vector_value}) "
         f"RETURN n.id AS id, own AS written"
     )
 
@@ -448,7 +459,7 @@ def fetch_entity_neighbors_query() -> str:
     """
     return (
         "UNWIND $ids AS entity_id "
-        "CALL (entity_id) { "
+        "CALL { WITH entity_id "
         "MATCH (n:"
         f"{NODE_IDENTITY_LABEL} {{id: entity_id}})-[r]-(m:{NODE_IDENTITY_LABEL}) "
         "WHERE NOT type(r) IN $exclude_types "
@@ -462,7 +473,9 @@ def fetch_entity_neighbors_query() -> str:
     )
 
 
-def set_chunk_embedding_query(vector_property: str) -> str:
+def set_chunk_embedding_query(
+    vector_property: str, *, vector_value: str = "record.vector"
+) -> str:
     """Build Cypher setting a vector property on Chunk nodes.
 
     Similar to ``set_embedding_query`` but guards on ``text`` instead of
@@ -473,6 +486,7 @@ def set_chunk_embedding_query(vector_property: str) -> str:
 
     Args:
         vector_property: The property to set. Must already be validated.
+        vector_value: The Cypher expression stored in the property.
 
     Returns:
         Parameterized Cypher expecting $records, a list of dicts with the
@@ -489,7 +503,7 @@ def set_chunk_embedding_query(vector_property: str) -> str:
         f"WHERE (own AND n.text = record.expected_text) "
         f"OR (NOT own AND record.pending_job_id IS NOT NULL) "
         f"FOREACH (_ IN CASE WHEN own THEN [1] ELSE [] END | "
-        f"SET n.{safe_property} = record.vector) "
+        f"SET n.{safe_property} = {vector_value}) "
         f"RETURN n.id AS id, own AS written"
     )
 
@@ -561,13 +575,17 @@ def load_chunks_by_id_query() -> str:
     return (
         f"UNWIND $ids AS id "
         f"MATCH (n:{NODE_IDENTITY_LABEL}:Chunk {{id: id}}) "
-        f"WHERE (NOT EXISTS {{ "
+        "CALL { WITH n "
         f"MATCH (d:{NODE_IDENTITY_LABEL}:Document)-[p:{HAS_PART}]->(n) "
         f"WHERE {pending_filter_clause('p', 'job_id')} "
-        f"}} OR EXISTS {{ "
+        "WITH 1 AS h LIMIT 1 RETURN count(h) AS pending_edges } "
+        "CALL { WITH n "
         f"MATCH (d:{NODE_IDENTITY_LABEL}:Document)-[p:{HAS_PART}]->(n) "
-        f"WHERE p.invalid_at IS NULL "
-        f"AND {pending_filter_clause('p', 'job_id')} }}) "
+        "WHERE p.invalid_at IS NULL "
+        f"AND {pending_filter_clause('p', 'job_id')} "
+        "WITH 1 AS h LIMIT 1 RETURN count(h) AS valid_edges } "
+        "WITH n, pending_edges, valid_edges "
+        "WHERE (pending_edges = 0 OR valid_edges > 0) "
         f"AND {pending_filter_clause('n', 'job_id')} "
         f"RETURN n"
     )

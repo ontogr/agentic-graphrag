@@ -17,7 +17,7 @@ def list_candidates_query() -> str:
         "WITH c.key AS key, c.state AS state, collect(c) AS nodes, "
         "sum(c.count) AS total, max(c.confidence) AS best "
         "WHERE total >= $min_count "
-        "CALL (nodes) { UNWIND nodes AS n "
+        "CALL { WITH nodes UNWIND nodes AS n "
         f"OPTIONAL MATCH (n)-[evidence:{EVIDENCED_BY}]->"
         f"(chunk:{NODE_IDENTITY_LABEL}) "
         f"WHERE {pending_filter_clause('evidence')} "
@@ -123,10 +123,10 @@ def match_prunable_query() -> str:
     return (
         f"MATCH (c:{CANDIDATE_LABEL}) WHERE {pending_filter_clause('c')} "
         "WITH c.key AS key, c.state AS state, collect(c) AS nodes, "
-        "sum(c.count) AS total, max(datetime(c.created_at)) AS newest "
+        "sum(c.count) AS total, max(c.created_at) AS newest "
         "WHERE state <> 'approved' AND (($rejected AND state = 'rejected') OR "
         "(state = 'pending' AND (($older_than IS NOT NULL AND "
-        "newest < datetime($older_than)) OR ($below_count IS NOT NULL AND "
+        "newest < $older_than) OR ($below_count IS NOT NULL AND "
         "total < $below_count)))) RETURN count(key) AS matched"
     )
 
@@ -136,10 +136,10 @@ def delete_prunable_query() -> str:
     return (
         f"MATCH (c:{CANDIDATE_LABEL}) WHERE {pending_filter_clause('c')} "
         "WITH c.key AS key, c.state AS state, collect(c) AS nodes, "
-        "sum(c.count) AS total, max(datetime(c.created_at)) AS newest "
+        "sum(c.count) AS total, max(c.created_at) AS newest "
         "WHERE state <> 'approved' AND (($rejected AND state = 'rejected') OR "
         "(state = 'pending' AND (($older_than IS NOT NULL AND "
-        "newest < datetime($older_than)) OR ($below_count IS NOT NULL AND "
+        "newest < $older_than) OR ($below_count IS NOT NULL AND "
         "total < $below_count)))) UNWIND nodes AS node DETACH DELETE node "
         "WITH DISTINCT key RETURN count(key) AS deleted"
     )

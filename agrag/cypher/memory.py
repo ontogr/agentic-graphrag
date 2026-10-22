@@ -25,7 +25,6 @@ from agrag.common.data_models.task import (
     TASK_LABEL,
 )
 from agrag.cypher.entities import validate_identifier
-from agrag.cypher.schema import node_id_constraint_query
 
 
 _PROJECT = validate_identifier(PROJECT_LABEL)
@@ -43,44 +42,42 @@ _DEPENDS_ON = validate_identifier(DEPENDS_ON)
 _SUPERSEDES = validate_identifier(SUPERSEDES)
 
 
-def memory_schema_queries() -> list[str]:
-    """Build the constraints that task memory writes depend on.
-
-    Each query uses ``IF NOT EXISTS``, so running the list again is harmless.
-    The ``id`` constraints use the same names as the generic per-label
-    constraints, so they never collide with those.
+def memory_unique_constraints() -> list[tuple[str, tuple[str, ...]]]:
+    """List the uniqueness constraints that task memory writes depend on.
 
     Returns:
-        The Cypher statements, each creating one uniqueness constraint.
+        One ``(label, properties)`` pair per constraint. A pair with several
+        properties makes the combination unique. Pass each pair to
+        ``GraphStore.ensure_unique_constraint``; running the list again is
+        harmless.
     """
     return [
-        f"CREATE CONSTRAINT project_id_unique IF NOT EXISTS "
-        f"FOR (p:{_PROJECT}) REQUIRE p.project_id IS UNIQUE",
-        node_id_constraint_query(_TASK),
-        f"CREATE CONSTRAINT task_project_name_unique IF NOT EXISTS "
-        f"FOR (t:{_TASK}) REQUIRE (t.project_id, t.name) IS UNIQUE",
-        node_id_constraint_query(_EVENT),
-        f"CREATE CONSTRAINT event_task_seq_unique IF NOT EXISTS "
-        f"FOR (e:{_EVENT}) REQUIRE (e.task_id, e.seq) IS UNIQUE",
-        node_id_constraint_query(_STEP),
-        f"CREATE CONSTRAINT step_task_name_unique IF NOT EXISTS "
-        f"FOR (s:{_STEP}) REQUIRE (s.task_id, s.name) IS UNIQUE",
-        node_id_constraint_query(_REQUEST),
-        f"CREATE CONSTRAINT request_project_request_unique IF NOT EXISTS "
-        f"FOR (r:{_REQUEST}) REQUIRE (r.project_id, r.request_id) IS UNIQUE",
-        node_id_constraint_query(_DECISION),
-        f"CREATE CONSTRAINT decision_task_choice_revision_unique IF NOT EXISTS "
-        f"FOR (d:{_DECISION}) REQUIRE "
-        "(d.task_id, d.choice_key, d.revision) IS UNIQUE",
-        node_id_constraint_query(_SUPPORT),
+        (_PROJECT, ("project_id",)),
+        (_TASK, ("id",)),
+        (_TASK, ("project_id", "name")),
+        (_EVENT, ("id",)),
+        (_EVENT, ("task_id", "seq")),
+        (_STEP, ("id",)),
+        (_STEP, ("task_id", "name")),
+        (_REQUEST, ("id",)),
+        (_REQUEST, ("project_id", "request_id")),
+        (_DECISION, ("id",)),
+        (_DECISION, ("task_id", "choice_key", "revision")),
+        (_SUPPORT, ("id",)),
     ]
 
 
-def create_decision_query() -> str:
-    """Build a transaction-scoped decision and support write."""
+def create_decision_query(*, text_copy_set: str = "") -> str:
+    """Build a transaction-scoped decision and support write.
+
+    Args:
+        text_copy_set: Extra ``SET`` clauses for the new decision node, from
+            ``GraphStore.fulltext_copy_set``. Empty by default.
+    """
     return (
         f"MATCH (t:{_TASK} {{id: $task_id, project_id: $project_id}}) "
-        f"CREATE (t)-[:{_MADE}]->(d:{_DECISION} $decision) "
+        f"CREATE (t)-[:{_MADE}]->(d:{_DECISION}) SET d = $decision "
+        f"{text_copy_set + ' ' if text_copy_set else ''}"
         "WITH d UNWIND $supports AS item "
         f"CREATE (d)-[:{_HAS_SUPPORT}]->(s:{_SUPPORT}) SET s = item "
         "WITH d, s, item "

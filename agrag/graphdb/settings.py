@@ -1,4 +1,4 @@
-"""Settings for the Neo4j graph-store backend."""
+"""Settings for the graph-store backends."""
 
 from pydantic import SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -48,5 +48,47 @@ class Neo4jSettings(BaseSettings):
             url=self.uri,
             has_credential=True,
             encrypted_schemes=frozenset({"bolt+s", "bolt+ssc", "neo4j+s", "neo4j+ssc"}),
+        )
+        return self
+
+
+class FalkorDBSettings(BaseSettings):
+    """FalkorDB connection configuration.
+
+    Attributes:
+        url: The Redis connection URL, including scheme (``rediss://`` for
+            TLS). Env: ``FALKORDB_URL``.
+        password: The Redis password, or None for a server without one.
+            Env: ``FALKORDB_PASSWORD``.
+        graph: The name of the graph (the Redis key) that holds all data.
+            Env: ``FALKORDB_GRAPH``.
+        max_connections: The size of the connection pool. Env:
+            ``FALKORDB_MAX_CONNECTIONS``.
+
+    Raises:
+        ValueError: ``url`` is plaintext (``redis://``) and points at a
+            non-local host while ``password`` is set. Use ``rediss://`` for a
+            remote instance.
+    """
+
+    model_config = SettingsConfigDict(
+        env_prefix="FALKORDB_",
+        env_file=".env",
+        extra="ignore",
+        hide_input_in_errors=True,
+    )
+
+    url: str = "redis://localhost:6379"
+    password: SecretStr | None = None
+    graph: str = "agrag"
+    max_connections: int = 16
+
+    @model_validator(mode="after")
+    def _require_encrypted_remote_connection(self) -> "FalkorDBSettings":
+        """Reject a plaintext URL to a non-local host when a password is set."""
+        require_encrypted_remote_connection(
+            url=self.url,
+            has_credential=self.password is not None,
+            encrypted_schemes=frozenset({"rediss"}),
         )
         return self
