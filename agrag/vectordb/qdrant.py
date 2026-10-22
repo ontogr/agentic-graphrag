@@ -4,6 +4,7 @@ import asyncio
 from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, ClassVar
+from urllib.parse import urlsplit
 from uuid import UUID
 
 from opentelemetry.trace import Tracer
@@ -63,12 +64,26 @@ class QdrantSettings(BaseSettings):
     @model_validator(mode="after")
     def _validate_tls(self) -> "QdrantSettings":
         """Reject plaintext remote credentials or an unmet TLS requirement."""
-        require_encrypted_remote_connection(
-            url=self.url,
-            has_credential=self.api_key is not None,
-            encrypted_schemes=frozenset({"https"}),
-            require_encryption=self.require_tls,
-        )
+        try:
+            parsed = urlsplit(self.url)
+            if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+                raise ValueError("QDRANT_URL requires an HTTP or HTTPS host")
+            if parsed.username is not None or parsed.password is not None:
+                raise ValueError("Use QDRANT_API_KEY instead of URL credentials")
+            if parsed.query or parsed.fragment:
+                raise ValueError("QDRANT_URL cannot contain a query or fragment")
+            require_encrypted_remote_connection(
+                url=self.url,
+                has_credential=self.api_key is not None,
+                encrypted_schemes=frozenset({"https"}),
+                require_encryption=self.require_tls,
+            )
+        except ValueError:
+            raise ValueError(
+                "QDRANT_URL must be an HTTP(S) endpoint without URL credentials, "
+                "query or fragment; remote credentials and QDRANT_REQUIRE_TLS "
+                "require HTTPS"
+            ) from None
         return self
 
 
@@ -259,9 +274,11 @@ class QdrantVectorStore(VectorStore):
         self._validate_limit(limit)
         client = await self._connected_client()
         async with self._errors("search", missing_ok=True):
-            info = await self.collection_info(kind)
-            if info is None:
-                return []
+            info = await client.get_collection(self.collection_name(kind))
+            vectors = info.config.params.vectors
+            if not isinstance(vectors, dict) or "dense" not in vectors:
+                raise CollectionMismatchError("Collection has no named dense vector")
+            distance = Distance(vectors["dense"].distance.value)
             result = await client.query_points(
                 self.collection_name(kind),
                 query=list(vector),
@@ -275,7 +292,7 @@ class QdrantVectorStore(VectorStore):
                     id=UUID(str(point.id)),
                     score=(
                         (1 + point.score) / 2
-                        if info.distance == Distance.COSINE
+                        if distance == Distance.COSINE
                         else 1 / (1 + point.score**2)
                     ),
                     payload=point.payload or {},

@@ -22,7 +22,7 @@ and the label holds few committed entities, all of them are candidates.
 - **created** (<code>list\[[Entity](../../../common/data_models/entity/Entity-ref.md)\]</code>) – The committed entities to resolve.
 - **graph_store** (<code>[GraphStore](../../../graphdb/base/GraphStore.md)</code>) – Where the candidate and neighbor reads run.
 - **embedder** (<code>[Embedder](../../../embedding/base/Embedder.md)</code>) – Embeds entity names for candidate search and fuzzy review.
-- **vector_store** (<code>VectorStore | None</code>) – External dense candidate index. None uses graph indexes.
+- **vector_store** (<code>[VectorStore](../../../vectordb/base/VectorStore.md) | None</code>) – External dense candidate index. None uses graph indexes.
 - **entity_labels** (<code>Sequence\[str\]</code>) – The labels the schema defines.
 - **tracer** (<code>Tracer | None</code>) – Traces the resolver.
 - **max_llm_pairs** (<code>int</code>) – The most ambiguous pairs per label sent to the LLM.

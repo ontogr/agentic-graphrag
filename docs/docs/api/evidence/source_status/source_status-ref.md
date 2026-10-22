@@ -18,7 +18,7 @@ as pending, while deleted and unknown keys remain distinct.
 
 - **store** (<code>[GraphStore](../../graphdb/base/GraphStore.md)</code>) – The graph store to read.
 - **document_key** (<code>str</code>) – Stable key of the source.
-- **vector_store** (<code>VectorStore | None</code>) – External vector store, or None for graph-native indexes.
+- **vector_store** (<code>[VectorStore](../../vectordb/base/VectorStore.md) | None</code>) – External vector store, or None for graph-native indexes.
 - **dimensions** (<code>int | None</code>) – Expected embedding dimension when checking an external store.
 
 **Returns:**

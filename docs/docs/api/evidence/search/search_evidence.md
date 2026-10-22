@@ -28,7 +28,7 @@ collection is missing. It returns `empty_scope` without searching when
 - **mode** (<code>[EvidenceSearchMode](../../common/data_models/evidence/EvidenceSearchMode.md)</code>) – Which legs to run.
 - **limit** (<code>int</code>) – The most hits to return. Must be positive.
 - **scope** (<code>frozenset\[str\]</code>) – Keys of the documents that may be searched.
-- **vector_store** (<code>VectorStore | None</code>) – Optional external vector store. Placement is not validated
+- **vector_store** (<code>[VectorStore](../../vectordb/base/VectorStore.md) | None</code>) – Optional external vector store. Placement is not validated
   by this function.
 - **timeout** (<code>float | None</code>) – Server-side transaction timeout in seconds for each store read.
   None uses the server's default.

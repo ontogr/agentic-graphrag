@@ -23,7 +23,7 @@ through one pass. Synthetic mentions never initiate a comparison.
 - **chunks_by_id** (<code>dict\[UUID, [Chunk](../../../common/data_models/chunk/Chunk-ref.md)\]</code>) – The batch's chunks, for LLM verification context.
 - **graph_store** (<code>[GraphStore](../../../graphdb/base/GraphStore.md)</code>) – Where exact-match, candidate, and neighbor reads run.
 - **embedder** (<code>[Embedder](../../../embedding/base/Embedder.md)</code>) – Embeds mention text for candidate search and fuzzy review.
-- **vector_store** (<code>VectorStore | None</code>) – External dense candidate index. None uses graph indexes.
+- **vector_store** (<code>[VectorStore](../../../vectordb/base/VectorStore.md) | None</code>) – External dense candidate index. None uses graph indexes.
 - **entity_labels** (<code>Sequence\[str\]</code>) – The labels the schema defines.
 - **tracer** (<code>Tracer | None</code>) – Opens the phase spans and traces the resolver.
 - **max_llm_pairs** (<code>int</code>) – The most ambiguous pairs per label sent to the LLM.

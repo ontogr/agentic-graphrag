@@ -10,6 +10,21 @@ class TestQdrantSettings:
     """TLS is required for remote credentials and explicit encryption requests."""
 
     @pytest.mark.parametrize(
+        "url",
+        [
+            "http://user:private-password@qdrant.example.com",
+            "https://qdrant.example.com?token=private-password",
+            "http://qdrant.example.com#private-password",
+            "file:///private-password",
+        ],
+    )
+    def test_rejects_unsafe_urls_without_exposing_secrets(self, url: str) -> None:
+        """Credentials belong in the secret field, not in connection URLs."""
+        with pytest.raises(ValidationError) as error:
+            QdrantSettings(_env_file=None, url=url, collection_prefix="unit")
+        assert "private-password" not in str(error.value)
+
+    @pytest.mark.parametrize(
         ("url", "credential", "require_tls", "valid"),
         [
             ("http://localhost:6333", True, False, True),

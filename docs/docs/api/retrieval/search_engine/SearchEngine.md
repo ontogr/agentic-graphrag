@@ -48,7 +48,7 @@ retrieval spans.
   read. Omit it and let the schema drive both.
 - **graph_schema** (<code>[GraphSchema](../../common/data_models/graph_schema/GraphSchema.md) | None</code>) – The graph's declared schema, ground truth for
   native entity labels. None uses `DEFAULT_SCHEMA`.
-- **vector_store** (<code>VectorStore | None</code>) – External vector store used for semantic retrieval.
+- **vector_store** (<code>[VectorStore](../../vectordb/base/VectorStore.md) | None</code>) – External vector store used for semantic retrieval.
 - **tracer** (<code>Tracer | None</code>) – Opens the search span and flows to every retriever
   and free function the engine calls. None opens no
   recorded span.

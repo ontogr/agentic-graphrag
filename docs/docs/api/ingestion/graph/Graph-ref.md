@@ -45,7 +45,7 @@ A knowledge graph that a caller can open and add content to.
 - **graph_store** (<code>[GraphStore](../../graphdb/base/GraphStore.md)</code>) – Where entities, relations, chunks, and MENTIONED_IN
   edges are written.
 - **embedder** (<code>[Embedder](../../embedding/base/Embedder.md)</code>) – Populates entity embeddings for native vector search.
-- **vector_store** (<code>VectorStore | None</code>) – Exclusive external vector index. None uses graph indexes.
+- **vector_store** (<code>[VectorStore](../../vectordb/base/VectorStore.md) | None</code>) – Exclusive external vector index. None uses graph indexes.
 - **extractor** (<code>[Extractor](../extract/Extractor.md) | None</code>) – The local extraction slot, used in `gliner` and
   `hybrid` modes.
 - **tracer** (<code>Tracer | None</code>) – A tracer to record spans for every step. Pass None for none.
@@ -368,7 +368,7 @@ index that evidence search reads, before this call returns.
 - **graph_store** (<code>[GraphStore](../../graphdb/base/GraphStore.md)</code>) – Where entities, relations, chunks, and MENTIONED_IN
   edges are written.
 - **embedder** (<code>[Embedder](../../embedding/base/Embedder.md)</code>) – Populates entity embeddings for native vector search.
-- **vector_store** (<code>VectorStore | None</code>) – Exclusive external vector index. None uses graph indexes.
+- **vector_store** (<code>[VectorStore](../../vectordb/base/VectorStore.md) | None</code>) – Exclusive external vector index. None uses graph indexes.
 - **extractor** (<code>[Extractor](../extract/Extractor.md) | None</code>) – The local extraction slot, used in `gliner` and
   `hybrid` modes.
 - **tracer** (<code>Tracer | None</code>) – A tracer to record spans for every step. Pass None for none.
