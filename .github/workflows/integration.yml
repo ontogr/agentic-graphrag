@@ -66,6 +66,14 @@ jobs:
         # The embedding, loader and LLM tests do not touch the graph store, so
         # they run once, in the neo4j pipeline entry.
         suite:
+          - name: vector-milvus
+            backend: neo4j
+            paths: "tests/integration/vectordb tests/integration/e2e/test_external_placement_e2e.py"
+            workers: 0
+            dist: loadscope
+            services: neo4j milvus
+            vector_store: milvus
+            timeout: 20
           - name: graph-store
             backend: neo4j
             paths: "tests/integration/graphdb tests/integration/cypher tests/integration/retrieval --ignore=tests/integration/retrieval/evidence"
@@ -178,6 +186,8 @@ jobs:
       AGRAG_TEST_VECTOR_STORES: ${{ matrix.suite.vector_store || 'fake' }}
       QDRANT_URL: http://localhost:7961
       QDRANT_COLLECTION_PREFIX: ci_qdrant
+      MILVUS_URI: http://localhost:7971
+      MILVUS_COLLECTION_PREFIX: ci_milvus
       # Backend credentials below are fixed, throwaway values scoped to this ephemeral job's
       # own Docker network, not secrets, and not reused anywhere outside this workflow run.
       NEO4J_URI: bolt://localhost:7687

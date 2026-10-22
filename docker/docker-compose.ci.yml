@@ -23,6 +23,27 @@ services:
       retries: 20
       start_period: 10s
 
+  milvus:
+    image: milvusdb/milvus:v3.0.1
+    command: ["milvus", "run", "standalone"]
+    environment:
+      ETCD_USE_EMBED: "true"
+      ETCD_DATA_DIR: /var/lib/milvus/etcd
+      ETCD_CONFIG_PATH: /milvus/configs/embedEtcd.yaml
+      COMMON_STORAGETYPE: local
+      DEPLOY_MODE: STANDALONE
+    volumes:
+      - ./milvus-embedded-etcd.yml:/milvus/configs/embedEtcd.yaml:ro
+    ports:
+      - "127.0.0.1:${MILVUS_PORT:-7971}:19530"
+      - "127.0.0.1:${MILVUS_HTTP_PORT:-7972}:9091"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9091/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 90s
+
   neo4j:
     image: neo4j:5.26.0-community
     environment:
