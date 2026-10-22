@@ -16,6 +16,7 @@ import pytest
 
 from agrag.common.data_models.cutover_job import CUTOVER_JOB_LABEL
 from agrag.common.data_models.graph_record import DeferredWrites
+from agrag.common.data_models.vector_record import VectorWork
 from agrag.cypher.cutover_job_read import find_incomplete_jobs_query
 from agrag.cypher.cutover_job_write import (
     acquire_lease_query,
@@ -282,7 +283,10 @@ class TestCutoverJobLeaseLifetime:
             )
 
             async def slow_prune(
-                _: list[object], __: list[object], ___: list[object]
+                _: list[object],
+                __: list[object],
+                ___: list[object],
+                _vector_work: VectorWork,
             ) -> None:
                 nonlocal prune_ran
                 prune_ran = True
@@ -431,7 +435,12 @@ class TestCutoverJobLeaseLifetime:
             await asyncio.sleep(2.5)
             resumed.extend(await resume_incomplete_jobs(store))
 
-        async def cleanup(_: list[object], __: list[object], ___: list[object]) -> None:
+        async def cleanup(
+            _: list[object],
+            __: list[object],
+            ___: list[object],
+            _vector_work: VectorWork,
+        ) -> None:
             return None
 
         try:

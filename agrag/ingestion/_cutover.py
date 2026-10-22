@@ -612,20 +612,6 @@ async def _build_vector_work(
     return VectorWork(targets=list(deferred.vector_targets), deletes=deletes)
 
 
-async def _call_cleanup(
-    cleanup: Callable[..., Awaitable[S]],
-    affected_entity_ids: list[UUID],
-    component_seed_ids: list[UUID],
-    created_entity_ids: list[UUID],
-    vector_work: VectorWork,
-) -> S:
-    """Run cleanup with vector work when the commit recorded any."""
-    arguments = (affected_entity_ids, component_seed_ids, created_entity_ids)
-    if vector_work.targets or vector_work.deletes:
-        return await cleanup(*arguments, vector_work)
-    return await cleanup(*arguments)
-
-
 async def run_cutover_job(
     *,
     verb: Literal["add", "update", "delete_document", "purge_document"],
@@ -634,7 +620,7 @@ async def run_cutover_job(
     graph_store: GraphStore,
     settings: CutoverJobSettings,
     pending_write: Callable[[UUID], Awaitable[T]],
-    cleanup: Callable[..., Awaitable[S]],
+    cleanup: Callable[[list[UUID], list[UUID], list[UUID], VectorWork], Awaitable[S]],
     deferred: DeferredWrites,
     components: Sequence[MatchComponent] = (),
     close_document_node_id: UUID | None = None,
@@ -655,9 +641,8 @@ async def run_cutover_job(
         graph_store: The store the job commits to.
         settings: Lease and renewal timing for the job.
         pending_write: Writes the job's pending rows. Receives the job id.
-        cleanup: Removes superseded rows. Receives the affected entity ids, the
-            component seed ids, the created entity ids and vector work when
-            the commit recorded external-vector changes.
+        cleanup: Removes superseded rows. Receives the affected entity ids,
+            component seed ids, created entity ids and recorded vector work.
         deferred: The writes over committed rows that the commit replays.
         components: The resolver components the job rebuilt.
         close_document_node_id: The document whose open HAS_PART edges are
@@ -758,7 +743,7 @@ async def _run_leased(
     token: UUID,
     graph_store: GraphStore,
     pending_write: Callable[[UUID], Awaitable[T]],
-    cleanup: Callable[..., Awaitable[S]],
+    cleanup: Callable[[list[UUID], list[UUID], list[UUID], VectorWork], Awaitable[S]],
     affected_entity_ids: list[UUID],
     components: Sequence[MatchComponent],
     close_document_node_id: UUID | None,
@@ -841,8 +826,7 @@ async def _run_leased(
     )
     if not started:
         raise CutoverJobLeaseError(f"Job {job_arg} lost its lease before cleanup.")
-    cleanup_result = await _call_cleanup(
-        cleanup,
+    cleanup_result = await cleanup(
         affected_entity_ids,
         component_seed_ids,
         created,

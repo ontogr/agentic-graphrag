@@ -271,7 +271,10 @@ class TestVectorRecovery:
                 raise RuntimeError("injected worker crash")
 
             async def unused_cleanup(
-                _affected: list[UUID], _seeds: list[UUID], _created: list[UUID]
+                _affected: list[UUID],
+                _seeds: list[UUID],
+                _created: list[UUID],
+                _vector_work: VectorWork,
             ) -> None:
                 return None
 

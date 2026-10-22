@@ -36,7 +36,7 @@ async def finish_job(
     affected_entity_ids: list[UUID],
     component_seed_ids: list[UUID],
     created_entity_ids: list[UUID],
-    vector_work: VectorWork | None = None,
+    vector_work: VectorWork,
     *,
     graph_store: GraphStore,
     schema: GraphSchema,
@@ -79,7 +79,6 @@ async def finish_job(
     Returns:
         The failures recorded while rebuilding and reconciling.
     """
-    vector_work = vector_work if vector_work is not None else VectorWork()
     failures, resolved_entity_candidates = await rebuild_seeded_components(
         component_seed_ids,
         graph_store=graph_store,

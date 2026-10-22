@@ -273,7 +273,7 @@ def commit_job_query() -> str:
         "AND job.lease_expires_at >= timestamp() "
         "AND job.status = 'pending' "
         "SET job.status = 'committed', job.commit_started = false, "
-        "job.commit_docs_applied = false, job.commit_plan = null, "
+        "job.commit_docs_applied = false, "
         "job.commit_replayed = 0, "
         "job.component_seed_ids = $component_seed_ids, "
         "job.created_entity_ids = $created_entity_ids "
@@ -507,7 +507,7 @@ def finish_cleaning_query() -> str:
         "WHERE job.lease_token = $lease_token "
         "AND job.lease_expires_at >= timestamp() "
         "AND job.status = 'cleaning' "
-        "SET job.status = 'done' "
+        "SET job.status = 'done', job.commit_plan = null "
         "RETURN job.id AS id"
     )
 

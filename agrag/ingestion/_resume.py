@@ -57,7 +57,10 @@ from agrag.observability import get_tracer, record_swallowed_exception
 async def resume_incomplete_jobs(
     graph_store: GraphStore,
     *,
-    roll_forward: Callable[..., Awaitable[list[StageFailure]]] | None = None,
+    roll_forward: Callable[
+        [list[UUID], list[UUID], list[UUID], VectorWork], Awaitable[list[StageFailure]]
+    ]
+    | None = None,
     lease_ttl_seconds: int | None = None,
     tracer: Tracer | None = None,
     vector_sync: VectorSync | None = None,
@@ -67,11 +70,11 @@ async def resume_incomplete_jobs(
     Args:
         graph_store: The store just connected and provisioned.
         roll_forward: Runs one rolled-forward job's cleanup. It receives the
-            job's affected-entity snapshot, its component seed ids and the
-            entities it created. An exception or a returned failure leaves
-            the job in ``cleaning`` for a later open. None rolls forward only
-            jobs that recorded none of these lists, because a job with work
-            left cannot finish without it.
+            job's affected-entity snapshot, component seed ids, created
+            entities and recorded vector work. An exception or a returned
+            failure leaves the job in ``cleaning`` for a later open. None
+            rolls forward only jobs that recorded no cleanup work, because a
+            job with work left cannot finish without it.
         lease_ttl_seconds: Lease duration for a resume claimant. None reads
             ``CutoverJobSettings`` when the function runs.
         tracer: Opens this pass's span.
@@ -141,7 +144,10 @@ async def _recover_unfinished(
     graph_store: GraphStore,
     row: dict[str, Any],
     *,
-    roll_forward: Callable[..., Awaitable[list[StageFailure]]] | None,
+    roll_forward: Callable[
+        [list[UUID], list[UUID], list[UUID], VectorWork], Awaitable[list[StageFailure]]
+    ]
+    | None,
     lease_ttl_seconds: int,
     vector_sync: VectorSync | None,
 ) -> bool:
@@ -267,7 +273,10 @@ async def _finish_commit(
     *,
     job_id: str,
     affected_entity_ids: list[UUID],
-    roll_forward: Callable[..., Awaitable[list[StageFailure]]] | None,
+    roll_forward: Callable[
+        [list[UUID], list[UUID], list[UUID], VectorWork], Awaitable[list[StageFailure]]
+    ]
+    | None,
     expected_lease_token: str,
     lease_ttl_seconds: int,
     commit_plan: str | None,
@@ -383,7 +392,10 @@ async def _roll_forward(
     component_seed_ids: list[UUID],
     created_entity_ids: list[UUID],
     vector_work: VectorWork,
-    roll_forward: Callable[..., Awaitable[list[StageFailure]]] | None,
+    roll_forward: Callable[
+        [list[UUID], list[UUID], list[UUID], VectorWork], Awaitable[list[StageFailure]]
+    ]
+    | None,
     lease_token: str,
     lease_ttl_seconds: int,
 ) -> bool:
@@ -440,7 +452,10 @@ async def _cleanup_with_renewal(
     component_seed_ids: list[UUID],
     created_entity_ids: list[UUID],
     vector_work: VectorWork,
-    roll_forward: Callable[..., Awaitable[list[StageFailure]]] | None,
+    roll_forward: Callable[
+        [list[UUID], list[UUID], list[UUID], VectorWork], Awaitable[list[StageFailure]]
+    ]
+    | None,
     token: str,
     lease_ttl_seconds: int,
 ) -> bool:
@@ -506,7 +521,10 @@ async def _finish_roll_forward(
     component_seed_ids: list[UUID],
     created_entity_ids: list[UUID],
     vector_work: VectorWork,
-    roll_forward: Callable[..., Awaitable[list[StageFailure]]] | None,
+    roll_forward: Callable[
+        [list[UUID], list[UUID], list[UUID], VectorWork], Awaitable[list[StageFailure]]
+    ]
+    | None,
     lease_token: str,
     stop_renewal: asyncio.Event,
     renewal_stopped: asyncio.Event,
@@ -523,11 +541,12 @@ async def _finish_roll_forward(
         return False
     if roll_forward is not None and has_work:
         try:
-            args = (affected_entity_ids, component_seed_ids, created_entity_ids)
-            if vector_work.targets or vector_work.deletes:
-                failures = await roll_forward(*args, vector_work)
-            else:
-                failures = await roll_forward(*args)
+            failures = await roll_forward(
+                affected_entity_ids,
+                component_seed_ids,
+                created_entity_ids,
+                vector_work,
+            )
         except Exception as exc:  # noqa: BLE001
             record_swallowed_exception(exc)
             return False

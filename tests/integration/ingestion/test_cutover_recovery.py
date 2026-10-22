@@ -14,6 +14,7 @@ import pytest
 
 from agrag.common.data_models.cutover_job import CUTOVER_JOB_LABEL
 from agrag.common.data_models.graph_record import DeferredWrites
+from agrag.common.data_models.vector_record import VectorWork
 from agrag.cypher.cutover_job_write import begin_rollback_query, rollback_job_query
 from agrag.ingestion._cutover import run_cutover_job
 from agrag.ingestion._resume import resume_incomplete_jobs
@@ -59,7 +60,12 @@ class TestCutoverRecovery:
             )
             return "pending"
 
-        async def cleanup(_: list[UUID], __: list[UUID], ___: list[UUID]) -> str:
+        async def cleanup(
+            _: list[UUID],
+            __: list[UUID],
+            ___: list[UUID],
+            _vector_work: VectorWork,
+        ) -> str:
             return "cleaned"
 
         try:
@@ -197,7 +203,12 @@ class TestCutoverRecovery:
             )
             return "pending"
 
-        async def cleanup(_: list[UUID], __: list[UUID], ___: list[UUID]) -> str:
+        async def cleanup(
+            _: list[UUID],
+            __: list[UUID],
+            ___: list[UUID],
+            _vector_work: VectorWork,
+        ) -> str:
             return "cleaned"
 
         try:

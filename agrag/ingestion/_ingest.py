@@ -29,6 +29,7 @@ from agrag.common.data_models.graph_schema import GraphSchema
 from agrag.common.data_models.stage_failure import StageFailure, cap_failures
 from agrag.common.data_models.structure import version_id
 from agrag.common.data_models.update_decision import UpdateDecision
+from agrag.common.data_models.vector_record import VectorWork
 from agrag.common.schema_fingerprint import RunRecord
 from agrag.cypher.documents import (
     document_cited_relation_endpoints_query,
@@ -78,7 +79,9 @@ from agrag.vectordb.base import VectorStore
 logger = logging.getLogger(__name__)
 _PURGE_RECORD_LIMIT = 10_000
 
-CleanupStep = Callable[..., Awaitable[list[StageFailure]]]
+CleanupStep = Callable[
+    [list[UUID], list[UUID], list[UUID], VectorWork], Awaitable[list[StageFailure]]
+]
 
 
 def _placements_of(
