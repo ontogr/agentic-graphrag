@@ -18,7 +18,7 @@ Both backends support document ingestion and updates, entity resolution, communi
 | Python extra | `neo4j` | `falkordb` |
 | Connection | Bolt protocol, `NEO4J_*` settings | Redis protocol, `FALKORDB_*` settings |
 | Multi-statement writes | `run_in_transaction` commits or rolls back the callback's writes together | Statements run in order, with no rollback of earlier statements |
-| Keyword ranking | Neo4j's native full-text index scores matches | Matches any query word and ranks by the number of matching terms |
+| Keyword ranking | Neo4j's native full-text index scores matches | Native TF-IDF score plus `1.0`, preserving the native ranking |
 | Vector metrics | Cosine and euclidean | Cosine and euclidean |
 | Node-distance reranking | Shortest-path distance | Shortest-path distance up to five relationships |
 
