@@ -5,20 +5,21 @@ title: Configure storage backends
 
 # Configure storage backends
 
-Every graph needs an embedder and a graph store. The graph store is Neo4j, which also holds the native vector indexes. Choose an embedder model first. The vector dimensions must match the embedder.
+Every graph needs an embedder and a graph store. The graph store is Neo4j or FalkorDB, and both hold the native vector indexes. Choose an embedder model first. The vector dimensions must match the embedder.
 
 ## Before you start
 
-Each code block on this page is complete. It opens and closes its own connections. The blocks read the `NEO4J_*` variables. See the [Quickstart](../get-started/quickstart.mdx) for a Neo4j database.
+Each code block on this page is complete. It opens and closes its own connections. The Neo4j blocks read the `NEO4J_*` variables, and the FalkorDB blocks read the `FALKORDB_*` variables. See the [Quickstart](../get-started/quickstart.mdx) for a Neo4j database.
 
 ## Install
 
-Install the core package and the extras for the features you use. You need `neo4j` for the graph store.
+Install the core package and the extras for the features you use. You need the extra for the graph store you use.
 
 ```bash
 uv pip install agentic-graphrag
 uv pip install "agentic-graphrag[embed-local]"   # sentence-transformers embedding models
 uv pip install "agentic-graphrag[neo4j]"         # Neo4j graph store
+uv pip install "agentic-graphrag[falkordb]"      # FalkorDB graph store
 ```
 
 Install `embed-local` only for Sentence Transformers models. The default FastEmbed model does not need it.
@@ -71,7 +72,14 @@ Set these variables instead of passing `EmbeddingSettings` fields in code.
 | `EMBEDDING_BATCH_SIZE` | The number of texts per encode call. |
 | `EMBEDDING_CACHE_FOLDER` | Where the embedder caches downloaded model files. |
 
-## Set up a graph store
+## Choose a graph store
+
+Both stores implement the same `GraphStore` interface, so code that takes a `GraphStore` works with either one.
+
+- Use Neo4j when your graph lives in a Neo4j database or Neo4j Aura.
+- Use FalkorDB when you want the graph store to run as a Redis-protocol server, such as the container in [Start a FalkorDB server locally](#start-a-falkordb-server-locally).
+
+## Set up a Neo4j graph store
 
 Build a `Neo4jGraphStore` with `Neo4jSettings`. Call `connect` before you use
 it.
@@ -257,6 +265,90 @@ async def main() -> None:
 
 asyncio.run(main())
 ```
+
+## Set up a FalkorDB graph store
+
+Build a graph store with `build_graph_store("falkordb")`. The store connects to the server at `FALKORDB_URL`, so start the server first.
+
+### Start a FalkorDB server locally
+
+Start a FalkorDB server in a container.
+
+```bash
+docker run -d --name agrag-falkordb -p 6379:6379 -e BROWSER=0 -e FALKORDB_ARGS="RESULTSET_SIZE -1 TIMEOUT_MAX 3600000 MAX_QUEUED_QUERIES 25" falkordb/falkordb:v4.22.2
+```
+
+The server listens on port 6379 for the Redis protocol. The store requires this port. The image also serves the FalkorDB Browser web UI on port 3000, but only while `BROWSER=1`. The command sets `BROWSER=0`, so port 3000 is off. To use the Browser, set `BROWSER=1` and publish port 3000 with `-p 3000:3000`.
+
+The image default for `FALKORDB_ARGS` cuts query results at 10000 rows and fails any query that runs longer than 1 second. The store refuses to connect while `RESULTSET_SIZE` is not `-1`, so keep `RESULTSET_SIZE -1` in `FALKORDB_ARGS`. Use the same `FALKORDB_ARGS` value for every FalkorDB server that the store connects to.
+
+The server keeps its data in `/var/lib/falkordb/data` inside the container. Mount a volume at that path to keep the data after the container is removed.
+
+Check that the server is ready.
+
+```bash
+docker exec agrag-falkordb redis-cli ping
+```
+
+The command prints `PONG` when the server is ready.
+
+### Set FalkorDB settings with environment variables
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `FALKORDB_URL` | `redis://localhost:6379` | The Redis connection URL. Use `rediss://` for TLS. |
+| `FALKORDB_PASSWORD` | none | The Redis password. Set it only when the server requires one. |
+| `FALKORDB_GRAPH` | `agrag` | The name of the graph that holds all data. |
+| `FALKORDB_MAX_CONNECTIONS` | `16` | The size of the connection pool. |
+
+A plaintext `redis://` URL to a non-local host raises an error when `FALKORDB_PASSWORD` is set. Use `rediss://` for a remote instance.
+
+### Connect to a FalkorDB store
+
+`connect` raises `GraphStoreError` when the server's graph module is older than version `42202`, or when `RESULTSET_SIZE` is not `-1`.
+
+```python
+import asyncio
+
+from agrag.graphdb import build_graph_store
+
+
+async def main() -> None:
+    store = build_graph_store("falkordb")
+    await store.connect()
+    await store.close()
+
+
+asyncio.run(main())
+```
+
+The block exits without an error when the server is reachable and set up as described above.
+
+## FalkorDB behavior to know
+
+### Atomicity
+
+FalkorDB runs each query as one atomic unit. It has no transaction that spans several statements. `run_in_transaction` runs its statements in order and does not roll them back when a later statement fails. Each statement that completes stays written. Other readers can see the writes of a callback before the callback returns. Write each statement in a `run_in_transaction` callback so that running it again is safe.
+
+### Vector metrics
+
+FalkorDB vector indexes support cosine and euclidean distance. Use `Distance.COSINE` or `Distance.EUCLID`. `ensure_vector_index` raises `ValueError` for any other distance, such as dot product.
+
+### Filtered vector search
+
+FalkorDB applies a filter after it picks the nearest candidates. agrag fetches more candidates when a filter is set. A very selective filter can still return fewer hits than the limit, because the filter only sees the fetched candidates.
+
+### Crash recovery of a commit
+
+A document change commits in several statements. If the process stops part way through, the next time you open the graph agrag finishes the commit for that document instead of undoing it. The new content stays visible. The rebuild of resolved entities for that change does not run, because the process that held the details is gone. Run `reevaluate()` on the affected entities if you need it.
+
+### Full-text search
+
+A full-text query matches a passage that holds any of its words, ranked by how many match. agrag keeps a copy of each indexed text property with line breaks replaced by spaces, because the FalkorDB tokenizer does not split words at a line break. The copies are not returned in query results.
+
+### Path distance in ranking
+
+The node distance rerank measures paths of up to five relationships. An entity farther from the seeds than that ranks as unreachable.
 
 ## Next steps
 

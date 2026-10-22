@@ -155,6 +155,65 @@ jobs:
         if: always()
         run: docker compose -f docker/docker-compose.ci.yml down -v
 
+  integration-falkordb:
+    name: Integration (falkordb)
+    needs: [changes]
+    if: needs.changes.outputs.backend_tests == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      UV_PYTHON: "3.12"
+      AGRAG_TEST_BACKENDS: falkordb
+      FALKORDB_URL: redis://localhost:6379
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - run: make sync
+
+      - name: Start and wait for FalkorDB
+        run: docker compose -f docker/docker-compose.ci.yml up -d --wait --wait-timeout 120 falkordb
+
+      - name: Run integration tests (falkordb graph)
+        run: >-
+          uv run pytest tests/integration/graphdb tests/integration/cypher tests/integration/retrieval
+          -v
+          -n auto --dist loadgroup
+          -o "addopts=--strict-markers --strict-config --disable-socket --allow-unix-socket -ra"
+
+      - name: Run integration tests (falkordb ingestion)
+        run: >-
+          uv run pytest tests/integration/ingestion
+          -v
+          -n auto --dist loadscope
+          -o "addopts=--strict-markers --strict-config --disable-socket --allow-unix-socket -ra"
+
+      - name: Run integration tests (falkordb agents)
+        run: >-
+          uv run pytest tests/integration/agents
+          -v
+          -n 0
+          -o "addopts=--strict-markers --strict-config --disable-socket --allow-unix-socket -ra"
+
+      - name: Collect backend service logs
+        if: failure()
+        run: docker compose -f docker/docker-compose.ci.yml logs falkordb
+
+      - name: Stop backend services
+        if: always()
+        run: docker compose -f docker/docker-compose.ci.yml down -v
+
   benchmark-fixtures:
     name: Benchmark fixtures
     needs: [changes]
@@ -342,7 +401,7 @@ jobs:
   integration-gate:
     name: Integration gate
     if: always()
-    needs: [changes, integration, e2e]
+    needs: [changes, integration, integration-falkordb, e2e]
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:
@@ -350,7 +409,7 @@ jobs:
         env:
           SELECTOR_RESULT: ${{ needs.changes.result }}
           SELECTED: ${{ needs.changes.outputs.backend_tests }}
-          RESULTS: ${{ needs.integration.result }} ${{ needs.e2e.result }}
+          RESULTS: ${{ needs.integration.result }} ${{ needs.integration-falkordb.result }} ${{ needs.e2e.result }}
         run: |
           test "$SELECTOR_RESULT" = success
           if [ "$SELECTED" = true ]; then

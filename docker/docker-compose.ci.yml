@@ -1,5 +1,9 @@
-# Local backend for GraphStore integration tests.
-# Each service requires the same authentication its cloud counterpart does.
+# Local backends for GraphStore integration tests.
+# The neo4j service uses the same authentication its cloud counterpart does.
+# The falkordb service runs without a password, as the integration jobs expect.
+# Services:
+#   neo4j     Bolt on port 7687.
+#   falkordb  Redis protocol on port 6379.
 # Usage:
 #   docker compose -f docker/docker-compose.ci.yml up -d --wait
 #   docker compose -f docker/docker-compose.ci.yml down -v
@@ -17,3 +21,17 @@ services:
       timeout: 5s
       retries: 10
       start_period: 30s
+
+  falkordb:
+    image: falkordb/falkordb:v4.22.2
+    environment:
+      BROWSER: "0"
+      FALKORDB_ARGS: "RESULTSET_SIZE -1 TIMEOUT_MAX 3600000 MAX_QUEUED_QUERIES 25"
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli ping | grep -q PONG"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
