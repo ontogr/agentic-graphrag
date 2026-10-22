@@ -13,6 +13,10 @@ from agrag.vectordb.base import VectorStore
 from agrag.vectordb.errors import VectorPlacementError
 
 
+# These name the store rather than the embedding, so every caller checks them.
+_IDENTITY_FIELDS = ("store", "collection_prefix")
+
+
 async def validate_placement(
     graph_store: GraphStore,
     *,
@@ -20,8 +24,23 @@ async def validate_placement(
     dimensions: int,
     distance: Distance,
     write: bool,
+    check_embedding: bool = True,
 ) -> None:
     """Compare placement, creating it on first open only when write is true.
+
+    The store and collection prefix always have to match. Dimensions and
+    distance describe the embedding, so they are compared only when
+    ``check_embedding`` is true. A reader that checks the embedding on each
+    search can leave that check to the search.
+
+    Args:
+        graph_store: The graph that holds the placement record.
+        vector_store: The external store in use, or None for graph-native
+            indexes.
+        dimensions: The dimensions of the embedding in use.
+        distance: The distance metric of the embedding in use.
+        write: Whether to record the placement when the graph has none.
+        check_embedding: Whether to compare dimensions and distance.
 
     Raises:
         VectorPlacementError: Store, prefix, dimensions or distance differ.
@@ -44,6 +63,8 @@ async def validate_placement(
     if not rows:
         return
     for key, value in expected.items():
+        if not check_embedding and key not in _IDENTITY_FIELDS:
+            continue
         if rows[0][key] != value:
             raise VectorPlacementError(
                 f"Vector placement {key} is {rows[0][key]!r}, requested {value!r}"

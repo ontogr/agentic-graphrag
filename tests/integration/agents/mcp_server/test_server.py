@@ -70,24 +70,26 @@ class _HookedStore(Neo4jGraphStore):
 
     Args:
         inner: The store that answers the reads.
-        before_read: Awaited before each read. It can block or raise.
         hide_lexical_index: When True, SHOW INDEXES omits the chunk full-text
             index, as if it were missing.
         vector_dimensions: The dimension reported by the vector index metadata,
             or None to report that the vector index is absent.
+
+    Attributes:
+        before_read: Awaited before each read. It can block or raise. Tests set
+            it after the server connects, so the startup reads still succeed.
     """
 
     def __init__(
         self,
         inner: Neo4jGraphStore,
         *,
-        before_read: Callable[[], Awaitable[None]] | None = None,
         hide_lexical_index: bool = False,
         vector_dimensions: int | None = VECTOR_DIMENSIONS,
     ) -> None:
         super().__init__(settings=Neo4jSettings())
         self._inner = inner
-        self._before_read = before_read
+        self.before_read: Callable[[], Awaitable[None]] | None = None
         self.vector_dimensions = vector_dimensions
         self._hidden_index = (
             fulltext_index_name(CHUNK_LABEL, ["text"]) if hide_lexical_index else None
@@ -105,8 +107,8 @@ class _HookedStore(Neo4jGraphStore):
         timeout: float | None = None,
     ) -> list[dict[str, Any]]:
         """Run a read on the wrapped store, after the hook."""
-        if self._before_read is not None:
-            await self._before_read()
+        if self.before_read is not None:
+            await self.before_read()
         rows = await self._inner.execute_read(query, parameters, timeout=timeout)
         if "SHOW INDEXES" not in query:
             return rows
@@ -560,8 +562,9 @@ class TestStoreFailures:
         async def fail() -> None:
             raise RuntimeError("bolt password leaked in the driver message")
 
-        store = _HookedStore(env.store, before_read=fail)
+        store = _HookedStore(env.store)
         async with Client(_server(store, env)) as client:
+            store.before_read = fail
             result = await client.call_tool(
                 "search_evidence", {"query": _LEXICAL_QUERY, "mode": "lexical"}
             )
@@ -776,11 +779,12 @@ class TestCancellation:
         """Keep the graph unchanged and keep serving after a cancelled search."""
         env = evidence_env
         block = _BlockFirstRead()
-        store = _HookedStore(env.store, before_read=block)
+        store = _HookedStore(env.store)
         arguments = {"query": _LEXICAL_QUERY, "mode": "lexical"}
         before = await _counts(env)
 
         async with Client(_server(store, env)) as client:
+            store.before_read = block
             call = asyncio.create_task(client.call_tool("search_evidence", arguments))
             await asyncio.wait_for(block.entered.wait(), timeout=30)
             call.cancel()

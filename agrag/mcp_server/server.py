@@ -98,6 +98,10 @@ def _store_lifespan(
 
     Returns:
         A lifespan factory for ``MCPServer``.
+
+    Note:
+        A graph-native server checks its embedding on each search, so a query
+        embedder that differs from the index leaves the lexical tools usable.
     """
 
     @asynccontextmanager
@@ -110,6 +114,7 @@ def _store_lifespan(
                 dimensions=await embedder.dimensions(),
                 distance=embedder.distance,
                 write=False,
+                check_embedding=vector_store is not None,
             )
         except Exception:
             _LOGGER.exception("Could not validate the evidence store placement")
