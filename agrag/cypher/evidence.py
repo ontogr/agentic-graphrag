@@ -97,8 +97,7 @@ def semantic_candidates_from_rows_query() -> str:
     return (
         "UNWIND $rows AS row "
         f"MATCH (node:{NODE_IDENTITY_LABEL}:{CHUNK_LABEL} {{id: row.id}}) "
-        "WITH node, row.score AS score "
-        + _candidate_tail()
+        "WITH node, row.score AS score " + _candidate_tail()
     )
 
 

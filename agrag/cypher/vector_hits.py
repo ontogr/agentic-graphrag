@@ -28,7 +28,6 @@ def external_hits_query(
     if where:
         query += f"AND {where.removeprefix('WHERE ')} "
     query += (
-        "RETURN node.id AS id, row.score AS score, row.rank AS rank "
-        "ORDER BY row.rank"
+        "RETURN node.id AS id, row.score AS score, row.rank AS rank ORDER BY row.rank"
     )
     return query, parameters
