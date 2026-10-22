@@ -432,10 +432,15 @@ class TestCommunityDetectionIntegration:
         others get heuristic rating = internal_weight/2. Truncation to
         max_members_per_prompt is verified.
         """
-        await _seed_two_weight_cliques(self.store, self.label)
-        # Compute communities to inspect weights.
-
-        edges = await fetch_relation_edges(self.store)
+        entities, _ = await _seed_two_weight_cliques(self.store, self.label)
+        # The store holds relations from other tests, so only the edges between
+        # this test's own entities are clustered.
+        seeded = {str(entity.id) for entity in entities}
+        edges = [
+            edge
+            for edge in await fetch_relation_edges(self.store)
+            if edge[0] in seeded and edge[1] in seeded
+        ]
         comms = await asyncio.to_thread(compute_communities, edges)
         assert len(comms) == 2
         # Identify heuristic vs qualifying.
