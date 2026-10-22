@@ -257,6 +257,33 @@ class TestStoreContract:
                 distance=Distance.COSINE,
             )
 
+    async def test_a_wrong_length_embedding_is_reported_not_stored(
+        self, store: GraphStore
+    ) -> None:
+        """An embedding that does not fit the index is a failure, not a silent gap."""
+        label = _label("Len")
+        await store.ensure_vector_index(
+            label=label,
+            vector_property="embedding",
+            dimensions=3,
+            distance=Distance.COSINE,
+        )
+        good = _node(label, name="fits", embedding=[1.0, 0.0, 0.0])
+        bad = _node(label, name="short", embedding=[1.0, 0.0])
+
+        result = await store.upsert_nodes(label, [good, bad])
+
+        if selected_backend() == "falkordb":
+            assert result.written == 1
+            assert [failure.id for failure in result.failures] == [str(bad.id)]
+        hits = await store.vector_search(
+            label=label,
+            vector_property="embedding",
+            query_vector=[1.0, 0.0, 0.0],
+            limit=5,
+        )
+        assert [hit.payload["name"] for hit in hits] == ["fits"]
+
     async def test_lists_online_indexes(self, store: GraphStore) -> None:
         """Created vector and full-text indexes are listed as online."""
         label = _label("Idx")

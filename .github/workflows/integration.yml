@@ -165,6 +165,7 @@ jobs:
       UV_PYTHON: "3.12"
       AGRAG_TEST_BACKENDS: falkordb
       FALKORDB_URL: redis://localhost:6379
+      COVERAGE_FILE: coverage-data-falkordb
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -191,6 +192,7 @@ jobs:
           -v
           -n auto --dist loadgroup
           -o "addopts=--strict-markers --strict-config --disable-socket --allow-unix-socket -ra"
+          --cov=agrag --cov-context=test --cov-append
 
       - name: Run integration tests (falkordb ingestion)
         run: >-
@@ -198,6 +200,7 @@ jobs:
           -v
           -n auto --dist loadscope
           -o "addopts=--strict-markers --strict-config --disable-socket --allow-unix-socket -ra"
+          --cov=agrag --cov-context=test --cov-append
 
       - name: Run integration tests (falkordb agents)
         run: >-
@@ -205,6 +208,22 @@ jobs:
           -v
           -n 0
           -o "addopts=--strict-markers --strict-config --disable-socket --allow-unix-socket -ra"
+          --cov=agrag --cov-context=test --cov-append
+
+      - name: Export coverage report
+        if: ${{ !cancelled() }}
+        run: uv run coverage xml -o coverage-integration.xml
+
+      - name: Upload coverage to Codecov
+        if: ${{ !cancelled() }}
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./coverage-integration.xml
+          flags: integration
+          name: codecov-agrag-integration-falkordb
+          fail_ci_if_error: false
+          slug: ontogr/agentic-graphrag
 
       - name: Collect backend service logs
         if: failure()

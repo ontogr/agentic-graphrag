@@ -159,6 +159,7 @@ class TestCandidateConversionIntegration:
                 },
             )
 
+            await store.ensure_fulltext_index(label=person, properties=["name"])
             graph = Graph(
                 schema=schema,
                 graph_store=store,
@@ -184,6 +185,12 @@ class TestCandidateConversionIntegration:
             assert len(converted) == 1
             assert person in converted[0]["labels"]
             assert converted[0]["embedding"] == [1.0, 0.0, 0.0, 0.0]
+            call = await store.fulltext_search_call(label=person, properties=["name"])
+            found = await store.execute_read(
+                f"{call.text} RETURN node.id AS id",
+                {**call.params, "fulltext_terms": "new person", "k": 5},
+            )
+            assert [row["id"] for row in found] == [str(candidate_id)]
             candidate_edges = await store.execute_read(
                 "MATCH (entity:_Node {id: $id})-[edge:SOURCE|TARGET]-() "
                 "RETURN count(edge) AS count",

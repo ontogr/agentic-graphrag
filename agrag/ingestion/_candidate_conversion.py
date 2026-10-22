@@ -393,6 +393,9 @@ async def _write(
             convert_entity_candidates_query(
                 labels,
                 embedding_value=transaction.vector_value("row.embedding"),
+                text_copy_set=transaction.fulltext_copy_set(
+                    "c", "{name: row.text}", ["name"]
+                ),
             ),
             {"rows": rows},
         )

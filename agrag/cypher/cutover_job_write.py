@@ -130,6 +130,7 @@ def claim_pending_job_query() -> str:
         f"MATCH (job:{CUTOVER_JOB_LABEL} {{id: $job_id}}) "
         f"{_job_lock_clause()}"
         "WHERE job.status IN ['pending', 'rolling_back'] "
+        "AND coalesce(job.commit_started, false) = false "
         "AND job.lease_token = $expected_lease_token "
         "AND job.lease_expires_at < timestamp() "
         "SET job.status = 'rolling_back', job.lease_token = $lease_token, "
@@ -139,11 +140,17 @@ def claim_pending_job_query() -> str:
 
 
 def begin_rollback_query() -> str:
-    """Move a pending job into rollback under the current lease token."""
+    """Move a pending job into rollback under the current lease token.
+
+    A job whose commit has started is never rolled back: on a backend without
+    multi-statement transactions part of the commit may already be applied, and
+    recovery finishes it instead.
+    """
     return (
         f"MATCH (job:{CUTOVER_JOB_LABEL} {{id: $job_id}}) "
         f"{_job_lock_clause()}"
         "WHERE job.lease_token = $lease_token AND job.status = 'pending' "
+        "AND coalesce(job.commit_started, false) = false "
         "SET job.status = 'rolling_back' "
         "RETURN job.id AS id"
     )

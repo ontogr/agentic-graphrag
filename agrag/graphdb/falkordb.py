@@ -28,6 +28,7 @@ from agrag.common.data_models.graph_record import (
     DeferredWrites,
     NodeRecord,
     RelationRecord,
+    UpsertFailure,
     UpsertResult,
 )
 from agrag.common.data_models.index_record import (
@@ -249,6 +250,12 @@ class _FalkorDBTransaction(GraphStoreTransaction):
         """Wrap a float-list expression so FalkorDB stores it as a vector."""
         return self._store.vector_value(expression)
 
+    def fulltext_copy_set(
+        self, alias: str, source: str, properties: Iterable[str]
+    ) -> str:
+        """Return the clauses that keep the search copies of written text."""
+        return self._store.fulltext_copy_set(alias, source, properties)
+
     async def execute_read(
         self, query: str, parameters: Mapping[str, Any] | None = None
     ) -> list[dict[str, Any]]:
@@ -342,6 +349,7 @@ class FalkorDBGraphStore(CypherGraphStore):
         self._vector_properties: set[str] = set(_DEFAULT_VECTOR_PROPERTIES)
         self._fulltext_properties: set[str] = set()
         self._vector_similarity: dict[tuple[str, str], str] = {}
+        self._vector_dimensions: dict[tuple[str, str], int] = {}
         self._transaction_guard = _ReentrantGuard()
 
     async def _ensure_client(self) -> Any:
@@ -391,6 +399,11 @@ class FalkorDBGraphStore(CypherGraphStore):
             raise GraphStoreError(
                 f"FalkorDB graph module {version} is older than {MIN_MODULE_VERSION}"
             )
+        for index in await self.list_indexes():
+            if index.type == _FULLTEXT:
+                self._fulltext_properties.update(index.properties)
+            elif index.type == _VECTOR:
+                self._vector_properties.update(index.properties)
         if await client.config_get("RESULTSET_SIZE") != -1:
             raise GraphStoreError(
                 "FalkorDB RESULTSET_SIZE is finite, so queries would silently "
@@ -572,10 +585,11 @@ class FalkorDBGraphStore(CypherGraphStore):
         for name in sorted(properties):
             safe = validate_identifier_syntax(name)
             value = f"{source}.{safe}"
+            copy = f"{alias}.{_SEARCH_COPY_PREFIX}{safe}"
             flat = f"replace(replace(toString({value}), '\n', ' '), '\r', ' ')"
             clauses.append(
-                f"SET {alias}.{_SEARCH_COPY_PREFIX}{safe} = CASE WHEN {value} IS NULL "
-                f"THEN {alias}.{_SEARCH_COPY_PREFIX}{safe} ELSE {flat} END"
+                f"SET {copy} = CASE WHEN NOT '{safe}' IN keys({source}) THEN {copy} "
+                f"WHEN {value} IS NULL THEN null ELSE {flat} END"
             )
         return " ".join(clauses)
 
@@ -785,6 +799,60 @@ class FalkorDBGraphStore(CypherGraphStore):
         await self._apply_schema(objects)
         self._schema_ready.update(f"relation:{t}" for t in self._known_relation_types)
 
+    async def upsert_nodes(
+        self,
+        label: str,
+        nodes: Sequence[NodeRecord],
+        *,
+        batch_size: int = 256,
+        pending_job_id: UUID | None = None,
+        deferred: DeferredWrites | None = None,
+    ) -> UpsertResult:
+        """Write or merge nodes, refusing an embedding of the wrong length.
+
+        FalkorDB accepts a vector of any length into a vector index without an
+        error and then never returns it, so a record whose embedding does not
+        match the index dimension is reported as a failure instead.
+        """
+        accepted: list[NodeRecord] = []
+        rejected: list[UpsertFailure] = []
+        for node in nodes:
+            problem = self._embedding_problem(node)
+            if problem is None:
+                accepted.append(node)
+            else:
+                rejected.append(
+                    UpsertFailure(
+                        id=str(node.id),
+                        error_type="EmbeddingDimensionMismatchError",
+                        error_message=problem,
+                    )
+                )
+        outcome = await super().upsert_nodes(
+            label,
+            accepted,
+            batch_size=batch_size,
+            pending_job_id=pending_job_id,
+            deferred=deferred,
+        )
+        outcome.failures.extend(rejected)
+        return outcome
+
+    def _embedding_problem(self, node: NodeRecord) -> str | None:
+        """Describe an embedding whose length differs from its index, if any."""
+        for name in self._vector_properties:
+            vector = node.properties.get(name)
+            if not isinstance(vector, (list, tuple)):
+                continue
+            for label in node.labels:
+                expected = self._vector_dimensions.get((label, name))
+                if expected is not None and len(vector) != expected:
+                    return (
+                        f"{name} has {len(vector)} values, the {label} index "
+                        f"holds {expected}"
+                    )
+        return None
+
     async def ensure_unique_constraint(
         self, *, label: str, properties: Sequence[str]
     ) -> None:
@@ -898,6 +966,7 @@ class FalkorDBGraphStore(CypherGraphStore):
                 None,
             )
         self._vector_similarity[(label, vector_property)] = similarity
+        self._vector_dimensions[(label, vector_property)] = dimensions
         if existing is not None and existing.dimensions != dimensions:
             raise EmbeddingDimensionMismatchError(
                 expected=existing.dimensions or 0, actual=dimensions

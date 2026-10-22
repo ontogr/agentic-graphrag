@@ -307,7 +307,7 @@ A plaintext `redis://` URL to a non-local host raises an error when `FALKORDB_PA
 
 `connect` raises `GraphStoreError` when the server's graph module is older than version `42202`, or when `RESULTSET_SIZE` is not `-1`.
 
-```python
+```python notest
 import asyncio
 
 from agrag.graphdb import build_graph_store
@@ -322,7 +322,7 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
-The block exits without an error when the server is reachable and set up as described above.
+The block exits without an error when a FalkorDB server is reachable and set up as described above.
 
 ## FalkorDB behavior to know
 
@@ -341,6 +341,10 @@ FalkorDB applies a filter after it picks the nearest candidates. agrag fetches m
 ### Crash recovery of a commit
 
 A document change commits in several statements. If the process stops part way through, the next time you open the graph agrag finishes the commit for that document instead of undoing it. The new content stays visible. The rebuild of resolved entities for that change does not run, because the process that held the details is gone. Run `reevaluate()` on the affected entities if you need it.
+
+### Retried memory writes
+
+A memory write that fails part way through can run its effect again when you retry it, because the statements of one write are not rolled back together. Give each write a `request_id` and keep each effect safe to repeat.
 
 ### Full-text search
 

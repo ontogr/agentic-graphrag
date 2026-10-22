@@ -39,6 +39,17 @@ class GraphStoreTransaction(Protocol):
         """
         return expression
 
+    def fulltext_copy_set(
+        self, alias: str, source: str, properties: Iterable[str]
+    ) -> str:
+        """Return ``SET`` clauses a backend needs to keep written text searchable.
+
+        Returns:
+            Clauses to add to the write, or an empty string when the backend
+            searches the stored text directly.
+        """
+        return ""
+
     async def execute_read(
         self, query: str, parameters: Mapping[str, Any] | None = None
     ) -> list[dict[str, Any]]:

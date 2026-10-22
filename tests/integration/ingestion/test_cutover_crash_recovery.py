@@ -692,32 +692,36 @@ class TestRecoveryIsIdempotent:
 
 
 class TestCrashDuringCommit:
-    """A worker that dies part way through its commit leaves a settled graph.
+    """A commit that fails part way through leaves a settled graph.
 
     A backend with multi-statement transactions undoes the whole commit, so the
     job is rolled back. A backend without them keeps the statements that ran, so
-    recovery finishes the commit. Either way no pending tag survives and the
-    job ends settled.
+    the commit is finished instead of rolled back, whether the worker died or is
+    still running when the commit fails. Either way no pending tag survives and
+    the job ends settled.
     """
 
-    async def test_recovery_settles_a_commit_that_died_after_writing_rows(
+    @pytest.mark.parametrize("worker_dies", [True, False])
+    async def test_recovery_settles_a_commit_that_failed_after_writing_rows(
         self,
         monkeypatch: pytest.MonkeyPatch,
         noop_graph: tuple[GraphStore, Graph],
+        worker_dies: bool,
     ) -> None:
         """Recovery leaves no pending rows and either keeps or drops the document."""
         store, graph = noop_graph
         key = f"crash://mid-commit-{uuid4().hex}"
         try:
-            _kill_recovery(monkeypatch)
+            if worker_dies:
+                _kill_recovery(monkeypatch)
 
-            async def die_before_tags_clear(*args: object, **kwargs: object) -> None:
-                raise RuntimeError("worker died during commit")
+            async def fail_before_tags_clear(*args: object, **kwargs: object) -> None:
+                raise RuntimeError("worker failed during commit")
 
             monkeypatch.setattr(
-                "agrag.ingestion._cutover.clear_job_tags", die_before_tags_clear
+                "agrag.ingestion._cutover.clear_job_tags", fail_before_tags_clear
             )
-            with pytest.raises(RuntimeError, match="worker died during commit"):
+            with pytest.raises(RuntimeError, match="worker failed during commit"):
                 await graph.add(documents=[_document(key, "mid commit text. " * 60)])
             monkeypatch.undo()
             rows = await store.execute_read(
@@ -725,13 +729,13 @@ class TestCrashDuringCommit:
                 "RETURN job.id AS id, job.commit_started AS started",
                 {"key": key},
             )
-            assert rows
-            job_id = str(rows[0]["id"])
+            job_id = str(rows[0]["id"]) if rows else None
             _kill_recovery(monkeypatch)
 
             await _reopen_until_settled(store, key, _NoopExtractor())
 
-            assert await _tagged_rows(store, job_id) == (0, 0)
+            if job_id is not None:
+                assert await _tagged_rows(store, job_id) == (0, 0)
             if selected_backend() == "neo4j":
                 assert await _job_status(store, key) is None
                 assert await _open_chunk_ids(store, key) == set()

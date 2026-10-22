@@ -266,6 +266,7 @@ class TestCutoverJobLeavesCommittedEntities:
         finally:
             await _cleanup(store, tag, label, key)
 
+    @pytest.mark.neo4j_only
     async def test_failed_replay_rolls_the_job_back_and_keeps_the_committed_row(
         self, store: GraphStore
     ) -> None:
