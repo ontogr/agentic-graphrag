@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import AsyncGenerator, Sequence
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, ClassVar
 from urllib.parse import urlparse
@@ -451,7 +451,7 @@ class MilvusVectorStore(VectorStore):
     @asynccontextmanager
     async def _connection(
         self, operation: str, kind: VectorKind
-    ) -> AsyncIterator[AsyncMilvusClient]:
+    ) -> AsyncGenerator[AsyncMilvusClient]:
         """Trace operations and translate SDK errors without credential values."""
         await self.initialize()
         from pymilvus import MilvusException  # noqa: PLC0415

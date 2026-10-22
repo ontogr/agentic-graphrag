@@ -11,6 +11,7 @@ from agrag.vectordb.errors import (
     VectorStoreError,
     VectorStoreMissingExtraError,
 )
+from agrag.vectordb.milvus import MilvusSettings, MilvusVectorStore
 from agrag.vectordb.placement import validate_placement
 from agrag.vectordb.qdrant import QdrantSettings, QdrantVectorStore
 
@@ -20,11 +21,17 @@ def _build_qdrant(tracer: Tracer | None = None) -> VectorStore:
     return QdrantVectorStore(settings=QdrantSettings(), tracer=tracer)
 
 
+def _build_milvus(tracer: Tracer | None = None) -> VectorStore:
+    """Construct a Milvus index from environment-backed settings."""
+    return MilvusVectorStore(settings=MilvusSettings(), tracer=tracer)
+
+
 _VECTOR_STORE_FACTORIES: dict[str, Callable[..., VectorStore]] = {
     "qdrant": _build_qdrant,
+    "milvus": _build_milvus,
 }
 
-VectorStoreName = Literal["qdrant"]
+VectorStoreName = Literal["qdrant", "milvus"]
 
 
 def build_vector_store(
@@ -59,6 +66,8 @@ def build_vector_store(
 
 __all__ = [
     "CollectionMismatchError",
+    "MilvusSettings",
+    "MilvusVectorStore",
     "QdrantSettings",
     "QdrantVectorStore",
     "VectorPlacementError",
