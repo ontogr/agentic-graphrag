@@ -472,8 +472,14 @@ class MilvusVectorStore(VectorStore):
 
         Milvus 3.0 sorting orders the canonical VARCHAR UUIDs lexicographically,
         which is also UUID numeric order. Pages do not form a concurrent snapshot.
+        A limit of zero returns no IDs, a negative limit raises ValueError, and a
+        limit above ``max_results`` is capped.
         """
-        self._validate_limit(limit)
+        if limit < 0:
+            raise ValueError("limit cannot be negative")
+        if limit == 0:
+            return []
+        limit = min(limit, self.max_results)
         async with self._connection(
             "list_ids", kind, attributes={"agrag.limit": limit}
         ) as client:

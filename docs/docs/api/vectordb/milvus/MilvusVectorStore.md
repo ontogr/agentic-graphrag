@@ -127,6 +127,8 @@ Page UUIDs in ascending order with an exclusive keyset cursor.
 
 Milvus 3.0 sorting orders the canonical VARCHAR UUIDs lexicographically,
 which is also UUID numeric order. Pages do not form a concurrent snapshot.
+A limit of zero returns no IDs, a negative limit raises ValueError, and a
+limit above `max_results` is capped.
 
 ## `max_results` \{#agrag-vectordb-milvus-MilvusVectorStore-max_results}
 
