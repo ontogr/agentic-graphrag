@@ -46,6 +46,7 @@ from agrag.retrieval.retrievers.community import CommunityRetriever
 from agrag.retrieval.retrievers.entity import EntityRetriever
 from agrag.retrieval.settings import RetrievalSettings
 from agrag.retrieval.tracing import record_results, retrieval_span
+from agrag.vectordb.base import VectorStore
 
 
 logger = logging.getLogger(__name__)
@@ -73,6 +74,7 @@ class SearchEngine:
         settings: RetrievalSettings | None = None,
         entity_labels: Sequence[str] | None = None,
         graph_schema: GraphSchema | None = None,
+        vector_store: VectorStore | None = None,
         tracer: Tracer | None = None,
     ) -> None:
         """Construct a SearchEngine.
@@ -91,6 +93,7 @@ class SearchEngine:
                 read. Omit it and let the schema drive both.
             graph_schema: The graph's declared schema, ground truth for
                 native entity labels. None uses ``DEFAULT_SCHEMA``.
+            vector_store: External vector store used for semantic retrieval.
             tracer: Opens the search span and flows to every retriever
                 and free function the engine calls. None opens no
                 recorded span.
@@ -103,6 +106,7 @@ class SearchEngine:
         self._embedder = embedder
         self._settings = settings or RetrievalSettings()
         self._tracer = tracer
+        self._vector_store = vector_store
         self._graph_schema = (
             graph_schema.model_copy(deep=True)
             if graph_schema is not None
@@ -159,6 +163,7 @@ class SearchEngine:
             settings=self._settings,
             entity_labels=self._entity_labels,
             filters=filters,
+            vector_store=self._vector_store,
             tracer=self._tracer,
         )
 
@@ -544,18 +549,21 @@ class SearchEngine:
                 embedder=self._embedder,
                 settings=self._settings,
                 entity_labels=self._entity_labels,
+                vector_store=self._vector_store,
                 tracer=self._tracer,
             ),
             "chunk": ChunkRetriever(
                 graph_store=self._graph_store,
                 embedder=self._embedder,
                 settings=self._settings,
+                vector_store=self._vector_store,
                 tracer=self._tracer,
             ),
             "community": CommunityRetriever(
                 graph_store=self._graph_store,
                 embedder=self._embedder,
                 settings=self._settings,
+                vector_store=self._vector_store,
                 tracer=self._tracer,
             ),
         }

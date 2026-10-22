@@ -1,8 +1,8 @@
 """Fixtures for the evidence integration tests.
 
-Each test gets a graph with the authored corpus under keys that carry a
-per-test run id, so tests can share one database. Teardown deletes only the
-nodes under those keys.
+Each test gets its own store with the authored corpus under keys that carry a
+per-test run id. On Neo4j tests share one database, so teardown deletes the nodes
+under those keys. On FalkorDB each test also gets its own graph.
 """
 
 from collections.abc import AsyncGenerator
@@ -15,7 +15,7 @@ from agrag.chunking import Chunker
 from agrag.common.data_models.graph_schema import GraphSchema
 from agrag.graphdb.base import GraphStore
 from agrag.ingestion.graph import Graph
-from tests.integration._backend import await_indexes, build_test_store
+from tests.integration._backend import await_indexes, isolated_test_store
 from tests.integration.retrieval.evidence._corpus import (
     HARBOR_TEXT,
     KEEP_TEXT,
@@ -38,11 +38,14 @@ class EvidenceEnv:
         run: The per-test id that every document key carries.
         store: The connected graph store, shared with the test.
         graph: The graph that wrote the corpus.
+        server_environment: Variables that point a server subprocess at the
+            same data as ``store``.
     """
 
     run: str
     store: GraphStore
     graph: Graph
+    server_environment: dict[str, str]
 
     def key(self, name: str) -> str:
         """Return the document key for a short document name."""
@@ -87,27 +90,29 @@ async def evidence_env() -> AsyncGenerator[EvidenceEnv, None]:
     """Open a graph, add the authored corpus, and wait for the indexes."""
     run = uuid4().hex[:8]
     schema = GraphSchema(name="evidence", version="1", entities=[], relations=[])
-    store = build_test_store()
-    graph = await Graph.open(
-        schema=schema,
-        graph_store=store,
-        embedder=BagOfWordsEmbedder(),
-        extractor=NoEntityExtractor(),
-        chunker=Chunker(size=_CHUNK_SIZE),
-    )
-    env = EvidenceEnv(run=run, store=store, graph=graph)
-    try:
-        await await_indexes(store)
-        await graph.add(
-            documents=[
-                make_document(env.keep, KEEP_TEXT),
-                make_document(env.viber, VIBER_TEXT),
-                make_document(env.harbor, HARBOR_TEXT),
-            ]
+    async with isolated_test_store() as (store, server_environment):
+        graph = await Graph.open(
+            schema=schema,
+            graph_store=store,
+            embedder=BagOfWordsEmbedder(),
+            extractor=NoEntityExtractor(),
+            chunker=Chunker(size=_CHUNK_SIZE),
         )
-        yield env
-    finally:
+        env = EvidenceEnv(
+            run=run,
+            store=store,
+            graph=graph,
+            server_environment=server_environment,
+        )
         try:
-            await _cleanup(env)
+            await await_indexes(store)
+            await graph.add(
+                documents=[
+                    make_document(env.keep, KEEP_TEXT),
+                    make_document(env.viber, VIBER_TEXT),
+                    make_document(env.harbor, HARBOR_TEXT),
+                ]
+            )
+            yield env
         finally:
-            await store.close()
+            await _cleanup(env)

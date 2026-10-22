@@ -20,6 +20,7 @@ The ingestion package.
 - [**resolved_entities**](resolved_entities/index.md) – Non-destructive match persistence and resolved-entity computation.
 - [**settings**](settings/index.md) – Configuration for ingestion: the Cutover Job and local extraction.
 - [**stats**](stats/index.md) – Per-stage observability types for the ingestion pipeline.
+- [**vector_sync**](vector_sync/index.md) – Synchronize graph-owned embeddings with an external vector store.
 
 **Classes:**
 

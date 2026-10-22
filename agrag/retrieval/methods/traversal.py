@@ -30,6 +30,7 @@ from agrag.retrieval.tracing import (
     result_text,
     retrieval_span,
 )
+from agrag.vectordb.base import VectorStore
 
 
 logger = logging.getLogger(__name__)
@@ -76,6 +77,7 @@ async def find_entity(
     settings: RetrievalSettings,
     entity_labels: Sequence[str],
     filters: SearchFilters | None = None,
+    vector_store: VectorStore | None = None,
     tracer: Tracer | None = None,
 ) -> SearchResult | None:
     """Resolve a named entity to its top search hit, or None.
@@ -101,6 +103,7 @@ async def find_entity(
             label override. An entity that exists only outside this
             scope resolves to None, the same as one that does not
             exist.
+        vector_store: Optional external vector store for entity candidates.
         tracer: Opens the root span and flows to the entity retriever.
             None opens no recorded span.
 
@@ -124,6 +127,7 @@ async def find_entity(
             embedder=embedder,
             settings=settings,
             entity_labels=entity_labels,
+            vector_store=vector_store,
             tracer=tracer,
         )
         results = await retriever.retrieve(name, filters=projected, limit=1)

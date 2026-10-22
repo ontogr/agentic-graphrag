@@ -8,7 +8,9 @@ from opentelemetry.trace import Tracer
 from agrag.common.data_models.graph_record import DeferredWrites
 from agrag.embedding.base import Embedder
 from agrag.graphdb.base import GraphStore
+from agrag.ingestion.vector_sync import VectorSync
 from agrag.loaders.types import ErrorPolicy
+from agrag.vectordb.base import VectorStore
 
 
 @dataclass(frozen=True)
@@ -22,6 +24,8 @@ class StageContext:
         tracer: Opens the spans of the stages. Never None.
         job_id: The in-flight cutover job, or None outside a job.
         deferred: Receives writes over committed rows; replayed at commit.
+        vector_store: External vector index for resolution candidates, or None.
+        vector_sync: Mirrors embedding writes to an external vector store, or None.
     """
 
     graph_store: GraphStore
@@ -30,3 +34,5 @@ class StageContext:
     tracer: Tracer
     job_id: UUID | None
     deferred: DeferredWrites | None
+    vector_store: VectorStore | None = None
+    vector_sync: VectorSync | None = None

@@ -15,6 +15,7 @@ from agrag.loaders.types import ErrorPolicy
 from agrag.observability import record_stage_failure
 from agrag.retrieval.filters import SearchFilters
 from agrag.retrieval.methods.vector import vector_search
+from agrag.vectordb.base import VectorStore
 
 
 MAX_NEIGHBORS_PER_ENTITY = 5
@@ -140,10 +141,12 @@ class GraphCandidateSource(CandidateSource):
         embedder: Embedder,
         entity_labels: Sequence[str] = (),
         top_k: int = 50,
+        vector_store: VectorStore | None = None,
     ) -> None:
         """Create a candidate source backed by the configured graph indexes."""
         self.graph_store = graph_store
         self.embedder = embedder
+        self.vector_store = vector_store
         self.entity_labels = tuple(entity_labels)
         self.top_k = top_k
 
@@ -187,6 +190,8 @@ class GraphCandidateSource(CandidateSource):
             labels=(mention.label,),
             limit=self.top_k,
             filters=SearchFilters(labels=[mention.label]),
+            vector_store=self.vector_store,
+            hybrid=False,
         )
         if not hits:
             return []

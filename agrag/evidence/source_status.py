@@ -9,9 +9,11 @@ from agrag.common.data_models.evidence import (
     SourceState,
     SourceStatus,
 )
+from agrag.common.data_models.vector_record import VectorKind
 from agrag.cypher.documents import source_status_query
 from agrag.cypher.schema import fulltext_index_name, vector_index_name
 from agrag.graphdb.base import GraphStore
+from agrag.vectordb.base import VectorStore
 
 
 _INDEXES = (
@@ -20,7 +22,13 @@ _INDEXES = (
 )
 
 
-async def source_status(store: GraphStore, document_key: str) -> SourceStatus:
+async def source_status(
+    store: GraphStore,
+    document_key: str,
+    *,
+    vector_store: VectorStore | None = None,
+    dimensions: int | None = None,
+) -> SourceStatus:
     """Return committed version, job and index state for one document key.
 
     An expired incomplete job is reported as failed. An active job is reported
@@ -29,6 +37,8 @@ async def source_status(store: GraphStore, document_key: str) -> SourceStatus:
     Args:
         store: The graph store to read.
         document_key: Stable key of the source.
+        vector_store: External vector store, or None for graph-native indexes.
+        dimensions: Expected embedding dimension when checking an external store.
 
     Returns:
         Source state with the current activation, job lease and index status.
@@ -36,7 +46,7 @@ async def source_status(store: GraphStore, document_key: str) -> SourceStatus:
     rows = await store.execute_read(
         source_status_query(), {"document_key": document_key}
     )
-    indexes = await _source_index_statuses(store)
+    indexes = await _source_index_statuses(store, vector_store, dimensions)
     if not rows:
         return SourceStatus(
             document_key=document_key, state=SourceState.UNKNOWN, indexes=indexes
@@ -82,14 +92,19 @@ async def source_status(store: GraphStore, document_key: str) -> SourceStatus:
     )
 
 
-async def _source_index_statuses(store: GraphStore) -> list[SourceIndexStatus]:
+async def _source_index_statuses(
+    store: GraphStore,
+    vector_store: VectorStore | None,
+    dimensions: int | None,
+) -> list[SourceIndexStatus]:
     """Read readiness and population progress for source search indexes.
 
     An index that the store does not list is reported as ``MISSING``.
     """
     found = {index.name: index for index in await store.list_indexes()}
     statuses: list[SourceIndexStatus] = []
-    for name in _INDEXES:
+    index_names = _INDEXES if vector_store is None else _INDEXES[:1]
+    for name in index_names:
         index = found.get(name)
         if index is None:
             statuses.append(
@@ -101,6 +116,19 @@ async def _source_index_statuses(store: GraphStore) -> list[SourceIndexStatus]:
                 name=name,
                 state=index.state,
                 population_percent=index.population_percent,
+            )
+        )
+    if vector_store is not None:
+        name = vector_store.collection_name(VectorKind.CHUNK)
+        info = await vector_store.collection_info(VectorKind.CHUNK)
+        ready = info is not None and (
+            dimensions is None or info.dimensions == dimensions
+        )
+        statuses.append(
+            SourceIndexStatus(
+                name=name,
+                state="ONLINE" if ready else "MISSING",
+                population_percent=None,
             )
         )
     return statuses

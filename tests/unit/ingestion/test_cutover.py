@@ -19,6 +19,7 @@ import pytest
 
 from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.graph_record import DeferredWrites
+from agrag.common.data_models.vector_record import VectorWork
 from agrag.cypher.cutover_job_write import (
     acquire_lease_query,
     begin_commit_query,
@@ -379,6 +380,7 @@ async def _noop_cleanup(
     affected_entity_ids: list[UUID],
     component_seed_ids: list[UUID],
     created_entity_ids: list[UUID],
+    _vector_work: VectorWork,
 ) -> None:
     """Default cleanup step for jobs whose cleanup does nothing."""
 
@@ -579,7 +581,10 @@ class TestRunCutoverJobLeaseRenewal:
             store.nodes.append(_tag_node(job_id))
 
         async def cleanup(
-            affected: list[UUID], seeds: list[UUID], created: list[UUID]
+            affected: list[UUID],
+            seeds: list[UUID],
+            created: list[UUID],
+            _vector_work: VectorWork,
         ) -> None:
             nonlocal cleanup_cancelled
             cleanup_started.set()
@@ -754,7 +759,10 @@ class TestRunCutoverJobRollForward:
         cleaned = False
 
         async def cleanup(
-            affected: list[UUID], seeds: list[UUID], created: list[UUID]
+            affected: list[UUID],
+            seeds: list[UUID],
+            created: list[UUID],
+            _vector_work: VectorWork,
         ) -> None:
             nonlocal cleaned
             cleaned = True
@@ -844,7 +852,10 @@ class TestRunCutoverJobComponentSeeds:
             return None
 
         async def cleanup(
-            affected: list[UUID], seeds: list[UUID], created: list[UUID]
+            affected: list[UUID],
+            seeds: list[UUID],
+            created: list[UUID],
+            _vector_work: VectorWork,
         ) -> None:
             received.append((affected, seeds))
 

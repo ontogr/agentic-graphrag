@@ -130,6 +130,16 @@ def load_resolved_entities_by_id_query() -> str:
     )
 
 
+def load_resolved_entities_for_sync_query() -> str:
+    """Build Cypher loading committed resolved entities regardless of sync status."""
+    return (
+        "UNWIND $ids AS resolved_entity_id "
+        f"MATCH (resolved:{RESOLVED_ENTITY_LABEL} {{id: resolved_entity_id}}) "
+        f"WHERE {pending_filter_clause('resolved')} "
+        "RETURN resolved"
+    )
+
+
 def fetch_active_resolved_member_ids_query() -> str:
     """Build Cypher finding raw hits hidden by an active resolved entity.
 

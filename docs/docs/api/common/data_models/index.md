@@ -46,6 +46,7 @@ Shared data models used by agrag components.
 
 - [**Cardinality**](graph_schema/Cardinality.md) – Declared limits on distinct endpoints of one relation, across its patterns.
 - [**Chunk**](chunk/Chunk-ref.md) – One retrieval-sized piece of a Document.
+- [**CollectionInfo**](vector_record/CollectionInfo.md) – The dimensions, distance metric and record count of a collection.
 - [**Community**](community/Community-ref.md) – A cluster of entities detected by hierarchical Leiden, with an LLM report.
 - [**Distance**](vector_record/Distance.md) – A distance metric a vector index compares embeddings with.
 - [**Document**](document/Document-ref.md) – One unit of source text, before chunking.
@@ -68,6 +69,11 @@ Shared data models used by agrag components.
 - [**TextProvenance**](provenance/TextProvenance.md) – The location of a chunk inside flattened document text.
 - [**Unit**](document/Unit.md) – One piece of content in a section, such as a paragraph or a table.
 - [**UnitKind**](document/UnitKind.md) – The kind of content in a unit.
+- [**VectorKind**](vector_record/VectorKind.md) – Collections for chunks, raw entities, resolved entities and communities.
+- [**VectorRecord**](vector_record/VectorRecord.md) – An embedding with searchable labels and its exact embedding input.
+- [**VectorRepairCounts**](vector_record/VectorRepairCounts.md) – Repair counts and failures for one collection.
+- [**VectorRepairResult**](vector_record/VectorRepairResult.md) – Repair outcomes keyed by collection kind.
+- [**VectorTarget**](vector_record/VectorTarget.md) – A graph node whose external vector needs synchronization.
 
 **Attributes:**
 

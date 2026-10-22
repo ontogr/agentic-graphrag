@@ -6,7 +6,7 @@ sidebar_label: rebuild_resolved_entities
 # `agrag.ingestion.resolved_entities.rebuild_resolved_entities` \{#agrag-ingestion-resolved_entities-rebuild_resolved_entities}
 
 ```python
-rebuild_resolved_entities(seed_ids:list[UUID], *, graph_store:GraphStore, schema:GraphSchema, tracer:Tracer | None = None) -> list[RebuildResult]
+rebuild_resolved_entities(seed_ids:list[UUID], *, graph_store:GraphStore, schema:GraphSchema, tracer:Tracer | None = None, vector_sync:VectorSync | None = None) -> list[RebuildResult]
 ```
 
 Rebuild the resolved entity of each committed component from its seeds.
@@ -27,6 +27,7 @@ seeds.
 - **graph_store** (<code>[GraphStore](../../graphdb/base/GraphStore.md)</code>) – Where the components are read and rewritten.
 - **schema** (<code>[GraphSchema](../../common/data_models/graph_schema/GraphSchema.md)</code>) – The schema the members belong to.
 - **tracer** (<code>Tracer | None</code>) – Passed to description summarization.
+- **vector_sync** (<code>[VectorSync](../vector_sync/VectorSync.md) | None</code>) – Removes vectors for resolved entities that no longer exist.
 
 **Returns:**
 

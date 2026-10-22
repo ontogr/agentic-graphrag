@@ -29,6 +29,7 @@ from agrag.common.data_models.graph_schema import GraphSchema
 from agrag.common.data_models.stage_failure import StageFailure, cap_failures
 from agrag.common.data_models.structure import version_id
 from agrag.common.data_models.update_decision import UpdateDecision
+from agrag.common.data_models.vector_record import VectorWork
 from agrag.common.schema_fingerprint import RunRecord
 from agrag.cypher.documents import (
     document_cited_relation_endpoints_query,
@@ -66,18 +67,20 @@ from agrag.ingestion.stats import (
     StorageStats,
 )
 from agrag.ingestion.stats.dropped import sum_dropped
+from agrag.ingestion.vector_sync import VectorSync
 from agrag.loaders.base import Loader
 from agrag.loaders.common import build_prose_document, text_sections
 from agrag.loaders.loader_registry import LoaderRegistry
 from agrag.loaders.types import ErrorPolicy, LoadStats, ReadOptions, SourceRef
 from agrag.loaders.walk import normalize_inline_text
+from agrag.vectordb.base import VectorStore
 
 
 logger = logging.getLogger(__name__)
 _PURGE_RECORD_LIMIT = 10_000
 
 CleanupStep = Callable[
-    [list[UUID], list[UUID], list[UUID]], Awaitable[list[StageFailure]]
+    [list[UUID], list[UUID], list[UUID], VectorWork], Awaitable[list[StageFailure]]
 ]
 
 
@@ -480,6 +483,8 @@ async def _commit_batch(  # noqa: PLR0913
     write_candidates: bool,
     cleanup: CleanupStep,
     previous_hashes: Mapping[str, str | None],
+    vector_store: VectorStore | None = None,
+    vector_sync: VectorSync | None = None,
 ) -> list[AddResult]:
     """Write one extracted walk batch as one Cutover Job per document.
 
@@ -505,6 +510,8 @@ async def _commit_batch(  # noqa: PLR0913
         previous_hashes: The content hash each key held before this call, for
             keys that have a stored Document node. Keys missing from the
             mapping are first adds.
+        vector_store: External vector index for resolution candidates, or None.
+        vector_sync: Synchronizes external vectors through cutover and cleanup.
 
     Returns:
         One AddResult per document, in document order.
@@ -594,6 +601,8 @@ async def _commit_batch(  # noqa: PLR0913
                 dropped=slice_dropped,
                 write_candidates=write_candidates,
                 deferred=_deferred,
+                vector_store=vector_store,
+                vector_sync=vector_sync,
             )
             created_ids.extend(ingested.created_entity_ids)
             return ingested.add_result
@@ -622,6 +631,7 @@ async def _commit_batch(  # noqa: PLR0913
                 version_id=version_id(added),
             ),
             tracer=tracer,
+            vector_sync=vector_sync,
         )
         partials.append(_with_cleanup_failures(partial, cleanup_failures))
     return partials
@@ -653,6 +663,8 @@ async def add_documents(  # noqa: PLR0912,PLR0915,PLR0913
     write_candidates: bool,
     cleanup: CleanupStep,
     tracer: Tracer,
+    vector_store: VectorStore | None = None,
+    vector_sync: VectorSync | None = None,
 ) -> AddResult:
     """Add content to the graph. ``Graph.add`` documents the arguments."""
     with tracer.start_as_current_span("agrag.ingestion.add"):
@@ -767,6 +779,8 @@ async def add_documents(  # noqa: PLR0912,PLR0915,PLR0913
                     write_candidates=write_candidates,
                     cleanup=cleanup,
                     tracer=tracer,
+                    vector_sync=vector_sync,
+                    vector_store=vector_store,
                 )
                 if updated.no_op:
                     unchanged_documents += 1
@@ -819,6 +833,8 @@ async def add_documents(  # noqa: PLR0912,PLR0915,PLR0913
                     write_candidates=write_candidates,
                     cleanup=cleanup,
                     previous_hashes=previous_hashes,
+                    vector_store=vector_store,
+                    vector_sync=vector_sync,
                 )
             )
             if on_progress is not None:
@@ -874,6 +890,8 @@ async def update_document(  # noqa: PLR0913
     write_candidates: bool,
     cleanup: CleanupStep,
     tracer: Tracer,
+    vector_store: VectorStore | None = None,
+    vector_sync: VectorSync | None = None,
 ) -> UpdateResult:
     """Replace one document version. ``Graph.update`` documents the arguments."""
     with tracer.start_as_current_span("agrag.ingestion.update"):
@@ -1040,6 +1058,8 @@ async def update_document(  # noqa: PLR0913
                 write_candidates=write_candidates,
                 deferred=deferred,
                 reuse_chunks=in_place,
+                vector_store=vector_store,
+                vector_sync=vector_sync,
             )
             keep_node_ids.extend(batch.structure_node_ids)
             return batch.add_result
@@ -1097,6 +1117,7 @@ async def update_document(  # noqa: PLR0913
                 else Document.node_id_for(document_key=document_key)
             ),
             change=change,
+            vector_sync=vector_sync,
         )
         return UpdateResult(
             document_key=document_key,
@@ -1121,6 +1142,7 @@ async def delete_document(  # noqa: PLR0913
     cutover_settings: CutoverJobSettings,
     cleanup: CleanupStep,
     tracer: Tracer,
+    vector_sync: VectorSync | None = None,
 ) -> UpdateResult:
     """Soft-delete one document. ``Graph.delete_document`` documents the arguments."""
     with tracer.start_as_current_span("agrag.ingestion.delete_document"):
@@ -1156,6 +1178,7 @@ async def delete_document(  # noqa: PLR0913
             candidate_document_node_id=found.document_node_id,
             change=change,
             tracer=tracer,
+            vector_sync=vector_sync,
         )
         return UpdateResult(
             document_key=document_key,
@@ -1172,6 +1195,7 @@ async def purge_document(  # noqa: PLR0913
     cutover_settings: CutoverJobSettings,
     cleanup: CleanupStep,
     tracer: Tracer,
+    vector_sync: VectorSync | None = None,
 ) -> UpdateResult:
     """Hard-delete one document. ``Graph.purge_document`` documents the arguments."""
     with tracer.start_as_current_span("agrag.ingestion.purge_document"):
@@ -1251,6 +1275,7 @@ async def purge_document(  # noqa: PLR0913
             candidate_document_node_id=found.document_node_id,
             change=change,
             tracer=tracer,
+            vector_sync=vector_sync,
         )
         return UpdateResult(
             document_key=document_key,

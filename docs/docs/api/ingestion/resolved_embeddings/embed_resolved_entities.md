@@ -6,13 +6,13 @@ sidebar_label: embed_resolved_entities
 # `agrag.ingestion.resolved_embeddings.embed_resolved_entities` \{#agrag-ingestion-resolved_embeddings-embed_resolved_entities}
 
 ```python
-embed_resolved_entities(entities:list[ResolvedEntity], *, embedder:Embedder, graph_store:GraphStore, error_policy:ErrorPolicy, pending_job_id:UUID | str | None = None, deferred:DeferredWrites | None = None) -> list[StageFailure]
+embed_resolved_entities(entities:list[ResolvedEntity], *, embedder:Embedder, graph_store:GraphStore, error_policy:ErrorPolicy, pending_job_id:UUID | str | None = None, deferred:DeferredWrites | None = None, vector_sync:VectorSync | None = None) -> list[StageFailure]
 ```
 
 Write resolved-entity embeddings to the graph and record their sync status.
 
-A failed write clears the graph vector and records `failed` for a later
-rebuild pass to retry.
+Graph-native failures clear the graph vector. External-store failures
+record `failed` for a later repair pass.
 
 Only entities whose guarded graph write actually matched a live node have
 their sync status updated. A

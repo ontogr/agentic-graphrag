@@ -13,6 +13,7 @@ from typing import Any
 from uuid import uuid4
 
 from agrag.common.data_models.stage_failure import StageFailure
+from agrag.common.data_models.vector_record import VectorWork
 from agrag.cypher.cutover_job_write import (
     claim_job_query,
     claim_pending_job_query,
@@ -283,7 +284,10 @@ class TestResumeIncompleteJobs:
         calls: list[tuple[list[Any], list[Any], list[Any]]] = []
 
         async def _record(
-            entity_ids: list[Any], seed_ids: list[Any], created_ids: list[Any]
+            entity_ids: list[Any],
+            seed_ids: list[Any],
+            created_ids: list[Any],
+            _vector_work: VectorWork,
         ) -> list[StageFailure]:
             calls.append((entity_ids, seed_ids, created_ids))
             return []
@@ -311,7 +315,10 @@ class TestResumeIncompleteJobs:
         )
 
         async def _fail(
-            entity_ids: list[Any], seed_ids: list[Any], created_ids: list[Any]
+            entity_ids: list[Any],
+            seed_ids: list[Any],
+            created_ids: list[Any],
+            _vector_work: VectorWork,
         ) -> list[StageFailure]:
             return [
                 StageFailure(
@@ -347,7 +354,10 @@ class TestResumeIncompleteJobs:
         calls: list[tuple[list[Any], list[Any]]] = []
 
         async def _record(
-            entity_ids: list[Any], seed_ids: list[Any], created_ids: list[Any]
+            entity_ids: list[Any],
+            seed_ids: list[Any],
+            created_ids: list[Any],
+            _vector_work: VectorWork,
         ) -> None:
             calls.append((entity_ids, seed_ids))
 
@@ -372,7 +382,10 @@ class TestResumeIncompleteJobs:
         )
 
         async def _failing(
-            entity_ids: list[Any], seed_ids: list[Any], created_ids: list[Any]
+            entity_ids: list[Any],
+            seed_ids: list[Any],
+            created_ids: list[Any],
+            _vector_work: VectorWork,
         ) -> None:
             raise RuntimeError("rebuild blew up")
 
@@ -418,7 +431,10 @@ class TestResumeIncompleteJobs:
         calls: list[object] = []
 
         async def _record(
-            entity_ids: list[Any], seed_ids: list[Any], created_ids: list[Any]
+            entity_ids: list[Any],
+            seed_ids: list[Any],
+            created_ids: list[Any],
+            _vector_work: VectorWork,
         ) -> None:
             calls.append((entity_ids, seed_ids))
 
@@ -446,7 +462,10 @@ class TestResumeIncompleteJobs:
         )
 
         async def _failing_prune(
-            entity_ids: list[Any], seed_ids: list[Any], created_ids: list[Any]
+            entity_ids: list[Any],
+            seed_ids: list[Any],
+            created_ids: list[Any],
+            _vector_work: VectorWork,
         ) -> None:
             raise RuntimeError("prune blew up")
 
@@ -470,7 +489,10 @@ class TestResumeIncompleteJobs:
         )
 
         async def _slow_prune(
-            entity_ids: list[Any], seed_ids: list[Any], created_ids: list[Any]
+            entity_ids: list[Any],
+            seed_ids: list[Any],
+            created_ids: list[Any],
+            _vector_work: VectorWork,
         ) -> None:
             await asyncio.sleep(1.1)
 

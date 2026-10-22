@@ -17,7 +17,9 @@ from agrag.common.data_models.evidence import (
 )
 from agrag.common.data_models.index_record import INDEX_STATE_ONLINE
 from agrag.common.data_models.provenance import PageProvenance, TextProvenance
+from agrag.common.data_models.vector_record import VectorKind
 from agrag.graphdb.base import GraphStore
+from agrag.vectordb.base import VectorStore
 
 
 def scope_node_ids(scope: Iterable[str]) -> frozenset[str]:
@@ -273,5 +275,26 @@ async def indexes_ready(
         if index.labels != [spec.label]:
             return IndexState.NOT_READY
         if index.properties != [spec.prop]:
+            return IndexState.NOT_READY
+    return IndexState.READY
+
+
+async def stores_ready(
+    vector_store: VectorStore | None, kinds: Sequence[VectorKind]
+) -> IndexState:
+    """Return READY when each external vector collection exists.
+
+    Args:
+        vector_store: External store for semantic search, or None when vector
+            readiness is covered by graph indexes.
+        kinds: Collections required by the requested search legs.
+
+    Returns:
+        ``IndexState.READY`` or ``IndexState.NOT_READY``.
+    """
+    if vector_store is None:
+        return IndexState.READY
+    for kind in kinds:
+        if await vector_store.collection_info(kind) is None:
             return IndexState.NOT_READY
     return IndexState.READY

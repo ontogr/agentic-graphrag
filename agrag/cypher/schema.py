@@ -558,7 +558,8 @@ def falkordb_fulltext_search_call(label: str, properties: Sequence[str]) -> str:
     """Build the Cypher fragment that queries a full-text index.
 
     The match is restricted to the search copies of ``properties``. The fragment
-    yields ``node`` and ``score`` and ends with ``LIMIT $k``.
+    yields ``node`` and ``score`` and ends with ``LIMIT $k``. Equal scores use
+    node ids to select a stable candidate window before applying the limit.
 
     Expects the parameters ``$k``, the row limit, and ``$fulltext_terms``, the
     search text. ``$fulltext_terms`` is spliced into each field clause with
@@ -588,7 +589,7 @@ def falkordb_fulltext_search_call(label: str, properties: Sequence[str]) -> str:
     return (
         f"CALL db.idx.fulltext.queryNodes('{safe_label}', '{fields}') "
         "YIELD node, score WITH node, score + 1.0 AS score "
-        "ORDER BY score DESC LIMIT $k"
+        "ORDER BY score DESC, node.id LIMIT $k"
     )
 
 

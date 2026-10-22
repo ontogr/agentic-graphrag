@@ -16,6 +16,7 @@ import pytest
 
 from agrag.common.data_models.cutover_job import CUTOVER_JOB_LABEL
 from agrag.common.data_models.graph_record import DeferredWrites
+from agrag.common.data_models.vector_record import VectorWork
 from agrag.cypher.cutover_job_read import find_incomplete_jobs_query
 from agrag.cypher.cutover_job_write import (
     acquire_lease_query,
@@ -282,7 +283,10 @@ class TestCutoverJobLeaseLifetime:
             )
 
             async def slow_prune(
-                _: list[object], __: list[object], ___: list[object]
+                _: list[object],
+                __: list[object],
+                ___: list[object],
+                _vector_work: VectorWork,
             ) -> None:
                 nonlocal prune_ran
                 prune_ran = True
@@ -292,12 +296,14 @@ class TestCutoverJobLeaseLifetime:
                 store, roll_forward=slow_prune, lease_ttl_seconds=1
             )
             rows = await store.execute_read(
-                "MATCH (job:CutoverJob {id: $job_id}) RETURN job.status AS status",
+                "MATCH (job:CutoverJob {id: $job_id}) RETURN job.status AS status, "
+                "job.lease_token AS lease_token, "
+                "job.lease_expires_at AS lease_expires_at, timestamp() AS now",
                 {"job_id": job_id},
             )
 
-            assert recovered == [job_id]
-            assert rows == [{"status": "done"}]
+            assert recovered == [job_id], {"prune_ran": prune_ran, "job": rows}
+            assert [row["status"] for row in rows] == ["done"]
             assert prune_ran
         finally:
             await store.execute_write(
@@ -431,7 +437,12 @@ class TestCutoverJobLeaseLifetime:
             await asyncio.sleep(2.5)
             resumed.extend(await resume_incomplete_jobs(store))
 
-        async def cleanup(_: list[object], __: list[object], ___: list[object]) -> None:
+        async def cleanup(
+            _: list[object],
+            __: list[object],
+            ___: list[object],
+            _vector_work: VectorWork,
+        ) -> None:
             return None
 
         try:

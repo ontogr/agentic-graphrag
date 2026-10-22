@@ -86,6 +86,7 @@ async def resolve_stage(
         chunks_by_id,
         graph_store=ctx.graph_store,
         embedder=ctx.embedder,
+        vector_store=ctx.vector_store,
         entity_labels=[entity.label for entity in graph_schema.entities],
         tracer=ctx.tracer,
         max_llm_pairs=max_llm_pairs,

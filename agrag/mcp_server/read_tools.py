@@ -39,6 +39,7 @@ from agrag.graphdb.base import GraphStore
 from agrag.mcp_server.results import bounded_result
 from agrag.mcp_server.settings import McpServerSettings
 from agrag.memory import DecisionMemory, TaskMemory
+from agrag.vectordb.base import VectorStore
 
 
 _READ_ONLY = ToolAnnotations(
@@ -54,6 +55,7 @@ def register_evidence_read_tools(
     store: GraphStore,
     embedder: Embedder,
     settings: McpServerSettings,
+    vector_store: VectorStore | None = None,
 ) -> None:
     """Register scoped entity search, exploration and navigation tools.
 
@@ -62,11 +64,16 @@ def register_evidence_read_tools(
         store: Graph store used by the evidence services.
         settings: Trusted source scope and output limits.
         embedder: Query embedder for entity search.
+        vector_store: Optional external vector store for semantic legs.
     """
 
     @server.tool(
         annotations=_READ_ONLY,
-        description="Find entities with support in configured documents.",
+        description=(
+            "Find entities with support in configured documents. External-store "
+            "hybrid search fuses dense and lexical signals internally and reports "
+            "the semantic leg."
+        ),
     )
     async def entity_search(
         query: Annotated[str, Field(min_length=1, max_length=1000)],
@@ -85,6 +92,7 @@ def register_evidence_read_tools(
                 labels=labels,
                 mode=mode,
                 limit=min(limit, settings.max_hits),
+                vector_store=vector_store,
             ),
         )
 

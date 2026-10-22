@@ -15,6 +15,7 @@ from agrag.common.data_models.candidate_review import SchemaPatch
 from agrag.common.data_models.graph_record import RelationRecord
 from agrag.common.data_models.graph_schema import GraphSchema
 from agrag.common.data_models.stage_failure import StageFailure
+from agrag.common.data_models.vector_record import VectorKind, VectorTarget
 from agrag.common.text import normalize_text
 from agrag.cypher.candidate_conversion import (
     alias_owners_query,
@@ -33,6 +34,7 @@ from agrag.graphdb.entities import load_entities
 from agrag.ingestion._ingest_pipeline import _embed_and_upsert_survivors
 from agrag.ingestion.merge import mentioned_in_id, relation_id
 from agrag.ingestion.reports import ConversionReport
+from agrag.ingestion.vector_sync import VectorSync
 from agrag.loaders.types import ErrorPolicy
 from agrag.observability import record_stage_failure
 
@@ -96,6 +98,7 @@ async def convert_candidates(
     embedder: Embedder,
     error_policy: ErrorPolicy,
     tracer: Tracer,
+    vector_sync: VectorSync | None = None,
 ) -> ConversionReport:
     """Convert approved patch rows atomically, then re-embed changed entities."""
     check_patch_applied(schema, patch)
@@ -118,7 +121,13 @@ async def convert_candidates(
 
         entities = [item for item in approved.values() if item[0].kind == "entity"]
         converts, folds = await _plan_entities(
-            graph_store, schema, embedder, entities, report, now=now
+            graph_store,
+            schema,
+            embedder,
+            entities,
+            report,
+            now=now,
+            with_embedding=vector_sync is None,
         )
         relations, relation_candidates = await _plan_relations(
             graph_store,
@@ -145,6 +154,7 @@ async def convert_candidates(
                 relations=relations,
                 properties=properties,
                 now=now,
+                with_embedding=vector_sync is None,
             )
 
         (
@@ -170,12 +180,22 @@ async def convert_candidates(
             name: [row for row in values if row["candidate_id"] in handled]
             for name, values in properties.items()
         }
+        if vector_sync is not None and converted_ids:
+            report.failures.extend(
+                await vector_sync.sync_committed(
+                    [
+                        VectorTarget(kind=VectorKind.ENTITY, id=UUID(item_id))
+                        for item_id in converted_ids
+                    ]
+                )
+            )
         await _reembed_changed_descriptions(
             written_properties,
             graph_store=graph_store,
             embedder=embedder,
             error_policy=error_policy,
             report=report,
+            vector_sync=vector_sync,
         )
     return report
 
@@ -188,6 +208,7 @@ async def _plan_entities(
     report: ConversionReport,
     *,
     now: str,
+    with_embedding: bool,
 ) -> tuple[dict[tuple[str, ...], list[dict[str, Any]]], list[dict[str, Any]]]:
     """Prepare entity rows for conversion or exact-name folding."""
     labels = {entity.label for entity in schema.entities}
@@ -234,22 +255,24 @@ async def _plan_entities(
             for record, chunks in fold_group
         )
     vectors = (
-        await embedder.embed([record.text for record, _, _ in fresh]) if fresh else []
+        await embedder.embed([record.text for record, _, _ in fresh])
+        if fresh and with_embedding
+        else []
     )
     converts: dict[tuple[str, ...], list[dict[str, Any]]] = defaultdict(list)
-    for (record, chunks, key), vector in zip(fresh, vectors, strict=True):
-        converts[tuple(schema.node_labels(record.label))].append(
-            {
-                "id": str(record.id),
-                "label": record.label,
-                "text": record.text,
-                "merge_key": key,
-                "chunk_ids": chunks,
-                "count": record.count,
-                "embedding": vector,
-                "now": now,
-            }
-        )
+    for index, (record, chunks, key) in enumerate(fresh):
+        row: dict[str, Any] = {
+            "id": str(record.id),
+            "label": record.label,
+            "text": record.text,
+            "merge_key": key,
+            "chunk_ids": chunks,
+            "count": record.count,
+            "now": now,
+        }
+        if with_embedding:
+            row["embedding"] = vectors[index]
+        converts[tuple(schema.node_labels(record.label))].append(row)
     return converts, folds
 
 
@@ -381,6 +404,7 @@ async def _write(
     relations: dict[str, list[dict[str, Any]]],
     properties: dict[str, list[dict[str, Any]]],
     now: str,
+    with_embedding: bool,
 ) -> tuple[set[str], set[str], int, int, int]:
     """Write all prepared changes in the enclosing transaction."""
     handled: set[str] = set()
@@ -393,6 +417,7 @@ async def _write(
             convert_entity_candidates_query(
                 labels,
                 embedding_value=transaction.vector_value("row.embedding"),
+                with_embedding=with_embedding,
                 text_copy_set=transaction.fulltext_copy_set(
                     "c", "{name: row.text}", ["name"]
                 ),
@@ -479,6 +504,7 @@ async def _reembed_changed_descriptions(
     embedder: Embedder,
     error_policy: ErrorPolicy,
     report: ConversionReport,
+    vector_sync: VectorSync | None,
 ) -> None:
     """Re-embed the entities whose description this conversion wrote."""
     descriptions = property_rows.get("description", [])
@@ -493,6 +519,7 @@ async def _reembed_changed_descriptions(
                     embedder=embedder,
                     graph_store=graph_store,
                     error_policy=error_policy,
+                    vector_sync=vector_sync,
                 )
             )
         except Exception as exc:  # noqa: BLE001

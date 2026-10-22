@@ -6,7 +6,7 @@ sidebar_label: detect_communities
 # `agrag.ingestion.community.detect_communities` \{#agrag-ingestion-community-detect_communities}
 
 ```python
-detect_communities(graph_store:GraphStore, *, embedder:Embedder, tracer:Tracer | None = None, apply:bool = False, max_cluster_size:int = 10, resolution:float = 1.0, seed:int | None = 3735928559) -> CommunityDetectionReport
+detect_communities(graph_store:GraphStore, *, embedder:Embedder, tracer:Tracer | None = None, apply:bool = False, vector_sync:VectorSync | None = None, max_cluster_size:int = 10, resolution:float = 1.0, seed:int | None = 3735928559) -> CommunityDetectionReport
 ```
 
 Detect entity communities via hierarchical Leiden.
@@ -24,6 +24,7 @@ Community node and MEMBER_OF edge before it stores the new ones.
 - **embedder** (<code>[Embedder](../../embedding/base/Embedder.md)</code>) – Embeds the community summaries.
 - **tracer** (<code>Tracer | None</code>) – Opens the detection span. None opens no recorded span.
 - **apply** (<code>bool</code>) – Write the communities. False returns a report only.
+- **vector_sync** (<code>[VectorSync](../vector_sync/VectorSync.md) | None</code>) – Mirrors community vectors outside the graph when set.
 - **max_cluster_size** (<code>int</code>) – Forwarded to `compute_communities`.
 - **resolution** (<code>float</code>) – Forwarded to `compute_communities`.
 - **seed** (<code>int | None</code>) – Forwarded to `compute_communities`.

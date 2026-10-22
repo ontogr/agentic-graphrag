@@ -6,7 +6,7 @@ sidebar_label: DeferredWrites
 # `agrag.common.data_models.graph_record.DeferredWrites` \{#agrag-common-data_models-graph_record-DeferredWrites}
 
 ```python
-DeferredWrites(entries:list[tuple[str, dict[str, Any]]] = list()) -> None
+DeferredWrites(entries:list[tuple[str, dict[str, Any]]] = list(), vector_targets:list[VectorTarget] = list()) -> None
 ```
 
 Writes over committed rows, held until the job's commit transaction.
@@ -22,6 +22,7 @@ needs nothing from this list, and the commit transaction is atomic.
 
 - [**entries**](#agrag-common-data_models-graph_record-DeferredWrites-entries) (<code>list\[tuple\[str, dict\[str, Any\]\]\]</code>) – Each deferred `(query, parameters)` in write order. Order
   matters: a survivor's text replays before its embedding.
+- [**vector_targets**](#agrag-common-data_models-graph_record-DeferredWrites-vector_targets) (<code>list\[[VectorTarget](../vector_record/VectorTarget.md)\]</code>) – Committed nodes to re-embed after the graph commit.
 
 **Functions:**
 
@@ -61,4 +62,10 @@ Defer the records whose result row says `written` is false.
 
 ```python
 entries: list[tuple[str, dict[str, Any]]] = field(default_factory=list)
+```
+
+## `vector_targets` \{#agrag-common-data_models-graph_record-DeferredWrites-vector_targets}
+
+```python
+vector_targets: list[VectorTarget] = field(default_factory=list)
 ```

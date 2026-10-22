@@ -6,13 +6,13 @@ sidebar_label: vector_search
 # `agrag.retrieval.methods.vector.vector_search` \{#agrag-retrieval-methods-vector-vector_search}
 
 ```python
-vector_search(query:str, *, embedder:Embedder, graph_store:GraphStore, labels:Sequence[str], limit:int, filters:SearchFilters | None, query_vector:Sequence[float] | None = None, tracer:Tracer | None = None) -> list[VectorHit]
+vector_search(query:str, *, embedder:Embedder, graph_store:GraphStore, labels:Sequence[str], limit:int, filters:SearchFilters | None, query_vector:Sequence[float] | None = None, vector_store:VectorStore | None = None, hybrid:bool = False, alpha:float = 0.5, tracer:Tracer | None = None) -> list[VectorHit]
 ```
 
 Embed query and run GraphStore's native vector search for each label.
 
-One native vector index exists per label, so a search over several
-labels is several searches. The results are merged and ranked by score.
+Native vector search uses one index per label. An external store groups
+labels by vector kind and joins candidates back to committed graph nodes.
 
 The vector query excludes records an in-flight Cutover Job wrote, so a
 caller never receives an uncommitted job's node or vector.
@@ -27,6 +27,9 @@ caller never receives an uncommitted job's node or vector.
 - **filters** (<code>[SearchFilters](../../filters/SearchFilters.md) | None</code>) – Constraints applied as node property filters. Labels choose
   the searched indexes, so they are not sent as property filters.
 - **query_vector** (<code>Sequence\[float\] | None</code>) – Precomputed query embedding. None embeds `query`.
+- **vector_store** (<code>VectorStore | None</code>) – Optional external store for vector candidates.
+- **hybrid** (<code>bool</code>) – Use the store's dense and lexical hybrid search when available.
+- **alpha** (<code>float</code>) – Dense weight for external hybrid search.
 - **tracer** (<code>Tracer | None</code>) – Opens the search span. None opens no recorded span.
 
 **Returns:**

@@ -6,7 +6,7 @@ sidebar_label: Graph
 # `agrag.ingestion.graph.Graph` \{#agrag-ingestion-graph-Graph}
 
 ```python
-Graph(*, schema:SchemaSource, graph_store:GraphStore, embedder:Embedder, extractor:Extractor | None = None, tracer:Tracer | None = None, cutover_settings:CutoverJobSettings | None = None, extraction_settings:ExtractionSettings | None = None, llm_extractor:LLMExtractor | None = None, chunker:Chunker | None = None, embed_heading_path:bool = True, max_llm_pairs:int = MAX_LLM_PAIRS, llm_concurrency:int = DEFAULT_LLM_CONCURRENCY) -> None
+Graph(*, schema:SchemaSource, graph_store:GraphStore, embedder:Embedder, vector_store:VectorStore | None = None, extractor:Extractor | None = None, tracer:Tracer | None = None, cutover_settings:CutoverJobSettings | None = None, extraction_settings:ExtractionSettings | None = None, llm_extractor:LLMExtractor | None = None, chunker:Chunker | None = None, embed_heading_path:bool = True, max_llm_pairs:int = MAX_LLM_PAIRS, llm_concurrency:int = DEFAULT_LLM_CONCURRENCY) -> None
 ```
 
 A knowledge graph that a caller can open and add content to.
@@ -22,6 +22,7 @@ A knowledge graph that a caller can open and add content to.
 - [**open**](#agrag-ingestion-graph-Graph-open) – Open a graph, connecting and fully provisioning graph_store.
 - [**purge_document**](#agrag-ingestion-graph-Graph-purge_document) – Hard-delete every stored version of a document and its evidence.
 - [**reevaluate**](#agrag-ingestion-graph-Graph-reevaluate) – Reevaluate matches among the given entities.
+- [**repair_vectors**](#agrag-ingestion-graph-Graph-repair_vectors) – Re-embed missing committed vectors and optionally prune absent nodes.
 - [**source_status**](#agrag-ingestion-graph-Graph-source_status) – Read a source's version, job lease and search index state.
 - [**update**](#agrag-ingestion-graph-Graph-update) – Replace one document version, or re-extract it in place.
 
@@ -44,6 +45,7 @@ A knowledge graph that a caller can open and add content to.
 - **graph_store** (<code>[GraphStore](../../graphdb/base/GraphStore.md)</code>) – Where entities, relations, chunks, and MENTIONED_IN
   edges are written.
 - **embedder** (<code>[Embedder](../../embedding/base/Embedder.md)</code>) – Populates entity embeddings for native vector search.
+- **vector_store** (<code>VectorStore | None</code>) – Exclusive external vector index. None uses graph indexes.
 - **extractor** (<code>[Extractor](../extract/Extractor.md) | None</code>) – The local extraction slot, used in `gliner` and
   `hybrid` modes.
 - **tracer** (<code>Tracer | None</code>) – A tracer to record spans for every step. Pass None for none.
@@ -339,7 +341,7 @@ The model name of the LLM slot, or None when it is unset.
 ## `open` \{#agrag-ingestion-graph-Graph-open}
 
 ```python
-open(*, schema:SchemaSource, graph_store:GraphStore, embedder:Embedder, extractor:Extractor | None = None, tracer:Tracer | None = None, cutover_settings:CutoverJobSettings | None = None, extraction_settings:ExtractionSettings | None = None, llm_extractor:LLMExtractor | None = None, chunker:Chunker | None = None, embed_heading_path:bool = True, max_llm_pairs:int = MAX_LLM_PAIRS, llm_concurrency:int = DEFAULT_LLM_CONCURRENCY) -> Graph
+open(*, schema:SchemaSource, graph_store:GraphStore, embedder:Embedder, vector_store:VectorStore | None = None, extractor:Extractor | None = None, tracer:Tracer | None = None, cutover_settings:CutoverJobSettings | None = None, extraction_settings:ExtractionSettings | None = None, llm_extractor:LLMExtractor | None = None, chunker:Chunker | None = None, embed_heading_path:bool = True, max_llm_pairs:int = MAX_LLM_PAIRS, llm_concurrency:int = DEFAULT_LLM_CONCURRENCY) -> Graph
 ```
 
 Open a graph, connecting and fully provisioning graph_store.
@@ -366,6 +368,7 @@ index that evidence search reads, before this call returns.
 - **graph_store** (<code>[GraphStore](../../graphdb/base/GraphStore.md)</code>) – Where entities, relations, chunks, and MENTIONED_IN
   edges are written.
 - **embedder** (<code>[Embedder](../../embedding/base/Embedder.md)</code>) – Populates entity embeddings for native vector search.
+- **vector_store** (<code>VectorStore | None</code>) – Exclusive external vector index. None uses graph indexes.
 - **extractor** (<code>[Extractor](../extract/Extractor.md) | None</code>) – The local extraction slot, used in `gliner` and
   `hybrid` modes.
 - **tracer** (<code>Tracer | None</code>) – A tracer to record spans for every step. Pass None for none.
@@ -482,6 +485,27 @@ highest-similarity pairs are verified first.
 **Raises:**
 
 - <code>ValueError</code> – An id has no live persisted entity.
+
+## `repair_vectors` \{#agrag-ingestion-graph-Graph-repair_vectors}
+
+```python
+repair_vectors(kinds:Sequence[VectorKind] | None = None, *, prune:bool = False) -> VectorRepairResult
+```
+
+Re-embed missing committed vectors and optionally prune absent nodes.
+
+**Parameters:**
+
+- **kinds** (<code>Sequence\[[VectorKind](../../common/data_models/vector_record/VectorKind.md)\] | None</code>) – Collections to repair. None repairs all four kinds.
+- **prune** (<code>bool</code>) – Delete store ids whose nodes no longer exist in the graph.
+
+**Returns:**
+
+- <code>[VectorRepairResult](../../common/data_models/vector_record/VectorRepairResult.md)</code> – Checked, missing, upserted and pruned counts and failures per kind.
+
+**Raises:**
+
+- <code>ValueError</code> – The graph uses graph-native vector indexes.
 
 ## `source_status` \{#agrag-ingestion-graph-Graph-source_status}
 

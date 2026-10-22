@@ -61,6 +61,8 @@ jobs:
         # workflow-level LLM_* secrets. Agents runs serially because its MCP
         # equivalence checks need a stable full-text corpus across two calls;
         # per-document scopes do not isolate the shared candidate index.
+        # Cutover concurrency tests expire leases deliberately. Their dedicated
+        # serial jobs keep unrelated Graph.open recovery from claiming them.
         # The embedding, loader and LLM tests do not touch the graph store, so
         # they run once, in the neo4j pipeline entry.
         suite:
@@ -94,15 +96,43 @@ jobs:
             timeout: 20
           - name: pipeline
             backend: neo4j
-            paths: "tests/integration/ingestion tests/integration/embedding tests/integration/loaders tests/integration/llm"
+            paths: "tests/integration/ingestion tests/integration/embedding tests/integration/loaders tests/integration/llm --ignore=tests/integration/ingestion/test_cutover_job_concurrency.py"
             workers: auto
             dist: loadscope
             services: neo4j
             timeout: 20
+          - name: cutover-concurrency
+            backend: neo4j
+            paths: "tests/integration/ingestion/test_cutover_job_concurrency.py"
+            workers: 0
+            dist: loadscope
+            services: neo4j
+            timeout: 15
+          - name: cutover-concurrency
+            backend: falkordb
+            paths: "tests/integration/ingestion/test_cutover_job_concurrency.py"
+            workers: 0
+            dist: loadscope
+            services: falkordb
+            timeout: 15
           - name: graph-store
             backend: falkordb
             paths: "tests/integration/graphdb tests/integration/cypher tests/integration/retrieval --ignore=tests/integration/retrieval/evidence"
             workers: auto
+            dist: loadgroup
+            services: falkordb
+            timeout: 15
+          - name: vector-seam
+            backend: neo4j
+            paths: "tests/integration/vectordb"
+            workers: 0
+            dist: loadgroup
+            services: neo4j
+            timeout: 15
+          - name: vector-seam
+            backend: falkordb
+            paths: "tests/integration/vectordb"
+            workers: 0
             dist: loadgroup
             services: falkordb
             timeout: 15
@@ -129,7 +159,7 @@ jobs:
             timeout: 20
           - name: ingestion
             backend: falkordb
-            paths: "tests/integration/ingestion"
+            paths: "tests/integration/ingestion --ignore=tests/integration/ingestion/test_cutover_job_concurrency.py"
             workers: auto
             dist: loadscope
             services: falkordb

@@ -1,5 +1,6 @@
 """Env-backed configuration for retrieval methods and fusion."""
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -32,6 +33,8 @@ class RetrievalSettings(BaseSettings):
             entity_top_k and chunk_top_k play for their retrievers. It is
             distinct from Recipe.community_top_k (enrichment budget and
             reserved slice size). Same name, different class, different job.
+        hybrid_alpha: Dense weight for hybrid searches on an external vector
+            store. Env: ``RETRIEVAL_HYBRID_ALPHA``.
 
     Env prefix: ``RETRIEVAL_``.
     """
@@ -54,3 +57,4 @@ class RetrievalSettings(BaseSettings):
     reranker_min_score: float | None = None
     cross_encoder_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
     community_top_k: int = 5
+    hybrid_alpha: float = Field(default=0.5, ge=0, le=1)

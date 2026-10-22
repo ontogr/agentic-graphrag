@@ -25,6 +25,7 @@ PACKAGES = [
     "agrag.retrieval",
     "agrag.schema",
     "agrag.schema.formats",
+    "agrag.vectordb",
 ]
 
 OPTIONAL_MODULES = [
