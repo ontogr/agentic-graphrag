@@ -283,3 +283,36 @@ A query matches text containing any query word, ranked by FalkorDB's native TF-I
 ### Path distance in ranking
 
 Node-distance reranking measures paths of up to five relationships on FalkorDB. An entity farther from the seeds ranks as unreachable. This limit applies to that reranker, not to every graph traversal.
+
+## Configure Milvus vectors
+
+Milvus 3.0.1 or later stores external dense vectors and generates BM25 sparse vectors from text. A Neo4j or FalkorDB graph remains required for graph records, visibility checks, and property filters. Install `agentic-graphrag[milvus]` alongside the graph driver extra.
+
+1. Set `MILVUS_URI` to the server endpoint. For Zilliz Cloud, use its HTTPS endpoint and set `MILVUS_TOKEN` privately. Do not put credentials in the URI or commit the token.
+2. Set `MILVUS_COLLECTION_PREFIX` to a namespace unique to this graph. The prefix must start with a letter and contain at most 41 letters, digits or underscores.
+3. Pass the store to `Graph.open` when first creating the graph.
+
+   ```python notest
+   from agrag.embedding import build_embedder
+   from agrag.graphdb import build_graph_store
+   from agrag.ingestion import Graph
+   from agrag.vectordb.milvus import MilvusSettings, MilvusVectorStore
+
+   vectors = MilvusVectorStore(MilvusSettings())
+   graph_store = build_graph_store("neo4j")
+   embedder = build_embedder("ibm-granite/granite-embedding-small-english-r2")
+   graph = await Graph.open(
+       schema="operations", graph_store=graph_store,
+       embedder=embedder, vector_store=vectors,
+   )
+   ```
+
+The graph creates four collections under that prefix and checks their dimensions and distance metric. Placement is fixed for the graph; changing the store, prefix, embedder dimensions or distance requires a new graph and re-ingestion. Keep the same store available to retrieval and evidence search. Only labels are filtered before the graph join.
+
+For local development, start an isolated service with a project name and nondefault port:
+
+```bash
+MILVUS_PORT=29533 docker compose -p agrag-milvus -f docker/docker-compose.dev.yml up -d --wait milvus
+```
+
+Set `MILVUS_URI=http://localhost:29533` for that service. The container runs embedded etcd and local storage with a project-scoped persistent volume. The [Milvus settings](../reference/configuration.mdx#milvus) define text and search limits. Use smaller search limits if a Zilliz gateway rejects a response for size.

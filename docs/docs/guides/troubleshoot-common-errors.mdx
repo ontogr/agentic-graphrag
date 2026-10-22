@@ -274,6 +274,18 @@ for row in indexes:
     await graph_store.execute_write(f"DROP INDEX `{row['name']}` IF EXISTS")
 ```
 
+## Milvus refuses a connection or search
+
+| Symptom | Cause | Action |
+| --- | --- | --- |
+| `VectorStoreMissingExtraError` names `milvus` | The optional SDK is missing. | Install `agentic-graphrag[milvus]` in the application's environment. |
+| Settings reject an unencrypted endpoint | A remote credential would travel in plaintext, or strict TLS is enabled. | Use the server's HTTPS URI. Put authentication in `MILVUS_TOKEN`, not the URI. |
+| `CollectionMismatchError` | Existing dense dimensions or distance differ from the requested configuration. | Restore the original settings, or re-ingest into a new graph with a new prefix. Do not delete a collection still used by another graph. |
+| Search rejects a result count | The requested count exceeds 16384, or a Zilliz gateway rejects the response size. | Reduce the result limit. The gateway's byte limit can apply below 16384 results. |
+| BM25 truncation warning | Text exceeds 65535 UTF-8 bytes. | Use smaller chunks when lexical search must cover every character. Dense embeddings are unchanged. |
+
+The server must support Milvus 3.0.1 APIs, including sorted scalar queries used to page UUIDs. Use the same collection prefix for ingestion and retrieval. Check the [Milvus connection settings](../reference/configuration.mdx#milvus) without printing token values.
+
 ## Related
 
 - Concepts: [Graph storage](../concepts/graph-storage.mdx), [Retrieval](../concepts/retrieval.mdx)
