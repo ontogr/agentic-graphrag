@@ -163,6 +163,7 @@ class SearchEngine:
             settings=self._settings,
             entity_labels=self._entity_labels,
             filters=filters,
+            vector_store=self._vector_store,
             tracer=self._tracer,
         )
 

@@ -6,7 +6,7 @@ sidebar_label: find_entity
 # `agrag.retrieval.methods.traversal.find_entity` \{#agrag-retrieval-methods-traversal-find_entity}
 
 ```python
-find_entity(name:str, *, graph_store:GraphStore, embedder:Embedder, settings:RetrievalSettings, entity_labels:Sequence[str], filters:SearchFilters | None = None, tracer:Tracer | None = None) -> SearchResult | None
+find_entity(name:str, *, graph_store:GraphStore, embedder:Embedder, settings:RetrievalSettings, entity_labels:Sequence[str], filters:SearchFilters | None = None, vector_store:VectorStore | None = None, tracer:Tracer | None = None) -> SearchResult | None
 ```
 
 Resolve a named entity to its top search hit, or None.
@@ -33,6 +33,7 @@ into traversal seeds.
   label override. An entity that exists only outside this
   scope resolves to None, the same as one that does not
   exist.
+- **vector_store** (<code>VectorStore | None</code>) – Optional external vector store for entity candidates.
 - **tracer** (<code>Tracer | None</code>) – Opens the root span and flows to the entity retriever.
   None opens no recorded span.
 

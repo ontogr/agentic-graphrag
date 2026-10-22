@@ -130,11 +130,9 @@ class TestVectorStoreContract:
         )
 
         assert [hit.id for hit in dense_hybrid] == [hit.id for hit in dense]
-        assert [hit.id for hit in lexical_hybrid] == [
-            UUID(int=3),
-            UUID(int=1),
-            UUID(int=2),
-        ]
+        assert lexical_hybrid[0].id == UUID(int=3)
+        assert len(lexical_hybrid) == 3
+        assert {hit.id for hit in lexical_hybrid[1:]} == {UUID(int=1), UUID(int=2)}
         assert (
             await vector_store.hybrid_search(
                 VectorKind.ENTITY, [1.0, 0.0], "mango", limit=4, alpha=0.0

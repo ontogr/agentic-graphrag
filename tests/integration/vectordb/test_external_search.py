@@ -3,6 +3,8 @@
 from uuid import UUID, uuid4
 
 from agrag.common.data_models.chunk import Chunk
+from agrag.common.data_models.entity import Entity
+from agrag.common.data_models.graph_schema import EntityType, GraphSchema
 from agrag.common.data_models.vector_record import Distance, VectorKind, VectorRecord
 from agrag.retrieval.filters import SearchFilters
 from agrag.retrieval.recipes import Recipe
@@ -47,6 +49,57 @@ async def _populate_chunks(env: EvidenceEnv, vector_store: FakeVectorStore) -> N
 
 class TestExternalSearch:
     """External search filters stale vector ids and fetches beyond orphans."""
+
+    async def test_find_entity_uses_external_vector_store(
+        self, evidence_env: EvidenceEnv
+    ) -> None:
+        """Named entity lookup uses external placement without native indexes."""
+        vector_store = FakeVectorStore(collection_prefix=uuid4().hex[:8])
+        embedder = BagOfWordsEmbedder()
+        label = f"ExternalEntity{uuid4().hex[:8]}"
+        entity = Entity(id=uuid4(), label=label, name="Lighthouse Keeper")
+        try:
+            await vector_store.ensure_collection(
+                VectorKind.ENTITY,
+                dimensions=FAKE_EMBEDDING_DIMENSIONS,
+                distance=Distance.COSINE,
+            )
+            await evidence_env.store.upsert_nodes(label, [entity.to_node_record()])
+            await vector_store.upsert(
+                VectorKind.ENTITY,
+                [
+                    VectorRecord(
+                        id=entity.id,
+                        vector=await embedder.embed_one(entity.embedding_text),
+                        labels=[label],
+                        text=entity.embedding_text,
+                    )
+                ],
+            )
+            engine = SearchEngine(
+                graph_store=evidence_env.store,
+                embedder=embedder,
+                graph_schema=GraphSchema(
+                    name="external-search",
+                    version="1",
+                    entities=[EntityType(label=label, description="A test entity.")],
+                    relations=[],
+                ),
+                vector_store=vector_store,
+            )
+
+            result = await engine.find_entity("Lighthouse Keeper")
+
+            assert result is not None
+            assert isinstance(result.item, Entity)
+            assert result.item.id == entity.id
+            assert result.item.name == "Lighthouse Keeper"
+        finally:
+            await evidence_env.store.execute_write(
+                "MATCH (entity:_Node {id: $id}) DETACH DELETE entity",
+                {"id": str(entity.id)},
+            )
+            await vector_store.close()
 
     async def test_retired_chunks_do_not_consume_the_external_fetch_limit(
         self, evidence_env: EvidenceEnv
