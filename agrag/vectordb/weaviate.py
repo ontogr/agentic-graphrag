@@ -163,7 +163,7 @@ class WeaviateVectorStore(VectorStore):
         rejected rather than silently adopted. DOT raises ValueError.
         """
         if distance not in _METRICS:
-            raise ValueError("Weaviate supports cosine and euclidean distance only")
+            raise ValueError("Weaviate does not support DOT distance")
         if dimensions <= 0:
             raise ValueError("dimensions must be positive")
         client = await self._connected_client()
