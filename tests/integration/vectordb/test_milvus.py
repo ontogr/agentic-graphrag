@@ -5,7 +5,6 @@ from collections.abc import AsyncIterator
 from uuid import UUID, uuid4
 
 import pytest
-from pymilvus import AsyncMilvusClient
 
 from agrag.common.data_models.vector_record import Distance, VectorKind, VectorRecord
 from agrag.vectordb.errors import CollectionMismatchError
@@ -36,6 +35,8 @@ class TestMilvusVectorStore:
         self, milvus_store: MilvusVectorStore
     ) -> None:
         """A split multibyte character cannot break ingestion or dense scoring."""
+        from pymilvus import AsyncMilvusClient  # noqa: PLC0415
+
         record = VectorRecord(
             id=uuid4(), vector=[0.6, 0.8], labels=["Person"], text="x" * 65534 + "é"
         )
@@ -112,6 +113,8 @@ class TestMilvusVectorStore:
         self, milvus_store: MilvusVectorStore
     ) -> None:
         """Matching dense settings cannot hide missing labels and BM25 fields."""
+        from pymilvus import AsyncMilvusClient  # noqa: PLC0415
+
         await milvus_store.delete_collection(VectorKind.ENTITY)
         client = AsyncMilvusClient(uri=milvus_store.settings.uri)
         try:
