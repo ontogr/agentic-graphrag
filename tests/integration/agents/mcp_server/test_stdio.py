@@ -22,7 +22,6 @@ from agrag.common.data_models.evidence import (
     FetchResult,
     FetchStatus,
 )
-from tests.integration._backend import server_environment
 from tests.integration.retrieval.evidence._corpus import KEEP_TEXT
 from tests.integration.retrieval.evidence.conftest import EvidenceEnv
 
@@ -32,11 +31,13 @@ _TEE = Path(__file__).with_name("_stdio_tee.py")
 _QUERY = "keep upload activity database"
 
 
-def _server_environment(scope_keys: str) -> dict[str, str]:
+def _server_environment(
+    scope_keys: str, graph_environment: dict[str, str]
+) -> dict[str, str]:
     """Return the environment of a server process, with a given scope."""
     return {
         **os.environ,
-        **server_environment(),
+        **graph_environment,
         "PYTHONPATH": str(_REPO_ROOT),
         "MCP_SCOPE_DOCUMENT_KEYS": scope_keys,
         "OPENAI_API_KEY": "",
@@ -58,7 +59,7 @@ class TestStdioSession:
         parameters = StdioServerParameters(
             command=sys.executable,
             args=[str(_TEE), str(stdout_log)],
-            env=_server_environment(f"{env.keep},{env.harbor}"),
+            env=_server_environment(f"{env.keep},{env.harbor}", env.server_environment),
             cwd=str(_REPO_ROOT),
         )
 
@@ -104,7 +105,7 @@ class TestStdioRefusal:
         """Exit non-zero with a stderr message and empty stdout for an empty scope."""
         completed = subprocess.run(
             [sys.executable, "-m", "agrag.mcp_server"],
-            env=_server_environment(""),
+            env=_server_environment("", {}),
             cwd=str(_REPO_ROOT),
             capture_output=True,
             timeout=120,

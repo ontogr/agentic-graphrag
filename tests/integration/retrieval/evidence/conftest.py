@@ -38,11 +38,14 @@ class EvidenceEnv:
         run: The per-test id that every document key carries.
         store: The connected graph store, shared with the test.
         graph: The graph that wrote the corpus.
+        server_environment: Variables that point a server subprocess at the
+            same data as ``store``.
     """
 
     run: str
     store: GraphStore
     graph: Graph
+    server_environment: dict[str, str]
 
     def key(self, name: str) -> str:
         """Return the document key for a short document name."""
@@ -87,7 +90,7 @@ async def evidence_env() -> AsyncGenerator[EvidenceEnv, None]:
     """Open a graph, add the authored corpus, and wait for the indexes."""
     run = uuid4().hex[:8]
     schema = GraphSchema(name="evidence", version="1", entities=[], relations=[])
-    async with isolated_test_store() as store:
+    async with isolated_test_store() as (store, server_environment):
         graph = await Graph.open(
             schema=schema,
             graph_store=store,
@@ -95,7 +98,12 @@ async def evidence_env() -> AsyncGenerator[EvidenceEnv, None]:
             extractor=NoEntityExtractor(),
             chunker=Chunker(size=_CHUNK_SIZE),
         )
-        env = EvidenceEnv(run=run, store=store, graph=graph)
+        env = EvidenceEnv(
+            run=run,
+            store=store,
+            graph=graph,
+            server_environment=server_environment,
+        )
         try:
             await await_indexes(store)
             await graph.add(
