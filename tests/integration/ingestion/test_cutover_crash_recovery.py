@@ -745,3 +745,37 @@ class TestCrashDuringCommit:
                 assert await _open_chunk_ids(store, key)
         finally:
             await _cleanup(store, key, None)
+
+    async def test_recovery_closes_the_replaced_versions_edges(
+        self, monkeypatch: pytest.MonkeyPatch, noop_graph: tuple[GraphStore, Graph]
+    ) -> None:
+        """A dead update still leaves only the new version's chunks open."""
+        store, graph = noop_graph
+        key = f"crash://mid-update-{uuid4().hex}"
+        try:
+            await graph.add(documents=[_document(key, "first version text. " * 60)])
+            first_ids = await _open_chunk_ids(store, key)
+            _kill_recovery(monkeypatch)
+
+            async def fail_before_tags_clear(*args: object, **kwargs: object) -> None:
+                raise RuntimeError("worker failed during commit")
+
+            monkeypatch.setattr(
+                "agrag.ingestion._cutover.close_open_has_part_edges",
+                fail_before_tags_clear,
+            )
+            with pytest.raises(RuntimeError, match="worker failed during commit"):
+                await graph.update(key, text="second version text. " * 60)
+            monkeypatch.undo()
+            _kill_recovery(monkeypatch)
+
+            await _reopen_until_settled(store, key, _NoopExtractor())
+
+            open_ids = await _open_chunk_ids(store, key)
+            if selected_backend() == "neo4j":
+                assert open_ids == first_ids
+            else:
+                assert open_ids
+                assert open_ids.isdisjoint(first_ids)
+        finally:
+            await _cleanup(store, key, None)

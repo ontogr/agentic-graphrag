@@ -4,7 +4,7 @@ Leaf module: imports nothing from ``agrag.graphdb``. See ``entities.py`` for the
 identifier-validation contract shared by every Cypher builder.
 """
 
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from typing import Any
 
 from agrag.common.data_models.candidate import CANDIDATE_LABEL
@@ -28,6 +28,12 @@ _VECTOR_SIMILARITY: dict[Distance, str] = {
     Distance.COSINE: "cosine",
     Distance.EUCLID: "euclidean",
 }
+
+# FalkorDB's full-text tokenizer does not split words at a line break, so the
+# words next to one are never found. Each indexed text property is mirrored into
+# a property with line breaks replaced by spaces, and the mirror is what the
+# index covers. Results hide the mirrors again.
+FULLTEXT_COPY_PREFIX = "_ft_"
 
 
 def node_id_constraint_name(label: str) -> str:
@@ -431,4 +437,78 @@ def fulltext_index_query(label: str, properties: Sequence[str]) -> str:
     return (
         f"CREATE FULLTEXT INDEX {name} IF NOT EXISTS "
         f"FOR (n:{safe_label}) ON EACH [{fields}]"
+    )
+
+
+def list_indexes_query() -> str:
+    """Build a query listing every index with its state and options.
+
+    Returns:
+        A Cypher query returning one row per index, with the columns
+        ``list_indexes`` reads.
+    """
+    return (
+        "SHOW INDEXES YIELD name, state, populationPercent, type, "
+        "labelsOrTypes, properties, options "
+        "RETURN name, state, populationPercent, type, labelsOrTypes, "
+        "properties, options"
+    )
+
+
+def falkordb_indexes_query() -> str:
+    """Build the FalkorDB query listing the indexes of the graph.
+
+    Returns:
+        A Cypher query returning one row per index, with its ``label``, its
+        ``properties``, its ``options`` keyed by property, and its ``status``.
+    """
+    return "CALL db.indexes()"
+
+
+def fulltext_copy_set(alias: str, source: str, properties: Iterable[str]) -> str:
+    """Build the ``SET`` clauses that keep the search copies of text properties.
+
+    Args:
+        alias: The Cypher variable of the node being written.
+        source: A Cypher map expression that holds the written properties. Pass
+            the node itself to copy properties that are already stored.
+        properties: The text properties that have a full-text index. Each must
+            already be validated.
+
+    Returns:
+        The clauses, or an empty string when there is nothing to copy.
+    """
+    clauses = []
+    for name in sorted(properties):
+        safe = validate_identifier_syntax(name)
+        value = f"{source}.{safe}"
+        copy = f"{alias}.{FULLTEXT_COPY_PREFIX}{safe}"
+        flat = f"replace(replace(toString({value}), '\n', ' '), '\r', ' ')"
+        clauses.append(
+            f"SET {copy} = CASE WHEN NOT '{safe}' IN keys({source}) THEN {copy} "
+            f"WHEN {value} IS NULL THEN null ELSE {flat} END"
+        )
+    return " ".join(clauses)
+
+
+def fulltext_copy_backfill_query(label: str, properties: Sequence[str]) -> str:
+    """Build a query that writes the search copies of nodes stored before an index.
+
+    Nodes written before a full-text index existed have no search copy, so the
+    write path never reached them. Nodes missing every listed property are not
+    matched, and a missing property leaves its copy unchanged.
+
+    Args:
+        label: The node label. Must already be validated.
+        properties: The text properties that now have a full-text index. Each
+            must already be validated.
+
+    Returns:
+        A Cypher write query over the nodes of ``label``.
+    """
+    safe_label = validate_identifier(label)
+    safe = [validate_identifier_syntax(prop) for prop in properties]
+    presence = " OR ".join(f"n.{prop} IS NOT NULL" for prop in safe)
+    return (
+        f"MATCH (n:{safe_label}) WHERE {presence} {fulltext_copy_set('n', 'n', safe)}"
     )

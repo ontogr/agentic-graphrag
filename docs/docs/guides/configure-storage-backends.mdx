@@ -81,8 +81,9 @@ Both stores implement the same `GraphStore` interface, so code that takes a `Gra
 
 ## Set up a Neo4j graph store
 
-Build a `Neo4jGraphStore` with `Neo4jSettings`. Call `connect` before you use
-it.
+The Neo4j store requires a Neo4j server version 5.23 or later.
+
+Build a `Neo4jGraphStore` with `Neo4jSettings`. Call `connect` before you use it.
 
 ```python
 import asyncio

@@ -89,6 +89,9 @@ ensure_fulltext_index(*, label:str, properties:Sequence[str]) -> None
 
 Create a full-text index over node properties if it does not exist.
 
+Nodes that already hold text for a newly indexed property get their
+search copy written here, since the write path only copies text it sees.
+
 ## `ensure_unique_constraint` \{#agrag-graphdb-falkordb-FalkorDBGraphStore-ensure_unique_constraint}
 
 ```python
@@ -105,11 +108,15 @@ ensure_vector_index(*, label:str, vector_property:str, dimensions:int, distance:
 
 Create a native vector index if it does not exist.
 
+An index that already exists keeps its own dimension and similarity
+function, and the store uses those for later writes and searches.
+
 **Raises:**
 
 - <code>[EmbeddingDimensionMismatchError](../../embedding/errors/EmbeddingDimensionMismatchError.md)</code> – The index exists with a different
   dimension.
-- <code>ValueError</code> – `distance` is not supported, or a name is unsafe.
+- <code>ValueError</code> – `distance` is not supported, a name is unsafe, or the
+  index exists with a different similarity function.
 
 ## `execute_read` \{#agrag-graphdb-falkordb-FalkorDBGraphStore-execute_read}
 
@@ -169,8 +176,20 @@ fulltext_search_call(*, label:str, properties:Sequence[str]) -> SearchCall
 
 Build the Cypher fragment that searches a full-text index.
 
-FalkorDB scores a match with TF-IDF, which is 0 for a word every
-document holds. One is added so that a match always scores above 0.
+The match is restricted to the search copies of `properties`, so a
+term that appears only in another indexed property of `label` does
+not match. FalkorDB scores a match with TF-IDF, which is 0 for a word
+every document holds. One is added so that a match always scores above
+0\.
+
+The fragment ends with `LIMIT $k`. On FalkorDB 4.22.2 a `WHERE` that
+a caller appends after it is applied before the limit, so the call still
+returns up to `k` matching rows.
+
+**Raises:**
+
+- <code>ValueError</code> – `properties` is empty, or a name is not a safe
+  identifier.
 
 ## `list_indexes` \{#agrag-graphdb-falkordb-FalkorDBGraphStore-list_indexes}
 

@@ -12,6 +12,7 @@ from typing import Literal, TypeVar
 from uuid import NAMESPACE_OID, UUID, uuid4, uuid5
 
 from opentelemetry.trace import Tracer
+from pydantic import TypeAdapter
 
 from agrag.common.data_models.graph_record import DeferredWrites
 from agrag.cypher.candidates import (
@@ -351,6 +352,115 @@ def _activation_params(job_id: UUID, change: DocumentChange) -> dict[str, object
     }
 
 
+@dataclass(frozen=True, slots=True)
+class CommitPlan:
+    """The document-level writes of one commit, kept on the job for recovery.
+
+    The commit stores the plan with its start mark. A backend without
+    multi-statement transactions can lose the worker part way through, and
+    recovery replays the steps that had not finished from the stored plan.
+
+    Attributes:
+        close_document_node_id: The document whose open edges the commit closes.
+        candidate_document_node_id: The document whose stale candidates the
+            commit replaces.
+        keep_node_ids: The nodes whose edges the close leaves open.
+        in_place: The in-place refresh, when the commit keeps its chunks.
+        change: The document change recorded as an activation, if any.
+    """
+
+    close_document_node_id: UUID | None
+    candidate_document_node_id: UUID | None
+    keep_node_ids: list[UUID]
+    in_place: InPlaceRefresh | None
+    change: DocumentChange | None
+
+
+_PLAN_ADAPTER = TypeAdapter(CommitPlan)
+
+
+def parse_commit_plan(raw: str) -> CommitPlan:
+    """Return the plan a job stored when its commit started."""
+    return _PLAN_ADAPTER.validate_json(raw)
+
+
+async def apply_plan_before_replay(
+    txn: GraphStoreTransaction, plan: CommitPlan
+) -> None:
+    """Retract the committed evidence an in-place refresh replaces.
+
+    Every statement is safe to repeat.
+    """
+    if plan.in_place is None:
+        return
+    refresh_params = {
+        "document_node_id": str(plan.in_place.document_node_id),
+        "chunk_ids": [str(chunk_id) for chunk_id in plan.in_place.chunk_ids],
+    }
+    await txn.execute_write(retract_document_relation_evidence_query(), refresh_params)
+    await txn.execute_write(delete_document_mentions_query(), refresh_params)
+
+
+async def apply_plan_after_fold(
+    txn: GraphStoreTransaction, *, job_id: UUID, plan: CommitPlan
+) -> int:
+    """Run the document writes that follow the fold and mark them applied.
+
+    Every statement is safe to repeat while the job's rows are still tagged,
+    which is the case until the commit clears them. The closing mark is the
+    last statement, so a job with the mark has applied all of them.
+
+    Returns:
+        The number of document edges closed.
+    """
+    if plan.in_place is not None and plan.in_place.extraction_fingerprint is not None:
+        await txn.execute_write(
+            set_chunk_extraction_fingerprint_query(),
+            {
+                "chunk_ids": [str(chunk_id) for chunk_id in plan.in_place.chunk_ids],
+                "extraction_fingerprint": plan.in_place.extraction_fingerprint,
+            },
+        )
+    parts_closed = 0
+    if plan.close_document_node_id is not None:
+        parts_closed = await close_open_has_part_edges(
+            txn,
+            document_node_id=plan.close_document_node_id,
+            job_id=job_id,
+            keep_node_ids=plan.keep_node_ids,
+        )
+    if plan.candidate_document_node_id is not None:
+        # A review can settle a key after extraction's early lookup.
+        # Recheck while the new candidates are still invisible to readers.
+        await txn.execute_write(
+            delete_reviewed_job_candidates_query(), {"job_id": str(job_id)}
+        )
+        await txn.execute_write(
+            delete_stale_candidates_query(),
+            {"document_node_id": str(plan.candidate_document_node_id)},
+        )
+    change = plan.change
+    if change is not None and change.verb == "purge":
+        await _purge_document_content(txn, document_node_id=change.document_node_id)
+    if change is not None:
+        activation_params = _activation_params(job_id, change)
+        await txn.execute_write(record_activation_query(), activation_params)
+        await txn.execute_write(
+            flag_decisions_for_activation_query(),
+            {"activation_id": activation_params["id"]},
+        )
+        if change.verb == "delete":
+            await txn.execute_write(
+                retire_document_version_query(),
+                {"document_node_id": str(change.document_node_id)},
+            )
+    await txn.execute_write(
+        record_parts_closed_query(),
+        {"job_id": str(job_id), "parts_closed": parts_closed},
+    )
+    return parts_closed
+
+
 async def _commit_pending_writes(
     *,
     job_id: UUID,
@@ -381,10 +491,19 @@ async def _commit_pending_writes(
     """
     job_arg = str(job_id)
     token_arg = str(token)
+    plan = CommitPlan(
+        close_document_node_id=close_document_node_id,
+        candidate_document_node_id=candidate_document_node_id,
+        keep_node_ids=list(keep_node_ids),
+        in_place=in_place,
+        change=change,
+    )
+    plan_json = _PLAN_ADAPTER.dump_json(plan).decode()
 
     async def commit(txn: GraphStoreTransaction) -> int:
         started = await txn.execute_write(
-            begin_commit_query(), {"job_id": job_arg, "lease_token": token_arg}
+            begin_commit_query(),
+            {"job_id": job_arg, "lease_token": token_arg, "commit_plan": plan_json},
         )
         if not started:
             raise CutoverJobLeaseError(f"Job {job_arg} lost its lease before commit.")
@@ -395,64 +514,13 @@ async def _commit_pending_writes(
         # rows. The replay writes them back, including one deleted here, and
         # the relations it does not find stay gone. The retraction reads the
         # MENTIONED_IN edges, so it runs before they are deleted.
-        if in_place is not None:
-            refresh_params = {
-                "document_node_id": str(in_place.document_node_id),
-                "chunk_ids": [str(chunk_id) for chunk_id in in_place.chunk_ids],
-            }
-            await txn.execute_write(
-                retract_document_relation_evidence_query(), refresh_params
-            )
-            await txn.execute_write(delete_document_mentions_query(), refresh_params)
+        await apply_plan_before_replay(txn, plan)
         await replay_deferred(txn, deferred)
         await fold_job_relations(txn, job_id=job_id)
-        if in_place is not None and in_place.extraction_fingerprint is not None:
-            await txn.execute_write(
-                set_chunk_extraction_fingerprint_query(),
-                {
-                    "chunk_ids": [str(chunk_id) for chunk_id in in_place.chunk_ids],
-                    "extraction_fingerprint": in_place.extraction_fingerprint,
-                },
-            )
         # The close runs before the tag clear so it can tell the
         # superseded version's edges from the ones this job just
         # wrote; both land in the same transaction as the flip.
-        parts_closed = 0
-        if close_document_node_id is not None:
-            parts_closed = await close_open_has_part_edges(
-                txn,
-                document_node_id=close_document_node_id,
-                job_id=job_id,
-                keep_node_ids=keep_node_ids,
-            )
-        if candidate_document_node_id is not None:
-            # A review can settle a key after extraction's early lookup.
-            # Recheck while the new candidates are still invisible to readers.
-            await txn.execute_write(
-                delete_reviewed_job_candidates_query(), {"job_id": job_arg}
-            )
-            await txn.execute_write(
-                delete_stale_candidates_query(),
-                {"document_node_id": str(candidate_document_node_id)},
-            )
-        if change is not None and change.verb == "purge":
-            await _purge_document_content(txn, document_node_id=change.document_node_id)
-        if change is not None:
-            activation_params = _activation_params(job_id, change)
-            await txn.execute_write(record_activation_query(), activation_params)
-            await txn.execute_write(
-                flag_decisions_for_activation_query(),
-                {"activation_id": activation_params["id"]},
-            )
-            if change.verb == "delete":
-                await txn.execute_write(
-                    retire_document_version_query(),
-                    {"document_node_id": str(change.document_node_id)},
-                )
-        await txn.execute_write(
-            record_parts_closed_query(),
-            {"job_id": job_arg, "parts_closed": parts_closed},
-        )
+        parts_closed = await apply_plan_after_fold(txn, job_id=job_id, plan=plan)
         await clear_job_tags(txn, job_id=job_id)
         committed = await txn.execute_write(
             commit_job_query(),

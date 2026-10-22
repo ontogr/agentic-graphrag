@@ -43,9 +43,24 @@ async def store() -> AsyncIterator[GraphStore]:
         await graph_store.close()
 
 
+# Labels written by the running test, deleted with their nodes when it ends.
+_created_labels: list[str] = []
+
+
 def _label(prefix: str) -> str:
-    """Return a label no other test uses."""
-    return f"{prefix}{uuid4().hex[:8]}"
+    """Return a label no other test uses and record it for cleanup."""
+    label = f"{prefix}{uuid4().hex[:8]}"
+    _created_labels.append(label)
+    return label
+
+
+@pytest_asyncio.fixture(autouse=True, loop_scope="module")
+async def remove_test_nodes(store: GraphStore) -> AsyncIterator[None]:
+    """Delete the nodes and relationships each test wrote under its labels."""
+    yield
+    while _created_labels:
+        label = _created_labels.pop()
+        await store.execute_write(f"MATCH (n:{label}) DETACH DELETE n")
 
 
 def _node(label: str, **properties: object) -> NodeRecord:
@@ -319,7 +334,7 @@ class TestStoreContract:
         match = _node(label, text="the quick brown fox")
         other = _node(label, text="slow green turtle")
         await store.upsert_nodes(label, [match, other])
-        await asyncio.sleep(0.5)
+        await await_indexes(store)
         call = await store.fulltext_search_call(label=label, properties=["text"])
 
         rows = await store.execute_read(
@@ -328,6 +343,106 @@ class TestStoreContract:
         )
 
         assert [row["id"] for row in rows] == [str(match.id)]
+
+    async def test_full_text_search_finds_text_written_before_the_index(
+        self, store: GraphStore
+    ) -> None:
+        """Text written before a full-text index exists is still searchable."""
+        label = _label("Backfill")
+        # A property no other test indexes, so the store has no search copy
+        # for it from an earlier test when this one writes.
+        prop = f"body_{uuid4().hex[:8]}"
+        match = _node(label, **{prop: "the quick brown fox"})
+        other = _node(label, **{prop: "slow green turtle"})
+        await store.upsert_nodes(label, [match, other])
+
+        await store.ensure_fulltext_index(label=label, properties=[prop])
+        await await_indexes(store)
+        call = await store.fulltext_search_call(label=label, properties=[prop])
+
+        rows = await store.execute_read(
+            f"{call.text} RETURN node.id AS id",
+            {**call.params, "fulltext_terms": "fox", "k": 5},
+        )
+
+        assert [row["id"] for row in rows] == [str(match.id)]
+
+    @pytest.mark.skipif(
+        selected_backend() != "falkordb",
+        reason="only FalkorDB restricts a full-text search to some properties",
+    )
+    async def test_full_text_search_is_limited_to_the_requested_properties(
+        self, store: GraphStore
+    ) -> None:
+        """A term found only in another indexed property does not match."""
+        label = _label("Scope")
+        await store.ensure_fulltext_index(label=label, properties=["title", "body"])
+        in_title = _node(label, title="zebra", body="apple")
+        in_body = _node(label, title="apple", body="zebra")
+        await store.upsert_nodes(label, [in_title, in_body])
+        await await_indexes(store)
+        call = await store.fulltext_search_call(label=label, properties=["title"])
+
+        rows = await store.execute_read(
+            f"{call.text} RETURN node.id AS id",
+            {**call.params, "fulltext_terms": "zebra", "k": 5},
+        )
+
+        assert [row["id"] for row in rows] == [str(in_title.id)]
+
+    @pytest.mark.skipif(
+        selected_backend() != "falkordb",
+        reason="only FalkorDB checks embedding lengths on write",
+    )
+    async def test_an_attached_store_rejects_a_wrong_length_embedding_like_the_creator(
+        self, store: GraphStore
+    ) -> None:
+        """A store that finds an index it did not create refuses the same record."""
+        label = _label("Attach")
+        await store.ensure_vector_index(
+            label=label,
+            vector_property="embedding",
+            dimensions=3,
+            distance=Distance.COSINE,
+        )
+        bad = _node(label, name="short", embedding=[1.0, 0.0])
+        attached = build_test_store()
+        await attached.connect()
+        try:
+            created_outcome = await store.upsert_nodes(label, [bad])
+            attached_outcome = await attached.upsert_nodes(label, [bad])
+        finally:
+            await attached.close()
+
+        assert created_outcome.written == 0
+        assert [failure.error_type for failure in created_outcome.failures] == [
+            "EmbeddingDimensionMismatchError"
+        ]
+        assert attached_outcome.failures == created_outcome.failures
+
+    @pytest.mark.skipif(
+        selected_backend() == "neo4j",
+        reason="Neo4j keeps an existing index without comparing its similarity",
+    )
+    async def test_a_vector_index_rejects_a_different_similarity(
+        self, store: GraphStore
+    ) -> None:
+        """Asking for another similarity function than the index has raises."""
+        label = _label("Sim")
+        await store.ensure_vector_index(
+            label=label,
+            vector_property="embedding",
+            dimensions=3,
+            distance=Distance.EUCLID,
+        )
+
+        with pytest.raises(ValueError, match="euclidean"):
+            await store.ensure_vector_index(
+                label=label,
+                vector_property="embedding",
+                dimensions=3,
+                distance=Distance.COSINE,
+            )
 
     async def test_transaction_commits_every_statement(self, store: GraphStore) -> None:
         """Statements in one callback are all applied and results come back."""

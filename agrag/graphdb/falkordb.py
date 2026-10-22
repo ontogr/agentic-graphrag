@@ -11,6 +11,7 @@ from collections.abc import (
     Iterable,
     Mapping,
     Sequence,
+    Sized,
 )
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from dataclasses import dataclass
@@ -45,7 +46,14 @@ from agrag.cypher.entities import (
     validate_identifier_syntax,
 )
 from agrag.cypher.relations import shortest_path_distance_query
-from agrag.cypher.schema import fulltext_index_name, vector_index_name
+from agrag.cypher.schema import (
+    FULLTEXT_COPY_PREFIX,
+    falkordb_indexes_query,
+    fulltext_copy_backfill_query,
+    fulltext_index_name,
+    vector_index_name,
+)
+from agrag.cypher.schema import fulltext_copy_set as fulltext_copy_set_clauses
 from agrag.embedding.errors import EmbeddingDimensionMismatchError
 from agrag.graphdb.base import GraphStoreTransaction
 from agrag.graphdb.cypher_store import CypherGraphStore, query_parameter_attributes
@@ -86,12 +94,6 @@ _SIMILARITY: dict[Distance, str] = {
 
 # The server reply for a read against a graph that was never written.
 _EMPTY_KEY = "Invalid graph operation on empty key"
-
-# FalkorDB's full-text tokenizer does not split words at a line break, so the
-# words next to one are never found. Each indexed text property is mirrored into
-# a property with line breaks replaced by spaces, and the mirror is what the
-# index covers. Results hide the mirrors again.
-_SEARCH_COPY_PREFIX = "_ft_"
 
 _RANGE = "RANGE"
 _FULLTEXT = "FULLTEXT"
@@ -135,7 +137,7 @@ def _plain(value: Any) -> Any:
         return {
             key: _plain(item)
             for key, item in value.properties.items()
-            if not key.startswith(_SEARCH_COPY_PREFIX)
+            if not key.startswith(FULLTEXT_COPY_PREFIX)
         }
     if isinstance(value, Path):
         parts: list[Any] = []
@@ -148,7 +150,7 @@ def _plain(value: Any) -> Any:
         return {
             key: _plain(item)
             for key, item in value.items()
-            if not str(key).startswith(_SEARCH_COPY_PREFIX)
+            if not str(key).startswith(FULLTEXT_COPY_PREFIX)
         }
     if isinstance(value, (list, tuple)):
         return [_plain(item) for item in value]
@@ -404,6 +406,10 @@ class FalkorDBGraphStore(CypherGraphStore):
                 self._fulltext_properties.update(index.properties)
             elif index.type == _VECTOR:
                 self._vector_properties.update(index.properties)
+        for key, (similarity, dimensions) in (await self._vector_settings()).items():
+            self._vector_similarity[key] = similarity
+            if dimensions is not None:
+                self._vector_dimensions[key] = dimensions
         if await client.config_get("RESULTSET_SIZE") != -1:
             raise GraphStoreError(
                 "FalkorDB RESULTSET_SIZE is finite, so queries would silently "
@@ -581,17 +587,7 @@ class FalkorDBGraphStore(CypherGraphStore):
         Returns:
             The clauses, or an empty string when there is nothing to copy.
         """
-        clauses = []
-        for name in sorted(properties):
-            safe = validate_identifier_syntax(name)
-            value = f"{source}.{safe}"
-            copy = f"{alias}.{_SEARCH_COPY_PREFIX}{safe}"
-            flat = f"replace(replace(toString({value}), '\n', ' '), '\r', ' ')"
-            clauses.append(
-                f"SET {copy} = CASE WHEN NOT '{safe}' IN keys({source}) THEN {copy} "
-                f"WHEN {value} IS NULL THEN null ELSE {flat} END"
-            )
-        return " ".join(clauses)
+        return fulltext_copy_set_clauses(alias, source, properties)
 
     @staticmethod
     def _is_record_specific_error(exc: Exception) -> bool:
@@ -609,7 +605,7 @@ class FalkorDBGraphStore(CypherGraphStore):
         self,
     ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
         """Return the raw index rows and constraint rows of the graph."""
-        indexes = await self.execute_read("CALL db.indexes()")
+        indexes = await self.execute_read(falkordb_indexes_query())
         constraints = await self.execute_read("CALL db.constraints()")
         return indexes, constraints
 
@@ -842,7 +838,11 @@ class FalkorDBGraphStore(CypherGraphStore):
         """Describe an embedding whose length differs from its index, if any."""
         for name in self._vector_properties:
             vector = node.properties.get(name)
-            if not isinstance(vector, (list, tuple)):
+            if (
+                vector is None
+                or isinstance(vector, (str, bytes))
+                or not isinstance(vector, Sized)
+            ):
                 continue
             for label in node.labels:
                 expected = self._vector_dimensions.get((label, name))
@@ -875,7 +875,7 @@ class FalkorDBGraphStore(CypherGraphStore):
 
     async def list_indexes(self, *, timeout: float | None = None) -> list[IndexInfo]:
         """List every index in the database with its readiness."""
-        rows = await self.execute_read("CALL db.indexes()", timeout=timeout)
+        rows = await self.execute_read(falkordb_indexes_query(), timeout=timeout)
         found: list[IndexInfo] = []
         for row in rows:
             label = row["label"]
@@ -902,7 +902,7 @@ class FalkorDBGraphStore(CypherGraphStore):
                 )
             if by_kind.get(_FULLTEXT):
                 props = [
-                    prop.removeprefix(_SEARCH_COPY_PREFIX)
+                    prop.removeprefix(FULLTEXT_COPY_PREFIX)
                     for prop in by_kind[_FULLTEXT]
                 ]
                 found.append(
@@ -933,10 +933,14 @@ class FalkorDBGraphStore(CypherGraphStore):
     ) -> None:
         """Create a native vector index if it does not exist.
 
+        An index that already exists keeps its own dimension and similarity
+        function, and the store uses those for later writes and searches.
+
         Raises:
             EmbeddingDimensionMismatchError: The index exists with a different
                 dimension.
-            ValueError: ``distance`` is not supported, or a name is unsafe.
+            ValueError: ``distance`` is not supported, a name is unsafe, or the
+                index exists with a different similarity function.
         """
         validate_identifier(label)
         validate_identifier(vector_property)
@@ -947,11 +951,8 @@ class FalkorDBGraphStore(CypherGraphStore):
             )
         self._known_labels.add(label)
         self._vector_properties.add(vector_property)
-        name = vector_index_name(label, vector_property)
-        existing = next(
-            (index for index in await self.list_indexes() if index.name == name), None
-        )
-        if existing is None:
+        key = (label, vector_property)
+        if key not in await self._vector_settings():
             try:
                 await self.execute_write(
                     f"CREATE VECTOR INDEX FOR (n:{label}) ON (n.{vector_property}) "
@@ -961,21 +962,30 @@ class FalkorDBGraphStore(CypherGraphStore):
             except Exception as exc:
                 if "already indexed" not in str(exc):
                     raise
-            existing = next(
-                (index for index in await self.list_indexes() if index.name == name),
-                None,
-            )
-        self._vector_similarity[(label, vector_property)] = similarity
-        self._vector_dimensions[(label, vector_property)] = dimensions
-        if existing is not None and existing.dimensions != dimensions:
+        live_similarity, live_dimensions = (await self._vector_settings()).get(
+            key, (similarity, dimensions)
+        )
+        if live_dimensions is not None and live_dimensions != dimensions:
             raise EmbeddingDimensionMismatchError(
-                expected=existing.dimensions or 0, actual=dimensions
+                expected=live_dimensions, actual=dimensions
             )
+        if live_similarity != similarity:
+            raise ValueError(
+                f"vector index on {label}.{vector_property} uses "
+                f"{live_similarity} similarity, not the requested {similarity}"
+            )
+        self._vector_similarity[key] = live_similarity
+        if live_dimensions is not None:
+            self._vector_dimensions[key] = live_dimensions
 
     async def ensure_fulltext_index(
         self, *, label: str, properties: Sequence[str]
     ) -> None:
-        """Create a full-text index over node properties if it does not exist."""
+        """Create a full-text index over node properties if it does not exist.
+
+        Nodes that already hold text for a newly indexed property get their
+        search copy written here, since the write path only copies text it sees.
+        """
         if not properties:
             raise ValueError("a full-text index needs at least one property")
         validate_identifier(label)
@@ -988,31 +998,50 @@ class FalkorDBGraphStore(CypherGraphStore):
             if index.type == _FULLTEXT and index.labels == [label]
             for prop in index.properties
         }
-        for prop in safe_properties:
-            if prop in indexed:
-                continue
+        created = [prop for prop in safe_properties if prop not in indexed]
+        for prop in created:
             try:
                 await self.execute_write(
                     f"CREATE FULLTEXT INDEX FOR (n:{label}) "
-                    f"ON (n.{_SEARCH_COPY_PREFIX}{prop})"
+                    f"ON (n.{FULLTEXT_COPY_PREFIX}{prop})"
                 )
             except Exception as exc:
                 if "already indexed" not in str(exc):
                     raise
+        if created:
+            await self.execute_write(fulltext_copy_backfill_query(label, created))
 
     async def fulltext_search_call(
         self, *, label: str, properties: Sequence[str]
     ) -> SearchCall:
         """Build the Cypher fragment that searches a full-text index.
 
-        FalkorDB scores a match with TF-IDF, which is 0 for a word every
-        document holds. One is added so that a match always scores above 0.
+        The match is restricted to the search copies of ``properties``, so a
+        term that appears only in another indexed property of ``label`` does
+        not match. FalkorDB scores a match with TF-IDF, which is 0 for a word
+        every document holds. One is added so that a match always scores above
+        0.
+
+        The fragment ends with ``LIMIT $k``. On FalkorDB 4.22.2 a ``WHERE`` that
+        a caller appends after it is applied before the limit, so the call still
+        returns up to ``k`` matching rows.
+
+        Raises:
+            ValueError: ``properties`` is empty, or a name is not a safe
+                identifier.
         """
         safe_label = validate_identifier(label)
-        for prop in properties:
-            validate_identifier(prop)
+        if not properties:
+            raise ValueError("a full-text search needs at least one property")
+        # Field restriction needs the terms inside the query string, so the
+        # terms parameter is concatenated into each field clause.
+        fields = "|".join(
+            f"(@{FULLTEXT_COPY_PREFIX}{validate_identifier(prop)}:"
+            "(' + $fulltext_terms + '))"
+            for prop in properties
+        )
         return SearchCall(
-            f"CALL db.idx.fulltext.queryNodes('{safe_label}', $fulltext_terms) "
+            f"CALL db.idx.fulltext.queryNodes('{safe_label}', '{fields}') "
             "YIELD node, score WITH node, score + 1.0 AS score "
             "ORDER BY score DESC LIMIT $k"
         )
@@ -1039,19 +1068,32 @@ class FalkorDBGraphStore(CypherGraphStore):
             f"vecf32($vector)) YIELD node, score WITH node, {score} AS score"
         )
 
+    async def _vector_settings(self) -> dict[tuple[str, str], tuple[str, int | None]]:
+        """Return the similarity function and dimension of each vector index.
+
+        FalkorDB keeps the options of a vector index under its property name, so
+        each entry is keyed by ``(label, property)``.
+        """
+        settings: dict[tuple[str, str], tuple[str, int | None]] = {}
+        for row in await self.execute_read(falkordb_indexes_query()):
+            for prop, options in (row["options"] or {}).items():
+                if isinstance(options, Mapping) and "similarityFunction" in options:
+                    settings[(row["label"], prop)] = (
+                        str(options["similarityFunction"]).lower(),
+                        options.get("dimension"),
+                    )
+        return settings
+
     async def _similarity(self, label: str, vector_property: str) -> str:
         """Return the similarity function of a vector index, cosine if unknown."""
         known = self._vector_similarity.get((label, vector_property))
         if known is not None:
             return known
-        rows = await self.execute_read("CALL db.indexes()")
-        for row in rows:
-            options = (row["options"] or {}).get(vector_property)
-            if row["label"] == label and options and "similarityFunction" in options:
-                known = str(options["similarityFunction"]).lower()
-                self._vector_similarity[(label, vector_property)] = known
-                return known
-        return "cosine"
+        settings = (await self._vector_settings()).get((label, vector_property))
+        if settings is None:
+            return "cosine"
+        self._vector_similarity[(label, vector_property)] = settings[0]
+        return settings[0]
 
 
 def _graph_module_version(modules: Any) -> int | None:

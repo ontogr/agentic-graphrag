@@ -74,7 +74,8 @@ def steal_terminal_job_query() -> str:
         "job.lease_token = $lease_token, "
         "job.lease_expires_at = $lease_expires_at, "
         "job.affected_entity_ids = $affected_entity_ids, "
-        "job.created_at = $created_at, job.commit_started = false "
+        "job.created_at = $created_at, job.commit_started = false, "
+        "job.commit_docs_applied = false, job.commit_plan = null "
         "RETURN job.lease_token AS lease_token"
     )
 
@@ -166,10 +167,14 @@ def job_status_query() -> str:
 
 
 def record_parts_closed_query() -> str:
-    """Record the number of document edges closed by a job commit."""
+    """Record the number of document edges closed by a job commit.
+
+    This is the last of the commit's document writes, so it also marks them
+    applied: crash recovery skips the document writes of a job that has the mark.
+    """
     return (
         f"MATCH (job:{CUTOVER_JOB_LABEL} {{id: $job_id}}) "
-        "SET job.parts_closed = $parts_closed"
+        "SET job.parts_closed = $parts_closed, job.commit_docs_applied = true"
     )
 
 
@@ -178,10 +183,13 @@ def begin_commit_query() -> str:
 
     The mark lets crash recovery tell a job that died before its commit began
     (roll it back) from one that died part way through the commit (finish it).
-    It applies only under the same fence as ``commit_job_query``.
+    It applies only under the same fence as ``commit_job_query``. It also
+    stores ``$commit_plan``, the serialized document writes of the commit, so
+    recovery can repeat the ones that had not finished.
 
     Returns:
-        Parameterized Cypher expecting $job_id and $lease_token. Returns the
+        Parameterized Cypher expecting $job_id, $lease_token and $commit_plan
+        (a JSON string). Returns the
         job id when the mark was set, no row on fencing failure.
     """
     return (
@@ -190,7 +198,7 @@ def begin_commit_query() -> str:
         "WHERE job.lease_token = $lease_token "
         "AND job.lease_expires_at >= timestamp() "
         "AND job.status = 'pending' "
-        "SET job.commit_started = true "
+        "SET job.commit_started = true, job.commit_plan = $commit_plan "
         "RETURN job.id AS id"
     )
 
@@ -248,6 +256,7 @@ def commit_job_query() -> str:
         "AND job.lease_expires_at >= timestamp() "
         "AND job.status = 'pending' "
         "SET job.status = 'committed', job.commit_started = false, "
+        "job.commit_docs_applied = false, job.commit_plan = null, "
         "job.component_seed_ids = $component_seed_ids, "
         "job.created_entity_ids = $created_entity_ids "
         "RETURN job.id AS id"

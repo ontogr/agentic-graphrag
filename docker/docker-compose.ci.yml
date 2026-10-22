@@ -4,6 +4,8 @@
 # Services:
 #   neo4j     Bolt on port 7687.
 #   falkordb  Redis protocol on port 6379.
+# Set NEO4J_BOLT_PORT or FALKORDB_PORT to publish a different host port, and
+# pass -p <name> to run a second copy side by side.
 # Usage:
 #   docker compose -f docker/docker-compose.ci.yml up -d --wait
 #   docker compose -f docker/docker-compose.ci.yml down -v
@@ -14,7 +16,7 @@ services:
     environment:
       NEO4J_AUTH: neo4j/ci-test-password
     ports:
-      - "7687:7687"
+      - "${NEO4J_BOLT_PORT:-7687}:7687"
     healthcheck:
       test: ["CMD-SHELL", "wget -O /dev/null -q http://localhost:7474 || exit 1"]
       interval: 10s
@@ -28,7 +30,7 @@ services:
       BROWSER: "0"
       FALKORDB_ARGS: "RESULTSET_SIZE -1 TIMEOUT_MAX 3600000 MAX_QUEUED_QUERIES 25"
     ports:
-      - "6379:6379"
+      - "${FALKORDB_PORT:-6379}:6379"
     healthcheck:
       test: ["CMD-SHELL", "redis-cli ping | grep -q PONG"]
       interval: 5s

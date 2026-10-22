@@ -36,7 +36,10 @@ from agrag.graphdb.base import GraphStore, GraphStoreTransaction
 from agrag.ingestion._cutover import (
     CutoverJobLeaseError,
     _renew_periodically,
+    apply_plan_after_fold,
+    apply_plan_before_replay,
     lease_expiry_millis,
+    parse_commit_plan,
 )
 from agrag.ingestion._pending_rows import (
     clear_job_tags,
@@ -158,6 +161,8 @@ async def _recover_unfinished(
             roll_forward=roll_forward,
             expected_lease_token=expected_lease_token,
             lease_ttl_seconds=lease_ttl_seconds,
+            commit_plan=row.get("commit_plan"),
+            docs_applied=bool(row.get("commit_docs_applied")),
         )
     return await _roll_back(
         graph_store,
@@ -249,17 +254,20 @@ async def _finish_commit(
     ),
     expected_lease_token: str,
     lease_ttl_seconds: int,
+    commit_plan: str | None,
+    docs_applied: bool,
 ) -> bool:
     """Finish the commit of a job whose worker died part way through it.
 
     On a backend without multi-statement transactions the commit's statements
     are applied one by one, so the job can be left with some of them done. The
     job marks the start of its commit first, and every statement after the mark
-    is safe to repeat, so recovery repeats the steps that need only the job id
-    (fold the new relations, clear the pending tags, flip to committed) and then
-    runs the usual cleanup. Writes that the dead worker held in memory, and the
-    component seeds and created entities it would have recorded at the flip, are
-    not available here, so the rebuild of those components does not run.
+    is safe to repeat. The job also stores the document writes of the commit, so
+    recovery repeats those that had not all finished, then folds the new
+    relations, clears the pending tags, flips to committed and runs the usual
+    cleanup. Writes that the dead worker held in memory, and the component seeds
+    and created entities it would have recorded at the flip, are not available
+    here, so the rebuild of those components does not run.
 
     Returns:
         Whether this open finished the commit and the cleanup.
@@ -270,6 +278,7 @@ async def _finish_commit(
         return False
     token = str(uuid4())
     try:
+        plan = parse_commit_plan(commit_plan) if commit_plan else None
         claimed = await graph_store.execute_write(
             claim_commit_query(),
             {
@@ -285,7 +294,11 @@ async def _finish_commit(
             return False
 
         async def finish(txn: GraphStoreTransaction) -> None:
+            if plan is not None and not docs_applied:
+                await apply_plan_before_replay(txn, plan)
             await fold_job_relations(txn, job_id=job_uuid)
+            if plan is not None and not docs_applied:
+                await apply_plan_after_fold(txn, job_id=job_uuid, plan=plan)
             await clear_job_tags(txn, job_id=job_uuid)
             flipped = await txn.execute_write(
                 commit_job_query(),
@@ -310,18 +323,15 @@ async def _finish_commit(
         return False
     if not started:
         return False
-    renewal_stopped = asyncio.Event()
-    renewal_stopped.set()
-    return await _finish_roll_forward(
-        graph_store=graph_store,
+    return await _cleanup_with_renewal(
+        graph_store,
         job_id=job_id,
         affected_entity_ids=affected_entity_ids,
         component_seed_ids=[],
         created_entity_ids=[],
         roll_forward=roll_forward,
-        lease_token=token,
-        stop_renewal=asyncio.Event(),
-        renewal_stopped=renewal_stopped,
+        token=token,
+        lease_ttl_seconds=lease_ttl_seconds,
     )
 
 
@@ -371,6 +381,37 @@ async def _roll_forward(
         return False
     if not claimed:
         return False
+    return await _cleanup_with_renewal(
+        graph_store,
+        job_id=job_id,
+        affected_entity_ids=affected_entity_ids,
+        component_seed_ids=component_seed_ids,
+        created_entity_ids=created_entity_ids,
+        roll_forward=roll_forward,
+        token=token,
+        lease_ttl_seconds=lease_ttl_seconds,
+    )
+
+
+async def _cleanup_with_renewal(
+    graph_store: GraphStore,
+    *,
+    job_id: str,
+    affected_entity_ids: list[UUID],
+    component_seed_ids: list[UUID],
+    created_entity_ids: list[UUID],
+    roll_forward: (
+        Callable[[list[UUID], list[UUID], list[UUID]], Awaitable[list[StageFailure]]]
+        | None
+    ),
+    token: str,
+    lease_ttl_seconds: int,
+) -> bool:
+    """Run a claimed job's cleanup while a task keeps its lease renewed.
+
+    Returns:
+        Whether the cleanup completed and the job was marked done.
+    """
     try:
         job_uuid = UUID(job_id)
     except ValueError:

@@ -33,6 +33,7 @@ from agrag.cypher.schema import (
     cutover_job_status_index_query,
     fulltext_index_name,
     fulltext_index_query,
+    list_indexes_query,
     merge_alias_constraint_query,
     merge_key_constraint_name,
     merge_key_constraint_query,
@@ -720,13 +721,7 @@ class Neo4jGraphStore(CypherGraphStore):
 
     async def list_indexes(self, *, timeout: float | None = None) -> list[IndexInfo]:
         """List every index in the database with its readiness."""
-        rows = await self.execute_read(
-            "SHOW INDEXES YIELD name, state, populationPercent, type, "
-            "labelsOrTypes, properties, options "
-            "RETURN name, state, populationPercent, type, labelsOrTypes, "
-            "properties, options",
-            timeout=timeout,
-        )
+        rows = await self.execute_read(list_indexes_query(), timeout=timeout)
         return [
             IndexInfo(
                 name=row["name"],
