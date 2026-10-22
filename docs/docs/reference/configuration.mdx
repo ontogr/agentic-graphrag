@@ -217,7 +217,7 @@ Class: `McpServerSettings`. Prefix: `MCP_`. The `agrag-mcp` server reads these v
 | `MCP_MAX_RESPONSE_CHARS` | `60000` | The most characters of one result as sent. Search and fetch results send their JSON twice, so they count at twice their JSON length. |
 | `MCP_REQUEST_DEADLINE_SECONDS` | `30.0` | The timeout of each store read. |
 
-The server also reads the `NEO4J_*` and `EMBEDDING_*` variables. Set `EMBEDDING_MODEL` to the model you used for ingestion.
+The server reads `NEO4J_*` or `FALKORDB_*` according to `MCP_GRAPH_STORE`, along with `EMBEDDING_*`. Set `EMBEDDING_MODEL` to the model you used for ingestion. `MCP_GRAPH_STORE` selects the backend only for MCP. Python callers select it with `build_graph_store("neo4j")` or `build_graph_store("falkordb")`.
 
 ## Related
 

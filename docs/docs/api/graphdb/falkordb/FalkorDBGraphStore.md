@@ -367,18 +367,16 @@ A label with no provisioned vector index has nothing to search,
 so an absent index returns an empty result list rather than a
 driver error.
 
-Neo4j's vector procedure applies pending and caller filters only after
-selecting its top `k` candidates, so a plain `k=limit` call can
+The native index selects candidates before pending and caller filters
+apply, so a plain `k=limit` call can
 return fewer matches than actually exist. This escalates `k` and
 retries until `limit` visible hits come back or the escalation
 reaches `_VECTOR_SEARCH_MAX_K`.
 
 **Raises:**
 
-- <code>ValueError</code> – `limit` is not positive. A non-positive value is
-  not a meaningful request and would send that same
-  non-positive `k` to Neo4j's native vector procedure, which
-  requires a positive top-k.
+- <code>ValueError</code> – `limit` is not positive. Validation runs before
+  the backend query.
 
 ## `vector_search_call` \{#agrag-graphdb-falkordb-FalkorDBGraphStore-vector_search_call}
 

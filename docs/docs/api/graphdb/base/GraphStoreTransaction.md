@@ -67,7 +67,8 @@ which is required when `pending_job_id` is set.
 **Raises:**
 
 - <code>GraphStoreWriteConflictError</code> – `deferred` is None and a row is
-  owned by another in-flight job. The transaction rolls back.
+  owned by another in-flight job. Neo4j rolls back the callback's
+  writes. FalkorDB retains earlier completed statements.
 
 ## `upsert_relations` \{#agrag-graphdb-base-GraphStoreTransaction-upsert_relations}
 
@@ -84,8 +85,8 @@ which is required when `pending_job_id` is set.
 **Raises:**
 
 - <code>GraphStoreWriteConflictError</code> – `deferred` is None and a
-  relationship is owned by another in-flight job. The
-  transaction rolls back.
+  relationship is owned by another in-flight job. Neo4j rolls
+  back the callback's writes. FalkorDB retains earlier statements.
 
 ## `vector_value` \{#agrag-graphdb-base-GraphStoreTransaction-vector_value}
 

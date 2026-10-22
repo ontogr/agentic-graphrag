@@ -25,6 +25,8 @@ Your script runs on your machine, together with the embedding and extraction mod
 
 *The script and the models run locally. The agent step calls your LLM endpoint.*
 
+This quickstart uses Neo4j. To use FalkorDB, follow the [FalkorDB setup](../guides/configure-storage-backends.mdx#set-up-a-falkordb-graph-store), replace the `neo4j` install extra with `falkordb`, configure `FALKORDB_*`, and use `build_graph_store("falkordb")` in each script. Both backends support the ingestion and agent workflow. Their [transaction and search behavior](../concepts/graph-storage.mdx#choose-a-backend) differs.
+
 ## Step 1: Get a Neo4j database
 
 Make a folder for the tutorial:

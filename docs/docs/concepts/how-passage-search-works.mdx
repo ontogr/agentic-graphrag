@@ -31,6 +31,8 @@ The call reduces the query to its word characters, lowercases them, and joins th
 
 Neo4j reads the terms with Lucene's default operator, which is OR. A chunk that holds any query word can match. The full-text score ranks chunks that match more of the words, or rarer words, higher.
 
+FalkorDB also matches any query word, but agrag ranks those matches by the number of matching terms. It indexes internal copies of text with line breaks replaced by spaces. Keyword scores and hybrid rankings can differ between backends even for the same documents and query.
+
 Quotes do not make a phrase, `-` does not exclude a word, and `AND` does not require both words.
 
 ## Semantic search

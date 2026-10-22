@@ -91,7 +91,7 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
-`record_decision` takes the evidence ids that support the decision and the fetch outcomes that prove you read them. Each support names one version of one document. The `request_id` makes a retry safe, because a repeated request returns the saved result. The new decision has the review state `clear`.
+`record_decision` takes the evidence ids that support the decision and the fetch outcomes that prove you read them. Each support names one version of one document. A repeated `request_id` returns the saved result for a completed write. On FalkorDB, a failed multi-statement write can leave partial effects that repeat on retry. See [retry limits](./configure-storage-backends.mdx#retried-memory-writes). The new decision has the review state `clear`.
 
 ## Change the source and see the flag
 

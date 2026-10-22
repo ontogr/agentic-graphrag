@@ -6,7 +6,21 @@ description: Find an Agentic GraphRAG error message, learn the cause, and apply 
 
 # Troubleshoot common errors
 
-Find the message you see. Then follow the fix. The messages here come from Neo4j 5.26 and the driver version in the lock file. The exact text can differ slightly in other versions.
+Neo4j examples use server version 5.26 and the driver version in the lock file. FalkorDB connection checks require version 4.22.2 or later. Exact error text can differ between versions.
+
+## FalkorDB refuses to connect
+
+| Symptom | Cause | Fix |
+| --- | --- | --- |
+| `GraphStoreError` says the graph module is older than `42202` | The graph module does not meet the adapter's minimum version. | Upgrade to FalkorDB 4.22.2 or later. |
+| `GraphStoreError` names `RESULTSET_SIZE` | The server can truncate query results. | Set `RESULTSET_SIZE -1` in the server's `FALKORDB_ARGS` and restart the server. |
+| Connection refused | The Redis-protocol endpoint is not reachable. | Check `FALKORDB_URL`, the container's published port, and `redis-cli ping`. The browser UI port is not the database port. |
+
+Run the [FalkorDB connection check](./configure-storage-backends.mdx#set-up-a-falkordb-graph-store) after the fix. For a missing graph, the first write creates it. If searches return no documents, check that `FALKORDB_GRAPH` matches ingestion. MCP also needs `MCP_GRAPH_STORE=falkordb` and the same embedding model and document scope.
+
+## A FalkorDB write leaves partial changes
+
+FalkorDB has no multi-statement rollback. A failed callback can leave earlier statements written. A stable request ID identifies a completed memory write, but does not undo partial effects. Follow the [retry limits](./configure-storage-backends.mdx#retried-memory-writes) rather than assuming that a retry starts from an unchanged graph. For an interrupted document commit, `Graph.open` attempts [recovery after the lease expires](./configure-storage-backends.mdx#crash-recovery-of-a-commit).
 
 ## Neo4j rejects the login
 
