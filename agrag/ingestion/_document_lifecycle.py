@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import date
+from datetime import UTC, date, datetime
 from typing import TYPE_CHECKING, Literal
 from uuid import UUID
 
@@ -210,6 +210,7 @@ async def close_open_has_part_edges(
             "document_node_id": str(document_node_id),
             "job_id": str(job_id) if job_id is not None else None,
             "keep_node_ids": [str(node_id) for node_id in keep_node_ids],
+            "closed_at": datetime.now(UTC).isoformat(),
         },
     )
     return int(rows[0].get("closed", 0)) if rows else 0

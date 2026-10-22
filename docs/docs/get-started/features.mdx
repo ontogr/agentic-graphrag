@@ -79,7 +79,7 @@ See [Ingestion](../concepts/ingestion.mdx) and [Update and delete documents](../
 
 ## Keep the graph and its indexes in one database
 
-- **One database.** The graph, its vector indexes, and its keyword indexes live in a single database. Neo4j is the supported database, on Aura or a local server.
+- **One database.** The graph, its vector indexes, and its keyword indexes live in Neo4j or FalkorDB. Both support ingestion, retrieval, and agent memory. Compare their [search and transaction behavior](../concepts/graph-storage.mdx#choose-a-backend) and [configure either backend](../guides/configure-storage-backends.mdx).
 - **Efficient writes.** Records are written in batches, and each failed record is reported by identifier.
 - **Indexes and constraints are created for you.** Uniqueness constraints and native vector and keyword indexes are set up when a graph opens.
 - **Mismatched embeddings are caught early.** The embedder is checked against the existing vector indexes before anything is written.
@@ -129,7 +129,7 @@ See [Communities](../concepts/communities.mdx).
 - **Step states.** A step is not started, in progress, completed, failed, or unknown.
 - **Resume with a short summary.** A resumed task starts from the goal, step counts, active decisions, and decisions that need review.
 - **Finished work is reused.** Completed steps are reused, and steps that were still running are marked unknown.
-- **Safe retries.** A repeated write returns the saved result instead of recording twice.
+- **Request-based retries.** A repeated request ID returns the saved result for a completed write. Failed multi-statement writes on FalkorDB can leave partial effects that repeat on retry. See [retry limits](../guides/configure-storage-backends.mdx#retried-memory-writes).
 - **Retention controls.** Redact the body of one event or delete a whole task with its events and steps.
 
 ## Record decisions that stay tied to their evidence

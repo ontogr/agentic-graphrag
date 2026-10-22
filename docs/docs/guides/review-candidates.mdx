@@ -127,7 +127,7 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
-Conversion checks that the open graph's schema contains the patch changes. If the schema is missing an addition, `Graph.convert_candidates` raises `PatchNotAppliedError` before it writes graph data. The conversion runs its graph changes in one transaction. A second call skips candidate IDs already converted.
+Conversion checks that the open graph's schema contains the patch changes. If the schema is missing an addition, `Graph.convert_candidates` raises `PatchNotAppliedError` before it writes graph data. On Neo4j, conversion runs its graph changes in one transaction. On FalkorDB, earlier statements remain if a later statement fails. See [atomicity](./configure-storage-backends.mdx#atomicity). A second call skips candidate IDs already converted.
 
 An entity candidate becomes an entity node and keeps its ID. A matching entity with the same name and type receives its evidence instead. A relation candidate becomes an edge. A property candidate becomes a property on its entity.
 

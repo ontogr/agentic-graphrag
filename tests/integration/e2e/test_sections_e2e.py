@@ -31,12 +31,12 @@ from agrag.common.data_models.vector_record import Distance
 from agrag.cypher.entities import validate_identifier
 from agrag.cypher.relations import fetch_all_relations_query_cursor
 from agrag.embedding.base import Embedder
-from agrag.graphdb import build_graph_store
 from agrag.graphdb.base import GraphStore
 from agrag.ingestion.extract import Extractor
 from agrag.ingestion.graph import Graph
 from agrag.ingestion.reports import AddResult
 from tests.conftest import FAKE_EMBEDDING_DIMENSIONS
+from tests.integration._backend import build_test_store
 from tests.integration._schema_cleanup import drop_schema_for
 from tests.integration.e2e._artifact import write_artifact
 
@@ -104,7 +104,7 @@ async def _remove_created(env: _Env) -> None:
 @pytest.fixture
 async def env(tmp_path: Path) -> AsyncGenerator[_Env, None]:
     """Provide a graph over a fresh store and a corpus root."""
-    store = build_graph_store("neo4j")
+    store = build_test_store()
     await store.connect()
     label = validate_identifier(f"Thing_{uuid4().hex[:8]}")
     schema = GraphSchema(

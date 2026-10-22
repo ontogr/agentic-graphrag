@@ -15,23 +15,23 @@ from agrag.cypher.candidates import (
     list_candidates_query,
 )
 from agrag.cypher.entities import NODE_IDENTITY_LABEL
-from agrag.graphdb import build_graph_store
 from agrag.graphdb.base import GraphStore, GraphStoreTransaction
 from agrag.ingestion._pending_rows import clear_job_tags, rollback_job_rows
+from tests.integration._backend import build_test_store
 
 
 neo4j_missing = importlib.util.find_spec("neo4j") is None
 
 pytestmark = [
     pytest.mark.skipif(neo4j_missing, reason="neo4j extra not installed"),
-    pytest.mark.xdist_group(name="candidate_state"),
+    pytest.mark.xdist_group(name="candidate_rows"),
 ]
 
 
 @pytest_asyncio.fixture
 async def store() -> AsyncIterator[GraphStore]:
     """Open the configured Neo4j store for one test."""
-    graph_store = build_graph_store("neo4j")
+    graph_store = build_test_store()
     await graph_store.connect()
     await graph_store.setup_constraints()
     try:
@@ -208,7 +208,7 @@ class TestCandidateStore:
             await store.execute_write(
                 "CREATE (:CutoverJob {id: $job_id, status: 'rolling_back', "
                 "lease_token: $lease_token, "
-                "lease_expires_at: datetime() + duration({seconds: 300})})",
+                "lease_expires_at: timestamp() + 300000})",
                 {"job_id": str(rollback_job), "lease_token": lease_token},
             )
             assert await rollback_job_rows(

@@ -110,15 +110,21 @@ class _HookedStore(Neo4jGraphStore):
         rows = await self._inner.execute_read(query, parameters, timeout=timeout)
         if "SHOW INDEXES" not in query:
             return rows
-        if "AS dimensions" in query:
-            return (
-                []
-                if self.vector_dimensions is None
-                else [{"dimensions": self.vector_dimensions}]
-            )
+        name = vector_index_name(CHUNK_LABEL, "embedding")
         if self.vector_dimensions is None:
-            name = vector_index_name(CHUNK_LABEL, "embedding")
             rows = [row for row in rows if row["name"] != name]
+        else:
+            rows = [
+                {
+                    **row,
+                    "options": {
+                        "indexConfig": {"vector.dimensions": self.vector_dimensions}
+                    },
+                }
+                if row["name"] == name
+                else row
+                for row in rows
+            ]
         return [row for row in rows if row["name"] != self._hidden_index]
 
 
@@ -541,6 +547,7 @@ class TestOutputLimits:
         assert 2 * len(capped.model_dump_json()) <= full_size // 2
 
 
+@pytest.mark.neo4j_only
 class TestStoreFailures:
     """Store failures give fixed messages, and index gaps stay data."""
 
@@ -583,6 +590,7 @@ class TestStoreFailures:
         assert result.status is EvidenceSearchStatus.INDEX_NOT_READY
 
 
+@pytest.mark.neo4j_only
 class TestEmbeddingModelMismatch:
     """A query embedder that differs from the stored vectors never searches them."""
 
@@ -758,6 +766,7 @@ class TestEmbeddingModelMismatch:
         assert "too small for an empty result" in _text(result)
 
 
+@pytest.mark.neo4j_only
 class TestCancellation:
     """A cancelled search leaves the graph and the next call unaffected."""
 

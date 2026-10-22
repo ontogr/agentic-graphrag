@@ -27,6 +27,11 @@ from agrag.cypher.schema import list_relation_types_query
 from agrag.ingestion._resume import resume_incomplete_jobs
 
 
+def _epoch_millis(moment: datetime) -> int:
+    """Return ``moment`` as epoch milliseconds, the form the lease Cypher stores."""
+    return int(moment.timestamp() * 1000)
+
+
 _DELETE_NODES_QUERIES = {
     delete_pending_nodes_query(label) for label in PENDING_TAGGED_NODE_LABELS
 }
@@ -104,9 +109,7 @@ class _FakeResumeStore:
             return []
         job["status"] = "cleaning"
         job["lease_token"] = str(params["lease_token"])
-        job["lease_expires_at"] = datetime.fromisoformat(
-            str(params["lease_expires_at"])
-        )
+        job["lease_expires_at"] = params["lease_expires_at"]
         return [{"status": job["status"]}]
 
     def _claim_pending(
@@ -126,9 +129,7 @@ class _FakeResumeStore:
             return []
         job["status"] = "rolling_back"
         job["lease_token"] = str(params["lease_token"])
-        job["lease_expires_at"] = datetime.fromisoformat(
-            str(params["lease_expires_at"])
-        )
+        job["lease_expires_at"] = params["lease_expires_at"]
         job["lease_expired"] = False
         return [{"id": job_id}]
 
@@ -168,12 +169,10 @@ class _FakeResumeStore:
             job is None
             or job["lease_token"] != str(params["lease_token"])
             or job["status"] not in ("pending", "committed", "cleaning")
-            or job["lease_expires_at"] < datetime.now(UTC)
+            or job["lease_expires_at"] < _epoch_millis(datetime.now(UTC))
         ):
             return []
-        job["lease_expires_at"] = datetime.fromisoformat(
-            str(params["lease_expires_at"])
-        )
+        job["lease_expires_at"] = params["lease_expires_at"]
         self.renewal_count += 1
         return [{"id": job_id}]
 
@@ -184,7 +183,7 @@ class _FakeResumeStore:
             job is None
             or not self.finish_allowed
             or job["lease_token"] != str(params["lease_token"])
-            or job["lease_expires_at"] < datetime.now(UTC)
+            or job["lease_expires_at"] < _epoch_millis(datetime.now(UTC))
         ):
             return []
         job["status"] = "done"
@@ -217,9 +216,9 @@ class TestResumeIncompleteJobs:
         assert handled == [job_id]
         assert store.jobs[job_id]["status"] == "done"
         assert (
-            started + timedelta(seconds=23)
+            _epoch_millis(started + timedelta(seconds=23))
             <= store.jobs[job_id]["lease_expires_at"]
-            <= finished + timedelta(seconds=23)
+            <= _epoch_millis(finished + timedelta(seconds=23))
         )
 
     async def test_pending_job_renewed_after_scan_is_not_rolled_back(self) -> None:

@@ -4,7 +4,7 @@ Leaf module: imports nothing from ``agrag.graphdb``. See ``entities.py`` for the
 identifier-validation contract shared by every Cypher builder.
 """
 
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from typing import Any
 
 from agrag.common.data_models.candidate import CANDIDATE_LABEL
@@ -28,6 +28,12 @@ _VECTOR_SIMILARITY: dict[Distance, str] = {
     Distance.COSINE: "cosine",
     Distance.EUCLID: "euclidean",
 }
+
+# FalkorDB's full-text tokenizer does not split words at a line break, so the
+# words next to one are never found. Each indexed text property is mirrored into
+# a property with line breaks replaced by spaces, and the mirror is what the
+# index covers. Results hide the mirrors again.
+FULLTEXT_COPY_PREFIX = "_ft_"
 
 
 def node_id_constraint_name(label: str) -> str:
@@ -90,6 +96,38 @@ def node_id_constraint_query(label: str) -> str:
     return (
         f"CREATE CONSTRAINT {name} IF NOT EXISTS "
         f"FOR (n:{safe_label}) REQUIRE n.id IS UNIQUE"
+    )
+
+
+def unique_constraint_query(label: str, properties: Sequence[str]) -> str:
+    """Build a CREATE CONSTRAINT query making a property combination unique.
+
+    Args:
+        label: The node label. Must already be validated.
+        properties: The property names whose combination is unique. A single
+            ``id`` uses the same name as ``node_id_constraint_query``.
+
+    Returns:
+        A Cypher query creating the constraint if absent.
+
+    Raises:
+        ValueError: ``properties`` is empty, or a name is not a safe identifier.
+    """
+    if not properties:
+        raise ValueError("a uniqueness constraint needs at least one property")
+    safe_label = validate_identifier_syntax(label)
+    safe_properties = [validate_identifier_syntax(prop) for prop in properties]
+    if safe_properties == ["id"]:
+        return node_id_constraint_query(safe_label)
+    name = f"{safe_label.lower()}_{'_'.join(safe_properties)}_unique"
+    target = (
+        f"n.{safe_properties[0]}"
+        if len(safe_properties) == 1
+        else "(" + ", ".join(f"n.{prop}" for prop in safe_properties) + ")"
+    )
+    return (
+        f"CREATE CONSTRAINT {name} IF NOT EXISTS "
+        f"FOR (n:{safe_label}) REQUIRE {target} IS UNIQUE"
     )
 
 
@@ -322,28 +360,8 @@ def vector_index_query(
     )
 
 
-def vector_index_dimensions_query(
-    label: str, vector_property: str
-) -> tuple[str, dict[str, Any]]:
-    """Build a query that reads the dimension of an existing vector index.
-
-    Args:
-        label: The node label. Must already be validated.
-        vector_property: The vector property name. Must already be validated.
-
-    Returns:
-        The query and its parameters. The query returns one ``dimensions`` row
-        when the index exists and no rows when it does not.
-    """
-    return (
-        "SHOW INDEXES YIELD name, options WHERE name = $name "
-        "RETURN options.indexConfig['vector.dimensions'] AS dimensions",
-        {"name": vector_index_name(label, vector_property)},
-    )
-
-
 def vector_search_query(
-    index_name: str, filters: dict[str, Any] | None = None
+    search_call: str, filters: dict[str, Any] | None = None
 ) -> tuple[str, dict[str, Any]]:
     """Build a native vector search query and its filter parameters.
 
@@ -352,15 +370,16 @@ def vector_search_query(
     label can be returned, even if another label has a vector index.
 
     Args:
-        index_name: The vector index name from ``vector_index_name``.
+        search_call: The index search fragment from
+            ``GraphStore.vector_search_call``.
         filters: An optional flat-dict filter applied with ``WHERE``.
 
     Returns:
         The Cypher query yielding ``node`` and ``score``, and a parameter dict
-        holding only the filter parameters (the caller adds ``index``, ``k``,
-        and ``vector``).
+        holding only the filter parameters (the caller adds ``k``, ``vector``,
+        and the parameters that come with ``search_call``).
     """
-    query = "CALL db.index.vector.queryNodes($index, $k, $vector) YIELD node, score "
+    query = f"{search_call} "
     query += f"WHERE node:{NODE_IDENTITY_LABEL} AND {pending_filter_clause('node')} "
     params: dict[str, Any] = {}
     if filters:
@@ -418,4 +437,275 @@ def fulltext_index_query(label: str, properties: Sequence[str]) -> str:
     return (
         f"CREATE FULLTEXT INDEX {name} IF NOT EXISTS "
         f"FOR (n:{safe_label}) ON EACH [{fields}]"
+    )
+
+
+def list_indexes_query() -> str:
+    """Build a query listing every index with its state and options.
+
+    Returns:
+        A Cypher query returning one row per index, with the columns
+        ``list_indexes`` reads.
+    """
+    return (
+        "SHOW INDEXES YIELD name, state, populationPercent, type, "
+        "labelsOrTypes, properties, options "
+        "RETURN name, state, populationPercent, type, labelsOrTypes, "
+        "properties, options"
+    )
+
+
+def falkordb_indexes_query() -> str:
+    """Build the FalkorDB query listing the indexes of the graph.
+
+    Returns:
+        A Cypher query returning one row per index, with its ``label``, its
+        ``properties``, its ``options`` keyed by property, and its ``status``.
+    """
+    return "CALL db.indexes()"
+
+
+def falkordb_constraints_query() -> str:
+    """Build the FalkorDB query listing the constraints of the graph.
+
+    Returns:
+        A Cypher query returning one row per constraint, with its ``entitytype``,
+        ``label``, ``properties``, and ``status``.
+    """
+    return "CALL db.constraints()"
+
+
+def falkordb_range_index_query(target: str, prop: str, *, relationship: bool) -> str:
+    """Build a CREATE INDEX query for an exact-match index on one property.
+
+    Args:
+        target: The node label, or the relationship type when ``relationship``
+            is true. Must be a well-formed identifier.
+        prop: The property to index. Must be a well-formed identifier.
+        relationship: Whether ``target`` names a relationship type.
+
+    Returns:
+        A Cypher query creating the index. The database reports
+        ``already indexed`` when the index exists.
+
+    Raises:
+        ValueError: ``target`` or ``prop`` is not a well-formed identifier.
+    """
+    safe_target = validate_identifier_syntax(target)
+    safe_prop = validate_identifier_syntax(prop)
+    pattern = (
+        f"()-[e:{safe_target}]-() ON (e.{safe_prop})"
+        if relationship
+        else f"(n:{safe_target}) ON (n.{safe_prop})"
+    )
+    return f"CREATE INDEX FOR {pattern}"
+
+
+def falkordb_vector_index_query(
+    label: str, vector_property: str, dimensions: int, similarity: str
+) -> str:
+    """Build a CREATE VECTOR INDEX query in FalkorDB's ``OPTIONS`` syntax.
+
+    Args:
+        label: The node label. Must be a safe identifier.
+        vector_property: The vector property name. Must be a safe identifier.
+        dimensions: The embedding dimension.
+        similarity: The similarity function, ``"cosine"`` or ``"euclidean"``.
+
+    Returns:
+        A Cypher query creating the vector index. The database reports
+        ``already indexed`` when the index exists.
+
+    Raises:
+        ValueError: ``label`` or ``vector_property`` is not a safe identifier.
+    """
+    safe_label = validate_identifier(label)
+    safe_property = validate_identifier(vector_property)
+    return (
+        f"CREATE VECTOR INDEX FOR (n:{safe_label}) ON (n.{safe_property}) "
+        f"OPTIONS {{dimension: {int(dimensions)}, "
+        f"similarityFunction: '{similarity}'}}"
+    )
+
+
+def falkordb_fulltext_index_query(label: str, prop: str) -> str:
+    """Build a CREATE FULLTEXT INDEX query over the search copy of a property.
+
+    The index covers ``_ft_<prop>``, the copy that ``fulltext_copy_set`` keeps in
+    step with ``prop``. The database reports ``already indexed`` when the index
+    exists.
+
+    Args:
+        label: The node label. Must be a safe identifier.
+        prop: The text property whose search copy is indexed. Must be a safe
+            identifier.
+
+    Returns:
+        A Cypher query creating the full-text index.
+
+    Raises:
+        ValueError: ``label`` or ``prop`` is not a safe identifier.
+    """
+    safe_label = validate_identifier(label)
+    safe_prop = validate_identifier(prop)
+    return (
+        f"CREATE FULLTEXT INDEX FOR (n:{safe_label}) "
+        f"ON (n.{FULLTEXT_COPY_PREFIX}{safe_prop})"
+    )
+
+
+def falkordb_fulltext_search_call(label: str, properties: Sequence[str]) -> str:
+    """Build the Cypher fragment that queries a full-text index.
+
+    The match is restricted to the search copies of ``properties``. The fragment
+    yields ``node`` and ``score`` and ends with ``LIMIT $k``.
+
+    Expects the parameters ``$k``, the row limit, and ``$fulltext_terms``, the
+    search text. ``$fulltext_terms`` is spliced into each field clause with
+    Cypher string concatenation, so it is query text, not a bound value.
+
+    Args:
+        label: The node label. Must be a safe identifier.
+        properties: The indexed text properties to search. Each must be a safe
+            identifier.
+
+    Returns:
+        The Cypher fragment.
+
+    Raises:
+        ValueError: ``properties`` is empty, or a name is not a safe identifier.
+    """
+    safe_label = validate_identifier(label)
+    if not properties:
+        raise ValueError("a full-text search needs at least one property")
+    # Field restriction needs the terms inside the query string, so the
+    # terms parameter is concatenated into each field clause.
+    fields = "|".join(
+        f"(@{FULLTEXT_COPY_PREFIX}{validate_identifier(prop)}:"
+        "(' + $fulltext_terms + '))"
+        for prop in properties
+    )
+    return (
+        f"CALL db.idx.fulltext.queryNodes('{safe_label}', '{fields}') "
+        "YIELD node, score WITH node, score + 1.0 AS score "
+        "ORDER BY score DESC LIMIT $k"
+    )
+
+
+def falkordb_vector_search_call(
+    label: str, vector_property: str, similarity: str
+) -> str:
+    """Build the Cypher fragment that queries a vector index.
+
+    FalkorDB scores a match by distance, lowest first. The fragment converts that
+    into the score Neo4j reports: cosine ``1 - distance / 2`` and euclidean
+    ``1 / (1 + distance ^ 2)``. Any similarity other than ``"cosine"`` takes the
+    euclidean expression.
+
+    Expects the parameters ``$k``, the number of matches, and ``$vector``, the
+    query vector as a list of floats.
+
+    Args:
+        label: The node label. Must be a safe identifier.
+        vector_property: The vector property name. Must be a safe identifier.
+        similarity: The similarity function the index was created with.
+
+    Returns:
+        The Cypher fragment, which yields ``node`` and ``score``.
+
+    Raises:
+        ValueError: ``label`` or ``vector_property`` is not a safe identifier.
+    """
+    safe_label = validate_identifier(label)
+    safe_property = validate_identifier(vector_property)
+    score = (
+        "1.0 - score / 2.0" if similarity == "cosine" else "1.0 / (1.0 + score * score)"
+    )
+    return (
+        f"CALL db.idx.vector.queryNodes('{safe_label}', '{safe_property}', $k, "
+        f"vecf32($vector)) YIELD node, score WITH node, {score} AS score"
+    )
+
+
+def falkordb_vector_value(expression: str) -> str:
+    """Build an expression that stores a float list as a FalkorDB vector.
+
+    Args:
+        expression: A Cypher expression that evaluates to a list of floats.
+
+    Returns:
+        An expression that is null when ``expression`` is null, and the vector
+        otherwise.
+    """
+    return f"CASE WHEN {expression} IS NULL THEN null ELSE vecf32({expression}) END"
+
+
+def falkordb_vector_set_clauses(vector_properties: Iterable[str]) -> str:
+    """Build the ``SET`` clauses that store vector properties on upsert.
+
+    Expects the upsert query to bind the written node as ``n`` and the written
+    properties as ``record.properties``. A null incoming value keeps the stored
+    vector.
+
+    Args:
+        vector_properties: The vector property names. Each must be a well-formed
+            identifier.
+
+    Returns:
+        The clauses in property-name order, or an empty string when there are
+        none.
+    """
+    return " ".join(
+        f"SET n.{name} = CASE WHEN record.properties.{name} IS NULL "
+        f"THEN n.{name} ELSE vecf32(record.properties.{name}) END"
+        for name in sorted(validate_identifier_syntax(p) for p in vector_properties)
+    )
+
+
+def fulltext_copy_set(alias: str, source: str, properties: Iterable[str]) -> str:
+    """Build the ``SET`` clauses that keep the search copies of text properties.
+
+    Args:
+        alias: The Cypher variable of the node being written.
+        source: A Cypher map expression that holds the written properties. Pass
+            the node itself to copy properties that are already stored.
+        properties: The text properties that have a full-text index. Each must
+            already be validated.
+
+    Returns:
+        The clauses, or an empty string when there is nothing to copy.
+    """
+    clauses = []
+    for name in sorted(properties):
+        safe = validate_identifier_syntax(name)
+        value = f"{source}.{safe}"
+        copy = f"{alias}.{FULLTEXT_COPY_PREFIX}{safe}"
+        flat = f"replace(replace(toString({value}), '\n', ' '), '\r', ' ')"
+        clauses.append(
+            f"SET {copy} = CASE WHEN NOT '{safe}' IN keys({source}) THEN {copy} "
+            f"WHEN {value} IS NULL THEN null ELSE {flat} END"
+        )
+    return " ".join(clauses)
+
+
+def fulltext_copy_backfill_query(label: str, properties: Sequence[str]) -> str:
+    """Build a query that writes the search copies of nodes stored before an index.
+
+    Nodes written before a full-text index existed have no search copy, so the
+    write path never reached them. Nodes missing every listed property are not
+    matched, and a missing property leaves its copy unchanged.
+
+    Args:
+        label: The node label. Must already be validated.
+        properties: The text properties that now have a full-text index. Each
+            must already be validated.
+
+    Returns:
+        A Cypher write query over the nodes of ``label``.
+    """
+    safe_label = validate_identifier(label)
+    safe = [validate_identifier_syntax(prop) for prop in properties]
+    presence = " OR ".join(f"n.{prop} IS NOT NULL" for prop in safe)
+    return (
+        f"MATCH (n:{safe_label}) WHERE {presence} {fulltext_copy_set('n', 'n', safe)}"
     )

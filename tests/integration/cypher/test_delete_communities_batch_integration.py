@@ -15,8 +15,8 @@ import pytest
 from agrag.common.data_models.community import COMMUNITY_LABEL, MEMBER_OF_RELATION
 from agrag.common.data_models.graph_record import NodeRecord, RelationRecord
 from agrag.cypher.entities import validate_identifier
-from agrag.graphdb import build_graph_store
 from agrag.ingestion.community import delete_all_communities
+from tests.integration._backend import build_test_store
 
 
 neo4j_missing = importlib.util.find_spec("neo4j") is None
@@ -45,7 +45,7 @@ class TestDeleteCommunitiesBatchIntegration:
         other integration tests write ``Community`` nodes to the same
         database and may be running concurrently.
         """
-        self.store = build_graph_store("neo4j")
+        self.store = build_test_store()
         await self.store.connect()
         self.entity_label = validate_identifier(f"Entity_{uuid4().hex[:8]}")
         self.community_ids: list[UUID] = []

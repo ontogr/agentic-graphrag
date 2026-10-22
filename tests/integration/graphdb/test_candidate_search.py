@@ -15,15 +15,15 @@ from agrag.common.data_models.candidate import (
 from agrag.common.data_models.graph_record import NodeRecord
 from agrag.cypher.entities import NODE_IDENTITY_LABEL
 from agrag.embedding.base import Embedder
-from agrag.graphdb import build_graph_store
 from agrag.graphdb.base import GraphStore
 from agrag.retrieval.search_engine import SearchEngine
+from tests.integration._backend import build_test_store
 
 
 neo4j_missing = importlib.util.find_spec("neo4j") is None
 pytestmark = [
     pytest.mark.skipif(neo4j_missing, reason="neo4j extra not installed"),
-    pytest.mark.xdist_group(name="candidate_state"),
+    pytest.mark.xdist_group(name="candidate_rows"),
 ]
 
 
@@ -42,7 +42,7 @@ class _TestEmbedder(Embedder):
 @pytest_asyncio.fixture
 async def store() -> AsyncIterator[GraphStore]:
     """Open the configured Neo4j store for the candidate search scenario."""
-    graph_store = build_graph_store("neo4j")
+    graph_store = build_test_store()
     await graph_store.connect()
     await graph_store.setup_constraints()
     try:

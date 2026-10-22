@@ -21,11 +21,11 @@ from agrag.common.data_models.document import Document, DocumentFamily, SourceFo
 from agrag.common.data_models.extraction import ExtractionResult
 from agrag.common.data_models.graph_schema import GraphSchema
 from agrag.embedding.base import Embedder
-from agrag.graphdb import build_graph_store
 from agrag.graphdb.base import GraphStore
 from agrag.ingestion.extract import Extractor
 from agrag.ingestion.graph import Graph
 from tests.conftest import FAKE_EMBEDDING_DIMENSIONS
+from tests.integration._backend import build_test_store
 
 
 neo4j_missing = importlib.util.find_spec("neo4j") is None
@@ -129,7 +129,7 @@ class TestChunkContentHash:
         schema = GraphSchema(
             name="content_hash", version="1", entities=[], relations=[]
         )
-        store = build_graph_store("neo4j")
+        store = build_test_store()
         graph = await Graph.open(
             schema=schema,
             graph_store=store,

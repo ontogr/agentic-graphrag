@@ -61,7 +61,7 @@ from agrag.cypher.memory import (
     event_by_seq_query,
     events_page_query,
     find_task_query,
-    memory_schema_queries,
+    memory_unique_constraints,
     set_event_id_query,
     step_page_query,
     step_state_counts_query,
@@ -869,6 +869,8 @@ class TaskMemory:
                 [TASK_LABEL, EVENT_LABEL, STEP_LABEL, REQUEST_LABEL, PROJECT_LABEL]
             )
             await self._store.register_relation_types([HAS_EVENT, HAS_STEP])
-            for query in memory_schema_queries():
-                await self._store.execute_write(query)
+            for label, properties in memory_unique_constraints():
+                await self._store.ensure_unique_constraint(
+                    label=label, properties=properties
+                )
             self._schema_ready = True

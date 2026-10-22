@@ -39,6 +39,12 @@ export default function Home() {
         <section className={styles.section}>
           <div className={`container ${styles.intro}`}>
             <p>{intro}</p>
+            <p>
+              Store the graph, embeddings, and search indexes in Neo4j or FalkorDB.
+              Both support ingestion, hybrid search, and agent memory, with no separate vector database.
+              {' '}<Link to="/latest/concepts/graph-storage">Compare backends</Link>
+              {' '}or <Link to="/latest/guides/configure-storage-backends">configure a connection</Link>.
+            </p>
           </div>
         </section>
         <section className={styles.section}>

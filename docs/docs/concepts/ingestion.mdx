@@ -12,7 +12,7 @@ import Diagram from '@site/src/components/Diagram';
 
 ## Why it exists
 
-These stages include slow model calls and writes that can fail independently. A single pipeline gives each stage a place to report failures and lets the storage job expose all writes together only after commit.
+These stages include slow model calls and writes that can fail independently. A single pipeline gives each stage a place to report failures and lets the storage job hide staged writes until commit. Neo4j commits atomically. FalkorDB's multi-statement commit can become partially visible and uses [forward recovery](../guides/configure-storage-backends.mdx#crash-recovery-of-a-commit).
 
 `Graph.update` uses the same pipeline but can skip work when stored fingerprints show that the document or its processing settings have not changed. The tables below explain which changes require rechunking or re-extraction.
 
@@ -35,7 +35,7 @@ The extraction summary also counts the discarded items. See [Run statistics](../
 
 ### Crash safety
 
-Each document mutation runs under a Cutover Job. `Graph.add` uses one job per document; `update`, `delete_document` and `purge_document` each operate on one document per job. The job tags every write with its own id, and search skips tagged writes. Nothing becomes visible until the job commits.
+Each document mutation runs under a Cutover Job. `Graph.add` uses one job per document; `update`, `delete_document` and `purge_document` each operate on one document per job. The job tags staged writes with its own id, and search skips tagged writes. Neo4j exposes committed changes atomically. On FalkorDB, readers can see intermediate changes during the multi-statement commit.
 
 <Diagram folder="docs" name="cutover-job" alt="A job starts as pending, with its writes hidden from search. A commit makes the writes visible, then the job cleans up and is done. A job that stops before its commit rolls back, and its writes and the job are deleted." />
 
@@ -46,6 +46,8 @@ If a process stops during a call, a later `Graph.open` attempts to recover the u
 Rollback starts only while the job is still pending under the worker's lease token. The job enters `rolling_back` before its staged vectors and graph rows are deleted. If the worker stops during rollback, `Graph.open` finishes it after the lease expires. If a commit fails with an unclear result, the worker reads the job. A committed job is never rolled back; the worker finishes its cleanup instead. Commit and rollback find a job's rows through an index on the pending tag, so their cost follows the size of the job, not the size of the graph. Two documents that add the same relation at the same time each create their own copy. The commit step merges the copies, so one relation remains and keeps the evidence from both documents.
 
 Workers that share a graph must run the same version during an upgrade. Use the new version to recover any `rolling_back` jobs before you downgrade.
+
+On FalkorDB, a job with a commit-started marker is finished rather than rolled back after its lease expires. Recovery resumes persisted deferred writes, but a crash between a replay step and its progress record can repeat that step. The interrupted commit's resolved-entity component rebuild does not run. See [commit recovery](../guides/configure-storage-backends.mdx#crash-recovery-of-a-commit).
 
 ## How Agentic GraphRAG decides a document is unchanged
 
@@ -87,7 +89,7 @@ Why one `add` call for every input? Text, files and prebuilt documents differ on
 
 Why does extraction run on each chunk alone? A relation between two entities that sit in different chunks is not captured. A larger chunk size gives the extractor more context. The [Chunking](./chunking.mdx) page describes the size.
 
-Why a job and not a database transaction? Extraction makes slow model calls. A database transaction cannot stay open through them. The job tags writes instead, and one short transaction commits them.
+Why a job and not a database transaction? Extraction makes slow model calls. A database transaction cannot stay open through them. The job tags writes instead. Neo4j commits them in one short transaction, while FalkorDB runs the commit statements in order and records progress for recovery.
 
 Why does resolution happen before entity writes? The resolver needs the batch's mentions together to compare them. Writing after that decision avoids creating duplicate exact-name entities.
 

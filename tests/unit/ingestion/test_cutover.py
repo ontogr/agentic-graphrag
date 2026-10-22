@@ -21,6 +21,7 @@ from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.graph_record import DeferredWrites
 from agrag.cypher.cutover_job_write import (
     acquire_lease_query,
+    begin_commit_query,
     begin_rollback_query,
     claim_pending_job_query,
     clear_pending_node_tags_query,
@@ -30,6 +31,7 @@ from agrag.cypher.cutover_job_write import (
     job_status_query,
     lock_rolling_back_job_query,
     record_parts_closed_query,
+    record_replay_progress_query,
     renew_lease_query,
     rollback_job_query,
     start_cleaning_query,
@@ -43,6 +45,11 @@ from agrag.ingestion._cutover import (
     run_cutover_job,
 )
 from agrag.ingestion.settings import CutoverJobSettings
+
+
+def _epoch_millis(moment: datetime) -> int:
+    """Return ``moment`` as epoch milliseconds, the form the lease Cypher stores."""
+    return int(moment.timestamp() * 1000)
 
 
 class _FakeCutoverStore:
@@ -85,6 +92,7 @@ class _FakeCutoverStore:
         handlers: dict[str, Any] = {
             acquire_lease_query(): self._acquire,
             steal_terminal_job_query(): self._steal,
+            begin_commit_query(): lambda p: self._transition(p, "pending", "pending"),
             commit_job_query(): lambda p: self._transition(p, "pending", "committed"),
             start_cleaning_query(): lambda p: self._transition(
                 p, "committed", "cleaning"
@@ -95,6 +103,7 @@ class _FakeCutoverStore:
             claim_pending_job_query(): self._claim_pending_rollback,
             job_status_query(): self._job_status,
             record_parts_closed_query(): self._record_parts_closed,
+            record_replay_progress_query(): lambda p: [],
             lock_rolling_back_job_query(): self._lock_rolling_back,
             rollback_job_query(): self._rollback,
         }
@@ -106,16 +115,14 @@ class _FakeCutoverStore:
     def _acquire(self, params: dict[str, Any]) -> list[dict[str, Any]]:
         """MERGE on document_key: first claimant creates, others join it."""
         key = str(params["document_key"])
-        job = self.jobs.get(key)
+        job: dict[str, Any] | None = self.jobs.get(key)
         if job is None:
             job = {
                 "id": str(params["job_id"]),
                 "status": "pending",
                 "verb": params["verb"],
                 "lease_token": str(params["lease_token"]),
-                "lease_expires_at": datetime.fromisoformat(
-                    str(params["lease_expires_at"])
-                ),
+                "lease_expires_at": params["lease_expires_at"],
             }
             self.jobs[key] = job
         return [
@@ -123,8 +130,8 @@ class _FakeCutoverStore:
                 "id": job["id"],
                 "lease_token": job["lease_token"],
                 "status": job["status"],
-                "lease_expired": datetime.fromisoformat(str(job["lease_expires_at"]))
-                < datetime.now(UTC),
+                "lease_expired": job["lease_expires_at"]
+                < _epoch_millis(datetime.now(UTC)),
             }
         ]
 
@@ -138,14 +145,12 @@ class _FakeCutoverStore:
             job is None
             or job["status"] not in {"pending", "rolling_back"}
             or job["lease_token"] != params["expected_lease_token"]
-            or job["lease_expires_at"] >= datetime.now(UTC)
+            or job["lease_expires_at"] >= _epoch_millis(datetime.now(UTC))
         ):
             return []
         job["status"] = "rolling_back"
         job["lease_token"] = str(params["lease_token"])
-        job["lease_expires_at"] = datetime.fromisoformat(
-            str(params["lease_expires_at"])
-        )
+        job["lease_expires_at"] = params["lease_expires_at"]
         return [{"id": job["id"]}]
 
     def _steal(self, params: dict[str, Any]) -> list[dict[str, Any]]:
@@ -158,9 +163,7 @@ class _FakeCutoverStore:
             job["status"] = "pending"
             job["verb"] = params["verb"]
             job["lease_token"] = str(params["lease_token"])
-            job["lease_expires_at"] = datetime.fromisoformat(
-                str(params["lease_expires_at"])
-            )
+            job["lease_expires_at"] = params["lease_expires_at"]
             return [{"lease_token": job["lease_token"]}]
         return []
 
@@ -173,7 +176,7 @@ class _FakeCutoverStore:
                 job["id"] == str(params["job_id"])
                 and job["lease_token"] == str(params["lease_token"])
                 and job["status"] == expected
-                and job["lease_expires_at"] >= datetime.now(UTC)
+                and job["lease_expires_at"] >= _epoch_millis(datetime.now(UTC))
             ):
                 job["status"] = nxt
                 return [{"id": job["id"]}]
@@ -187,11 +190,9 @@ class _FakeCutoverStore:
                 and job["lease_token"] == str(params["lease_token"])
                 and job["status"]
                 in {"pending", "rolling_back", "committed", "cleaning"}
-                and job["lease_expires_at"] >= datetime.now(UTC)
+                and job["lease_expires_at"] >= _epoch_millis(datetime.now(UTC))
             ):
-                job["lease_expires_at"] = datetime.fromisoformat(
-                    str(params["lease_expires_at"])
-                )
+                job["lease_expires_at"] = params["lease_expires_at"]
                 return [{"id": job["id"]}]
         return []
 
@@ -298,7 +299,12 @@ class _FakeCutoverStore:
                 return await runner.execute_write(query, parameters)
 
         runner.transactions.append([])
-        result = await work(_Txn())
+        snapshot = (copy.deepcopy(runner.jobs), copy.deepcopy(runner.nodes))
+        try:
+            result = await work(_Txn())
+        except BaseException:
+            runner.jobs, runner.nodes = snapshot
+            raise
         if runner.raise_after_applying == commit_job_query():
             raise RuntimeError("injected error after applying query")
         return result
@@ -419,7 +425,7 @@ class TestRunCutoverJobLeaseFailure:
             "status": "pending",
             "verb": "add",
             "lease_token": str(uuid4()),
-            "lease_expires_at": datetime.now(UTC) + timedelta(hours=1),
+            "lease_expires_at": _epoch_millis(datetime.now(UTC) + timedelta(hours=1)),
         }
         wrote: list[UUID] = []
 
@@ -442,8 +448,8 @@ class TestRunCutoverJobLeaseFailure:
         async def pending(job_id: UUID) -> None:
             # Between the runner's acquire and its commit, another worker
             # steals the expired lease, so the fencing check fails.
-            store.jobs["doc-1"]["lease_expires_at"] = datetime.now(UTC) - timedelta(
-                seconds=1
+            store.jobs["doc-1"]["lease_expires_at"] = _epoch_millis(
+                datetime.now(UTC) - timedelta(seconds=1)
             )
             store.jobs["doc-1"]["id"] = stolen_job_id
             store.jobs["doc-1"]["lease_token"] = holder
@@ -463,8 +469,8 @@ class TestRunCutoverJobLeaseFailure:
         store = _FakeCutoverStore()
 
         async def pending(job_id: UUID) -> None:
-            store.jobs["doc-1"]["lease_expires_at"] = datetime.now(UTC) - timedelta(
-                seconds=1
+            store.jobs["doc-1"]["lease_expires_at"] = _epoch_millis(
+                datetime.now(UTC) - timedelta(seconds=1)
             )
             store.nodes.append(_tag_node(job_id))
 
@@ -613,7 +619,7 @@ class TestRunCutoverJobRollback:
             "id": str(old_job_id),
             "status": "pending",
             "lease_token": str(uuid4()),
-            "lease_expires_at": datetime.now(UTC) - timedelta(seconds=1),
+            "lease_expires_at": _epoch_millis(datetime.now(UTC) - timedelta(seconds=1)),
         }
         store.nodes.append(_tag_node(old_job_id))
         old_rows_seen_by_pending_write: list[bool] = []

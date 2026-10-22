@@ -34,7 +34,7 @@ from agrag.common.data_models.evidence import (
     FetchStatus,
     LegFailure,
 )
-from agrag.cypher.schema import vector_index_dimensions_query
+from agrag.cypher.schema import vector_index_name
 from agrag.embedding.base import Embedder
 from agrag.evidence import check_citations as verify_citations
 from agrag.evidence import fetch_evidence, search_evidence
@@ -366,21 +366,20 @@ async def _dimensions_mismatch(
 ) -> bool:
     """Detect incompatible dimensions, leaving absent indexes to search."""
     try:
-        rows = await store.execute_read(
-            *vector_index_dimensions_query(CHUNK_LABEL, _EMBEDDING_PROPERTY),
-            timeout=deadline,
-        )
+        indexes = await store.list_indexes(timeout=deadline)
     except Exception:
         _LOGGER.exception("Could not read the vector index dimension")
         raise ToolError(_STORE_UNAVAILABLE) from None
-    if not rows:
+    name = vector_index_name(CHUNK_LABEL, _EMBEDDING_PROPERTY)
+    current = next((index for index in indexes if index.name == name), None)
+    if current is None:
         return False
     try:
         embedder_dimensions = await embedder.dimensions()
     except Exception:
         _LOGGER.exception("The query embedder could not report its dimensions")
         raise ToolError(_EMBEDDER_UNAVAILABLE) from None
-    return rows[0]["dimensions"] != embedder_dimensions
+    return current.dimensions != embedder_dimensions
 
 
 def _with_semantic_failure(lexical: EvidenceSearchResult) -> EvidenceSearchResult:

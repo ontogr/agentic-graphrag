@@ -39,7 +39,6 @@ from agrag.common.data_models.resolved_entity import ResolvedEntity
 from agrag.cypher.entities import validate_identifier
 from agrag.embedding.base import Embedder
 from agrag.evidence import fetch_evidence, search_evidence
-from agrag.graphdb import build_graph_store
 from agrag.graphdb.base import GraphStore
 from agrag.ingestion.extract import Extractor
 from agrag.ingestion.graph import Graph
@@ -49,6 +48,7 @@ from agrag.retrieval.recipes import ENTITY, Recipe
 from agrag.retrieval.search_engine import SearchEngine
 from agrag.retrieval.settings import RetrievalSettings
 from tests.conftest import FAKE_EMBEDDING_DIMENSIONS
+from tests.integration._backend import build_test_store
 from tests.integration._schema_cleanup import drop_schema_for
 from tests.integration.e2e._artifact import write_artifact
 
@@ -320,7 +320,7 @@ class TestDocumentLifecycleE2E:
             ],
             relations=[],
         )
-        store = build_graph_store("neo4j")
+        store = build_test_store()
         embedder = _KeywordEmbedder()
         extractor = _KeywordExtractor(drug_label, condition_label)
         graph = await Graph.open(
@@ -545,7 +545,7 @@ class TestDocumentLifecycleE2E:
             await env.graph.add(documents=[_document(key, text)])
         await env.store.execute_write(
             "MATCH (job:CutoverJob {document_key: $key}) "
-            "SET job.lease_expires_at = datetime() - duration('PT1S')",
+            "SET job.lease_expires_at = timestamp() - 1000",
             {"key": key},
         )
 
@@ -585,7 +585,7 @@ class TestDocumentLifecycleE2E:
             "MATCH (job:CutoverJob {document_key: $key}) "
             "SET job.id = $job, job.status = 'pending', job.verb = 'update', "
             "job.lease_token = $token, job.lease_expires_at = "
-            "datetime() - duration('PT1S'), job.affected_entity_ids = [] "
+            "timestamp() - 1000, job.affected_entity_ids = [] "
             "WITH job MATCH (document:Document {document_key: $key}) "
             "CREATE (chunk:Chunk:_Node {id: $pending, text: $text, "
             "_pending_job_id: $job}) "

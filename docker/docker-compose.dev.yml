@@ -1,0 +1,29 @@
+# Local FalkorDB for development, with the FalkorDB Browser web UI.
+# Usage:
+#   docker compose -f docker/docker-compose.dev.yml up -d --wait
+#   docker compose -f docker/docker-compose.dev.yml down
+#
+# Ports: FALKORDB_PORT (default 6379) serves the Redis protocol. FALKORDB_BROWSER_PORT
+# (default 3000) serves the Browser at http://localhost:3000.
+# Data persists in the falkordb-data volume. Run down -v to remove the volume.
+
+services:
+  falkordb:
+    image: falkordb/falkordb:v4.22.2
+    environment:
+      BROWSER: "1"
+      FALKORDB_ARGS: "RESULTSET_SIZE -1 TIMEOUT_MAX 3600000 MAX_QUEUED_QUERIES 25"
+    ports:
+      - "${FALKORDB_PORT:-6379}:6379"
+      - "${FALKORDB_BROWSER_PORT:-3000}:3000"
+    volumes:
+      - falkordb-data:/var/lib/falkordb/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli ping | grep -q PONG"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+
+volumes:
+  falkordb-data:

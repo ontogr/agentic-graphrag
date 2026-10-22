@@ -11,7 +11,7 @@ import hashlib
 from collections.abc import Mapping, Sequence
 from typing import Any
 from unittest import mock
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 from uuid import UUID, uuid4
 
 import pytest
@@ -157,6 +157,8 @@ def _store() -> tuple[AsyncMock, dict[str, list[Any]]]:
     """Build a canned store and the calls it records."""
     calls: dict[str, list[Any]] = {"nodes": [], "relations": []}
     store = AsyncMock()
+    store.node_write_extra_set = MagicMock(return_value="")
+    store.vector_value = MagicMock(side_effect=lambda expression: expression)
 
     async def _upsert_nodes(
         label: str, nodes: Sequence[Any], **kwargs: Any

@@ -26,12 +26,16 @@ from agrag.cypher.cutover_job_write import (
     renew_lease_query,
     start_cleaning_query,
 )
-from agrag.cypher.schema import cutover_job_document_key_constraint_query
-from agrag.graphdb import build_graph_store
 from agrag.ingestion._cutover import run_cutover_job
 from agrag.ingestion._pending_rows import rollback_job_rows
 from agrag.ingestion._resume import resume_incomplete_jobs
 from agrag.ingestion.settings import CutoverJobSettings
+from tests.integration._backend import build_test_store
+
+
+def _epoch_millis(moment: datetime) -> int:
+    """Return ``moment`` as epoch milliseconds, the form the lease Cypher stores."""
+    return int(moment.timestamp() * 1000)
 
 
 neo4j_missing = importlib.util.find_spec("neo4j") is None
@@ -60,12 +64,12 @@ class _FakeRenewBeforePendingClaimStore:
             self.renewed = True
             await self.store.execute_write(
                 "MATCH (job:CutoverJob {id: $job_id}) "
-                "SET job.lease_expires_at = datetime($lease_expires_at)",
+                "SET job.lease_expires_at = $lease_expires_at",
                 {
                     "job_id": self.job_id,
-                    "lease_expires_at": (
+                    "lease_expires_at": _epoch_millis(
                         datetime.now(UTC) + timedelta(seconds=60)
-                    ).isoformat(),
+                    ),
                 },
             )
         return await self.store.execute_write(query, parameters)
@@ -82,11 +86,13 @@ class TestCutoverJobConcurrency:
         constraint: exactly one claimant gets back its own token, with no
         constraint violation surfacing to either caller.
         """
-        store = build_graph_store("neo4j")
+        store = build_test_store()
         await store.connect()
         key = f"cutover-concurrency-{uuid4().hex}"
         try:
-            await store.execute_write(cutover_job_document_key_constraint_query())
+            await store.ensure_unique_constraint(
+                label=CUTOVER_JOB_LABEL, properties=["document_key"]
+            )
             tokens = [str(uuid4()), str(uuid4())]
 
             async def acquire(token: str) -> list[dict[str, Any]]:
@@ -98,7 +104,7 @@ class TestCutoverJobConcurrency:
                         "document_key": key,
                         "verb": "add",
                         "lease_token": token,
-                        "lease_expires_at": expires.isoformat(),
+                        "lease_expires_at": _epoch_millis(expires),
                         "affected_entity_ids": [],
                         "created_at": datetime.now(UTC).isoformat(),
                     },
@@ -127,13 +133,15 @@ class TestCutoverJobLeaseLifetime:
 
     async def test_expired_lease_cannot_be_renewed(self) -> None:
         """A worker cannot revive its own lease after it expires."""
-        store = build_graph_store("neo4j")
+        store = build_test_store()
         await store.connect()
         key = f"cutover-expired-renewal-{uuid4().hex}"
         job_id = str(uuid4())
         token = str(uuid4())
         try:
-            await store.execute_write(cutover_job_document_key_constraint_query())
+            await store.ensure_unique_constraint(
+                label=CUTOVER_JOB_LABEL, properties=["document_key"]
+            )
             await store.execute_write(
                 acquire_lease_query(),
                 {
@@ -141,9 +149,9 @@ class TestCutoverJobLeaseLifetime:
                     "document_key": key,
                     "verb": "add",
                     "lease_token": token,
-                    "lease_expires_at": (
+                    "lease_expires_at": _epoch_millis(
                         datetime.now(UTC) - timedelta(seconds=1)
-                    ).isoformat(),
+                    ),
                     "affected_entity_ids": [],
                     "created_at": datetime.now(UTC).isoformat(),
                 },
@@ -154,9 +162,9 @@ class TestCutoverJobLeaseLifetime:
                 {
                     "job_id": job_id,
                     "lease_token": token,
-                    "lease_expires_at": (
+                    "lease_expires_at": _epoch_millis(
                         datetime.now(UTC) + timedelta(seconds=300)
-                    ).isoformat(),
+                    ),
                 },
             )
 
@@ -180,13 +188,15 @@ class TestCutoverJobLeaseLifetime:
         self, status: str, transition: str
     ) -> None:
         """A worker cannot advance any phase after its lease expires."""
-        store = build_graph_store("neo4j")
+        store = build_test_store()
         await store.connect()
         key = f"cutover-expired-transition-{uuid4().hex}"
         job_id = str(uuid4())
         token = str(uuid4())
         try:
-            await store.execute_write(cutover_job_document_key_constraint_query())
+            await store.ensure_unique_constraint(
+                label=CUTOVER_JOB_LABEL, properties=["document_key"]
+            )
             await store.execute_write(
                 acquire_lease_query(),
                 {
@@ -194,9 +204,9 @@ class TestCutoverJobLeaseLifetime:
                     "document_key": key,
                     "verb": "add",
                     "lease_token": token,
-                    "lease_expires_at": (
+                    "lease_expires_at": _epoch_millis(
                         datetime.now(UTC) - timedelta(seconds=1)
-                    ).isoformat(),
+                    ),
                     "affected_entity_ids": [],
                     "created_at": datetime.now(UTC).isoformat(),
                 },
@@ -226,7 +236,7 @@ class TestCutoverJobLeaseLifetime:
 
     async def test_recovery_renews_lease_during_slow_cleanup(self) -> None:
         """Recovery can finish cleanup that outlasts its initial lease."""
-        store = build_graph_store("neo4j")
+        store = build_test_store()
         await store.connect()
         key = f"cutover-slow-recovery-{uuid4().hex}"
         job_id = str(uuid4())
@@ -234,7 +244,9 @@ class TestCutoverJobLeaseLifetime:
         affected_entity_id = str(uuid4())
         prune_ran = False
         try:
-            await store.execute_write(cutover_job_document_key_constraint_query())
+            await store.ensure_unique_constraint(
+                label=CUTOVER_JOB_LABEL, properties=["document_key"]
+            )
             await store.execute_write(
                 acquire_lease_query(),
                 {
@@ -242,9 +254,9 @@ class TestCutoverJobLeaseLifetime:
                     "document_key": key,
                     "verb": "add",
                     "lease_token": token,
-                    "lease_expires_at": (
+                    "lease_expires_at": _epoch_millis(
                         datetime.now(UTC) + timedelta(seconds=300)
-                    ).isoformat(),
+                    ),
                     "affected_entity_ids": [affected_entity_id],
                     "created_at": datetime.now(UTC).isoformat(),
                 },
@@ -260,12 +272,12 @@ class TestCutoverJobLeaseLifetime:
             )
             await store.execute_write(
                 "MATCH (job:CutoverJob {id: $job_id}) "
-                "SET job.lease_expires_at = datetime($lease_expires_at)",
+                "SET job.lease_expires_at = $lease_expires_at",
                 {
                     "job_id": job_id,
-                    "lease_expires_at": (
+                    "lease_expires_at": _epoch_millis(
                         datetime.now(UTC) - timedelta(seconds=1)
-                    ).isoformat(),
+                    ),
                 },
             )
 
@@ -298,13 +310,15 @@ class TestCutoverJobLeaseLifetime:
         self,
     ) -> None:
         """Recovery fences a stale expiry result before deleting pending writes."""
-        store = build_graph_store("neo4j")
+        store = build_test_store()
         await store.connect()
         key = f"cutover-stale-pending-{uuid4().hex}"
         job_id = str(uuid4())
         token = str(uuid4())
         try:
-            await store.execute_write(cutover_job_document_key_constraint_query())
+            await store.ensure_unique_constraint(
+                label=CUTOVER_JOB_LABEL, properties=["document_key"]
+            )
             await store.execute_write(
                 acquire_lease_query(),
                 {
@@ -312,9 +326,9 @@ class TestCutoverJobLeaseLifetime:
                     "document_key": key,
                     "verb": "add",
                     "lease_token": token,
-                    "lease_expires_at": (
+                    "lease_expires_at": _epoch_millis(
                         datetime.now(UTC) - timedelta(seconds=1)
-                    ).isoformat(),
+                    ),
                     "affected_entity_ids": [],
                     "created_at": datetime.now(UTC).isoformat(),
                 },
@@ -360,13 +374,15 @@ class TestCutoverJobLeaseLifetime:
         A concurrent ``Graph.open`` resume decides from ``lease_expired``;
         it must read ``False`` for a job that just started cleaning.
         """
-        store = build_graph_store("neo4j")
+        store = build_test_store()
         await store.connect()
         key = f"cutover-cleaning-lease-{uuid4().hex}"
         job_id = str(uuid4())
         token = str(uuid4())
         try:
-            await store.execute_write(cutover_job_document_key_constraint_query())
+            await store.ensure_unique_constraint(
+                label=CUTOVER_JOB_LABEL, properties=["document_key"]
+            )
             expires = datetime.now(UTC) + timedelta(seconds=300)
             await store.execute_write(
                 acquire_lease_query(),
@@ -375,7 +391,7 @@ class TestCutoverJobLeaseLifetime:
                     "document_key": key,
                     "verb": "add",
                     "lease_token": token,
-                    "lease_expires_at": expires.isoformat(),
+                    "lease_expires_at": _epoch_millis(expires),
                     "affected_entity_ids": [],
                     "created_at": datetime.now(UTC).isoformat(),
                 },
@@ -404,7 +420,7 @@ class TestCutoverJobLeaseLifetime:
 
     async def test_slow_job_keeps_its_lease_past_the_ttl(self) -> None:
         """A phase longer than the TTL is not stolen by a concurrent resume."""
-        store = build_graph_store("neo4j")
+        store = build_test_store()
         await store.connect()
         key = f"cutover-slow-{uuid4().hex}"
         seen: dict[str, str] = {}
@@ -419,7 +435,9 @@ class TestCutoverJobLeaseLifetime:
             return None
 
         try:
-            await store.execute_write(cutover_job_document_key_constraint_query())
+            await store.ensure_unique_constraint(
+                label=CUTOVER_JOB_LABEL, properties=["document_key"]
+            )
             await run_cutover_job(
                 verb="add",
                 document_key=key,
@@ -459,7 +477,7 @@ class TestRollbackJobRowsAgainstRealNeo4j:
         self,
     ) -> None:
         """Rollback deletes the job node even when no relationship is tagged."""
-        store = build_graph_store("neo4j")
+        store = build_test_store()
         await store.connect()
         job_id = str(uuid4())
         token = str(uuid4())
@@ -501,7 +519,7 @@ class TestRollbackJobRowsAgainstRealNeo4j:
         self,
     ) -> None:
         """A claimed rollback releases a lease before a pending write starts."""
-        store = build_graph_store("neo4j")
+        store = build_test_store()
         await store.connect()
         job_id = str(uuid4())
         token = str(uuid4())
@@ -509,14 +527,14 @@ class TestRollbackJobRowsAgainstRealNeo4j:
             await store.execute_write(
                 f"CREATE (job:{CUTOVER_JOB_LABEL} {{"
                 "id: $job_id, document_key: $key, status: 'pending', "
-                "lease_token: $token, lease_expires_at: datetime($lease_expires_at)})",
+                "lease_token: $token, lease_expires_at: $lease_expires_at})",
                 {
                     "job_id": job_id,
                     "key": f"rollback-empty-test-{job_id}",
                     "token": token,
-                    "lease_expires_at": (
+                    "lease_expires_at": _epoch_millis(
                         datetime.now(UTC) + timedelta(seconds=60)
-                    ).isoformat(),
+                    ),
                 },
             )
             begun = await store.execute_write(

@@ -22,6 +22,7 @@ from agrag.common.data_models.evidence import (
     FetchResult,
     FetchStatus,
 )
+from tests.integration._backend import server_environment
 from tests.integration.retrieval.evidence._corpus import KEEP_TEXT
 from tests.integration.retrieval.evidence.conftest import EvidenceEnv
 
@@ -35,6 +36,7 @@ def _server_environment(scope_keys: str) -> dict[str, str]:
     """Return the environment of a server process, with a given scope."""
     return {
         **os.environ,
+        **server_environment(),
         "PYTHONPATH": str(_REPO_ROOT),
         "MCP_SCOPE_DOCUMENT_KEYS": scope_keys,
         "OPENAI_API_KEY": "",

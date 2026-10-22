@@ -6,8 +6,9 @@ from opentelemetry.trace import Tracer
 
 from agrag.graphdb.base import GraphStore
 from agrag.graphdb.errors import GraphStoreError, GraphStoreMissingExtraError
+from agrag.graphdb.falkordb import FalkorDBGraphStore
 from agrag.graphdb.neo4j import Neo4jGraphStore
-from agrag.graphdb.settings import Neo4jSettings
+from agrag.graphdb.settings import FalkorDBSettings, Neo4jSettings
 
 
 def _build_neo4j(tracer: Tracer | None = None) -> GraphStore:
@@ -15,11 +16,17 @@ def _build_neo4j(tracer: Tracer | None = None) -> GraphStore:
     return Neo4jGraphStore(settings=Neo4jSettings(), tracer=tracer)
 
 
+def _build_falkordb(tracer: Tracer | None = None) -> GraphStore:
+    """Build a FalkorDB graph store with default settings."""
+    return FalkorDBGraphStore(settings=FalkorDBSettings(), tracer=tracer)
+
+
 _GRAPH_STORE_FACTORIES: dict[str, Callable[..., GraphStore]] = {
     "neo4j": _build_neo4j,
+    "falkordb": _build_falkordb,
 }
 
-GraphStoreName = Literal["neo4j"]
+GraphStoreName = Literal["neo4j", "falkordb"]
 
 
 def build_graph_store(
@@ -28,7 +35,7 @@ def build_graph_store(
     """Build a graph store from a backend name, or return one unchanged.
 
     Args:
-        value: ``"neo4j"``, or an already-constructed ``GraphStore``.
+        value: ``"neo4j"``, ``"falkordb"``, or an already-constructed ``GraphStore``.
         tracer: Passed to the newly-built store. Not valid together with an
             already-constructed ``value`` -- that instance's tracer, if any,
             was already fixed at its own construction.
@@ -51,6 +58,8 @@ def build_graph_store(
 
 
 __all__ = [
+    "FalkorDBGraphStore",
+    "FalkorDBSettings",
     "GraphStore",
     "GraphStoreError",
     "GraphStoreMissingExtraError",

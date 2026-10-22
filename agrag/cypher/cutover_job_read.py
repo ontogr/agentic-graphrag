@@ -20,7 +20,10 @@ def find_incomplete_jobs_query() -> str:
         Parameterized Cypher expecting no parameters. Returns each
         incomplete job's id, status, lease token, affected-entity snapshot,
         component seed ids and created entity ids (both set once the job
-        committed), and whether its lease has lapsed. The lease token is
+        committed), whether its commit had started, whether its document writes were
+        applied, the stored commit plan, how many deferred-write steps
+        it had replayed, and whether its lease has
+        lapsed. The lease token is
         required to fence the subsequent recovery claim.
     """
     return (
@@ -31,5 +34,9 @@ def find_incomplete_jobs_query() -> str:
         "job.affected_entity_ids AS affected_entity_ids, "
         "job.component_seed_ids AS component_seed_ids, "
         "job.created_entity_ids AS created_entity_ids, "
-        "job.lease_expires_at < datetime() AS lease_expired"
+        "coalesce(job.commit_started, false) AS commit_started, "
+        "coalesce(job.commit_docs_applied, false) AS commit_docs_applied, "
+        "job.commit_plan AS commit_plan, "
+        "coalesce(job.commit_replayed, 0) AS commit_replayed, "
+        "job.lease_expires_at < timestamp() AS lease_expired"
     )

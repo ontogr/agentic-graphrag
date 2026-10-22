@@ -15,12 +15,9 @@ from agrag.common.data_models.evidence import (
     EvidenceReference,
     IndexState,
 )
+from agrag.common.data_models.index_record import INDEX_STATE_ONLINE
 from agrag.common.data_models.provenance import PageProvenance, TextProvenance
-from agrag.cypher.evidence import index_states_query
 from agrag.graphdb.base import GraphStore
-
-
-_ONLINE = "ONLINE"
 
 
 def scope_node_ids(scope: Iterable[str]) -> frozenset[str]:
@@ -266,20 +263,15 @@ async def indexes_ready(
     Returns:
         ``IndexState.READY`` or ``IndexState.NOT_READY``.
     """
-    rows = await store.execute_read(
-        index_states_query(),
-        {"names": [spec.name for spec in specs]},
-        timeout=timeout,
-    )
-    found = {row["name"]: row for row in rows}
+    found = {index.name: index for index in await store.list_indexes(timeout=timeout)}
     for spec in specs:
-        row = found.get(spec.name)
-        if row is None or row["state"] != _ONLINE:
+        index = found.get(spec.name)
+        if index is None or index.state != INDEX_STATE_ONLINE:
             return IndexState.NOT_READY
-        if row["type"] != spec.index_type:
+        if index.type != spec.index_type:
             return IndexState.NOT_READY
-        if list(row["labelsOrTypes"] or []) != [spec.label]:
+        if index.labels != [spec.label]:
             return IndexState.NOT_READY
-        if list(row["properties"] or []) != [spec.prop]:
+        if index.properties != [spec.prop]:
             return IndexState.NOT_READY
     return IndexState.READY

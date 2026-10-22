@@ -32,7 +32,7 @@ jobs:
     uses: $/.github/workflows/changes.yml
 
   integration:
-    name: Integration (${{ matrix.suite.name }})
+    name: Integration (${{ matrix.suite.backend }} ${{ matrix.suite.name }})
     needs: [changes]
     if: needs.changes.outputs.backend_tests == 'true'
     runs-on: ubuntu-latest
@@ -40,50 +40,111 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Each suite runs as its own job on its own runner with its own
-        # ephemeral backend stack, and starts only the services its tests use.
-        # dist picks the xdist scheduler per suite. loadgroup is only needed by
-        # graph: its cypher and retrieval community tests write and delete
-        # Community nodes against the same shared label and are tagged
-        # xdist_group(name="community_label") to force them onto one worker.
-        # Every other suite keeps the default loadscope, which groups a test
-        # class's own methods onto one worker. Ingestion's community detection
-        # tests rely on that, because detect_communities scans the whole entity
-        # graph, so its own test methods cannot run concurrently with each
-        # other, and loadgroup would ungroup them since they carry no
-        # xdist_group marker.
-        # The agents and pipeline suites run LLM-backed tests, fed by the
+        # Each entry runs as its own job on its own runner with its own
+        # ephemeral backend, and starts only the service its tests use, so the
+        # entries run in parallel and no two share a database. Test time per
+        # entry is kept near 3 to 5 minutes: below that the fixed cost of a
+        # runner (setup, image pull, service boot) outweighs the saving.
+        # backend sets AGRAG_TEST_BACKENDS for the run. Tests that depend on
+        # Neo4j-only behavior carry the neo4j_only marker and skip elsewhere.
+        # dist picks the xdist scheduler per entry. loadgroup is needed where a
+        # test module carries an xdist_group marker: the cypher and retrieval
+        # community tests write and delete Community nodes against the same
+        # shared label (community_label), and the candidate tests share
+        # Candidate rows (candidate_rows). Those groups must stay inside one
+        # entry, so graph-store holds graphdb, cypher and the top-level
+        # retrieval tests together. The evidence entries have no groups.
+        # Ingestion keeps the default loadscope, which groups a test class's
+        # own methods onto one worker: its community detection tests rely on
+        # that, because detect_communities scans the whole entity graph.
+        # The agents and pipeline entries run LLM-backed tests, fed by the
         # workflow-level LLM_* secrets. Agents runs serially because its MCP
         # equivalence checks need a stable full-text corpus across two calls;
         # per-document scopes do not isolate the shared candidate index.
+        # The embedding, loader and LLM tests do not touch the graph store, so
+        # they run once, in the neo4j pipeline entry.
         suite:
-          - name: graph
-            paths: "tests/integration/retrieval tests/integration/graphdb tests/integration/cypher"
+          - name: graph-store
+            backend: neo4j
+            paths: "tests/integration/graphdb tests/integration/cypher tests/integration/retrieval --ignore=tests/integration/retrieval/evidence"
+            workers: auto
+            dist: loadgroup
+            services: neo4j
+            timeout: 15
+          - name: evidence-search
+            backend: neo4j
+            paths: "tests/integration/retrieval/evidence/test_search.py tests/integration/retrieval/evidence/test_citations.py"
+            workers: auto
+            dist: loadgroup
+            services: neo4j
+            timeout: 15
+          - name: evidence-graph
+            backend: neo4j
+            paths: "tests/integration/retrieval/evidence --ignore=tests/integration/retrieval/evidence/test_search.py --ignore=tests/integration/retrieval/evidence/test_citations.py"
             workers: auto
             dist: loadgroup
             services: neo4j
             timeout: 15
           - name: agents
+            backend: neo4j
             paths: "tests/integration/agents"
             workers: 0
             dist: loadscope
             services: neo4j
             timeout: 20
           - name: pipeline
+            backend: neo4j
             paths: "tests/integration/ingestion tests/integration/embedding tests/integration/loaders tests/integration/llm"
             workers: auto
             dist: loadscope
             services: neo4j
             timeout: 20
+          - name: graph-store
+            backend: falkordb
+            paths: "tests/integration/graphdb tests/integration/cypher tests/integration/retrieval --ignore=tests/integration/retrieval/evidence"
+            workers: auto
+            dist: loadgroup
+            services: falkordb
+            timeout: 15
+          - name: evidence-search
+            backend: falkordb
+            paths: "tests/integration/retrieval/evidence/test_search.py tests/integration/retrieval/evidence/test_citations.py"
+            workers: auto
+            dist: loadgroup
+            services: falkordb
+            timeout: 15
+          - name: evidence-graph
+            backend: falkordb
+            paths: "tests/integration/retrieval/evidence --ignore=tests/integration/retrieval/evidence/test_search.py --ignore=tests/integration/retrieval/evidence/test_citations.py"
+            workers: auto
+            dist: loadgroup
+            services: falkordb
+            timeout: 15
+          - name: agents
+            backend: falkordb
+            paths: "tests/integration/agents"
+            workers: 0
+            dist: loadscope
+            services: falkordb
+            timeout: 20
+          - name: ingestion
+            backend: falkordb
+            paths: "tests/integration/ingestion"
+            workers: auto
+            dist: loadscope
+            services: falkordb
+            timeout: 20
     env:
       UV_PYTHON: "3.12"
+      AGRAG_TEST_BACKENDS: ${{ matrix.suite.backend }}
       # Backend credentials below are fixed, throwaway values scoped to this ephemeral job's
       # own Docker network, not secrets, and not reused anywhere outside this workflow run.
       NEO4J_URI: bolt://localhost:7687
       NEO4J_USERNAME: neo4j
       NEO4J_PASSWORD: ci-test-password
       NEO4J_DATABASE: neo4j
-      COVERAGE_FILE: coverage-data-${{ matrix.suite.name }}
+      FALKORDB_URL: redis://localhost:6379
+      COVERAGE_FILE: coverage-data-${{ matrix.suite.backend }}-${{ matrix.suite.name }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -110,7 +171,7 @@ jobs:
       - name: Wait for backend services to be healthy
         run: docker compose -f docker/docker-compose.ci.yml up -d --wait --wait-timeout 420 ${{ matrix.suite.services }}
 
-      - name: Run integration tests (${{ matrix.suite.name }})
+      - name: Run integration tests (${{ matrix.suite.backend }} ${{ matrix.suite.name }})
         run: >-
           uv run pytest ${{ matrix.suite.paths }}
           -v
@@ -133,7 +194,7 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: ./coverage-integration.xml
           flags: integration
-          name: codecov-agrag-integration-${{ matrix.suite.name }}
+          name: codecov-agrag-integration-${{ matrix.suite.backend }}-${{ matrix.suite.name }}
           fail_ci_if_error: false
           slug: ontogr/agentic-graphrag
 
@@ -141,10 +202,10 @@ jobs:
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: integration-test-results-${{ matrix.suite.name }}
+          name: integration-test-results-${{ matrix.suite.backend }}-${{ matrix.suite.name }}
           path: |
             pytest-integration-results.xml
-            coverage-data-${{ matrix.suite.name }}
+            coverage-data-${{ matrix.suite.backend }}-${{ matrix.suite.name }}
           retention-days: 30
 
       - name: Collect backend service logs

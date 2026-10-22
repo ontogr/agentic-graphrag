@@ -21,7 +21,7 @@ The `agrag-mcp` command runs a local stdio server. An MCP client such as an IDE 
 uv pip install "agentic-graphrag[neo4j,mcp]"
 ```
 
-- The `NEO4J_*` variables for the graph, and the `EMBEDDING_MODEL` you used for ingestion. Semantic and hybrid search embed the query with the same model.
+- For FalkorDB, replace `neo4j` with `falkordb` in the install command and set `MCP_GRAPH_STORE=falkordb`. Use the selected backend's `NEO4J_*` or `FALKORDB_*` connection values and the `EMBEDDING_MODEL` used for ingestion. [Configure storage backends](./configure-storage-backends.mdx) for server setup and connection checks.
 
 ## Choose the documents the server can read
 
@@ -46,6 +46,8 @@ Add an entry like this one to the MCP configuration of your client:
   }
 }
 ```
+
+To read from FalkorDB, set `MCP_GRAPH_STORE` to `falkordb` and set `FALKORDB_URL` (and `FALKORDB_GRAPH` if you use another graph name) in place of the `NEO4J_*` variables. The default is `neo4j`.
 
 The server starts read-only. It loads the embedding model on the first semantic or hybrid search. Logs go to stderr, and stdout carries only protocol messages.
 
@@ -74,7 +76,7 @@ Set `MCP_PROJECT_ID` and `MCP_AGENT_ID` to turn on the memory tools. Tasks and d
 
 The built-in agent uses the same names. The [tools reference](../reference/tools.mdx#tool-names) lists them. The read tools are `get_task`, `list_events`, `fetch_event`, `list_steps`, `search_decisions`, `list_conflicts`, `get_decision`, `list_support_history`, `list_decisions`, and `list_decisions_for_review`.
 
-To let the client write, set `MCP_READ_ONLY=false`. The write tools are `create_task`, `record_event`, `set_step`, `record_decision`, `supersede_decision`, `reaffirm_decision`, and `continue_decision_review`. The request-based writes take a `request_id`, and a retry with the same id returns the saved result. `continue_decision_review` takes a bounded `limit` instead. A decision lists the evidence it rests on, and the server accepts document evidence that the same session fetched. Set `MCP_ALLOW_REJECT=true` to add `reject_decision`.
+To let the client write, set `MCP_READ_ONLY=false`. The write tools are `create_task`, `record_event`, `set_step`, `record_decision`, `supersede_decision`, `reaffirm_decision`, and `continue_decision_review`. The request-based writes take a `request_id`, and a retry with the same id returns the saved result for a completed write. On FalkorDB, a failed multi-statement write can leave partial effects that repeat on retry. Account for the [retry limits](./configure-storage-backends.mdx#retried-memory-writes) before enabling writes. `continue_decision_review` takes a bounded `limit` instead. A decision lists the evidence it rests on, and the server accepts document evidence that the same session fetched. Set `MCP_ALLOW_REJECT=true` to add `reject_decision`.
 
 Document scope applies to evidence reads. Task and decision tools act on the configured project.
 
@@ -84,6 +86,7 @@ The server caps what it returns. A result states when it left items out.
 
 | Variable | Default | Limits |
 | --- | --- | --- |
+| `MCP_GRAPH_STORE` | `neo4j` | The graph store to read, `neo4j` or `falkordb`. |
 | `MCP_MAX_HITS` | `10` | Hits per search. |
 | `MCP_MAX_SNIPPET_CHARS` | `240` | Characters in one snippet. |
 | `MCP_MAX_FETCH_CHARS` | `4000` | Characters for each fetched id. |

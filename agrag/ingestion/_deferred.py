@@ -8,8 +8,10 @@ committed rows change only together with the commit.
 
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from typing import Any, TypeVar
+from uuid import UUID
 
 from agrag.common.data_models.graph_record import DeferredWrites
+from agrag.cypher.cutover_job_write import record_replay_progress_query
 from agrag.graphdb.base import GraphStore, GraphStoreTransaction
 from agrag.graphdb.errors import GraphStoreWriteConflictError
 
@@ -81,30 +83,61 @@ async def run_staged_transaction(
     return result
 
 
-async def replay_deferred(txn: GraphStoreTransaction, deferred: DeferredWrites) -> None:
+async def replay_deferred(
+    txn: GraphStoreTransaction,
+    deferred: DeferredWrites,
+    *,
+    job_id: UUID | None = None,
+    skip: int = 0,
+) -> None:
     """Run a job's deferred writes inside its commit transaction.
 
     The records carry ``pending_job_id`` None, so a committed row is owned by
     the replay and is written. Entries without a ``records`` key are run as
     given, with ``require_all`` removed from their parameters.
 
+    Each statement is one step, and a batch of records is one step. With a
+    ``job_id`` the number of finished steps is recorded on the job after every
+    step, so that crash recovery can pass it back as ``skip`` and not repeat a
+    write that accumulates, such as a merge count.
+
     Args:
         txn: The commit transaction. A raised error rolls it back.
         deferred: The writes the job held back, in write order.
+        job_id: The job to record progress on, or None to record none.
+        skip: How many leading steps to leave out because they already ran.
 
     Raises:
         GraphStoreWriteConflictError: A replayed write reached a row that
             another in-flight job owns, or a row that a replay requires is
             missing.
     """
+    step = 0
+
+    async def finished() -> None:
+        nonlocal step
+        step += 1
+        if job_id is not None:
+            await txn.execute_write(
+                record_replay_progress_query(),
+                {"job_id": str(job_id), "replayed": step},
+            )
+
     for query, parameters in deferred.entries:
         if "records" not in parameters:
-            rows = await txn.execute_write(query, _without_require_all(parameters))
-            _require_written(rows)
+            if step >= skip:
+                rows = await txn.execute_write(query, _without_require_all(parameters))
+                _require_written(rows)
+                await finished()
+            else:
+                step += 1
             continue
         records = parameters["records"]
         require_all = bool(parameters.get("require_all", True))
         for start in range(0, len(records), _REPLAY_BATCH_SIZE):
+            if step < skip:
+                step += 1
+                continue
             batch = records[start : start + _REPLAY_BATCH_SIZE]
             rows = await txn.execute_write(query, {"records": batch})
             _require_written(rows)
@@ -112,6 +145,7 @@ async def replay_deferred(txn: GraphStoreTransaction, deferred: DeferredWrites) 
                 raise GraphStoreWriteConflictError(
                     "a deferred write lost its target row"
                 )
+            await finished()
 
 
 def _without_require_all(parameters: Mapping[str, Any]) -> dict[str, Any]:

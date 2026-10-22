@@ -28,11 +28,11 @@ from agrag.common.data_models.default_schema import DEFAULT_SCHEMA
 from agrag.common.data_models.extraction import ExtractedEntity, ExtractionResult
 from agrag.common.data_models.graph_schema import GraphSchema
 from agrag.embedding.base import Embedder
-from agrag.graphdb import build_graph_store
 from agrag.ingestion.extract import Extractor
 from agrag.ingestion.graph import Graph
 from agrag.loaders.types import ErrorPolicy
 from tests.conftest import FAKE_EMBEDDING_DIMENSIONS
+from tests.integration._backend import build_test_store
 
 
 neo4j_missing = importlib.util.find_spec("neo4j") is None
@@ -167,7 +167,7 @@ class TestAddSpanTracing:
         run.mkdir()
         uris = _write_fixtures(run)
 
-        store = build_graph_store("neo4j")
+        store = build_test_store()
         await store.connect()
         graph = await Graph.open(
             schema=DEFAULT_SCHEMA,
@@ -240,7 +240,7 @@ class TestAddSpanTracing:
         run.mkdir()
         uris = _write_fixtures(run)
 
-        store = build_graph_store("neo4j")
+        store = build_test_store()
         await store.connect()
         graph = await Graph.open(
             schema=DEFAULT_SCHEMA,

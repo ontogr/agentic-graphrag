@@ -22,16 +22,32 @@ from uuid import UUID, uuid4
 from opentelemetry.trace import Tracer
 
 from agrag.common.data_models.cutover_job import CutoverJobStatus
+from agrag.common.data_models.graph_record import DeferredWrites
 from agrag.common.data_models.stage_failure import StageFailure
 from agrag.cypher.cutover_job_read import find_incomplete_jobs_query
 from agrag.cypher.cutover_job_write import (
+    claim_commit_query,
     claim_job_query,
     claim_pending_job_query,
+    commit_job_query,
     finish_cleaning_query,
+    start_cleaning_query,
 )
-from agrag.graphdb.base import GraphStore
-from agrag.ingestion._cutover import _renew_periodically
-from agrag.ingestion._pending_rows import rollback_job_rows
+from agrag.graphdb.base import GraphStore, GraphStoreTransaction
+from agrag.ingestion._cutover import (
+    CutoverJobLeaseError,
+    _renew_periodically,
+    apply_plan_after_fold,
+    apply_plan_before_replay,
+    lease_expiry_millis,
+    parse_commit_plan,
+)
+from agrag.ingestion._deferred import replay_deferred
+from agrag.ingestion._pending_rows import (
+    clear_job_tags,
+    fold_job_relations,
+    rollback_job_rows,
+)
 from agrag.ingestion.settings import CutoverJobSettings
 from agrag.observability import get_tracer, record_swallowed_exception
 
@@ -91,12 +107,10 @@ async def resume_incomplete_jobs(
                 CutoverJobStatus.PENDING,
                 CutoverJobStatus.ROLLING_BACK,
             ):
-                if row.get("lease_token") is None:
-                    continue
-                if await _roll_back(
+                if await _recover_unfinished(
                     graph_store,
-                    job_id=job_id,
-                    expected_lease_token=str(row["lease_token"]),
+                    row,
+                    roll_forward=roll_forward,
                     lease_ttl_seconds=lease_ttl_seconds,
                 ):
                     handled.append(job_id)
@@ -118,6 +132,47 @@ async def resume_incomplete_jobs(
                 handled.append(job_id)
         span.set_attribute("agrag.jobs_handled", len(handled))
         return handled
+
+
+async def _recover_unfinished(
+    graph_store: GraphStore,
+    row: dict[str, Any],
+    *,
+    roll_forward: (
+        Callable[[list[UUID], list[UUID], list[UUID]], Awaitable[list[StageFailure]]]
+        | None
+    ),
+    lease_ttl_seconds: int,
+) -> bool:
+    """Recover one pending or rolling-back job: roll it back, or finish its commit.
+
+    Returns:
+        Whether recovery completed for this job.
+    """
+    if row.get("lease_token") is None:
+        return False
+    job_id = str(row["id"])
+    expected_lease_token = str(row["lease_token"])
+    if row.get("commit_started") and row.get("status") == CutoverJobStatus.PENDING:
+        if not row.get("lease_expired"):
+            return False
+        return await _finish_commit(
+            graph_store,
+            job_id=job_id,
+            affected_entity_ids=_uuid_list(row, "affected_entity_ids"),
+            roll_forward=roll_forward,
+            expected_lease_token=expected_lease_token,
+            lease_ttl_seconds=lease_ttl_seconds,
+            commit_plan=row.get("commit_plan"),
+            docs_applied=bool(row.get("commit_docs_applied")),
+            replayed=int(row.get("commit_replayed") or 0),
+        )
+    return await _roll_back(
+        graph_store,
+        job_id=job_id,
+        expected_lease_token=expected_lease_token,
+        lease_ttl_seconds=lease_ttl_seconds,
+    )
 
 
 def _uuid_list(row: dict[str, Any], key: str) -> list[UUID]:
@@ -171,9 +226,9 @@ async def _roll_back(
                 "job_id": job_id,
                 "expected_lease_token": expected_lease_token,
                 "lease_token": token,
-                "lease_expires_at": (
+                "lease_expires_at": lease_expiry_millis(
                     datetime.now(UTC) + timedelta(seconds=lease_ttl_seconds)
-                ).isoformat(),
+                ),
             },
         )
     except Exception as exc:  # noqa: BLE001
@@ -189,6 +244,113 @@ async def _roll_back(
         record_swallowed_exception(exc)
         return False
     return rolled_back
+
+
+async def _finish_commit(
+    graph_store: GraphStore,
+    *,
+    job_id: str,
+    affected_entity_ids: list[UUID],
+    roll_forward: (
+        Callable[[list[UUID], list[UUID], list[UUID]], Awaitable[list[StageFailure]]]
+        | None
+    ),
+    expected_lease_token: str,
+    lease_ttl_seconds: int,
+    commit_plan: str | None,
+    docs_applied: bool,
+    replayed: int,
+) -> bool:
+    """Finish the commit of a job whose worker died part way through it.
+
+    On a backend without multi-statement transactions the commit's statements
+    are applied one by one, so the job can be left with some of them done. The
+    job marks the start of its commit first, and every statement after the mark
+    is safe to repeat. The job also stores the document writes of the commit,
+    including its deferred writes. Recovery repeats those that had not all
+    finished in the commit's order: the retraction of replaced evidence, the
+    replay of the deferred writes, the fold of the new relations, and the
+    closing document writes. The replay records how many of its steps ran and
+    recovery continues after them, so a write that accumulates, such as a merge
+    count, is not applied twice. A crash between one step and its record can
+    repeat that one step. Recovery then clears the pending tags, flips to committed
+    and runs the usual cleanup. The component seeds and created entities that
+    the dead worker would have recorded at the flip are not available here, so
+    the rebuild of those components does not run.
+
+    Returns:
+        Whether this open finished the commit and the cleanup.
+    """
+    try:
+        job_uuid = UUID(job_id)
+    except ValueError:
+        return False
+    token = str(uuid4())
+    try:
+        plan = parse_commit_plan(commit_plan) if commit_plan else None
+        claimed = await graph_store.execute_write(
+            claim_commit_query(),
+            {
+                "job_id": job_id,
+                "expected_lease_token": expected_lease_token,
+                "lease_token": token,
+                "lease_expires_at": lease_expiry_millis(
+                    datetime.now(UTC) + timedelta(seconds=lease_ttl_seconds)
+                ),
+            },
+        )
+        if not claimed:
+            return False
+
+        async def finish(txn: GraphStoreTransaction) -> None:
+            if plan is not None and not docs_applied:
+                # The retraction runs once, before the first replay step; a
+                # repeat after a step would delete the evidence that step wrote.
+                if replayed == 0:
+                    await apply_plan_before_replay(txn, plan)
+                await replay_deferred(
+                    txn,
+                    DeferredWrites(entries=list(plan.deferred)),
+                    job_id=job_uuid,
+                    skip=replayed,
+                )
+            await fold_job_relations(txn, job_id=job_uuid)
+            if plan is not None and not docs_applied:
+                await apply_plan_after_fold(txn, job_id=job_uuid, plan=plan)
+            await clear_job_tags(txn, job_id=job_uuid)
+            flipped = await txn.execute_write(
+                commit_job_query(),
+                {
+                    "job_id": job_id,
+                    "lease_token": token,
+                    "component_seed_ids": [],
+                    "created_entity_ids": [],
+                },
+            )
+            if not flipped:
+                raise CutoverJobLeaseError(
+                    f"Job {job_id} lost its lease during recovery."
+                )
+
+        await graph_store.run_in_transaction(finish)
+        started = await graph_store.execute_write(
+            start_cleaning_query(), {"job_id": job_id, "lease_token": token}
+        )
+    except Exception as exc:  # noqa: BLE001
+        record_swallowed_exception(exc)
+        return False
+    if not started:
+        return False
+    return await _cleanup_with_renewal(
+        graph_store,
+        job_id=job_id,
+        affected_entity_ids=affected_entity_ids,
+        component_seed_ids=[],
+        created_entity_ids=[],
+        roll_forward=roll_forward,
+        token=token,
+        lease_ttl_seconds=lease_ttl_seconds,
+    )
 
 
 async def _roll_forward(
@@ -229,7 +391,7 @@ async def _roll_forward(
                 "job_id": job_id,
                 "expected_lease_token": lease_token,
                 "lease_token": token,
-                "lease_expires_at": expires_at.isoformat(),
+                "lease_expires_at": lease_expiry_millis(expires_at),
             },
         )
     except Exception as exc:  # noqa: BLE001
@@ -237,6 +399,37 @@ async def _roll_forward(
         return False
     if not claimed:
         return False
+    return await _cleanup_with_renewal(
+        graph_store,
+        job_id=job_id,
+        affected_entity_ids=affected_entity_ids,
+        component_seed_ids=component_seed_ids,
+        created_entity_ids=created_entity_ids,
+        roll_forward=roll_forward,
+        token=token,
+        lease_ttl_seconds=lease_ttl_seconds,
+    )
+
+
+async def _cleanup_with_renewal(
+    graph_store: GraphStore,
+    *,
+    job_id: str,
+    affected_entity_ids: list[UUID],
+    component_seed_ids: list[UUID],
+    created_entity_ids: list[UUID],
+    roll_forward: (
+        Callable[[list[UUID], list[UUID], list[UUID]], Awaitable[list[StageFailure]]]
+        | None
+    ),
+    token: str,
+    lease_ttl_seconds: int,
+) -> bool:
+    """Run a claimed job's cleanup while a task keeps its lease renewed.
+
+    Returns:
+        Whether the cleanup completed and the job was marked done.
+    """
     try:
         job_uuid = UUID(job_id)
     except ValueError:

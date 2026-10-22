@@ -8,6 +8,14 @@ import pytest
 FAKE_EMBEDDING_DIMENSIONS = 4
 
 
+def pytest_configure(config: pytest.Config) -> None:
+    """Register the marker for tests that only run against Neo4j."""
+    config.addinivalue_line(
+        "markers",
+        "neo4j_only: Depends on Neo4j-only behavior; skipped on other graph backends",
+    )
+
+
 def pytest_collection_modifyitems(
     config: pytest.Config, items: list[pytest.Item]
 ) -> None:
@@ -22,7 +30,12 @@ def pytest_collection_modifyitems(
         config: The pytest run configuration.
         items: The collected test items.
     """
+    backend = os.environ.get("AGRAG_TEST_BACKENDS", "neo4j").strip() or "neo4j"
     for item in items:
+        if backend != "neo4j" and item.get_closest_marker("neo4j_only"):
+            item.add_marker(
+                pytest.mark.skip(reason=f"depends on Neo4j; backend is {backend}")
+            )
         path = str(item.path).replace("\\", "/")
         if "tests/integration" in path:
             item.add_marker(pytest.mark.integration)

@@ -107,7 +107,9 @@ async def embed_resolved_entities(
             records.append(_embedding_record(entity, vector, job_id))
         rows = await write_or_defer(
             graph_store,
-            set_embedding_query("embedding"),
+            set_embedding_query(
+                "embedding", vector_value=graph_store.vector_value("record.vector")
+            ),
             records,
             deferred=deferred,
         )

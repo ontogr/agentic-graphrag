@@ -46,30 +46,47 @@ def fetch_match_endpoints_query() -> str:
     )
 
 
-def fetch_active_component_members_query() -> str:
-    """Build Cypher returning active match components from seed ids.
+def fetch_visible_nodes_query() -> str:
+    """Build Cypher returning the visible identity nodes among the given ids.
 
-    Pending visibility is job-scoped, not a plain exclusion: the
-    rebuild pass runs inside its own job's pending phase and must
-    see the entities and matches that same job just wrote, while still
-    excluding every other in-flight job's. A null ``$job_id`` reduces both
-    guards to committed-only, which is what every caller outside a job
-    passes.
+    Pending visibility is job-scoped: a null ``$job_id`` reduces the guard to
+    committed-only.
 
     Returns:
-        Parameterized Cypher expecting $seed_ids (list of string ids) and
-        $job_id (the in-flight job's id, or null outside a job). Returns
-        each seed id with its distinct active component members.
+        Parameterized Cypher expecting $ids (list of string ids) and $job_id.
+        Returns each visible node as ``member`` with its ``id``.
     """
     return (
-        "UNWIND $seed_ids AS seed_id "
-        f"MATCH (seed:{NODE_IDENTITY_LABEL} {{id: seed_id}})"
-        f"-[matches:{MATCHES_RELATION}*0..]-(member:{NODE_IDENTITY_LABEL}) "
-        "WHERE ALL(match IN matches WHERE match.active = true) "
-        f"AND ALL(match IN matches WHERE {pending_filter_clause('match', 'job_id')}) "
-        f"AND {pending_filter_clause('seed', 'job_id')} "
-        f"AND {pending_filter_clause('member', 'job_id')} "
-        "RETURN DISTINCT seed_id, member"
+        "UNWIND $ids AS id "
+        f"MATCH (n:{NODE_IDENTITY_LABEL} {{id: id}}) "
+        f"WHERE {pending_filter_clause('n', 'job_id')} "
+        "RETURN id, n AS member"
+    )
+
+
+def fetch_active_match_neighbors_query() -> str:
+    """Build Cypher returning the entities one active match away from each id.
+
+    Pending visibility is job-scoped, as in ``fetch_visible_nodes_query``: the
+    rebuild pass runs inside its own job's pending phase and must see the
+    entities and matches that same job just wrote, while excluding every other
+    in-flight job's.
+
+    Returns:
+        Parameterized Cypher expecting $ids (list of string ids) and $job_id
+        (the in-flight job's id, or null outside a job). Returns one row per
+        active match edge: the start ``id``, the ``neighbor_id`` and the
+        neighbor node as ``member``.
+    """
+    return (
+        "UNWIND $ids AS id "
+        f"MATCH (a:{NODE_IDENTITY_LABEL} {{id: id}})"
+        f"-[match:{MATCHES_RELATION}]-(b:{NODE_IDENTITY_LABEL}) "
+        "WHERE match.active = true "
+        f"AND {pending_filter_clause('match', 'job_id')} "
+        f"AND {pending_filter_clause('a', 'job_id')} "
+        f"AND {pending_filter_clause('b', 'job_id')} "
+        "RETURN DISTINCT id, b.id AS neighbor_id, b AS member"
     )
 
 

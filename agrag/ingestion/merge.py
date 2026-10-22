@@ -630,7 +630,9 @@ async def apply_merge(
     for stored_label in stored_labels:
         validate_identifier(stored_label)
     survivor_id = str(plan.survivor.id)
-    survivor_query = upsert_survivor_query(stored_labels)
+    survivor_query = upsert_survivor_query(
+        stored_labels, extra_set=graph_store.node_write_extra_set()
+    )
 
     async def write(txn: GraphStoreTransaction, staged: DeferredWrites | None) -> None:
         # Everything except source_chunk_ids/merge_count is applied as-is;
@@ -649,10 +651,10 @@ async def apply_merge(
         )
         params["new_source_chunk_ids"] = [str(cid) for cid in plan.new_source_chunk_ids]
         params["merge_count_delta"] = plan.merge_count_delta
-        rows = await txn.execute_write(survivor_query, {"records": [params]})
-        if staged is not None:
-            staged.add_unwritten(survivor_query, [params], rows)
         accepted_merge_keys = plan.accepted_merge_keys or [plan.survivor.merge_key]
+        # The alias claim runs first: a conflicting claim then stops the merge
+        # before any survivor row is written, even on a backend that cannot undo
+        # the statements that ran before a failure.
         alias_rows = await txn.execute_write(
             upsert_merge_alias_query(),
             {
@@ -668,6 +670,9 @@ async def apply_merge(
         }
         if conflicts:
             raise GraphStoreAliasConflictError(conflicts)
+        rows = await txn.execute_write(survivor_query, {"records": [params]})
+        if staged is not None:
+            staged.add_unwritten(survivor_query, [params], rows)
 
     await run_staged_transaction(graph_store, write, deferred=deferred)
 

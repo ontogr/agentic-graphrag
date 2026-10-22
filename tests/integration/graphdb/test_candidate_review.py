@@ -23,15 +23,15 @@ from agrag.common.data_models.extraction import ExtractionResult
 from agrag.common.data_models.graph_schema import GraphSchema
 from agrag.cypher.entities import NODE_IDENTITY_LABEL
 from agrag.embedding.base import Embedder
-from agrag.graphdb import build_graph_store
 from agrag.ingestion import Extractor, Graph
 from agrag.schema import load_schema
 from tests.conftest import FAKE_EMBEDDING_DIMENSIONS
+from tests.integration._backend import build_test_store
 
 
 neo4j_missing = importlib.util.find_spec("neo4j") is None
 
-pytestmark = pytest.mark.xdist_group(name="candidate_state")
+pytestmark = pytest.mark.xdist_group(name="candidate_rows")
 
 
 @pytest.mark.skipif(neo4j_missing, reason="neo4j extra not installed")
@@ -42,7 +42,7 @@ class TestCandidateReview:
         self,
     ) -> None:
         """A covered relation is retained when a known label resolves ambiguity."""
-        store = build_graph_store("neo4j")
+        store = build_test_store()
         await store.connect()
         ids = {name: uuid4() for name in ("chunk", "ada", "person", "org", "edge")}
         record = CandidateRecord(
@@ -104,7 +104,7 @@ class TestCandidateReview:
 
     async def test_lists_approves_and_rejects_candidates(self) -> None:
         """Approval returns schema additions and rejection remains in the store."""
-        store = build_graph_store("neo4j")
+        store = build_test_store()
         await store.connect()
         chunk_id = str(uuid4())
         approve_record = CandidateRecord(
@@ -199,7 +199,7 @@ class TestCandidateReview:
 
     async def test_approval_writes_repeatable_patch_artifact(self, tmp_path) -> None:
         """Entity approval emits a patch file that can be read back exactly."""
-        store = build_graph_store("neo4j")
+        store = build_test_store()
         await store.connect()
         chunk_ids = [str(uuid4()), str(uuid4())]
         records = [
@@ -245,7 +245,7 @@ class TestCandidateReview:
         self, tmp_path
     ):
         """Review, schema activation, conversion and pruning work end to end."""
-        store = build_graph_store("neo4j")
+        store = build_test_store()
         await store.connect()
         graph = await Graph.open(
             schema=DEFAULT_SCHEMA,

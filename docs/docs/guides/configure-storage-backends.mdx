@@ -5,53 +5,244 @@ title: Configure storage backends
 
 # Configure storage backends
 
-Every graph needs an embedder and a graph store. The graph store is Neo4j, which also holds the native vector indexes. Choose an embedder model first. The vector dimensions must match the embedder.
+Connect to Neo4j or FalkorDB to store the graph, embeddings, full-text indexes, and vector indexes. Both backends support ingestion, retrieval, and agent memory. Choose by [transaction and search behavior](../concepts/graph-storage.mdx#choose-a-backend), then follow the setup for that server.
 
 ## Before you start
 
-Each code block on this page is complete. It opens and closes its own connections. The blocks read the `NEO4J_*` variables. See the [Quickstart](../get-started/quickstart.mdx) for a Neo4j database.
+You need Python 3.11 or newer and a running graph database. Install the Python driver extra for the backend you choose. The extra does not install the database server. Embedding and extraction models run separately from the database.
 
-## Install
+## Set up a Neo4j graph store
 
-Install the core package and the extras for the features you use. You need `neo4j` for the graph store.
+Use Neo4j 5.23 or later. The [quickstart](../get-started/quickstart.mdx#step-1-get-a-neo4j-database) includes Docker and Aura setup.
+
+1. Install the driver.
+
+   ```bash
+   uv pip install "agentic-graphrag[neo4j]"
+   ```
+
+2. Set the connection values in `.env` in the directory where you run Python. Replace the password with your database password.
+
+   ```dotenv
+   NEO4J_URI=bolt://localhost:7687
+   NEO4J_USERNAME=neo4j
+   NEO4J_PASSWORD=your-neo4j-password
+   NEO4J_DATABASE=neo4j
+   ```
+
+   For a remote server, use `neo4j+s://` or `bolt+s://`. A plaintext URI to a non-local host raises `ValueError`. For Aura, use the `neo4j+s://` URI supplied by Aura.
+
+3. Verify the connection with a read query.
+
+   ```python
+   import asyncio
+
+   from agrag.graphdb import build_graph_store
+
+
+   async def main() -> None:
+       store = build_graph_store("neo4j")
+       try:
+           await store.connect()
+           rows = await store.execute_read("RETURN 1 AS ready")
+           print(rows[0]["ready"])
+       finally:
+           await store.close()
+
+
+   asyncio.run(main())
+   ```
+
+   The script prints `1` when the database accepts the connection and query.
+
+## Set up a FalkorDB graph store
+
+Use FalkorDB 4.22.2 or later. The adapter requires `RESULTSET_SIZE -1` so the server does not silently truncate query results. Multi-statement writes have [no rollback](#atomicity).
+
+1. Install the driver.
+
+   ```bash
+   uv pip install "agentic-graphrag[falkordb]"
+   ```
+
+### Start a FalkorDB server locally
+
+2. Start a local server with persistent storage. The container has no password and binds only to the local machine. Use authentication and TLS for a remote deployment.
+
+   ```bash
+   docker run -d --name agrag-falkordb \
+     -p 127.0.0.1:6379:6379 \
+     -v agrag-falkordb-data:/var/lib/falkordb/data \
+     -e BROWSER=0 \
+     -e FALKORDB_ARGS="RESULTSET_SIZE -1 TIMEOUT_MAX 3600000 MAX_QUEUED_QUERIES 25" \
+     falkordb/falkordb:v4.22.2
+   ```
+
+   The Redis-protocol endpoint listens on port 6379. The volume keeps data after the container is removed. `BROWSER=0` disables the optional browser UI. To inspect the graph with that UI, set `BROWSER=1` and also publish `-p 127.0.0.1:3000:3000`.
+
+   Keep `RESULTSET_SIZE -1` on every server the adapter connects to. The timeout and queue settings match the repository's development setup.
+
+3. Check server readiness.
+
+   ```bash
+   docker exec agrag-falkordb redis-cli ping
+   ```
+
+   Wait until the command prints `PONG`.
+
+4. Set the connection values in `.env` in the directory where you run Python.
+
+   ```dotenv
+   FALKORDB_URL=redis://localhost:6379
+   FALKORDB_GRAPH=agrag
+   ```
+
+   Set `FALKORDB_PASSWORD` if the server requires one. Use `rediss://` for TLS. A plaintext URL to a non-local host raises `ValueError` when `FALKORDB_PASSWORD` is set. The graph name is a Redis key, not a Neo4j database name.
+
+5. Verify the connection. `connect` checks the graph module version and `RESULTSET_SIZE` without creating the graph.
+
+   ```python notest
+   import asyncio
+
+   from agrag.graphdb import build_graph_store
+
+
+   async def main() -> None:
+       store = build_graph_store("falkordb")
+       try:
+           await store.connect()
+           print("Connected to FalkorDB")
+       finally:
+           await store.close()
+
+
+   asyncio.run(main())
+   ```
+
+   The script prints `Connected to FalkorDB` after the server checks pass. `GraphStoreError` reports an unsupported module version or result-size setting. The adapter creates the graph on its first write.
+
+Connection defaults and pool settings are in the [configuration reference](../reference/configuration.mdx#falkordb).
+
+## Use the store for ingestion and retrieval
+
+Pass the store to `Graph.open`, retrieval functions, or `build_agent`. The backend choice changes the database adapter, not the schema or tool names. `Graph.open` connects the store and sets up the graph's constraints and indexes.
+
+With extraction installed and a source file at `your-document.md`, ingest into FalkorDB as follows. The same code uses Neo4j if you change the store name and configure `NEO4J_*`.
 
 ```bash
-uv pip install agentic-graphrag
-uv pip install "agentic-graphrag[embed-local]"   # sentence-transformers embedding models
-uv pip install "agentic-graphrag[neo4j]"         # Neo4j graph store
+uv pip install "agentic-graphrag[falkordb,extract]" --torch-backend=auto
 ```
 
-Install `embed-local` only for Sentence Transformers models. The default FastEmbed model does not need it.
-
-## Set up the embedder
-
-`build_embedder` takes a FastEmbed model name. It returns a ready-to-use embedder
-that runs the model on the CPU with ONNX Runtime. The default model is
-`ibm-granite/granite-embedding-small-english-r2`.
-
-```python
+```python notest
 import asyncio
+from pathlib import Path
 
 from agrag.embedding import build_embedder
+from agrag.graphdb import build_graph_store
+from agrag.ingestion import ExtractionSettings, Graph
 
 
 async def main() -> None:
+    store = build_graph_store("falkordb")
     embedder = build_embedder("ibm-granite/granite-embedding-small-english-r2")
-    vectors = await embedder.embed(["first passage", "second passage"])
-    print(await embedder.dimensions())  # the vector length this model produces
+    try:
+        graph = await Graph.open(
+            schema="operations",
+            graph_store=store,
+            embedder=embedder,
+            extraction_settings=ExtractionSettings(mode="gliner"),
+            max_llm_pairs=0,
+        )
+        await graph.add(Path("your-document.md").resolve())
+    finally:
+        await store.close()
 
 
 asyncio.run(main())
 ```
 
-To use another model that FastEmbed supports, pass its name to `build_embedder`. To use
-a sentence-transformers model, or to set the device, build a
-`SentenceTransformerEmbedder` yourself. It needs the `embed-local` extra. Pass its own
-`EmbeddingSettings`.
+The call writes the document and its extracted graph to the selected backend. Use [Find and cite evidence](./find-and-cite-evidence.mdx) to query it, passing the same store and embedding model. Changing the store name does not copy data between databases. Ingest the source documents into the new backend before searching there.
 
-{/* pmd-metadata: notest */}
+## Write records and search vectors directly
+
+For low-level writes without `Graph`, use `upsert_nodes` and `upsert_relations`. Each node needs an ID, labels, and a properties map. Labels accumulate on repeated upserts. Records with different label sets are grouped and written separately. Call `setup_constraints` after writing a new label.
+
+The following example writes a note and searches its vector on Neo4j. Use `build_graph_store("falkordb")` with the FalkorDB connection settings to run the same operations there. The three-value vector is sample data, not an embedding model's output.
 
 ```python
+import asyncio
+from uuid import uuid4
+
+from agrag.common.data_models.graph_record import NodeRecord
+from agrag.common.data_models.vector_record import Distance
+from agrag.graphdb import build_graph_store
+
+
+async def main() -> None:
+    store = build_graph_store("neo4j")
+    try:
+        await store.connect()
+        node = NodeRecord(
+            id=uuid4(),
+            labels=["BackendExampleNote"],
+            properties={"text": "first passage", "embedding": [1.0, 0.0, 0.0]},
+        )
+        result = await store.upsert_nodes("BackendExampleNote", [node])
+        for failure in result.failures:
+            print(f"{failure.id} failed: {failure.error_message}")
+        await store.setup_constraints()
+        await store.ensure_vector_index(
+            label="BackendExampleNote",
+            vector_property="embedding",
+            dimensions=3,
+            distance=Distance.COSINE,
+        )
+        async with asyncio.timeout(60):
+            while any(
+                index.state != "ONLINE" for index in await store.list_indexes()
+            ):
+                await asyncio.sleep(0.1)
+        hits = await store.vector_search(
+            label="BackendExampleNote",
+            vector_property="embedding",
+            query_vector=[1.0, 0.0, 0.0],
+            limit=1,
+        )
+        print([hit.id for hit in hits])
+    finally:
+        await store.close()
+
+
+asyncio.run(main())
+```
+
+The example leaves the note and index in the database. It waits up to 60 seconds for indexes to become online before searching. A successful search prints a list containing a stored note's UUID. Repeated runs can return an earlier note because all sample vectors are identical.
+
+`upsert_nodes` and `upsert_relations` return an `UpsertResult` with successful-write counts and record-specific failures. A bad record does not prevent other valid records from being written. Connectivity and authentication failures raise instead of returning a partial result. The [graph-store API](../api/graphdb/base/GraphStore.md) describes the write and index methods.
+
+## Select the backend for MCP
+
+Install `agentic-graphrag[neo4j,mcp]` or `agentic-graphrag[falkordb,mcp]`. Set `MCP_GRAPH_STORE` in the environment used by your MCP client. Python callers still select the store explicitly with `build_graph_store`.
+
+For a FalkorDB graph already populated by ingestion, add these values to the MCP server's environment. Replace the document key with the resolved path used at ingestion.
+
+```dotenv
+MCP_GRAPH_STORE=falkordb
+FALKORDB_URL=redis://localhost:6379
+FALKORDB_GRAPH=agrag
+MCP_SCOPE_DOCUMENT_KEYS=/full/path/to/your-document.md
+EMBEDDING_MODEL=ibm-granite/granite-embedding-small-english-r2
+```
+
+For Neo4j, set `MCP_GRAPH_STORE=neo4j` and use `NEO4J_*` connection values. Neo4j is the MCP default if the selector is omitted. Keep the database, document keys, and embedding model consistent with ingestion. [Run the MCP server](./run-the-mcp-server.mdx) to configure the client and enable memory writes when needed.
+
+## Configure the embedder
+
+The default FastEmbed model, `ibm-granite/granite-embedding-small-english-r2`, runs on the CPU with ONNX Runtime and needs no embedding extra. `build_embedder` accepts other supported FastEmbed model names. Both backends require vector dimensions that match the embedder, and `Graph.open` rejects mismatched indexes before writing vectors.
+
+For a Sentence Transformers model or a different device, install `agentic-graphrag[embed-local]` and construct the embedder explicitly.
+
+```python notest
 from agrag.embedding import EmbeddingSettings, SentenceTransformerEmbedder
 
 embedder = SentenceTransformerEmbedder(
@@ -59,205 +250,34 @@ embedder = SentenceTransformerEmbedder(
 )
 ```
 
-### Set embedder configuration with environment variables
+The [embedding settings reference](../reference/configuration.mdx#embeddings) lists model, normalization, device, batching, and cache settings. Use the same model for writes and searches, not merely models with the same number of dimensions.
 
-Set these variables instead of passing `EmbeddingSettings` fields in code.
+## FalkorDB behavior to know
 
-| Variable | Meaning |
-| --- | --- |
-| `EMBEDDING_MODEL` | The model name. |
-| `EMBEDDING_DEVICE` | The device to load the model on. Only `SentenceTransformerEmbedder` uses it. |
-| `EMBEDDING_NORMALIZE` | Whether to normalize output vectors. |
-| `EMBEDDING_BATCH_SIZE` | The number of texts per encode call. |
-| `EMBEDDING_CACHE_FOLDER` | Where the embedder caches downloaded model files. |
+### Atomicity
 
-## Set up a graph store
+FalkorDB runs each query atomically, but has no transaction across several statements. `run_in_transaction` runs statements in order without rollback when a later statement fails. Earlier writes remain, and other readers can see them before the callback returns. Use Neo4j if your callback requires all-or-nothing writes. On FalkorDB, make each statement safe to repeat.
 
-Build a `Neo4jGraphStore` with `Neo4jSettings`. Call `connect` before you use
-it.
+### Vector metrics
 
-```python
-import asyncio
+Use `Distance.COSINE` or `Distance.EUCLID`. `ensure_vector_index` raises `ValueError` for unsupported distances, including dot product.
 
-from agrag.graphdb.neo4j import Neo4jGraphStore
-from agrag.graphdb.settings import Neo4jSettings
+### Filtered vector search
 
+Filters apply after the native index picks nearest candidates. We request more candidates when needed, up to an internal cap. A selective filter can still return fewer hits than the requested limit. Both backends use candidate expansion, and neither guarantees identical rankings.
 
-async def main() -> None:
-    store = Neo4jGraphStore(settings=Neo4jSettings())
-    await store.connect()
-    await store.close()
+### Crash recovery of a commit
 
+A document change commits in several statements. If the process stops after the commit-started marker, a later `Graph.open` attempts to finish that commit after its lease expires instead of rolling it back. Recovery resumes persisted deferred writes after their recorded progress, folds relations, and completes the document status change. A crash between a replay step and its progress record can repeat that step. Recovery does not rebuild the resolved-entity components for that interrupted change. Run `graph.reevaluate()` for the affected entities when that rebuild is needed.
 
-asyncio.run(main())
-```
+### Retried memory writes
 
-### Set graph store credentials with environment variables
+A failed multi-statement memory write can leave partial effects. Retrying can repeat an effect because the earlier statements were not rolled back. Keep a stable `request_id` across retries, but do not treat the request ID as a guarantee of all-or-nothing execution on FalkorDB.
 
-| Variable | Meaning |
-| --- | --- |
-| `NEO4J_URI` | The Bolt connection URI. Use `neo4j+s://...` for Aura. |
-| `NEO4J_USERNAME` | The database username. |
-| `NEO4J_PASSWORD` | The database password. |
-| `NEO4J_DATABASE` | The target database name. |
-| `NEO4J_MAX_CONNECTION_LIFETIME` | Seconds a pooled connection lives. The default is `240`. |
+### Full-text search
 
-Neo4j always authenticates with a password. If `NEO4J_URI` uses a plaintext scheme (`bolt://` or `neo4j://`) and
-points at a non-local host, Agentic GraphRAG raises an error. Use `neo4j+s://` (or `bolt+s://`) for a remote
-instance.
+A query matches text containing any query word, ranked by FalkorDB's native TF-IDF score. We add `1.0` so matches with a native score of zero remain positive, without changing their order. Neo4j uses its native full-text scores, so keyword and hybrid rankings can differ. We index internal copies of FalkorDB text properties with line breaks replaced by spaces to work around tokenization at line breaks. Those copies are hidden from returned properties.
 
-### Write nodes
+### Path distance in ranking
 
-Write nodes with `upsert_nodes`. Each record needs an id, its labels, and a
-properties map. Call `setup_constraints` after your first write of a label,
-so Neo4j knows which labels to constrain.
-
-```python
-import asyncio
-
-from uuid import uuid4
-
-from agrag.common.data_models.graph_record import NodeRecord
-from agrag.graphdb.neo4j import Neo4jGraphStore
-from agrag.graphdb.settings import Neo4jSettings
-
-
-async def main() -> None:
-    store = Neo4jGraphStore(settings=Neo4jSettings())
-    await store.connect()
-    try:
-        node = NodeRecord(
-            id=uuid4(),
-            labels=["Note"],
-            properties={"text": "first passage"},
-        )
-        await store.upsert_nodes("Note", [node])
-        await store.setup_constraints()
-    finally:
-        await store.close()
-
-
-asyncio.run(main())
-```
-
-A node can carry more than one label. List every label that the node must have in
-`labels`. `upsert_nodes` writes all of them, not only the `label` argument.
-Records with different label sets in the same call are grouped and written
-separately.
-
-```python
-import asyncio
-
-from uuid import uuid4
-
-from agrag.common.data_models.graph_record import NodeRecord
-from agrag.graphdb.neo4j import Neo4jGraphStore
-from agrag.graphdb.settings import Neo4jSettings
-
-
-async def main() -> None:
-    store = Neo4jGraphStore(settings=Neo4jSettings())
-    await store.connect()
-    try:
-        tagged_node = NodeRecord(
-            id=uuid4(),
-            labels=["Note", "Draft"],
-            properties={"text": "sepsis protocol"},
-        )
-        await store.upsert_nodes("Note", [tagged_node])
-    finally:
-        await store.close()
-
-
-asyncio.run(main())
-```
-
-Labels only ever accumulate. If a later upsert of the same node id lists
-fewer labels, the labels already on the node are kept, not removed.
-
-### Handle partial write failures
-
-`upsert_nodes` and `upsert_relations` return an `UpsertResult`. Read
-`failures` for records that did not write. The rest of the call still lands.
-
-```python
-import asyncio
-
-from uuid import uuid4
-
-from agrag.common.data_models.graph_record import NodeRecord
-from agrag.graphdb.neo4j import Neo4jGraphStore
-from agrag.graphdb.settings import Neo4jSettings
-
-
-async def main() -> None:
-    store = Neo4jGraphStore(settings=Neo4jSettings())
-    await store.connect()
-    try:
-        nodes = [
-            NodeRecord(id=uuid4(), labels=["Note"], properties={"text": "example"})
-        ]
-        result = await store.upsert_nodes("Note", nodes)
-        if result.failures:
-            for failure in result.failures:
-                print(f"{failure.id} failed: {failure.error_message}")
-        print(f"{result.written} of {len(nodes)} nodes written")
-    finally:
-        await store.close()
-
-
-asyncio.run(main())
-```
-
-A connectivity or authentication failure still raises instead of returning a
-partial result. Only a failure specific to one record's data is isolated and
-reported this way.
-
-### Search vectors stored in the graph
-
-You can search vectors stored as node properties, without a separate vector
-store. First create a vector index on the property. Then search it.
-
-```python
-import asyncio
-
-from uuid import uuid4
-
-from agrag.common.data_models.graph_record import NodeRecord
-from agrag.common.data_models.vector_record import Distance
-from agrag.embedding import build_embedder
-from agrag.graphdb.neo4j import Neo4jGraphStore
-from agrag.graphdb.settings import Neo4jSettings
-
-
-async def main() -> None:
-    embedder = build_embedder("ibm-granite/granite-embedding-small-english-r2")
-    vectors = await embedder.embed(["first passage"])
-    store = Neo4jGraphStore(settings=Neo4jSettings())
-    await store.connect()
-    try:
-        node = NodeRecord(
-            id=uuid4(),
-            labels=["Note"],
-            properties={"text": "first passage", "embedding": vectors[0]},
-        )
-        await store.upsert_nodes("Note", [node])
-        await store.ensure_vector_index(
-            label="Note",
-            vector_property="embedding",
-            dimensions=await embedder.dimensions(),
-            distance=Distance.COSINE,
-        )
-        hits = await store.vector_search(
-            label="Note", vector_property="embedding", query_vector=vectors[0], limit=5
-        )
-    finally:
-        await store.close()
-
-
-asyncio.run(main())
-```
-
-## Next steps
-
-See the [API Reference](../api/index.md) for every parameter.
+Node-distance reranking measures paths of up to five relationships on FalkorDB. An entity farther from the seeds ranks as unreachable. This limit applies to that reranker, not to every graph traversal.

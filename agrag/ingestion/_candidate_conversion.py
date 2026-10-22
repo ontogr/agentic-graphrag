@@ -390,7 +390,14 @@ async def _write(
     relation_ids: set[str] = set()
     for labels, rows in converts.items():
         returned = await transaction.execute_write(
-            convert_entity_candidates_query(labels), {"rows": rows}
+            convert_entity_candidates_query(
+                labels,
+                embedding_value=transaction.vector_value("row.embedding"),
+                text_copy_set=transaction.fulltext_copy_set(
+                    "c", "{name: row.text}", ["name"]
+                ),
+            ),
+            {"rows": rows},
         )
         won = {str(row["id"]) for row in returned}
         handled.update(won)

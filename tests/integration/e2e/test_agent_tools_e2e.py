@@ -46,7 +46,6 @@ from agrag.common.data_models.extraction import (
 from agrag.common.data_models.graph_schema import EntityType, GraphSchema, RelationType
 from agrag.cypher.entities import validate_identifier
 from agrag.embedding.base import Embedder
-from agrag.graphdb import build_graph_store
 from agrag.graphdb.base import GraphStore
 from agrag.ingestion.extract import Extractor
 from agrag.ingestion.graph import Graph
@@ -56,6 +55,7 @@ from agrag.retrieval.rerank.node_distance import node_distance_rerank
 from agrag.retrieval.search_engine import SearchEngine
 from agrag.retrieval.settings import RetrievalSettings
 from tests.conftest import FAKE_EMBEDDING_DIMENSIONS
+from tests.integration._backend import build_test_store
 from tests.integration._schema_cleanup import delete_resolved_entities, drop_schema_for
 
 
@@ -337,7 +337,7 @@ async def _seed_graph(*, one_add_call: bool) -> AsyncGenerator[dict, None]:
         for doc in (main, other)
     ]
     embedder = _KeywordEmbedder()
-    store = build_graph_store("neo4j")
+    store = build_test_store()
     graph = await Graph.open(
         schema=schema,
         graph_store=store,

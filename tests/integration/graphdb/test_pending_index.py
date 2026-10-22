@@ -17,8 +17,8 @@ from agrag.cypher.cutover_job_write import (
     clear_pending_relation_tags_query,
 )
 from agrag.cypher.entities import PENDING_TAGGED_NODE_LABELS
-from agrag.graphdb import build_graph_store
 from agrag.graphdb.base import GraphStore
+from tests.integration._backend import await_indexes, build_test_store
 from tests.integration._schema_cleanup import drop_schema_for
 
 
@@ -27,13 +27,14 @@ neo4j_missing = importlib.util.find_spec("neo4j") is None
 pytestmark = [
     pytest.mark.skipif(neo4j_missing, reason="neo4j extra not installed"),
     pytest.mark.asyncio(loop_scope="module"),
+    pytest.mark.neo4j_only,
 ]
 
 
 @pytest_asyncio.fixture(scope="module", loop_scope="module")
 async def store() -> AsyncIterator[GraphStore]:
     """Open one connected store for the module."""
-    graph_store = build_graph_store("neo4j")
+    graph_store = build_test_store()
     await graph_store.connect()
     try:
         yield graph_store
@@ -65,7 +66,7 @@ class TestPendingTagIndexes:
     ) -> None:
         """Each label a job can tag is cleared through an index seek."""
         await store.setup_constraints()
-        await store.execute_write("CALL db.awaitIndexes(60)")
+        await await_indexes(store)
 
         for label in PENDING_TAGGED_NODE_LABELS:
             operators = await _explain_operator_types(
@@ -81,7 +82,7 @@ class TestPendingTagIndexes:
         rel_type = f"PendingProbe{uuid4().hex[:8].upper()}"
         try:
             await store.ensure_relation_constraint(rel_type)
-            await store.execute_write("CALL db.awaitIndexes(60)")
+            await await_indexes(store)
 
             operators = await _explain_operator_types(
                 store, clear_pending_relation_tags_query(rel_type)

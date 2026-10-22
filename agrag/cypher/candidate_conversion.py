@@ -51,8 +51,22 @@ def entity_labels_query() -> str:
     )
 
 
-def convert_entity_candidates_query(labels: Sequence[str]) -> str:
-    """Turn each approved entity candidate into its identity node in place."""
+def convert_entity_candidates_query(
+    labels: Sequence[str],
+    *,
+    embedding_value: str = "row.embedding",
+    text_copy_set: str = "",
+) -> str:
+    """Turn each approved entity candidate into its identity node in place.
+
+    Args:
+        labels: The labels the converted entity node carries.
+        embedding_value: The Cypher expression that stores the candidate's
+            embedding on the entity. Backends that need a typed vector pass
+            ``GraphStore.vector_value("row.embedding")``.
+        text_copy_set: Extra ``SET`` clauses for the converted node, from
+            ``GraphStore.fulltext_copy_set``. Empty by default.
+    """
     if not labels:
         raise ValueError("at least one entity label is required")
     label_clause = ":".join(validate_identifier(label) for label in labels)
@@ -88,7 +102,8 @@ def convert_entity_candidates_query(labels: Sequence[str]) -> str:
         f"SET c:{NODE_IDENTITY_LABEL}:{label_clause} "
         "SET c = {id: row.id, name: row.text, merge_key: row.merge_key, "
         "merge_count: row.count, source_chunk_ids: row.chunk_ids, "
-        "embedding: row.embedding, created_at: row.now}) "
+        f"embedding: {embedding_value}, created_at: row.now}} "
+        f"{text_copy_set}) "
         "FOREACH (_ IN CASE WHEN alias.entity_id <> row.id AND owner IS NOT NULL "
         "THEN [1] ELSE [] END | SET owner.merge_count = "
         "coalesce(owner.merge_count, 1) + row.count, "

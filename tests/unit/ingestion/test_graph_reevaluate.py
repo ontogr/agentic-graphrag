@@ -28,6 +28,7 @@ from agrag.embedding.base import Embedder
 from agrag.graphdb.base import GraphStore
 from agrag.ingestion import Graph, _resolution_maintenance
 from agrag.ingestion.resolve.resolver import ResolutionGroup, ResolutionResult
+from tests.unit.ingestion._index_fake import NoIndexesMixin
 
 
 _A_NAME = "Alpha Meridian"
@@ -53,7 +54,7 @@ def _node(entity_id: UUID, name: str) -> dict[str, Any]:
     return {"id": str(entity_id), "name": name, "merge_key": f"Person:{name}"}
 
 
-class _ScriptedStore(GraphStore):
+class _ScriptedStore(NoIndexesMixin, GraphStore):
     """GraphStore serving canned reads and routing writes by query text."""
 
     def __init__(self, reads: list[list[dict[str, Any]]]) -> None:
@@ -284,9 +285,10 @@ class TestGraphReevaluate:
                 [],
                 [{"a": _node(third, _C_NAME), "b": _node(fourth, _D_NAME)}],
                 [
-                    {"seed_id": str(third), "member": _node(third, _C_NAME)},
-                    {"seed_id": str(fourth), "member": _node(fourth, _D_NAME)},
+                    {"id": str(third), "member": _node(third, _C_NAME)},
+                    {"id": str(fourth), "member": _node(fourth, _D_NAME)},
                 ],
+                [],
                 [],
             ]
         )

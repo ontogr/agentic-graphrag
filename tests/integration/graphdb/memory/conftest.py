@@ -17,9 +17,9 @@ from agrag.chunking import Chunker
 from agrag.common.data_models.decision import DECISION_LABEL
 from agrag.common.data_models.graph_schema import GraphSchema
 from agrag.cypher.schema import fulltext_index_name
-from agrag.graphdb import build_graph_store
 from agrag.graphdb.base import GraphStore
 from agrag.ingestion.graph import Graph
+from tests.integration._backend import await_indexes, build_test_store
 from tests.integration.retrieval.evidence._corpus import (
     HARBOR_TEXT,
     KEEP_TEXT,
@@ -69,14 +69,14 @@ async def ready_decision_index(store: GraphStore) -> None:
     await store.ensure_fulltext_index(
         label=DECISION_LABEL, properties=DECISION_TEXT_PROPERTIES
     )
-    await store.execute_read("CALL db.awaitIndexes(60)")
+    await await_indexes(store)
     assert fulltext_index_name(DECISION_LABEL, DECISION_TEXT_PROPERTIES)
 
 
 @pytest.fixture
 async def store() -> AsyncGenerator[GraphStore, None]:
     """Open the configured Neo4j store for one test."""
-    graph_store = build_graph_store("neo4j")
+    graph_store = build_test_store()
     async with graph_store:
         yield graph_store
 
@@ -168,7 +168,7 @@ async def documents(store: GraphStore) -> AsyncGenerator[DocumentEnv, None]:
     )
     env = DocumentEnv(run=run, store=store, graph=graph)
     try:
-        await store.execute_read("CALL db.awaitIndexes(60)")
+        await await_indexes(store)
         await graph.add(
             documents=[
                 make_document(env.keep, KEEP_TEXT),

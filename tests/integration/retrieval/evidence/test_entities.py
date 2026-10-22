@@ -39,14 +39,13 @@ from agrag.common.data_models.graph_schema import (
     GraphSchema,
     RelationType,
 )
-from agrag.cypher.evidence import entity_labels_query
 from agrag.embedding.base import Embedder
 from agrag.evidence import entity_search, explore_relationships, fetch_evidence
-from agrag.graphdb import build_graph_store
 from agrag.graphdb.base import GraphStore
 from agrag.ingestion.extract import Extractor
 from agrag.ingestion.graph import Graph
 from agrag.loaders.common import text_sections
+from tests.integration._backend import await_indexes, build_test_store
 from tests.integration.retrieval.evidence._corpus import sha256_of
 
 
@@ -258,7 +257,7 @@ async def entity_env() -> AsyncGenerator[EntityEnv, None]:
             ),
         ],
     )
-    store = build_graph_store("neo4j")
+    store = build_test_store()
     labels = {
         "aspirin": drug,
         "ibuprofen": drug,
@@ -282,7 +281,7 @@ async def entity_env() -> AsyncGenerator[EntityEnv, None]:
         links=links,
     )
     try:
-        await store.execute_read("CALL db.awaitIndexes(60)")
+        await await_indexes(store)
         await graph.add(
             documents=[
                 _document(env.headache_note, "Aspirin relieves headache in adults."),
@@ -321,13 +320,18 @@ def _names(result: EntityResult) -> list[str]:
 class TestFindEntities:
     """Entity search returns entities with their visible supporting passages."""
 
-    async def test_label_query_lists_the_labels_with_a_vector_index(
+    async def test_index_listing_names_the_labels_with_a_vector_index(
         self, entity_env: EntityEnv
     ) -> None:
-        """The query behind the default label set returns the entity labels."""
-        rows = await entity_env.store.execute_read(entity_labels_query())
+        """The index listing behind the default label set has the entity labels."""
+        indexes = await entity_env.store.list_indexes()
 
-        labels = {label for row in rows for label in row["labels"]}
+        labels = {
+            label
+            for index in indexes
+            if index.type == "VECTOR" and index.properties == ["embedding"]
+            for label in index.labels
+        }
         assert {entity_env.drug, entity_env.condition} <= labels
 
     async def test_every_hit_is_supported_by_fetchable_text_with_the_mention(

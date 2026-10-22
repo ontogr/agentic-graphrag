@@ -28,6 +28,19 @@ Class: `Neo4jSettings`. Prefix: `NEO4J_`.
 | `NEO4J_DATABASE` | `neo4j` | The database name. |
 | `NEO4J_MAX_CONNECTION_LIFETIME` | `240` | Seconds a pooled connection lives. Aura closes idle connections after about five minutes. |
 
+## FalkorDB
+
+Class: `FalkorDBSettings`. Prefix: `FALKORDB_`.
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `FALKORDB_URL` | `redis://localhost:6379` | The Redis connection URL. Use `rediss://` for TLS. A plain `redis://` URL to a non-local host raises `ValueError` when `FALKORDB_PASSWORD` is set. |
+| `FALKORDB_PASSWORD` | none | The Redis password. Leave it unset for a server without a password. |
+| `FALKORDB_GRAPH` | `agrag` | The name of the graph that holds all data. |
+| `FALKORDB_MAX_CONNECTIONS` | `16` | The size of the connection pool. |
+
+`connect` raises `GraphStoreError` when the server's graph module is older than version `42202`, or when the server's `RESULTSET_SIZE` is not `-1`. See [Configure storage backends](../guides/configure-storage-backends.mdx#start-a-falkordb-server-locally) for the server arguments.
+
 ## Embeddings
 
 Class: `EmbeddingSettings`. Prefix: `EMBEDDING_`.
@@ -196,6 +209,7 @@ Class: `McpServerSettings`. Prefix: `MCP_`. The `agrag-mcp` server reads these v
 | `MCP_PROJECT_ID` | none | The project that task and decision tools read and write. Required when `MCP_READ_ONLY` is `false`. |
 | `MCP_AGENT_ID` | none | The author recorded on writes. Required when `MCP_READ_ONLY` is `false`. |
 | `MCP_ALLOW_REJECT` | `false` | Set to `true` to register `reject_decision`. |
+| `MCP_GRAPH_STORE` | `neo4j` | The graph store the server reads: `neo4j` or `falkordb`. |
 | `MCP_MAX_HITS` | `10` | The most hits one search returns. |
 | `MCP_MAX_SNIPPET_CHARS` | `240` | The most characters of one hit snippet. |
 | `MCP_MAX_FETCH_CHARS` | `4000` | The most characters returned for each fetched evidence id. |
@@ -203,7 +217,7 @@ Class: `McpServerSettings`. Prefix: `MCP_`. The `agrag-mcp` server reads these v
 | `MCP_MAX_RESPONSE_CHARS` | `60000` | The most characters of one result as sent. Search and fetch results send their JSON twice, so they count at twice their JSON length. |
 | `MCP_REQUEST_DEADLINE_SECONDS` | `30.0` | The timeout of each store read. |
 
-The server also reads the `NEO4J_*` and `EMBEDDING_*` variables. Set `EMBEDDING_MODEL` to the model you used for ingestion.
+The server reads `NEO4J_*` or `FALKORDB_*` according to `MCP_GRAPH_STORE`, along with `EMBEDDING_*`. Set `EMBEDDING_MODEL` to the model you used for ingestion. `MCP_GRAPH_STORE` selects the backend only for MCP. Python callers select it with `build_graph_store("neo4j")` or `build_graph_store("falkordb")`.
 
 ## Related
 

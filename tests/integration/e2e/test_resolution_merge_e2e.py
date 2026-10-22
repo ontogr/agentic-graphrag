@@ -42,7 +42,6 @@ from agrag.common.data_models.graph_schema import EntityType, GraphSchema, Prope
 from agrag.common.data_models.resolved_entity import ResolvedEntity
 from agrag.cypher.entities import validate_identifier
 from agrag.embedding.base import Embedder
-from agrag.graphdb import build_graph_store
 from agrag.graphdb.base import GraphStore
 from agrag.ingestion.extract import Extractor
 from agrag.ingestion.graph import Graph
@@ -55,6 +54,7 @@ from agrag.retrieval.recipes import ENTITY
 from agrag.retrieval.search_engine import SearchEngine
 from agrag.retrieval.settings import RetrievalSettings
 from tests.conftest import FAKE_EMBEDDING_DIMENSIONS
+from tests.integration._backend import build_test_store
 from tests.integration._schema_cleanup import drop_schema_for
 from tests.integration.e2e._artifact import write_artifact
 
@@ -412,7 +412,7 @@ async def world() -> AsyncGenerator[_World, None]:
             (person_label, "E. Vasquez", {"title": "Professor"}),
         ],
     }
-    store = build_graph_store("neo4j")
+    store = build_test_store()
     embedder = _ConceptEmbedder()
     keys = [f"resolution-merge://{suffix}/{n}" for n in ("one", "two", "three")]
     try:

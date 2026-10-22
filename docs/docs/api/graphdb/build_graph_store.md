@@ -13,7 +13,7 @@ Build a graph store from a backend name, or return one unchanged.
 
 **Parameters:**
 
-- **value** (<code>[GraphStoreName](GraphStoreName.md) | [GraphStore](base/GraphStore.md)</code>) – `"neo4j"`, or an already-constructed `GraphStore`.
+- **value** (<code>[GraphStoreName](GraphStoreName.md) | [GraphStore](base/GraphStore.md)</code>) – `"neo4j"`, `"falkordb"`, or an already-constructed `GraphStore`.
 - **tracer** (<code>Tracer | None</code>) – Passed to the newly-built store. Not valid together with an
   already-constructed `value` -- that instance's tracer, if any,
   was already fixed at its own construction.

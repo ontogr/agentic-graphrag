@@ -47,17 +47,23 @@ _QUERY = "do you keep and upload my activity to your database"
 _GOLD_START, _GOLD_END = locate(KEEP_TEXT, GOLD_SENTENCE)
 
 
-def _covers_gold(hit: EvidenceSearchHit) -> bool:
-    """Return whether a hit's chunk range contains the gold sentence."""
+def _covers_gold(hit: EvidenceSearchHit, keep_key: str) -> bool:
+    """Return whether a hit's chunk range contains the gold sentence.
+
+    The offsets locate the sentence in the Keep notice, so a chunk of another
+    document that spans the same offsets does not cover it.
+    """
+    if hit.document_key != keep_key:
+        return False
     location = hit.location
     if location.char_start is None or location.char_end is None:
         return False
     return location.char_start <= _GOLD_START and location.char_end >= _GOLD_END
 
 
-def _gold_positions(hits: list[EvidenceSearchHit]) -> list[int]:
+def _gold_positions(hits: list[EvidenceSearchHit], keep_key: str) -> list[int]:
     """Return the 0-based positions of hits that cover the gold sentence."""
-    return [index for index, hit in enumerate(hits) if _covers_gold(hit)]
+    return [index for index, hit in enumerate(hits) if _covers_gold(hit, keep_key)]
 
 
 def _hide_index(
@@ -112,7 +118,7 @@ class TestLexicalSearch:
         )
 
         assert result.status is EvidenceSearchStatus.OK
-        positions = _gold_positions(result.hits)
+        positions = _gold_positions(result.hits, evidence_env.keep)
         assert positions and positions[0] < 5
         assert result.hits[positions[0]].document_key == evidence_env.keep
         assert result.hits[positions[0]].legs == [EvidenceSearchLeg.LEXICAL]
@@ -133,7 +139,7 @@ class TestLexicalSearch:
         )
 
         assert result.status is EvidenceSearchStatus.OK
-        assert _gold_positions(result.hits)
+        assert _gold_positions(result.hits, evidence_env.keep)
 
     async def test_no_match_gives_an_empty_list_with_a_clear_status(
         self, evidence_env: EvidenceEnv, embedder: BagOfWordsEmbedder
@@ -190,7 +196,7 @@ class TestSemanticSearch:
         )
 
         assert result.status is EvidenceSearchStatus.OK
-        positions = _gold_positions(result.hits)
+        positions = _gold_positions(result.hits, evidence_env.keep)
         assert positions and positions[0] < 5
         assert result.hits[positions[0]].legs == [EvidenceSearchLeg.SEMANTIC]
 
@@ -259,7 +265,7 @@ class TestHybridSearch:
         assert result.failures == [
             LegFailure(leg=EvidenceSearchLeg.SEMANTIC, message="search leg failed")
         ]
-        positions = _gold_positions(result.hits)
+        positions = _gold_positions(result.hits, evidence_env.keep)
         assert len(positions) == 1
         assert result.hits[positions[0]].legs == [EvidenceSearchLeg.LEXICAL]
         assert "10.0.0.5" not in result.model_dump_json()
@@ -285,7 +291,7 @@ class TestHybridSearchFusion:
 
         assert result.status is EvidenceSearchStatus.OK
         assert len({hit.evidence_id for hit in result.hits}) == len(result.hits)
-        positions = _gold_positions(result.hits)
+        positions = _gold_positions(result.hits, evidence_env.keep)
         assert len(positions) == 1
         assert set(result.hits[positions[0]].legs) == {
             EvidenceSearchLeg.LEXICAL,
@@ -347,6 +353,7 @@ class TestScope:
         assert {hit.document_key for hit in result.hits} == {evidence_env.harbor}
 
 
+@pytest.mark.neo4j_only
 class TestIndexReadiness:
     """Search reports index_not_ready instead of an empty list."""
 
@@ -440,6 +447,7 @@ class TestHistory:
 class TestSearchFailures:
     """Read errors and oversized requests stay inside search's contract."""
 
+    @pytest.mark.neo4j_only
     async def test_index_state_read_error_returns_a_failed_result(
         self,
         evidence_env: EvidenceEnv,
@@ -512,6 +520,7 @@ class TestSearchFailures:
         assert result.status is EvidenceSearchStatus.OK
         assert len(result.hits) == 4
 
+    @pytest.mark.neo4j_only
     async def test_index_with_the_right_name_but_another_label_is_not_ready(
         self,
         evidence_env: EvidenceEnv,
@@ -584,7 +593,7 @@ class TestReAddedDocument:
             scope=frozenset({evidence_env.keep}),
         )
 
-        assert _gold_positions(old.hits) == []
+        assert _gold_positions(old.hits, evidence_env.keep) == []
         assert new.hits
         assert {hit.content_hash for hit in new.hits} == {sha256_of(replacement)}
 
@@ -592,6 +601,7 @@ class TestReAddedDocument:
 class TestTelemetry:
     """Full-text search terms do not reach exported span attributes."""
 
+    @pytest.mark.neo4j_only
     async def test_search_terms_are_not_exported_as_span_attributes(
         self, evidence_env: EvidenceEnv, embedder: BagOfWordsEmbedder
     ) -> None:

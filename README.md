@@ -29,6 +29,17 @@ Turn documents into searchable knowledge shaped by your own schema. Give agents 
 
 For example, a contract-review agent can record a recommendation with passages from a contract and a policy. A later session retrieves the task and its decision. When the policy changes, the decision is flagged for review against the new evidence.
 
+## Graph backends
+
+Use Neo4j or FalkorDB for the graph, embeddings, full-text indexes, and vector indexes. Both support document ingestion, entity resolution, hybrid search, evidence and citations, community summaries, and task and decision memory. No separate vector database is required.
+
+| Backend | Install | Select in Python | Choose it when |
+| --- | --- | --- | --- |
+| Neo4j 5.23+ | `uv pip install "agentic-graphrag[neo4j]"` | `build_graph_store("neo4j")` | You use Neo4j or Aura, or need rollback across multi-statement writes. |
+| FalkorDB 4.22.2+ | `uv pip install "agentic-graphrag[falkordb]"` | `build_graph_store("falkordb")` | You want a Redis-protocol graph server and can account for partial writes without multi-statement rollback. |
+
+Pass the selected store to `Graph.open`, retrieval, or `build_agent`. For MCP, set `MCP_GRAPH_STORE=neo4j` or `MCP_GRAPH_STORE=falkordb`. The [backend setup guide](https://ontogr.github.io/agentic-graphrag/latest/guides/configure-storage-backends) includes server commands and connection settings. The [backend comparison](https://ontogr.github.io/agentic-graphrag/latest/concepts/graph-storage) explains search and transaction differences. Selecting another backend does not migrate existing data.
+
 ## Features
 
 ### One graph for documents, tasks, and decisions
@@ -81,7 +92,7 @@ The memory layer records an agent's work and decisions as it runs, keeps them cu
   <img src="https://raw.githubusercontent.com/ontogr/agentic-graphrag/main/docs/static/img/readme/task-resume.png" alt="The agent records events, steps, and decisions in the memory layer as it works. A decision cites passages, events, and earlier decisions. When a cited document changes, the decision is flagged for review. The agent recalls the task and searches past decisions to inform new ones." width="860">
 </p>
 
-- **Work is recorded as it happens.** The built-in agent saves each message, tool call, and tool result as a task event, and it tracks progress as steps. Repeating a write after a failure never records it twice.
+- **Work is recorded as it happens.** The built-in agent saves each message, tool call, and tool result as a task event, and it tracks progress as steps. Request IDs identify repeated writes, but a failed multi-statement write on FalkorDB can leave partial effects. See the [retry limits](https://ontogr.github.io/agentic-graphrag/latest/guides/configure-storage-backends#retried-memory-writes).
 - **Decisions are saved as traces.** A decision records a conclusion, the reasoning, the assumptions, and the open questions, along with the passages, events, or earlier decisions it relies on.
 - **Source changes flag decisions.** When a document behind a decision is updated or removed, the decision is flagged for review, and so are the decisions that depend on it.
 - **Reviews end in a clear action.** A reviewer can reaffirm a decision after reading the current text, or replace it with a new one that explains the change. The earlier version stays in the history.
@@ -108,6 +119,8 @@ See the [features page](https://ontogr.github.io/agentic-graphrag/stable/get-sta
 ## Quickstart
 
 In this example you add one document, ask a question about it, and get an answer with numbered sources. You need Python 3.11 or newer, a running Neo4j database, and an OpenAI-compatible LLM endpoint. See the [quickstart guide](https://ontogr.github.io/agentic-graphrag/stable/get-started/quickstart) for starting Neo4j with Docker or Neo4j Aura.
+
+To run the example on FalkorDB, follow the [FalkorDB setup](https://ontogr.github.io/agentic-graphrag/latest/guides/configure-storage-backends#set-up-a-falkordb-graph-store), replace the `neo4j` install extra with `falkordb`, use `FALKORDB_*` connection settings, and change the store selection to `build_graph_store("falkordb")`.
 
 ### 1. Install
 
@@ -230,6 +243,8 @@ Then add the server to your MCP client. Replace the document path with the full 
 ```
 
 If your client cannot find `agrag-mcp`, use its full path inside the virtual environment, for example `/full/path/to/.venv/bin/agrag-mcp`. The server starts read-only and reads only the documents you list. The project and agent IDs enable task and decision memory tools; writes remain disabled until you change the server settings. See the [MCP server guide](https://ontogr.github.io/agentic-graphrag/stable/guides/run-the-mcp-server) for the other settings.
+
+For FalkorDB, install `agentic-graphrag[falkordb,mcp]` instead. In the client configuration, replace the `NEO4J_*` entries with `"MCP_GRAPH_STORE": "falkordb"`, `"FALKORDB_URL": "redis://localhost:6379"`, and `"FALKORDB_GRAPH": "agrag"`. Use the same graph and embedding model as ingestion.
 
 ## Tools
 

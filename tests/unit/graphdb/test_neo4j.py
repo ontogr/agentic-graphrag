@@ -28,12 +28,13 @@ from agrag.cypher.schema import (
     node_id_constraint_query,
     relation_id_constraint_query,
 )
+from agrag.graphdb.cypher_store import _VECTOR_SEARCH_MAX_K
 from agrag.graphdb.errors import (
     GraphStoreConstraintViolationError,
     GraphStoreMissingExtraError,
     GraphStoreWriteConflictError,
 )
-from agrag.graphdb.neo4j import _VECTOR_SEARCH_MAX_K, Neo4jGraphStore
+from agrag.graphdb.neo4j import Neo4jGraphStore
 from agrag.graphdb.settings import Neo4jSettings
 
 

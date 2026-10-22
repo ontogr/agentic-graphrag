@@ -23,8 +23,7 @@ def acquire_lease_query() -> str:
 
     Returns:
         Parameterized Cypher expecting $job_id, $document_key, $verb,
-        $lease_token, $lease_expires_at (ISO-8601 string, stored as a
-        native datetime for expiry comparison), $affected_entity_ids
+        $lease_token, $lease_expires_at (epoch milliseconds), $affected_entity_ids
         (list of string ids, snapshotted before any pending write), and
         $created_at. Returns the job id, lease token, status, and whether
         its lease has expired.
@@ -33,11 +32,11 @@ def acquire_lease_query() -> str:
         f"MERGE (job:{CUTOVER_JOB_LABEL} {{document_key: $document_key}}) "
         "ON CREATE SET job.id = $job_id, job.status = 'pending', "
         "job.verb = $verb, job.lease_token = $lease_token, "
-        "job.lease_expires_at = datetime($lease_expires_at), "
+        "job.lease_expires_at = $lease_expires_at, "
         "job.affected_entity_ids = $affected_entity_ids, "
         "job.created_at = $created_at "
         "RETURN job.id AS id, job.lease_token AS lease_token, job.status AS status, "
-        "job.lease_expires_at < datetime() AS lease_expired"
+        "job.lease_expires_at < timestamp() AS lease_expired"
     )
 
 
@@ -63,7 +62,7 @@ def steal_terminal_job_query() -> str:
         $expected_lease_token, $lease_token, $affected_entity_ids (the new
         run's snapshot, empty until the caller needs it), $created_at, and
         $lease_expires_at
-        (ISO-8601 string). Returns the node's lease_token when the steal
+        (epoch milliseconds). Returns the node's lease_token when the steal
         succeeded, no row otherwise.
     """
     return (
@@ -73,9 +72,11 @@ def steal_terminal_job_query() -> str:
         "AND job.status IN ['done', 'rolled_back'] "
         "SET job.id = $job_id, job.status = 'pending', job.verb = $verb, "
         "job.lease_token = $lease_token, "
-        "job.lease_expires_at = datetime($lease_expires_at), "
+        "job.lease_expires_at = $lease_expires_at, "
         "job.affected_entity_ids = $affected_entity_ids, "
-        "job.created_at = $created_at "
+        "job.created_at = $created_at, job.commit_started = false, "
+        "job.commit_docs_applied = false, job.commit_plan = null, "
+        "job.commit_replayed = 0 "
         "RETURN job.lease_token AS lease_token"
     )
 
@@ -106,9 +107,9 @@ def claim_job_query() -> str:
         f"{_job_lock_clause()}"
         "WHERE job.status IN ['committed', 'cleaning'] "
         "AND job.lease_token = $expected_lease_token "
-        "AND job.lease_expires_at < datetime() "
+        "AND job.lease_expires_at < timestamp() "
         "SET job.status = 'cleaning', job.lease_token = $lease_token, "
-        "job.lease_expires_at = datetime($lease_expires_at) "
+        "job.lease_expires_at = $lease_expires_at "
         "RETURN job.status AS status"
     )
 
@@ -131,20 +132,27 @@ def claim_pending_job_query() -> str:
         f"MATCH (job:{CUTOVER_JOB_LABEL} {{id: $job_id}}) "
         f"{_job_lock_clause()}"
         "WHERE job.status IN ['pending', 'rolling_back'] "
+        "AND coalesce(job.commit_started, false) = false "
         "AND job.lease_token = $expected_lease_token "
-        "AND job.lease_expires_at < datetime() "
+        "AND job.lease_expires_at < timestamp() "
         "SET job.status = 'rolling_back', job.lease_token = $lease_token, "
-        "job.lease_expires_at = datetime($lease_expires_at) "
+        "job.lease_expires_at = $lease_expires_at "
         "RETURN job.id AS id"
     )
 
 
 def begin_rollback_query() -> str:
-    """Move a pending job into rollback under the current lease token."""
+    """Move a pending job into rollback under the current lease token.
+
+    A job whose commit has started is never rolled back: on a backend without
+    multi-statement transactions part of the commit may already be applied, and
+    recovery finishes it instead.
+    """
     return (
         f"MATCH (job:{CUTOVER_JOB_LABEL} {{id: $job_id}}) "
         f"{_job_lock_clause()}"
         "WHERE job.lease_token = $lease_token AND job.status = 'pending' "
+        "AND coalesce(job.commit_started, false) = false "
         "SET job.status = 'rolling_back' "
         "RETURN job.id AS id"
     )
@@ -160,10 +168,80 @@ def job_status_query() -> str:
 
 
 def record_parts_closed_query() -> str:
-    """Record the number of document edges closed by a job commit."""
+    """Record the number of document edges closed by a job commit.
+
+    This is the last of the commit's document writes, so it also marks them
+    applied: crash recovery skips the document writes of a job that has the mark.
+    """
     return (
         f"MATCH (job:{CUTOVER_JOB_LABEL} {{id: $job_id}}) "
-        "SET job.parts_closed = $parts_closed"
+        "SET job.parts_closed = $parts_closed, job.commit_docs_applied = true"
+    )
+
+
+def record_replay_progress_query() -> str:
+    """Build Cypher recording how many deferred-write steps a commit has run.
+
+    Crash recovery skips that many steps, so a write that is not safe to repeat
+    (an accumulating count, for example) is not applied twice.
+
+    Returns:
+        Parameterized Cypher expecting $job_id and $replayed.
+    """
+    return (
+        f"MATCH (job:{CUTOVER_JOB_LABEL} {{id: $job_id}}) "
+        "SET job.commit_replayed = $replayed"
+    )
+
+
+def begin_commit_query() -> str:
+    """Build Cypher recording that a pending job has started its commit.
+
+    The mark lets crash recovery tell a job that died before its commit began
+    (roll it back) from one that died part way through the commit (finish it).
+    It applies only under the same fence as ``commit_job_query``. It also
+    stores ``$commit_plan``, the serialized document writes of the commit, so
+    recovery can repeat the ones that had not finished.
+
+    Returns:
+        Parameterized Cypher expecting $job_id, $lease_token and $commit_plan
+        (a JSON string). Returns the
+        job id when the mark was set, no row on fencing failure.
+    """
+    return (
+        f"MATCH (job:{CUTOVER_JOB_LABEL} {{id: $job_id}}) "
+        f"{_job_lock_clause()}"
+        "WHERE job.lease_token = $lease_token "
+        "AND job.lease_expires_at >= timestamp() "
+        "AND job.status = 'pending' "
+        "SET job.commit_started = true, job.commit_plan = $commit_plan, "
+        "job.commit_replayed = 0 "
+        "RETURN job.id AS id"
+    )
+
+
+def claim_commit_query() -> str:
+    """Build Cypher taking over a pending job that died during its commit.
+
+    Same compare-and-swap shape as ``claim_pending_job_query``, but the job
+    stays pending: recovery finishes the commit instead of deleting the job's
+    rows.
+
+    Returns:
+        Parameterized Cypher expecting $job_id, $expected_lease_token,
+        $lease_token and $lease_expires_at (epoch milliseconds). Returns the
+        job id when the claim applied, no row when another worker renewed or
+        changed the job.
+    """
+    return (
+        f"MATCH (job:{CUTOVER_JOB_LABEL} {{id: $job_id}}) "
+        f"{_job_lock_clause()}"
+        "WHERE job.status = 'pending' AND job.commit_started = true "
+        "AND job.lease_token = $expected_lease_token "
+        "AND job.lease_expires_at < timestamp() "
+        "SET job.lease_token = $lease_token, "
+        "job.lease_expires_at = $lease_expires_at "
+        "RETURN job.id AS id"
     )
 
 
@@ -192,9 +270,11 @@ def commit_job_query() -> str:
         f"MATCH (job:{CUTOVER_JOB_LABEL} {{id: $job_id}}) "
         f"{_job_lock_clause()}"
         "WHERE job.lease_token = $lease_token "
-        "AND job.lease_expires_at >= datetime() "
+        "AND job.lease_expires_at >= timestamp() "
         "AND job.status = 'pending' "
-        "SET job.status = 'committed', "
+        "SET job.status = 'committed', job.commit_started = false, "
+        "job.commit_docs_applied = false, job.commit_plan = null, "
+        "job.commit_replayed = 0, "
         "job.component_seed_ids = $component_seed_ids, "
         "job.created_entity_ids = $created_entity_ids "
         "RETURN job.id AS id"
@@ -380,7 +460,7 @@ def start_cleaning_query() -> str:
         f"MATCH (job:{CUTOVER_JOB_LABEL} {{id: $job_id}}) "
         f"{_job_lock_clause()}"
         "WHERE job.lease_token = $lease_token "
-        "AND job.lease_expires_at >= datetime() "
+        "AND job.lease_expires_at >= timestamp() "
         "AND job.status = 'committed' "
         "SET job.status = 'cleaning' "
         "RETURN job.id AS id"
@@ -397,16 +477,16 @@ def renew_lease_query() -> str:
 
     Returns:
         Parameterized Cypher expecting $job_id, $lease_token, and
-        $lease_expires_at (ISO-8601 string). Returns the job id when the
+        $lease_expires_at (epoch milliseconds). Returns the job id when the
         lease was extended, no row on fencing failure.
     """
     return (
         f"MATCH (job:{CUTOVER_JOB_LABEL} {{id: $job_id}}) "
         f"{_job_lock_clause()}"
         "WHERE job.lease_token = $lease_token "
-        "AND job.lease_expires_at >= datetime() "
+        "AND job.lease_expires_at >= timestamp() "
         "AND job.status IN ['pending', 'rolling_back', 'committed', 'cleaning'] "
-        "SET job.lease_expires_at = datetime($lease_expires_at) "
+        "SET job.lease_expires_at = $lease_expires_at "
         "RETURN job.id AS id"
     )
 
@@ -425,7 +505,7 @@ def finish_cleaning_query() -> str:
         f"MATCH (job:{CUTOVER_JOB_LABEL} {{id: $job_id}}) "
         f"{_job_lock_clause()}"
         "WHERE job.lease_token = $lease_token "
-        "AND job.lease_expires_at >= datetime() "
+        "AND job.lease_expires_at >= timestamp() "
         "AND job.status = 'cleaning' "
         "SET job.status = 'done' "
         "RETURN job.id AS id"

@@ -9,7 +9,7 @@ sidebar_label: Neo4jGraphStore
 Neo4jGraphStore(*, settings:Neo4jSettings | None = None, driver:AsyncDriver | None = None, tracer:Tracer | None = None) -> None
 ```
 
-Bases: <code>[GraphStore](../base/GraphStore.md)</code>
+Bases: <code>[CypherGraphStore](../cypher_store/CypherGraphStore.md)</code>
 
 A `GraphStore` backed by Neo4j, using native vector indexes.
 
@@ -24,19 +24,27 @@ driver's managed transactions with no added retry loop.
 - [**connect**](#agrag-graphdb-neo4j-Neo4jGraphStore-connect) – Open the driver and verify connectivity.
 - [**ensure_fulltext_index**](#agrag-graphdb-neo4j-Neo4jGraphStore-ensure_fulltext_index) – Create a full-text index over node properties if it does not exist.
 - [**ensure_relation_constraint**](#agrag-graphdb-neo4j-Neo4jGraphStore-ensure_relation_constraint) – Create a relationship type's `id` uniqueness constraint once.
+- [**ensure_unique_constraint**](#agrag-graphdb-neo4j-Neo4jGraphStore-ensure_unique_constraint) – Make a property combination unique across the nodes of a label.
 - [**ensure_vector_index**](#agrag-graphdb-neo4j-Neo4jGraphStore-ensure_vector_index) – Create a native vector index if it does not exist.
 - [**execute_read**](#agrag-graphdb-neo4j-Neo4jGraphStore-execute_read) – Run a read transaction and return its rows.
 - [**execute_write**](#agrag-graphdb-neo4j-Neo4jGraphStore-execute_write) – Run a write transaction and return its rows.
+- [**fulltext_copy_set**](#agrag-graphdb-neo4j-Neo4jGraphStore-fulltext_copy_set) – Return `SET` clauses a backend needs to keep text searchable.
+- [**fulltext_search_call**](#agrag-graphdb-neo4j-Neo4jGraphStore-fulltext_search_call) – Build the Cypher fragment that searches a full-text index.
+- [**list_indexes**](#agrag-graphdb-neo4j-Neo4jGraphStore-list_indexes) – List every index in the database with its readiness.
+- [**node_write_extra_set**](#agrag-graphdb-neo4j-Neo4jGraphStore-node_write_extra_set) – Return extra `SET` clauses that every node upsert must carry.
 - [**register_labels**](#agrag-graphdb-neo4j-Neo4jGraphStore-register_labels) – Add labels to this instance's known-label set.
 - [**register_relation_types**](#agrag-graphdb-neo4j-Neo4jGraphStore-register_relation_types) – Add types to this instance's known-relation-type set.
 - [**run_in_transaction**](#agrag-graphdb-neo4j-Neo4jGraphStore-run_in_transaction) – Run work in a Neo4j managed transaction and return its result.
 - [**session**](#agrag-graphdb-neo4j-Neo4jGraphStore-session) – Open a session to the configured database.
 - [**setup_constraints**](#agrag-graphdb-neo4j-Neo4jGraphStore-setup_constraints) – Create `id` and `merge_key` uniqueness constraints per label.
 - [**setup_indexes**](#agrag-graphdb-neo4j-Neo4jGraphStore-setup_indexes) – Set up indexes now provided by the store's uniqueness constraints.
+- [**shortest_path_distance_query**](#agrag-graphdb-neo4j-Neo4jGraphStore-shortest_path_distance_query) – Build the Cypher that measures the shortest committed path.
 - [**upsert_candidates**](#agrag-graphdb-neo4j-Neo4jGraphStore-upsert_candidates) – Write candidates without changing nodes that already exist.
 - [**upsert_nodes**](#agrag-graphdb-neo4j-Neo4jGraphStore-upsert_nodes) – Write or merge nodes, honoring each record's full label set.
 - [**upsert_relations**](#agrag-graphdb-neo4j-Neo4jGraphStore-upsert_relations) – Write or merge relationships between existing nodes.
 - [**vector_search**](#agrag-graphdb-neo4j-Neo4jGraphStore-vector_search) – Search nodes by dense vector using the native vector index.
+- [**vector_search_call**](#agrag-graphdb-neo4j-Neo4jGraphStore-vector_search_call) – Build the Cypher fragment that searches a vector index.
+- [**vector_value**](#agrag-graphdb-neo4j-Neo4jGraphStore-vector_value) – Wrap a Cypher expression that holds an embedding for a property write.
 
 **Parameters:**
 
@@ -100,6 +108,14 @@ transaction that the non-transactional `upsert_relations` gives.
 - **rel_type** (<code>str</code>) – The relationship type to ensure a constraint for. Must
   already be validated.
 
+## `ensure_unique_constraint` \{#agrag-graphdb-neo4j-Neo4jGraphStore-ensure_unique_constraint}
+
+```python
+ensure_unique_constraint(*, label:str, properties:Sequence[str]) -> None
+```
+
+Make a property combination unique across the nodes of a label.
+
 ## `ensure_vector_index` \{#agrag-graphdb-neo4j-Neo4jGraphStore-ensure_vector_index}
 
 ```python
@@ -151,6 +167,54 @@ Run a write transaction and return its rows.
 - <code>[GraphStoreConstraintViolationError](../errors/GraphStoreConstraintViolationError.md)</code> – The write violated a uniqueness
   constraint, translated from the driver's own exception so
   callers do not need a hard dependency on it.
+
+## `fulltext_copy_set` \{#agrag-graphdb-neo4j-Neo4jGraphStore-fulltext_copy_set}
+
+```python
+fulltext_copy_set(alias:str, source:str, properties:Iterable[str]) -> str
+```
+
+Return `SET` clauses a backend needs to keep text searchable.
+
+**Parameters:**
+
+- **alias** (<code>str</code>) – The Cypher variable of the node being written.
+- **source** (<code>str</code>) – A Cypher map expression that holds the written properties.
+- **properties** (<code>Iterable\[str\]</code>) – The text properties that have a full-text index.
+
+**Returns:**
+
+- <code>str</code> – Clauses to add to the write, or an empty string when the backend
+- <code>str</code> – searches the stored text directly.
+
+## `fulltext_search_call` \{#agrag-graphdb-neo4j-Neo4jGraphStore-fulltext_search_call}
+
+```python
+fulltext_search_call(*, label:str, properties:Sequence[str]) -> SearchCall
+```
+
+Build the Cypher fragment that searches a full-text index.
+
+## `list_indexes` \{#agrag-graphdb-neo4j-Neo4jGraphStore-list_indexes}
+
+```python
+list_indexes(*, timeout:float | None = None) -> list[IndexInfo]
+```
+
+List every index in the database with its readiness.
+
+## `node_write_extra_set` \{#agrag-graphdb-neo4j-Neo4jGraphStore-node_write_extra_set}
+
+```python
+node_write_extra_set() -> str
+```
+
+Return extra `SET` clauses that every node upsert must carry.
+
+**Returns:**
+
+- <code>str</code> – Clauses for a node upsert query, which can read `record.properties`,
+- <code>str</code> – or an empty string when the backend stores the properties as given.
 
 ## `register_labels` \{#agrag-graphdb-neo4j-Neo4jGraphStore-register_labels}
 
@@ -258,6 +322,19 @@ separate steps. Neo4j creates backing indexes for the `id` and
 `merge_key` uniqueness constraints, so creating range indexes for
 the same properties would conflict with those constraints.
 
+## `shortest_path_distance_query` \{#agrag-graphdb-neo4j-Neo4jGraphStore-shortest_path_distance_query}
+
+```python
+shortest_path_distance_query() -> str
+```
+
+Build the Cypher that measures the shortest committed path.
+
+**Returns:**
+
+- <code>str</code> – A parameterized query expecting `$seed_ids` and `$target_ids`
+- <code>str</code> – that returns a `dist` for each pair joined by a path.
+
 ## `upsert_candidates` \{#agrag-graphdb-neo4j-Neo4jGraphStore-upsert_candidates}
 
 ```python
@@ -333,15 +410,38 @@ A label with no provisioned vector index has nothing to search,
 so an absent index returns an empty result list rather than a
 driver error.
 
-Neo4j's vector procedure applies pending and caller filters only after
-selecting its top `k` candidates, so a plain `k=limit` call can
+The native index selects candidates before pending and caller filters
+apply, so a plain `k=limit` call can
 return fewer matches than actually exist. This escalates `k` and
 retries until `limit` visible hits come back or the escalation
 reaches `_VECTOR_SEARCH_MAX_K`.
 
 **Raises:**
 
-- <code>ValueError</code> – `limit` is not positive. A non-positive value is
-  not a meaningful request and would send that same
-  non-positive `k` to Neo4j's native vector procedure, which
-  requires a positive top-k.
+- <code>ValueError</code> – `limit` is not positive. Validation runs before
+  the backend query.
+
+## `vector_search_call` \{#agrag-graphdb-neo4j-Neo4jGraphStore-vector_search_call}
+
+```python
+vector_search_call(*, label:str, vector_property:str) -> SearchCall
+```
+
+Build the Cypher fragment that searches a vector index.
+
+## `vector_value` \{#agrag-graphdb-neo4j-Neo4jGraphStore-vector_value}
+
+```python
+vector_value(expression:str) -> str
+```
+
+Wrap a Cypher expression that holds an embedding for a property write.
+
+**Parameters:**
+
+- **expression** (<code>str</code>) – A Cypher expression that evaluates to a list of floats.
+
+**Returns:**
+
+- <code>str</code> – The expression to assign to a vector property. Backends that store
+- <code>str</code> – a plain float list return `expression` unchanged.

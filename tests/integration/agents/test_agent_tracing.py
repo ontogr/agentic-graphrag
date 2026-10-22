@@ -31,9 +31,9 @@ from agrag.common.data_models.vector_record import Distance
 from agrag.cypher.entities import validate_identifier
 from agrag.embedding.base import Embedder
 from agrag.eval.trajectory import read_trajectory
-from agrag.graphdb import build_graph_store
 from agrag.ingestion.graph import Graph
 from tests.conftest import FAKE_EMBEDDING_DIMENSIONS
+from tests.integration._backend import await_indexes, build_test_store
 from tests.integration.retrieval.evidence._corpus import (
     NoEntityExtractor,
     make_document,
@@ -135,7 +135,7 @@ class TestAgentTracing:
         self.provider = TracerProvider()
         self.provider.add_span_processor(SimpleSpanProcessor(self.exporter))
         self.tracer = self.provider.get_tracer("test")
-        self.store = build_graph_store("neo4j", tracer=self.tracer)
+        self.store = build_test_store(tracer=self.tracer)
         await self.store.connect()
         suffix = uuid4().hex[:8]
         self.person_label = validate_identifier(f"Person_{suffix}")
@@ -213,7 +213,7 @@ class TestAgentTracing:
             chunker=Chunker(size=2000),
         )
         await graph.add(documents=[make_document(self.document_key, text)])
-        await self.store.execute_read("CALL db.awaitIndexes(60)")
+        await await_indexes(self.store)
 
     async def test_retrieval_spans_nest_under_their_tool_span(self) -> None:
         """Each retrieval span sits under a TOOL span of the agent run."""

@@ -10,6 +10,8 @@ import hashlib
 import unicodedata
 from uuid import uuid4
 
+import pytest
+
 from agrag.chunking import Chunker
 from agrag.common.data_models.candidate import CandidateRecord
 from agrag.common.data_models.chunk import Chunk
@@ -31,11 +33,14 @@ from agrag.common.data_models.extraction import (
 from agrag.common.data_models.graph_schema import GraphSchema
 from agrag.common.data_models.provenance import BoundingBox, PageSpan
 from agrag.evidence import fetch_evidence, search_evidence
-from agrag.graphdb import build_graph_store
 from agrag.graphdb.base import GraphStore
 from agrag.ingestion.extract import Extractor
 from agrag.ingestion.graph import Graph
+from tests.integration._backend import await_indexes, build_test_store
 from tests.integration.retrieval.evidence._corpus import BagOfWordsEmbedder
+
+
+pytestmark = pytest.mark.xdist_group(name="candidate_rows")
 
 
 class _ProbeGraphExtractor(Extractor):
@@ -189,29 +194,29 @@ async def _open_graph(
         extractor=_ProbeGraphExtractor(name, triggers, describe=describe),
         chunker=Chunker(size=60),
     )
-    await store.execute_read("CALL db.awaitIndexes(60)")
+    await await_indexes(store)
     return graph
 
 
-_HOLDS_NEEDLE = (
-    "any(k IN keys({var}) WHERE "
-    "({var}[k] IS :: STRING AND {var}[k] CONTAINS $needle) OR "
-    "({var}[k] IS :: LIST<STRING> AND any(x IN {var}[k] WHERE x CONTAINS $needle)))"
-)
+def _holds_needle(properties: dict[str, object], needle: str) -> bool:
+    """Return whether a string property, or a list of strings, holds the needle."""
+    for value in properties.values():
+        if isinstance(value, str) and needle in value:
+            return True
+        if isinstance(value, list) and any(
+            isinstance(item, str) and needle in item for item in value
+        ):
+            return True
+    return False
 
 
 async def _text_hits(store: GraphStore, needle: str) -> int:
     """Count nodes and relations with a string property, or a list, holding needle."""
-    nodes = await store.execute_read(
-        f"MATCH (n) WHERE {_HOLDS_NEEDLE.format(var='n')} RETURN count(n) AS hits",
-        {"needle": needle},
-    )
+    nodes = await store.execute_read("MATCH (n) RETURN properties(n) AS properties")
     relations = await store.execute_read(
-        "MATCH ()-[r]->() "
-        f"WHERE {_HOLDS_NEEDLE.format(var='r')} RETURN count(r) AS hits",
-        {"needle": needle},
+        "MATCH ()-[r]->() RETURN properties(r) AS properties"
     )
-    return nodes[0]["hits"] + relations[0]["hits"]
+    return sum(_holds_needle(row["properties"], needle) for row in [*nodes, *relations])
 
 
 async def _structure_count(store: GraphStore, key: str) -> int:
@@ -294,7 +299,7 @@ class TestDocumentPurge:
 
     async def test_oversized_purge_is_rejected_before_cutover(self) -> None:
         """Oversized stored content is rejected without creating a purge record."""
-        store = build_graph_store("neo4j")
+        store = build_test_store()
         await store.connect()
         probe = f"purgeprobe{uuid4().hex[:8]}"
         key = f"purge://{uuid4().hex}"
@@ -334,7 +339,7 @@ class TestDocumentPurge:
 
     async def test_purge_removes_every_version_text_and_evidence(self) -> None:
         """No stored text survives, linked entities go, and evidence is gone."""
-        store = build_graph_store("neo4j")
+        store = build_test_store()
         await store.connect()
         probe = f"purgeprobe{uuid4().hex[:8]}"
         key = f"purge://{uuid4().hex}"
@@ -378,7 +383,7 @@ class TestDocumentPurge:
 
     async def test_purge_after_soft_delete_removes_retained_content(self) -> None:
         """A soft-deleted document reads as unavailable, and its purge still runs."""
-        store = build_graph_store("neo4j")
+        store = build_test_store()
         await store.connect()
         probe = f"purgeprobe{uuid4().hex[:8]}"
         key = f"purge://{uuid4().hex}"
@@ -409,7 +414,7 @@ class TestDocumentPurge:
 
     async def test_repeat_purge_is_a_no_op(self) -> None:
         """A second purge of the same key changes nothing and writes no record."""
-        store = build_graph_store("neo4j")
+        store = build_test_store()
         await store.connect()
         probe = f"purgeprobe{uuid4().hex[:8]}"
         key = f"purge://{uuid4().hex}"
@@ -429,7 +434,7 @@ class TestDocumentPurge:
 
     async def test_purge_keeps_other_documents_and_their_shared_evidence(self) -> None:
         """Another document keeps its text, its evidence and its relation sources."""
-        store = build_graph_store("neo4j")
+        store = build_test_store()
         await store.connect()
         probe = f"purgeprobe{uuid4().hex[:8]}"
         other_probe = f"keepprobe{uuid4().hex[:8]}"
@@ -474,7 +479,7 @@ class TestDocumentPurge:
         relation goes, and its endpoints, which no open evidence still supports,
         are pruned with it.
         """
-        store = build_graph_store("neo4j")
+        store = build_test_store()
         await store.connect()
         probe = f"purgeprobe{uuid4().hex[:8]}"
         key = f"purge://{uuid4().hex}"
@@ -512,7 +517,7 @@ class TestDocumentPurge:
         and pending candidate all carry the probe or a distinct phrase. After the
         purge none of them is found on any node or relation.
         """
-        store = build_graph_store("neo4j")
+        store = build_test_store()
         await store.connect()
         probe = f"purgeprobe{uuid4().hex[:8]}"
         phrase = f"{probe} dredging ledger"
@@ -542,7 +547,7 @@ class TestDocumentPurge:
         self,
     ) -> None:
         """Purge removes pending candidates but retains approved and rejected ones."""
-        store = build_graph_store("neo4j")
+        store = build_test_store()
         await store.connect()
         probe = f"purgeprobe{uuid4().hex[:8]}"
         key = f"purge://{uuid4().hex}"
@@ -612,7 +617,7 @@ class TestDocumentPurge:
         document describes them, so the shared entities must keep their evidence
         and drop the description it contributed.
         """
-        store = build_graph_store("neo4j")
+        store = build_test_store()
         await store.connect()
         probe = f"purgeprobe{uuid4().hex[:8]}"
         other_probe = f"keepprobe{uuid4().hex[:8]}"

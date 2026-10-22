@@ -55,7 +55,7 @@ Apply the additions to your schema file and raise its version. The patch uses th
 
 `Graph.convert_candidates(patch, *, error_policy=ErrorPolicy.RAISE)` accepts a `SchemaPatch` or a patch file path and returns a `ConversionReport`. Open the graph with the updated schema before conversion. The method raises `PatchNotAppliedError` if the schema does not contain the additions or property declarations in the patch. It does not compare schema fingerprints because the schema version changes when you apply the patch.
 
-Conversion writes graph data in one transaction. Entity candidates become entity nodes in place and retain their IDs. An entity with the same name and type joins the existing entity. Relation candidates become edges between resolved entities. Property candidates become properties on their entity. A candidate that is no longer approved or is no longer valid is listed in `skipped`.
+Conversion writes graph data in one transaction on Neo4j. On FalkorDB, statements run in order without rollback of earlier statements if a later one fails. See [backend atomicity](../guides/configure-storage-backends.mdx#atomicity). Entity candidates become entity nodes in place and retain their IDs. An entity with the same name and type joins the existing entity. Relation candidates become edges between resolved entities. Property candidates become properties on their entity. A candidate that is no longer approved or is no longer valid is listed in `skipped`.
 
 | `ConversionReport` field | Meaning |
 | --- | --- |

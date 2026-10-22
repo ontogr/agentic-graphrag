@@ -20,7 +20,7 @@ uv pip install agentic-graphrag
 
 To install uv, see the [installation docs](https://docs.astral.sh/uv/getting-started/installation/).
 
-Agentic GraphRAG needs Python 3.11 or newer. It also needs a Neo4j database to store the graph. The [Quickstart](./quickstart.mdx) lists the connection settings.
+Agentic GraphRAG needs Python 3.11 or newer and a Neo4j or FalkorDB server to store the graph and its indexes. Install the matching driver extra and [configure the backend](../guides/configure-storage-backends.mdx). The [Quickstart](./quickstart.mdx) uses Neo4j.
 
 The base install includes the loaders, the chunkers, the data models, and the default embedder. Storage, extraction, the agent, and the MCP server are extras.
 
@@ -59,7 +59,8 @@ The following table lists the extras. Install them with `pip install "agentic-gr
 
 | Extra | Description |
 | --- | --- |
-| `neo4j` | Installs the Neo4j graph store and its native vector index. |
+| `neo4j` | Installs the driver for Neo4j, including Aura. The server holds the graph, full-text indexes, and vector indexes. |
+| `falkordb` | Installs the driver for FalkorDB. The server holds the graph, full-text indexes, and vector indexes. |
 | `embed-local` | Installs Sentence Transformers, to embed with models that the default embedder does not support. |
 | `extract` | Installs GLiNER 2.5, to run entity extraction on your machine. |
 | `llm` | Installs BAML, to extract entities and review matches with an LLM. |
@@ -72,6 +73,8 @@ The following table lists the extras. Install them with `pip install "agentic-gr
 | `schema-formats` | Installs `rdflib` for OWL and RDFS Turtle imports. |
 
 ### Extras by goal
+
+The combinations use Neo4j. Replace `neo4j` with `falkordb` to use FalkorDB, and keep the other extras unchanged. Compare [backend behavior](../concepts/graph-storage.mdx#choose-a-backend) before choosing.
 
 | Goal | Extras |
 | --- | --- |

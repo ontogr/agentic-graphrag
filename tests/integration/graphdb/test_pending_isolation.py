@@ -33,7 +33,6 @@ from agrag.cypher.entities import (
     set_embedding_query,
     validate_identifier,
 )
-from agrag.graphdb import build_graph_store
 from agrag.graphdb.base import GraphStore, GraphStoreTransaction
 from agrag.graphdb.errors import GraphStoreWriteConflictError
 from agrag.ingestion._deferred import replay_deferred, write_or_defer
@@ -44,6 +43,7 @@ from agrag.ingestion.resolved_entities import (
     matches_id,
     write_matches_and_rebuild,
 )
+from tests.integration._backend import build_test_store
 
 
 neo4j_missing = importlib.util.find_spec("neo4j") is None
@@ -57,7 +57,7 @@ pytestmark = [
 @pytest_asyncio.fixture(scope="module", loop_scope="module")
 async def store() -> AsyncIterator[GraphStore]:
     """Open one connected store for the module."""
-    graph_store = build_graph_store("neo4j")
+    graph_store = build_test_store()
     await graph_store.connect()
     try:
         yield graph_store
@@ -384,14 +384,14 @@ class TestJobsNeverChangeCommittedRows:
             )
 
             before = await _props(store, entity.id)
-            assert before["embedding"] == [0.1, 0.2, 0.3]
+            assert before["embedding"] == pytest.approx([0.1, 0.2, 0.3], abs=1e-6)
             assert "description" not in before
 
             await _replay(store, deferred)
 
             after = await _props(store, entity.id)
             assert after["description"] == "Pump maker"
-            assert after["embedding"] == [0.4, 0.5, 0.6]
+            assert after["embedding"] == pytest.approx([0.4, 0.5, 0.6], abs=1e-6)
         finally:
             await _drop(store, tag, label)
 

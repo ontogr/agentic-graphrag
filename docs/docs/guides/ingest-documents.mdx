@@ -21,7 +21,7 @@ uv pip install "agentic-graphrag[docling]"
 
 ## Add a single file
 
-`Graph.open` connects to Neo4j and creates the constraints and indexes that the graph needs. `Graph.add` then loads, chunks, extracts, and stores the file.
+`Graph.open` connects to the selected graph store and creates the constraints and indexes that the graph needs. `Graph.add` then loads, chunks, extracts, and stores the file. The examples use Neo4j. To use FalkorDB, [configure its connection](./configure-storage-backends.mdx#set-up-a-falkordb-graph-store) and select `build_graph_store("falkordb")`.
 
 ```python
 import asyncio

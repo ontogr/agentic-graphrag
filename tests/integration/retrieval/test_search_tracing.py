@@ -35,7 +35,6 @@ from agrag.common.data_models.search_result import SearchResult
 from agrag.common.data_models.vector_record import Distance
 from agrag.cypher.entities import validate_identifier
 from agrag.embedding.base import Embedder
-from agrag.graphdb import build_graph_store
 from agrag.retrieval.filters import SearchFilters
 from agrag.retrieval.methods.traversal import (
     find_entity,
@@ -46,6 +45,10 @@ from agrag.retrieval.recipes import HYBRID
 from agrag.retrieval.search_engine import SearchEngine
 from agrag.retrieval.settings import RetrievalSettings
 from tests.conftest import FAKE_EMBEDDING_DIMENSIONS
+from tests.integration._backend import build_test_store
+
+
+pytestmark = pytest.mark.neo4j_only
 
 
 neo4j_missing = importlib.util.find_spec("neo4j") is None
@@ -116,7 +119,7 @@ class TestSearchTracingEndToEnd:
         self.exporter = exporter
         self.tracer = provider.get_tracer("test")
 
-        self.store = build_graph_store("neo4j", tracer=self.tracer)
+        self.store = build_test_store(tracer=self.tracer)
         await self.store.connect()
         self.label = validate_identifier(f"Person_{uuid4().hex[:8]}")
         self.chunk_ids: list[UUID] = []
@@ -458,7 +461,7 @@ class TestSearchTracingEndToEnd:
 
     async def test_untraced_engine_produces_no_spans(self) -> None:
         """tracer=None everywhere exports nothing and matches results."""
-        untraced_store = build_graph_store("neo4j")
+        untraced_store = build_test_store()
         await untraced_store.connect()
         untraced_engine = SearchEngine(
             graph_store=untraced_store,

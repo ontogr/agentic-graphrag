@@ -6,5 +6,5 @@ sidebar_label: GraphStoreName
 # `agrag.graphdb.GraphStoreName` \{#agrag-graphdb-GraphStoreName}
 
 ```python
-GraphStoreName = Literal['neo4j']
+GraphStoreName = Literal['neo4j', 'falkordb']
 ```

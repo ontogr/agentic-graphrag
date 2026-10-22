@@ -25,12 +25,12 @@ from agrag.common.data_models.graph_schema import GraphSchema
 from agrag.common.data_models.update_decision import UpdateDecision
 from agrag.cypher.relations import relationship_types_from_query
 from agrag.embedding.base import Embedder
-from agrag.graphdb import build_graph_store
 from agrag.graphdb.base import GraphStore
 from agrag.ingestion.extract import Extractor
 from agrag.ingestion.graph import Graph
 from agrag.loaders.common import text_sections
 from tests.conftest import FAKE_EMBEDDING_DIMENSIONS
+from tests.integration._backend import build_test_store
 
 
 neo4j_missing = importlib.util.find_spec("neo4j") is None
@@ -182,7 +182,7 @@ class TestDocumentActivation:
     async def env(self) -> AsyncGenerator[_Env, None]:
         """Open a graph and a store, and remove this run's rows afterwards."""
         run = uuid4().hex[:8]
-        store = build_graph_store("neo4j")
+        store = build_test_store()
         embedder = _FixedEmbedder()
         graph = await Graph.open(
             schema=DEFAULT_SCHEMA,

@@ -18,12 +18,14 @@ from agrag.common.data_models.graph_schema import (
 )
 from agrag.cypher.entities import NODE_IDENTITY_LABEL
 from agrag.embedding.base import Embedder
-from agrag.graphdb import build_graph_store
 from agrag.ingestion import Extractor, Graph
 from tests.conftest import FAKE_EMBEDDING_DIMENSIONS
+from tests.integration._backend import build_test_store
 
 
 neo4j_missing = importlib.util.find_spec("neo4j") is None
+
+pytestmark = pytest.mark.xdist_group(name="candidate_rows")
 
 
 @pytest.mark.skipif(neo4j_missing, reason="neo4j extra not installed")
@@ -32,7 +34,7 @@ class TestCandidateConversionIntegration:
 
     async def test_converts_once_and_folds_exact_name(self, tmp_path) -> None:  # noqa: PLR0915
         """Entity conversion and folding retain evidence and become no-ops."""
-        store = build_graph_store("neo4j")
+        store = build_test_store()
         await store.connect()
         suffix = uuid4().hex[:8]
         person = f"Person_{suffix}"
@@ -159,6 +161,7 @@ class TestCandidateConversionIntegration:
                 },
             )
 
+            await store.ensure_fulltext_index(label=person, properties=["name"])
             graph = Graph(
                 schema=schema,
                 graph_store=store,
@@ -184,6 +187,12 @@ class TestCandidateConversionIntegration:
             assert len(converted) == 1
             assert person in converted[0]["labels"]
             assert converted[0]["embedding"] == [1.0, 0.0, 0.0, 0.0]
+            call = await store.fulltext_search_call(label=person, properties=["name"])
+            found = await store.execute_read(
+                f"{call.text} RETURN node.id AS id",
+                {**call.params, "fulltext_terms": "new person", "k": 5},
+            )
+            assert [row["id"] for row in found] == [str(candidate_id)]
             candidate_edges = await store.execute_read(
                 "MATCH (entity:_Node {id: $id})-[edge:SOURCE|TARGET]-() "
                 "RETURN count(edge) AS count",
@@ -252,7 +261,7 @@ class TestCandidateConversionIntegration:
             assert repeated.skipped[str(property_candidate_id)] == "property_conflict"
         finally:
             await store.close()
-            cleanup_store = build_graph_store("neo4j")
+            cleanup_store = build_test_store()
             await cleanup_store.connect()
             try:
                 await cleanup_store.execute_write(

@@ -28,7 +28,6 @@ from agrag.cypher.entities import (
     NODE_IDENTITY_LABEL,
     validate_identifier,
 )
-from agrag.graphdb import build_graph_store
 from agrag.graphdb.base import GraphStore
 from agrag.graphdb.errors import GraphStoreWriteConflictError
 from agrag.ingestion._cutover import run_cutover_job
@@ -42,6 +41,7 @@ from agrag.ingestion.merge import (
 )
 from agrag.ingestion.settings import CutoverJobSettings
 from agrag.loaders.types import ErrorPolicy
+from tests.integration._backend import build_test_store
 
 
 neo4j_missing = importlib.util.find_spec("neo4j") is None
@@ -55,7 +55,7 @@ pytestmark = [
 @pytest_asyncio.fixture(scope="module", loop_scope="module")
 async def store() -> AsyncIterator[GraphStore]:
     """Open one connected store for the module."""
-    graph_store = build_graph_store("neo4j")
+    graph_store = build_test_store()
     await graph_store.connect()
     try:
         yield graph_store
@@ -266,6 +266,7 @@ class TestCutoverJobLeavesCommittedEntities:
         finally:
             await _cleanup(store, tag, label, key)
 
+    @pytest.mark.neo4j_only
     async def test_failed_replay_rolls_the_job_back_and_keeps_the_committed_row(
         self, store: GraphStore
     ) -> None:

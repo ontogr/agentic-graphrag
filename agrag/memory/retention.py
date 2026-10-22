@@ -20,7 +20,7 @@ from agrag.common.data_models.task import (
 )
 from agrag.cypher.memory import (
     claim_request_query,
-    memory_schema_queries,
+    memory_unique_constraints,
     store_request_result_query,
 )
 from agrag.cypher.retention import (
@@ -218,6 +218,8 @@ class RetentionMemory:
                 [TASK_LABEL, EVENT_LABEL, STEP_LABEL, REQUEST_LABEL, PROJECT_LABEL]
             )
             await self._store.register_relation_types([HAS_EVENT, HAS_STEP])
-            for query in memory_schema_queries():
-                await self._store.execute_write(query)
+            for label, properties in memory_unique_constraints():
+                await self._store.ensure_unique_constraint(
+                    label=label, properties=properties
+                )
             self._schema_ready = True

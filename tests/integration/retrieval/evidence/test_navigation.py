@@ -38,9 +38,9 @@ from agrag.common.data_models.navigation import (
 from agrag.common.data_models.provenance import BoundingBox, PageSpan
 from agrag.evidence import fetch_evidence, navigate_document_tree, search_evidence
 from agrag.evidence.ids import encode_evidence_id
-from agrag.graphdb import build_graph_store
 from agrag.graphdb.base import GraphStore
 from agrag.ingestion.graph import Graph
+from tests.integration._backend import await_indexes, build_test_store
 from tests.integration.retrieval.evidence._corpus import (
     BagOfWordsEmbedder,
     NoEntityExtractor,
@@ -208,7 +208,7 @@ async def nav_env() -> AsyncGenerator[NavEnv, None]:
     """Open a graph, add the guide and the price table, and wait for the indexes."""
     run = uuid4().hex[:8]
     schema = GraphSchema(name="navigation", version="1", entities=[], relations=[])
-    store = build_graph_store("neo4j")
+    store = build_test_store()
     graph = await Graph.open(
         schema=schema,
         graph_store=store,
@@ -218,7 +218,7 @@ async def nav_env() -> AsyncGenerator[NavEnv, None]:
     )
     env = NavEnv(run=run, store=store, graph=graph)
     try:
-        await store.execute_read("CALL db.awaitIndexes(60)")
+        await await_indexes(store)
         await graph.add(
             documents=[
                 _sectioned_document(env.guide),

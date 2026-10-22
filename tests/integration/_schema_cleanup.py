@@ -9,6 +9,7 @@ teardown so a long run does not slow down as it goes.
 
 from agrag.cypher.entities import is_safe_identifier, validate_identifier
 from agrag.graphdb.base import GraphStore
+from tests.integration._backend import selected_backend
 
 
 async def drop_schema_for(store: GraphStore, *names: str) -> None:
@@ -22,6 +23,8 @@ async def drop_schema_for(store: GraphStore, *names: str) -> None:
         store: A connected graph store.
         *names: Node labels or relationship types the test created.
     """
+    if selected_backend() != "neo4j":
+        return
     safe_names = {validate_identifier(name) for name in names}
     if not safe_names:
         return

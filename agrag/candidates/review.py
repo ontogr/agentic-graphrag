@@ -38,6 +38,10 @@ from agrag.cypher.candidate_review import (
 from agrag.graphdb.base import GraphStore
 
 
+# The largest row count every graph backend accepts in a LIMIT clause.
+_UNBOUNDED_LIMIT = 2**31 - 1
+
+
 def _filter_params(query: CandidateQuery) -> dict[str, object]:
     return {
         "kind": query.kind,
@@ -143,7 +147,9 @@ async def list_candidates(
         list_candidates_query(),
         {
             **_filter_params(query or CandidateQuery()),
-            "limit": 2**63 - 1 if schema is not None and not include_covered else limit,
+            "limit": _UNBOUNDED_LIMIT
+            if schema is not None and not include_covered
+            else limit,
             "skip": 0 if schema is not None and not include_covered else skip,
         },
     )
@@ -270,7 +276,9 @@ async def prune_candidates(
     current = now or datetime.now(UTC)
     params: dict[str, object] = {
         "rejected": rejected,
-        "older_than": (current - timedelta(days=pending_older_than_days)).isoformat()
+        "older_than": (current - timedelta(days=pending_older_than_days))
+        .astimezone(UTC)
+        .isoformat()
         if pending_older_than_days is not None
         else None,
         "below_count": pending_below_count,

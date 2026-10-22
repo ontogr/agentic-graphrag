@@ -44,7 +44,7 @@ def main() -> None:
         sys.stderr.write(f"agrag-mcp: invalid settings: {reasons}\n")
         raise SystemExit(_EXIT_INVALID_SETTINGS) from None
 
-    store = build_graph_store("neo4j")
+    store = build_graph_store(settings.graph_store)
     embedder = FastEmbedEmbedder(settings=EmbeddingSettings())
     server = build_server(store, embedder, settings)
     anyio.run(serve_stdio, server, store)

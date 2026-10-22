@@ -9,11 +9,11 @@ working.
 """
 
 from collections.abc import Mapping
-from datetime import datetime
 from typing import Any
 
 from agrag.cypher.cutover_job_write import (
     acquire_lease_query,
+    begin_commit_query,
     begin_rollback_query,
     claim_job_query,
     clear_pending_node_tags_query,
@@ -23,6 +23,7 @@ from agrag.cypher.cutover_job_write import (
     job_status_query,
     lock_rolling_back_job_query,
     record_parts_closed_query,
+    record_replay_progress_query,
     rollback_job_query,
     start_cleaning_query,
     steal_terminal_job_query,
@@ -81,6 +82,7 @@ class CutoverJobLeaseFake:
         handlers: dict[str, Any] = {
             acquire_lease_query(): self._acquire,
             steal_terminal_job_query(): self._steal,
+            begin_commit_query(): lambda p: self._transition(p, "pending", "pending"),
             commit_job_query(): lambda p: self._transition(p, "pending", "committed"),
             start_cleaning_query(): lambda p: self._transition(
                 p, "committed", "cleaning"
@@ -90,6 +92,7 @@ class CutoverJobLeaseFake:
             begin_rollback_query(): self._begin_rollback,
             job_status_query(): self._job_status,
             record_parts_closed_query(): self._record_parts_closed,
+            record_replay_progress_query(): lambda p: [],
             lock_rolling_back_job_query(): self._lock_rolling_back,
             rollback_job_query(): self._rollback,
             close_has_part_query(): self._close_has_part,
@@ -109,9 +112,7 @@ class CutoverJobLeaseFake:
                 "status": "pending",
                 "verb": params["verb"],
                 "lease_token": str(params["lease_token"]),
-                "lease_expires_at": datetime.fromisoformat(
-                    str(params["lease_expires_at"])
-                ),
+                "lease_expires_at": params["lease_expires_at"],
             }
             self._cutover_jobs[key] = job
         return [{"lease_token": job["lease_token"], "status": job["status"]}]
@@ -215,9 +216,7 @@ class CutoverJobLeaseFake:
             job["status"] = "pending"
             job["verb"] = params["verb"]
             job["lease_token"] = str(params["lease_token"])
-            job["lease_expires_at"] = datetime.fromisoformat(
-                str(params["lease_expires_at"])
-            )
+            job["lease_expires_at"] = params["lease_expires_at"]
             return [{"lease_token": job["lease_token"]}]
         return []
 

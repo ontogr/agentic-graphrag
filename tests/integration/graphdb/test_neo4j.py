@@ -34,13 +34,16 @@ from agrag.cypher.schema import (
     vector_index_query,
 )
 from agrag.embedding.errors import EmbeddingDimensionMismatchError
-from agrag.graphdb import build_graph_store
 from agrag.graphdb.base import GraphStoreTransaction
 from agrag.graphdb.errors import GraphStoreConstraintViolationError
 from agrag.graphdb.neo4j import Neo4jGraphStore
 from agrag.graphdb.settings import Neo4jSettings
+from tests.integration._backend import build_test_store
 from tests.integration._schema_cleanup import drop_schema_for
 from tests.integration._vector_hit import assert_is_usable_vector_hit
+
+
+pytestmark = pytest.mark.neo4j_only
 
 
 neo4j_missing = importlib.util.find_spec("neo4j") is None
@@ -56,7 +59,7 @@ class TestNeo4jGraphStoreIntegration:
         self,
     ) -> None:
         """Managed retries preserve both writes after opposite-order locking."""
-        store = build_graph_store("neo4j")
+        store = build_test_store()
         await store.connect()
         tag, first_id, second_id = uuid4().hex, str(uuid4()), str(uuid4())
         ready = 0
@@ -118,7 +121,7 @@ class TestNeo4jGraphStoreIntegration:
         self,
     ) -> None:
         """Managed work returns its value and rolls back when it raises."""
-        store = build_graph_store("neo4j")
+        store = build_test_store()
         await store.connect()
         tag, node_id = uuid4().hex, str(uuid4())
         try:
@@ -163,7 +166,7 @@ class TestNeo4jGraphStoreIntegration:
     @pytest.mark.xdist_group(name="neo4j_schema")
     async def test_node_upsert_and_vector_search_round_trip(self) -> None:
         """Writes nodes, indexes them, and dense-searches them back."""
-        store = build_graph_store("neo4j")
+        store = build_test_store()
         await store.connect()
         # A unique label per run keeps this test isolated from other runs
         # sharing the same long-lived local Neo4j instance.
@@ -213,8 +216,8 @@ class TestNeo4jGraphStoreIntegration:
         label = validate_identifier(f"VectorRace_{uuid4().hex[:8]}")
         index_name = vector_index_name(label, "embedding")
         query = vector_index_query(label, "embedding", DIM, Distance.COSINE)
-        first = build_graph_store("neo4j")
-        second = build_graph_store("neo4j")
+        first = build_test_store()
+        second = build_test_store()
         original_execute_write = second.execute_write
         equivalent_errors: list[ClientError] = []
         query_started = asyncio.Event()
@@ -274,7 +277,7 @@ class TestNeo4jGraphStoreIntegration:
     async def test_vector_index_with_other_dimension_raises(self) -> None:
         """An index kept at another dimension raises instead of passing silently."""
         label = validate_identifier(f"VectorDim_{uuid4().hex[:8]}")
-        store = build_graph_store("neo4j")
+        store = build_test_store()
         await store.connect()
         try:
             await store.ensure_vector_index(
@@ -305,7 +308,7 @@ class TestNeo4jGraphStoreIntegration:
         label = validate_identifier(f"Cleanup_{uuid4().hex[:8]}")
         constraint_name = f"{label}_unique"
         index_name = vector_index_name(label, "embedding")
-        store = build_graph_store("neo4j")
+        store = build_test_store()
         await store.connect()
         try:
             # Other workers recreate standard id constraints during schema setup.
@@ -338,7 +341,7 @@ class TestNeo4jGraphStoreIntegration:
         """Schema cleanup skips object names that cannot be interpolated safely."""
         label = validate_identifier(f"Cleanup_{uuid4().hex[:8]}")
         index_name = f"unsafe-index-{uuid4().hex[:8]}"
-        store = build_graph_store("neo4j")
+        store = build_test_store()
         await store.connect()
         try:
             await store.execute_write(
@@ -359,7 +362,7 @@ class TestNeo4jGraphStoreIntegration:
     @pytest.mark.xdist_group(name="neo4j_schema")
     async def test_setup_constraints_is_idempotent(self) -> None:
         """Running setup_constraints twice does not error the second time."""
-        store = build_graph_store("neo4j")
+        store = build_test_store()
         await store.connect()
         label = validate_identifier(f"Doc_{uuid4().hex[:8]}")
         try:
@@ -376,7 +379,7 @@ class TestNeo4jGraphStoreIntegration:
     @pytest.mark.xdist_group(name="neo4j_schema")
     async def test_internal_labels_store_nodes_and_enforce_uniqueness(self) -> None:
         """Setup creates the current constraints and writes nodes with new labels."""
-        store = build_graph_store("neo4j")
+        store = build_test_store()
         await store.connect()
         entity_id = uuid4()
         alias_id = uuid4()
@@ -456,7 +459,7 @@ class TestNeo4jGraphStoreIntegration:
         need to set up constraints for a database it did not populate.
         """
         label = validate_identifier(f"Legacy_{uuid4().hex[:8]}")
-        writer = build_graph_store("neo4j")
+        writer = build_test_store()
         await writer.connect()
         try:
             await writer.upsert_nodes(
@@ -466,7 +469,7 @@ class TestNeo4jGraphStoreIntegration:
         finally:
             await writer.close()
 
-        fresh = build_graph_store("neo4j")
+        fresh = build_test_store()
         await fresh.connect()
         try:
             assert label not in fresh._known_labels
@@ -490,7 +493,7 @@ class TestNeo4jGraphStoreIntegration:
         """
         weird_label = f"Weird Label {uuid4().hex[:8]}"
         valid_label = validate_identifier(f"Valid_{uuid4().hex[:8]}")
-        store = build_graph_store("neo4j")
+        store = build_test_store()
         await store.connect()
         try:
             await store.execute_write(f"CREATE (:`{weird_label}` {{id: '1'}})")
@@ -515,7 +518,7 @@ class TestNeo4jGraphStoreIntegration:
 
     async def test_multi_label_node_gets_every_label(self) -> None:
         """A node with more than one label ends up with all of them in Neo4j."""
-        store = build_graph_store("neo4j")
+        store = build_test_store()
         await store.connect()
         primary = validate_identifier(f"Chunk_{uuid4().hex[:8]}")
         secondary = validate_identifier(f"Entity_{uuid4().hex[:8]}")
@@ -548,7 +551,7 @@ class TestNeo4jGraphStoreIntegration:
         Reads that exclude pending rows see only the committed node, so the
         job's new rows stay invisible until it commits.
         """
-        store = build_graph_store("neo4j")
+        store = build_test_store()
         await store.connect()
         label = validate_identifier(f"Chunk_{uuid4().hex[:8]}")
         try:
@@ -626,7 +629,7 @@ class TestNeo4jGraphStoreIntegration:
         only match a node that already has every one of those labels, so
         this write would otherwise create a second node sharing the same id.
         """
-        store = build_graph_store("neo4j")
+        store = build_test_store()
         await store.connect()
         primary = validate_identifier(f"Chunk_{uuid4().hex[:8]}")
         secondary = validate_identifier(f"Entity_{uuid4().hex[:8]}")
@@ -664,7 +667,7 @@ class TestNeo4jGraphStoreIntegration:
         a previously-written label does not remove it, since Cypher has no
         parameterized way to remove a computed set of labels without APOC.
         """
-        store = build_graph_store("neo4j")
+        store = build_test_store()
         await store.connect()
         primary = validate_identifier(f"Chunk_{uuid4().hex[:8]}")
         secondary = validate_identifier(f"Entity_{uuid4().hex[:8]}")
@@ -692,7 +695,7 @@ class TestNeo4jGraphStoreIntegration:
 
     async def test_relation_upsert_links_nodes(self) -> None:
         """A relation MERGEs onto previously written nodes."""
-        store = build_graph_store("neo4j")
+        store = build_test_store()
         await store.connect()
         label = validate_identifier(f"Entity_{uuid4().hex[:8]}")
         try:
@@ -726,7 +729,7 @@ class TestNeo4jGraphStoreIntegration:
 
     async def test_relation_with_missing_endpoint_is_reported(self) -> None:
         """A missing endpoint does not count its relation as written."""
-        store = build_graph_store("neo4j")
+        store = build_test_store()
         await store.connect()
         label = validate_identifier(f"Entity_{uuid4().hex[:8]}")
         try:
@@ -771,7 +774,7 @@ class TestNeo4jGraphStoreIntegration:
 
     async def test_parallel_relations_keep_separate_identity(self) -> None:
         """Two same-type relations between the same nodes do not collapse."""
-        store = build_graph_store("neo4j")
+        store = build_test_store()
         await store.connect()
         label = validate_identifier(f"Entity_{uuid4().hex[:8]}")
         try:
@@ -817,7 +820,7 @@ class TestNeo4jGraphStoreIntegration:
 
     async def test_repeated_write_of_one_id_updates_in_place(self) -> None:
         """Writing the same relation id twice updates it, not duplicates it."""
-        store = build_graph_store("neo4j")
+        store = build_test_store()
         await store.connect()
         label = validate_identifier(f"Entity_{uuid4().hex[:8]}")
         try:
@@ -866,7 +869,7 @@ class TestNeo4jGraphStoreIntegration:
 
     async def test_moving_endpoints_replaces_stale_relation(self) -> None:
         """Re-writing a relation id with a new end node drops the old edge."""
-        store = build_graph_store("neo4j")
+        store = build_test_store()
         await store.connect()
         label = validate_identifier(f"Entity_{uuid4().hex[:8]}")
         try:
@@ -971,7 +974,7 @@ class TestPerItemFailureIsolation:
     @pytest.mark.xdist_group(name="neo4j_schema")
     async def test_merge_key_collision_isolates_one_record_in_a_batch(self) -> None:
         """A merge-key collision does not block the other record."""
-        store = build_graph_store("neo4j")
+        store = build_test_store()
         await store.connect()
         label = validate_identifier(f"Entity_{uuid4().hex[:8]}")
         try:
@@ -1024,7 +1027,7 @@ class TestPerItemFailureIsolation:
     @pytest.mark.xdist_group(name="neo4j_schema")
     async def test_failure_does_not_block_a_later_batch(self) -> None:
         """A failed batch does not prevent a later batch from landing."""
-        store = build_graph_store("neo4j")
+        store = build_test_store()
         await store.connect()
         label = validate_identifier(f"Entity_{uuid4().hex[:8]}")
         try:

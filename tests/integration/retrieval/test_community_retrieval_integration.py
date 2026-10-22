@@ -26,7 +26,6 @@ from agrag.common.data_models.search_result import SearchResult
 from agrag.common.data_models.vector_record import Distance
 from agrag.cypher.entities import validate_identifier
 from agrag.embedding.base import Embedder
-from agrag.graphdb import build_graph_store
 from agrag.retrieval.community_context import community_context
 from agrag.retrieval.filters import SearchFilters
 from agrag.retrieval.recipes import HYBRID_RERANKED, THEMATIC, Recipe
@@ -34,6 +33,7 @@ from agrag.retrieval.retrievers.community import CommunityRetriever
 from agrag.retrieval.search_engine import SearchEngine
 from agrag.retrieval.settings import RetrievalSettings
 from tests.conftest import FAKE_EMBEDDING_DIMENSIONS
+from tests.integration._backend import build_test_store
 
 
 neo4j_missing = importlib.util.find_spec("neo4j") is None
@@ -92,7 +92,7 @@ class TestCommunityRetrievalIntegration:
         integration tests write Community nodes to the same database and
         may be running concurrently.
         """
-        self.store = build_graph_store("neo4j")
+        self.store = build_test_store()
         await self.store.connect()
         self.label = validate_identifier(f"Person_{uuid4().hex[:8]}")
         self.embedder = _FixedEmbedder()
