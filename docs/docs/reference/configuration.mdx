@@ -67,7 +67,7 @@ Class: `MilvusSettings`. Prefix: `MILVUS_`. Requires the `milvus` extra and Milv
 | `MILVUS_REQUIRE_TLS` | `false` | Reject plaintext non-local endpoints even without a token. Loopback connections are allowed. |
 | `MILVUS_COLLECTION_PREFIX` | required | Unique namespace for one graph. Starts with a letter and contains at most 41 letters, digits or underscores. |
 
-Collections store dense vectors and an analyzed BM25 text field. Stored text is truncated at a whole UTF-8 character within 65535 bytes, with one warning per upsert call. Truncation does not change the dense embedding or its input. Labels are an any-of scalar-array filter. Reads use Strong consistency after writes and deletes without a manual flush.
+Collections store dense vectors and an analyzed BM25 text field. Stored text is truncated at a whole UTF-8 character within 65535 bytes, with one warning per upsert call. Truncation does not change the dense embedding or its input. Labels are an any-of scalar-array filter, with at most 4096 labels per record and at most 256 UTF-8 bytes per label. Oversized labels reject the whole call before writing. Server failures can leave earlier upsert or delete batches applied; retrying the same records or IDs is idempotent. Reads use Strong consistency after writes and deletes without a manual flush.
 
 Searches accept at most 16384 results per call. Zilliz gateways can impose an approximately 4 MB response cap, so a request below the count cap can still require a smaller limit. Dense scores use `(1 + cosine) / 2` or `1 / (1 + squared_distance)`. Hybrid scores use normalized weighted ranking and are meaningful only for ordering. Alpha one runs dense search only; alpha zero runs BM25 only.
 

@@ -5,8 +5,10 @@ from collections.abc import AsyncIterator
 from uuid import UUID, uuid4
 
 import pytest
+from pymilvus import AsyncMilvusClient
 
 from agrag.common.data_models.vector_record import Distance, VectorKind, VectorRecord
+from agrag.vectordb.errors import CollectionMismatchError
 from agrag.vectordb.milvus import MilvusSettings, MilvusVectorStore
 
 
@@ -42,6 +44,18 @@ class TestMilvusVectorStore:
         assert [hit.id for hit in hits] == [record.id]
         assert hits[0].score == pytest.approx(1.0, abs=0.001)
         assert record.text.endswith("é")
+
+        client = AsyncMilvusClient(uri=milvus_store.settings.uri)
+        try:
+            rows = await client.query(
+                milvus_store.collection_name(VectorKind.ENTITY),
+                ids=[str(record.id)],
+                output_fields=["text"],
+                consistency_level="Strong",
+            )
+            assert rows[0]["text"] == "x" * 65534
+        finally:
+            await client.close()
         info = await milvus_store.collection_info(VectorKind.ENTITY)
         assert info is not None
         assert info.count == 1
@@ -93,3 +107,74 @@ class TestMilvusVectorStore:
         assert first == [UUID(int=1), UUID(int=2)]
         assert second == [UUID(int=22), UUID(int=300)]
         assert third == [UUID(int=500)]
+
+    async def test_rejects_dense_only_collection(
+        self, milvus_store: MilvusVectorStore
+    ) -> None:
+        """Matching dense settings cannot hide missing labels and BM25 fields."""
+        await milvus_store.delete_collection(VectorKind.ENTITY)
+        client = AsyncMilvusClient(uri=milvus_store.settings.uri)
+        try:
+            await client.create_collection(
+                milvus_store.collection_name(VectorKind.ENTITY),
+                dimension=2,
+                id_type="string",
+                metric_type="COSINE",
+                auto_id=False,
+            )
+            with pytest.raises(CollectionMismatchError):
+                await milvus_store.ensure_collection(
+                    VectorKind.ENTITY, dimensions=2, distance=Distance.COSINE
+                )
+        finally:
+            await client.close()
+
+    async def test_hybrid_endpoints_and_filters(
+        self, milvus_store: MilvusVectorStore
+    ) -> None:
+        """Dense-only candidates cannot enter BM25-only results or bypass labels."""
+        dense, lexical, excluded = uuid4(), uuid4(), uuid4()
+        await milvus_store.upsert(
+            VectorKind.ENTITY,
+            [
+                VectorRecord(id=dense, vector=[1, 0], labels=["Keep"], text="banana"),
+                VectorRecord(
+                    id=lexical, vector=[0, 1], labels=["Keep"], text="telescope"
+                ),
+                VectorRecord(
+                    id=excluded, vector=[1, 0], labels=["Other"], text="telescope"
+                ),
+            ],
+        )
+        sparse_hits = await milvus_store.hybrid_search(
+            VectorKind.ENTITY, [1, 0], "telescope", limit=10, alpha=0
+        )
+        assert {hit.id for hit in sparse_hits} == {lexical, excluded}
+        for alpha in (0.0, 0.5, 1.0):
+            hits = await milvus_store.hybrid_search(
+                VectorKind.ENTITY,
+                [1, 0],
+                "telescope",
+                limit=10,
+                alpha=alpha,
+                labels=["Keep"],
+            )
+            if alpha == 0:
+                assert [hit.id for hit in hits] == [lexical]
+            else:
+                assert {hit.id for hit in hits} == {dense, lexical}
+                if alpha == 1:
+                    assert hits[0].id == dense
+
+    @pytest.mark.parametrize("labels", [["é" * 129], ["Label"] * 4097])
+    async def test_rejects_oversized_labels_before_any_write(
+        self, milvus_store: MilvusVectorStore, labels: list[str]
+    ) -> None:
+        """A bad second record cannot partially write a valid first record."""
+        records = [
+            VectorRecord(id=uuid4(), vector=[1, 0], labels=["Person"], text="valid"),
+            VectorRecord(id=uuid4(), vector=[1, 0], labels=labels, text="invalid"),
+        ]
+        with pytest.raises(ValueError, match="labels"):
+            await milvus_store.upsert(VectorKind.ENTITY, records, batch_size=1)
+        assert await milvus_store.list_ids(VectorKind.ENTITY) == []

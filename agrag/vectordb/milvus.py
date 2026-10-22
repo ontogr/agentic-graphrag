@@ -89,6 +89,8 @@ class MilvusSettings(BaseSettings):
             raise ValueError("MILVUS_URI must be an http:// or https:// server URI")
         if parsed.username is not None or parsed.password is not None:
             raise ValueError("Use MILVUS_TOKEN rather than credentials in MILVUS_URI")
+        if parsed.query or parsed.fragment:
+            raise ValueError("MILVUS_URI cannot contain query strings or fragments")
         require_encrypted_remote_connection(
             url=self.uri,
             has_credential=bool(self.token and self.token.get_secret_value()),
@@ -140,11 +142,12 @@ class MilvusVectorStore(VectorStore):
                     consistency_level="Strong",
                 )
                 await client.list_collections()
-            except Exception:
+            except Exception as error:
                 if client is not None:
                     await client.close()
                 raise VectorStoreError(
-                    "Milvus connection or authentication failed"
+                    "Milvus connection or authentication failed "
+                    f"({type(error).__name__})"
                 ) from None
             self._client = client
 
@@ -262,8 +265,16 @@ class MilvusVectorStore(VectorStore):
 
         UTF-8 truncation preserves whole characters. The input records and dense
         vectors remain unchanged. A warning is emitted once per truncated call.
+        Labels allow at most 4096 values, each at most 256 UTF-8 bytes. Invalid
+        labels raise ValueError before any batch is written. A server failure can
+        leave earlier batches applied; retrying the same records is idempotent.
         """
         require_positive_batch_size(batch_size)
+        for record in records:
+            if len(record.labels) > 4096 or any(
+                len(label.encode("utf-8")) > 256 for label in record.labels
+            ):
+                raise ValueError("Milvus labels allow 4096 values of at most 256 bytes")
         truncated = False
         async with self._connection("upsert", kind) as client:
             name = self.collection_name(kind)
@@ -397,7 +408,11 @@ class MilvusVectorStore(VectorStore):
             ]
 
     async def delete(self, kind: VectorKind, ids: Sequence[UUID]) -> None:
-        """Delete in batches, ignoring absent IDs and collections."""
+        """Delete in batches, ignoring absent IDs and collections.
+
+        A server failure can leave earlier batches applied. Retry the same IDs
+        to finish an interrupted deletion; deleting an absent ID is harmless.
+        """
         if not ids:
             return
         async with self._connection("delete", kind) as client:
@@ -455,28 +470,70 @@ class MilvusVectorStore(VectorStore):
         ):
             try:
                 yield client
-            except MilvusException:
-                raise VectorStoreError(f"Milvus {operation} failed") from None
+            except MilvusException as error:
+                code = error.code
+                diagnostic = f", code={code}" if isinstance(code, int) else ""
+                raise VectorStoreError(
+                    f"Milvus {operation} failed ({type(error).__name__}{diagnostic})"
+                ) from None
 
-    async def _metadata(
-        self, client: AsyncMilvusClient, name: str
-    ) -> tuple[int, Distance]:
-        """Read dimensions and distance from the schema and dense index."""
+    @staticmethod
+    async def _metadata(client: AsyncMilvusClient, name: str) -> tuple[int, Distance]:
+        """Validate required dense/BM25 fields and return dimensions and distance."""
+        from pymilvus import DataType, FunctionType  # noqa: PLC0415
+
         schema = await client.describe_collection(name)
-        field = next(
-            (field for field in schema["fields"] if field["name"] == "vector"), None
-        )
-        if field is None:
+        fields = {field["name"]: field for field in schema["fields"]}
+        expected = {
+            "id": DataType.VARCHAR,
+            "vector": DataType.FLOAT_VECTOR,
+            "labels": DataType.ARRAY,
+            "text": DataType.VARCHAR,
+            "sparse": DataType.SPARSE_FLOAT_VECTOR,
+        }
+        if any(
+            fields.get(key, {}).get("type") != value for key, value in expected.items()
+        ):
             raise CollectionMismatchError(
-                f"Milvus collection {name!r} has no vector field"
+                f"Milvus collection {name!r} has incompatible fields"
+            )
+        labels = fields["labels"]
+        text = fields["text"]
+        if (
+            schema.get("auto_id", False)
+            or schema.get("enable_dynamic_field", False)
+            or not fields["id"].get("is_primary", False)
+            or int(fields["id"]["params"].get("max_length", 0)) < 64
+            or labels.get("element_type") != DataType.VARCHAR
+            or int(labels["params"].get("max_length", 0)) < 256
+            or int(labels["params"].get("max_capacity", 0)) < 4096
+            or int(text["params"].get("max_length", 0)) < 65535
+            or str(text["params"].get("enable_analyzer", False)).lower() != "true"
+        ):
+            raise CollectionMismatchError(
+                f"Milvus collection {name!r} has incompatible schema"
+            )
+        if not any(
+            function.get("type") == FunctionType.BM25
+            and function.get("input_field_names") == ["text"]
+            and function.get("output_field_names") == ["sparse"]
+            for function in schema.get("functions", [])
+        ):
+            raise CollectionMismatchError(
+                f"Milvus collection {name!r} has no BM25 function"
+            )
+        sparse_index = await client.describe_index(name, index_name="bm25")
+        if not sparse_index or sparse_index.get("metric_type") != "BM25":
+            raise CollectionMismatchError(
+                f"Milvus collection {name!r} has no BM25 index"
             )
         index = await client.describe_index(name, index_name="dense")
-        metric = index.get("metric_type")
+        metric = index.get("metric_type") if index else None
         if metric not in {"COSINE", "L2"}:
             raise CollectionMismatchError(
                 f"Milvus collection {name!r} has unsupported metric"
             )
-        return int(field["params"]["dim"]), (
+        return int(fields["vector"]["params"]["dim"]), (
             Distance.COSINE if metric == "COSINE" else Distance.EUCLID
         )
 

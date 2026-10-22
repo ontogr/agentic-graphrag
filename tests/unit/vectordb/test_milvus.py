@@ -35,6 +35,21 @@ class TestMilvusLabels:
 class TestMilvusSettings:
     """Milvus settings reject plaintext remote credentials without exposing them."""
 
+    @pytest.mark.parametrize(
+        "suffix", ["?token=private-uri-value", "#private-uri-value"]
+    )
+    def test_uri_secrets_are_not_in_errors(self, suffix: str) -> None:
+        """Query strings and fragments are rejected without echoing their values."""
+        with pytest.raises(ValidationError) as error:
+            MilvusSettings(
+                _env_file=None,
+                uri=f"http://milvus.example.org:19530{suffix}",
+                require_tls=True,
+                collection_prefix="test",
+            )
+        assert "query strings or fragments" in str(error.value)
+        assert "private-uri-value" not in str(error.value)
+
     def test_remote_token_is_not_in_error(self) -> None:
         """Validation output omits both token fields and other env settings."""
         token = "test-token-not-a-real-credential"
