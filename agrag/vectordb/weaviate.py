@@ -211,7 +211,7 @@ class WeaviateVectorStore(VectorStore):
                         Property(name="text", data_type=DataType.TEXT),
                     ],
                 )
-            info = await self.collection_info(kind)
+            info = await self.collection_info(kind, exact_count=False)
             if info is None or (info.dimensions, info.distance) != (
                 dimensions,
                 distance,
@@ -221,8 +221,16 @@ class WeaviateVectorStore(VectorStore):
                     f"distance={distance}"
                 )
 
-    async def collection_info(self, kind: VectorKind) -> CollectionInfo | None:
-        """Return persisted dimensions, actual metric and count, or None if absent."""
+    async def collection_info(
+        self, kind: VectorKind, *, exact_count: bool = True
+    ) -> CollectionInfo | None:
+        """Return persisted dimensions, actual metric and count, or None if absent.
+
+        Args:
+            kind: The collection to describe.
+            exact_count: Also fetch a sample vector to verify its dimensions. When
+                false, only schema metadata and the object count are read.
+        """
         client = await self._connected_client()
         name = self.collection_name(kind)
         async with self._operation("collection_info", kind):
@@ -231,11 +239,16 @@ class WeaviateVectorStore(VectorStore):
                 return None
             dimensions, distance = metadata
             collection = client.collections.use(name)
-            sample = await collection.query.fetch_objects(limit=1, include_vector=True)
-            if sample.objects:
-                vector = sample.objects[0].vector.get("vector")
-                if vector is None or len(vector) != dimensions:
-                    raise CollectionMismatchError(f"{name} vector dimension mismatch")
+            if exact_count:
+                sample = await collection.query.fetch_objects(
+                    limit=1, include_vector=True
+                )
+                if sample.objects:
+                    vector = sample.objects[0].vector.get("vector")
+                    if vector is None or len(vector) != dimensions:
+                        raise CollectionMismatchError(
+                            f"{name} vector dimension mismatch"
+                        )
             count = await collection.aggregate.over_all(total_count=True)
             if count.total_count is None:
                 raise VectorStoreError("Weaviate omitted collection count metadata")
