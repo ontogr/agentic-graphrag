@@ -6,7 +6,7 @@ sidebar_label: GraphCandidateSource
 # `agrag.ingestion.resolve.candidate_source.GraphCandidateSource` \{#agrag-ingestion-resolve-candidate_source-GraphCandidateSource}
 
 ```python
-GraphCandidateSource(*, graph_store:GraphStore, embedder:Embedder, entity_labels:Sequence[str] = (), top_k:int = 50) -> None
+GraphCandidateSource(*, graph_store:GraphStore, embedder:Embedder, entity_labels:Sequence[str] = (), top_k:int = 50, vector_store:VectorStore | None = None) -> None
 ```
 
 Bases: <code>[CandidateSource](CandidateSource.md)</code>
@@ -24,6 +24,7 @@ Block by label in-batch. Search persisted entities globally with ANN.
 - [**entity_labels**](#agrag-ingestion-resolve-candidate_source-GraphCandidateSource-entity_labels) –
 - [**graph_store**](#agrag-ingestion-resolve-candidate_source-GraphCandidateSource-graph_store) –
 - [**top_k**](#agrag-ingestion-resolve-candidate_source-GraphCandidateSource-top_k) –
+- [**vector_store**](#agrag-ingestion-resolve-candidate_source-GraphCandidateSource-vector_store) –
 
 ## `candidates_for` \{#agrag-ingestion-resolve-candidate_source-GraphCandidateSource-candidates_for}
 
@@ -82,4 +83,10 @@ graph_store = graph_store
 
 ```python
 top_k = top_k
+```
+
+## `vector_store` \{#agrag-ingestion-resolve-candidate_source-GraphCandidateSource-vector_store}
+
+```python
+vector_store = vector_store
 ```

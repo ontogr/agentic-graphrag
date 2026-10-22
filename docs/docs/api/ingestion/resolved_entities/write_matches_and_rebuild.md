@@ -6,7 +6,7 @@ sidebar_label: write_matches_and_rebuild
 # `agrag.ingestion.resolved_entities.write_matches_and_rebuild` \{#agrag-ingestion-resolved_entities-write_matches_and_rebuild}
 
 ```python
-write_matches_and_rebuild(decisions:list[MatchDecision], *, graph_store:GraphStore, schema:GraphSchema, members:list[Entity], pending_job_id:str | None = None, deferred:DeferredWrites | None = None, tracer:Tracer | None = None) -> RebuildResult
+write_matches_and_rebuild(decisions:list[MatchDecision], *, graph_store:GraphStore, schema:GraphSchema, members:list[Entity], pending_job_id:str | None = None, deferred:DeferredWrites | None = None, tracer:Tracer | None = None, vector_sync:VectorSync | None = None) -> RebuildResult
 ```
 
 Persist matches and rebuild their supplied connected component.
@@ -26,6 +26,7 @@ The resolved node is always recomputed from that current membership.
 - **deferred** (<code>[DeferredWrites](../../common/data_models/graph_record/DeferredWrites.md) | None</code>) – Receives the writes over committed rows, such as a match
   edge that already exists. Required when `pending_job_id` is set.
 - **tracer** (<code>Tracer | None</code>) – Passed to description summarization.
+- **vector_sync** (<code>[VectorSync](../vector_sync/VectorSync.md) | None</code>) – Removes stale resolved-entity vectors when set.
 
 **Raises:**
 

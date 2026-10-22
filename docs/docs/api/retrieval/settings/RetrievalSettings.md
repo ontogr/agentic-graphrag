@@ -36,6 +36,8 @@ Configuration for retrieval methods and fusion.
   entity_top_k and chunk_top_k play for their retrievers. It is
   distinct from Recipe.community_top_k (enrichment budget and
   reserved slice size). Same name, different class, different job.
+- [**hybrid_alpha**](#agrag-retrieval-settings-RetrievalSettings-hybrid_alpha) (<code>float</code>) – Dense weight for hybrid searches on an external vector
+  store. Env: `RETRIEVAL_HYBRID_ALPHA`.
 
 Env prefix: `RETRIEVAL_`.
 
@@ -67,6 +69,12 @@ entity_labels: list[str] = []
 
 ```python
 entity_top_k: int = 10
+```
+
+## `hybrid_alpha` \{#agrag-retrieval-settings-RetrievalSettings-hybrid_alpha}
+
+```python
+hybrid_alpha: float = Field(default=0.5, ge=0, le=1)
 ```
 
 ## `model_config` \{#agrag-retrieval-settings-RetrievalSettings-model_config}

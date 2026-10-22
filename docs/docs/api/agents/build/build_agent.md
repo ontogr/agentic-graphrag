@@ -6,7 +6,7 @@ sidebar_label: build_agent
 # `agrag.agents.build.build_agent` \{#agrag-agents-build-build_agent}
 
 ```python
-build_agent(*, graph_store:GraphStore, embedder:Embedder, scope:frozenset[str], project_id:str, agent_id:str, llm_settings:AgentLLMSettings, agent_settings:AgentSettings | None = None, tracer:Tracer | None = None) -> Any
+build_agent(*, graph_store:GraphStore, embedder:Embedder, scope:frozenset[str], project_id:str, agent_id:str, llm_settings:AgentLLMSettings, agent_settings:AgentSettings | None = None, vector_store:VectorStore | None = None, tracer:Tracer | None = None) -> Any
 ```
 
 Build one agent bound to trusted document and memory scopes.
@@ -20,6 +20,7 @@ Build one agent bound to trusted document and memory scopes.
 - **agent_id** (<code>str</code>) – Trusted author identifier for memory writes.
 - **llm_settings** (<code>[AgentLLMSettings](../settings/AgentLLMSettings.md)</code>) – Model configuration and composition strategy.
 - **agent_settings** (<code>[AgentSettings](../settings/AgentSettings.md) | None</code>) – Run limits. Defaults to environment settings.
+- **vector_store** (<code>VectorStore | None</code>) – Optional external store for evidence search.
 - **tracer** (<code>Tracer | None</code>) – Optional OpenTelemetry tracer for agent and model calls.
 
 **Returns:**

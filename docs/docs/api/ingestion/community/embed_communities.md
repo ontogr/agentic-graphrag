@@ -6,14 +6,15 @@ sidebar_label: embed_communities
 # `agrag.ingestion.community.embed_communities` \{#agrag-ingestion-community-embed_communities}
 
 ```python
-embed_communities(communities:list[Community], *, embedder:Embedder, batch_size:int = _DEFAULT_EMBED_BATCH_SIZE, max_concurrency:int = 4, tracer:Tracer | None = None) -> list[StageFailure]
+embed_communities(communities:list[Community], *, embedder:Embedder, batch_size:int = _DEFAULT_EMBED_BATCH_SIZE, max_concurrency:int = 4, tracer:Tracer | None = None, vector_sync:VectorSync | None = None) -> list[StageFailure]
 ```
 
 Compute each community's embedding from its report text, in place.
 
 Called after generate_community_reports and before to_node_record(), so
 the vector is already present on the very first (and only) write a
-replace cycle makes.
+graph-native replace cycle makes. External-store writes happen after the
+graph replacement, so this function leaves models unchanged in that mode.
 
 Embedder.embed's contract makes no chunking guarantee (see
 agrag/embedding/base.py), so at 1M+ entity scale, where a full recompute
@@ -34,6 +35,7 @@ is None, rather than being dropped from the graph.
 - **batch_size** (<code>int</code>) – Communities embedded per embed() call.
 - **max_concurrency** (<code>int</code>) – Max concurrent embed calls.
 - **tracer** (<code>Tracer | None</code>) – Opens one span per batch.
+- **vector_sync** (<code>[VectorSync](../vector_sync/VectorSync.md) | None</code>) – Suppresses graph embedding assignment when set.
 
 **Returns:**
 

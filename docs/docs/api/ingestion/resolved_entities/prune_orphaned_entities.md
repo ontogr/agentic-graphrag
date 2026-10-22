@@ -6,7 +6,7 @@ sidebar_label: prune_orphaned_entities
 # `agrag.ingestion.resolved_entities.prune_orphaned_entities` \{#agrag-ingestion-resolved_entities-prune_orphaned_entities}
 
 ```python
-prune_orphaned_entities(candidate_entity_ids:list[UUID], *, graph_store:GraphStore, schema:GraphSchema, tracer:Tracer | None = None) -> PruningResult
+prune_orphaned_entities(candidate_entity_ids:list[UUID], *, graph_store:GraphStore, schema:GraphSchema, tracer:Tracer | None = None, vector_sync:VectorSync | None = None) -> PruningResult
 ```
 
 Delete candidates with no open-chunk evidence and rebuild clusters.

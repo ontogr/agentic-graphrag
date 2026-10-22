@@ -6,7 +6,7 @@ sidebar_label: EntityRetriever
 # `agrag.retrieval.retrievers.entity.EntityRetriever` \{#agrag-retrieval-retrievers-entity-EntityRetriever}
 
 ```python
-EntityRetriever(*, graph_store:GraphStore, embedder:Embedder, settings:RetrievalSettings | None = None, entity_labels:Sequence[str] | None = None, tracer:Tracer | None = None) -> None
+EntityRetriever(*, graph_store:GraphStore, embedder:Embedder, settings:RetrievalSettings | None = None, entity_labels:Sequence[str] | None = None, vector_store:VectorStore | None = None, tracer:Tracer | None = None) -> None
 ```
 
 Bases: <code>[Retriever](../base/Retriever.md)</code>
@@ -37,6 +37,7 @@ caller sets one, otherwise `entity_labels`.
   environment.
 - **entity_labels** (<code>Sequence\[str\] | None</code>) – The schema entity labels native search runs
   against. None uses settings.entity_labels.
+- **vector_store** (<code>VectorStore | None</code>) – External vector store, when configured.
 - **tracer** (<code>Tracer | None</code>) – Opens spans for the retriever and its children. None
   opens no recorded span.
 

@@ -6,7 +6,7 @@ sidebar_label: resolve_batch
 # `agrag.ingestion.resolve.resolution.resolve_batch` \{#agrag-ingestion-resolve-resolution-resolve_batch}
 
 ```python
-resolve_batch(mentions:list[ExtractedEntity], relations:Sequence[ExtractedRelation], chunks_by_id:dict[UUID, Chunk], *, graph_store:GraphStore, embedder:Embedder, entity_labels:Sequence[str], tracer:Tracer | None, max_llm_pairs:int, error_policy:ErrorPolicy, job_id:UUID | str | None = None, llm_concurrency:int = DEFAULT_LLM_CONCURRENCY, on_progress:Callable[[int, int, float], None] | None = None) -> BatchResolution
+resolve_batch(mentions:list[ExtractedEntity], relations:Sequence[ExtractedRelation], chunks_by_id:dict[UUID, Chunk], *, graph_store:GraphStore, embedder:Embedder, entity_labels:Sequence[str], tracer:Tracer | None, max_llm_pairs:int, error_policy:ErrorPolicy, vector_store:VectorStore | None = None, job_id:UUID | str | None = None, llm_concurrency:int = DEFAULT_LLM_CONCURRENCY, on_progress:Callable[[int, int, float], None] | None = None) -> BatchResolution
 ```
 
 Resolve one extraction batch against itself and the persisted graph.
@@ -23,6 +23,7 @@ through one pass. Synthetic mentions never initiate a comparison.
 - **chunks_by_id** (<code>dict\[UUID, [Chunk](../../../common/data_models/chunk/Chunk-ref.md)\]</code>) – The batch's chunks, for LLM verification context.
 - **graph_store** (<code>[GraphStore](../../../graphdb/base/GraphStore.md)</code>) – Where exact-match, candidate, and neighbor reads run.
 - **embedder** (<code>[Embedder](../../../embedding/base/Embedder.md)</code>) – Embeds mention text for candidate search and fuzzy review.
+- **vector_store** (<code>VectorStore | None</code>) – External dense candidate index. None uses graph indexes.
 - **entity_labels** (<code>Sequence\[str\]</code>) – The labels the schema defines.
 - **tracer** (<code>Tracer | None</code>) – Opens the phase spans and traces the resolver.
 - **max_llm_pairs** (<code>int</code>) – The most ambiguous pairs per label sent to the LLM.

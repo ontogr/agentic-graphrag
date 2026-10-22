@@ -6,7 +6,7 @@ sidebar_label: ChunkRetriever
 # `agrag.retrieval.retrievers.chunk.ChunkRetriever` \{#agrag-retrieval-retrievers-chunk-ChunkRetriever}
 
 ```python
-ChunkRetriever(*, graph_store:GraphStore, embedder:Embedder, settings:RetrievalSettings | None = None, tracer:Tracer | None = None) -> None
+ChunkRetriever(*, graph_store:GraphStore, embedder:Embedder, settings:RetrievalSettings | None = None, vector_store:VectorStore | None = None, tracer:Tracer | None = None) -> None
 ```
 
 Bases: <code>[Retriever](../base/Retriever.md)</code>
@@ -30,6 +30,7 @@ provisions, then loads each hit into a Chunk.
 - **embedder** (<code>[Embedder](../../../embedding/base/Embedder.md)</code>) – Produces query vectors.
 - **settings** (<code>[RetrievalSettings](../../settings/RetrievalSettings.md) | None</code>) – Retrieval configuration. Defaults from
   environment.
+- **vector_store** (<code>VectorStore | None</code>) – External vector store, when configured.
 - **tracer** (<code>Tracer | None</code>) – Opens spans for the retriever and its children. None
   opens no recorded span.
 
