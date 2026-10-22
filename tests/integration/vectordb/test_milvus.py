@@ -122,6 +122,7 @@ class TestMilvusVectorStore:
                 milvus_store.collection_name(VectorKind.ENTITY),
                 dimension=2,
                 id_type="string",
+                max_length=64,
                 metric_type="COSINE",
                 auto_id=False,
             )
