@@ -12,6 +12,7 @@ from urllib.parse import urlparse
 from uuid import UUID
 from weakref import WeakKeyDictionary
 
+from opentelemetry.trace import SpanKind, Tracer, get_tracer
 from pydantic import SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -108,10 +109,13 @@ class MilvusVectorStore(VectorStore):
     name: ClassVar[str] = "milvus"
     max_results: int = 16384
 
-    def __init__(self, settings: MilvusSettings | None = None) -> None:
-        """Configure the store without importing or connecting the optional SDK."""
+    def __init__(
+        self, settings: MilvusSettings | None = None, *, tracer: Tracer | None = None
+    ) -> None:
+        """Configure settings and operation tracing without connecting the SDK."""
         self.settings = settings if settings is not None else MilvusSettings()
         self.collection_prefix = self.settings.collection_prefix
+        self._tracer = tracer if tracer is not None else get_tracer(__name__)
         self._client: AsyncMilvusClient | None = None
         self._connect_lock = asyncio.Lock()
 
@@ -166,7 +170,7 @@ class MilvusVectorStore(VectorStore):
         locks = _creation_locks.setdefault(asyncio.get_running_loop(), {})
         async with (
             locks.setdefault((self.settings.uri, name), asyncio.Lock()),
-            self._connection() as client,
+            self._connection("ensure_collection", kind) as client,
         ):
             if not await client.has_collection(name):
                 schema = client.create_schema(auto_id=False, enable_dynamic_field=False)
@@ -227,7 +231,7 @@ class MilvusVectorStore(VectorStore):
 
     async def collection_info(self, kind: VectorKind) -> CollectionInfo | None:
         """Return schema metadata and a Strong count, including unflushed writes."""
-        async with self._connection() as client:
+        async with self._connection("collection_info", kind) as client:
             name = self.collection_name(kind)
             if not await client.has_collection(name):
                 return None
@@ -242,7 +246,7 @@ class MilvusVectorStore(VectorStore):
 
     async def delete_collection(self, kind: VectorKind) -> None:
         """Drop a collection if it exists."""
-        async with self._connection() as client:
+        async with self._connection("delete_collection", kind) as client:
             name = self.collection_name(kind)
             if await client.has_collection(name):
                 await client.drop_collection(name)
@@ -261,7 +265,7 @@ class MilvusVectorStore(VectorStore):
         """
         require_positive_batch_size(batch_size)
         truncated = False
-        async with self._connection() as client:
+        async with self._connection("upsert", kind) as client:
             name = self.collection_name(kind)
             if not await client.has_collection(name):
                 raise VectorStoreError(f"Milvus collection {name!r} does not exist")
@@ -294,7 +298,7 @@ class MilvusVectorStore(VectorStore):
         self._validate_limit(limit)
         if labels is not None and not labels:
             return []
-        async with self._connection() as client:
+        async with self._connection("search", kind) as client:
             name = self.collection_name(kind)
             if not await client.has_collection(name):
                 return []
@@ -340,7 +344,7 @@ class MilvusVectorStore(VectorStore):
             return await self.search(kind, vector, limit=limit, labels=labels)
         if labels is not None and not labels:
             return []
-        async with self._connection() as client:
+        async with self._connection("hybrid_search", kind) as client:
             name = self.collection_name(kind)
             if not await client.has_collection(name):
                 return []
@@ -396,7 +400,7 @@ class MilvusVectorStore(VectorStore):
         """Delete in batches, ignoring absent IDs and collections."""
         if not ids:
             return
-        async with self._connection() as client:
+        async with self._connection("delete", kind) as client:
             name = self.collection_name(kind)
             if not await client.has_collection(name):
                 return
@@ -415,7 +419,7 @@ class MilvusVectorStore(VectorStore):
         which is also UUID numeric order. Pages do not form a concurrent snapshot.
         """
         self._validate_limit(limit)
-        async with self._connection() as client:
+        async with self._connection("list_ids", kind) as client:
             name = self.collection_name(kind)
             if not await client.has_collection(name):
                 return []
@@ -430,18 +434,29 @@ class MilvusVectorStore(VectorStore):
             return [UUID(row["id"]) for row in rows]
 
     @asynccontextmanager
-    async def _connection(self) -> AsyncIterator[AsyncMilvusClient]:
-        """Translate SDK errors without exposing connection credentials."""
+    async def _connection(
+        self, operation: str, kind: VectorKind
+    ) -> AsyncIterator[AsyncMilvusClient]:
+        """Trace operations and translate SDK errors without credential values."""
         await self.initialize()
         from pymilvus import MilvusException  # noqa: PLC0415
 
         client = self._client
         if client is None:
             raise VectorStoreError("Milvus client is closed")
-        try:
-            yield client
-        except MilvusException:
-            raise VectorStoreError("Milvus operation failed") from None
+        with self._tracer.start_as_current_span(
+            f"agrag.vectordb.{operation}",
+            kind=SpanKind.CLIENT,
+            attributes={
+                "db.system.name": "milvus",
+                "db.collection.name": self.collection_name(kind),
+            },
+            record_exception=False,
+        ):
+            try:
+                yield client
+            except MilvusException:
+                raise VectorStoreError(f"Milvus {operation} failed") from None
 
     async def _metadata(
         self, client: AsyncMilvusClient, name: str
