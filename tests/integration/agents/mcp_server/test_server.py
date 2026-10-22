@@ -110,15 +110,21 @@ class _HookedStore(Neo4jGraphStore):
         rows = await self._inner.execute_read(query, parameters, timeout=timeout)
         if "SHOW INDEXES" not in query:
             return rows
-        if "AS dimensions" in query:
-            return (
-                []
-                if self.vector_dimensions is None
-                else [{"dimensions": self.vector_dimensions}]
-            )
+        name = vector_index_name(CHUNK_LABEL, "embedding")
         if self.vector_dimensions is None:
-            name = vector_index_name(CHUNK_LABEL, "embedding")
             rows = [row for row in rows if row["name"] != name]
+        else:
+            rows = [
+                {
+                    **row,
+                    "options": {
+                        "indexConfig": {"vector.dimensions": self.vector_dimensions}
+                    },
+                }
+                if row["name"] == name
+                else row
+                for row in rows
+            ]
         return [row for row in rows if row["name"] != self._hidden_index]
 
 

@@ -22,7 +22,11 @@ from agrag.cypher.entities import NODE_IDENTITY_LABEL
 from agrag.embedding.errors import EmbeddingDimensionMismatchError
 from agrag.graphdb.base import GraphStore, GraphStoreTransaction
 from agrag.graphdb.errors import GraphStoreConstraintViolationError
-from tests.integration._backend import build_test_store, selected_backend
+from tests.integration._backend import (
+    await_indexes,
+    build_test_store,
+    selected_backend,
+)
 
 
 pytestmark = pytest.mark.asyncio(loop_scope="module")
@@ -294,6 +298,7 @@ class TestStoreContract:
             distance=Distance.COSINE,
         )
         await store.ensure_fulltext_index(label=label, properties=["title", "body"])
+        await await_indexes(store)
 
         indexes = [
             index for index in await store.list_indexes() if index.labels == [label]

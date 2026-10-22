@@ -1003,13 +1003,18 @@ class FalkorDBGraphStore(CypherGraphStore):
     async def fulltext_search_call(
         self, *, label: str, properties: Sequence[str]
     ) -> SearchCall:
-        """Build the Cypher fragment that searches a full-text index."""
+        """Build the Cypher fragment that searches a full-text index.
+
+        FalkorDB scores a match with TF-IDF, which is 0 for a word every
+        document holds. One is added so that a match always scores above 0.
+        """
         safe_label = validate_identifier(label)
         for prop in properties:
             validate_identifier(prop)
         return SearchCall(
             f"CALL db.idx.fulltext.queryNodes('{safe_label}', $fulltext_terms) "
-            "YIELD node, score WITH node, score ORDER BY score DESC LIMIT $k"
+            "YIELD node, score WITH node, score + 1.0 AS score "
+            "ORDER BY score DESC LIMIT $k"
         )
 
     async def vector_search_call(
