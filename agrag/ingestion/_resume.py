@@ -24,6 +24,7 @@ from opentelemetry.trace import Tracer
 from agrag.common.data_models.cutover_job import CutoverJobStatus
 from agrag.common.data_models.graph_record import DeferredWrites
 from agrag.common.data_models.stage_failure import StageFailure
+from agrag.common.data_models.vector_record import VectorWork
 from agrag.cypher.cutover_job_read import find_incomplete_jobs_query
 from agrag.cypher.cutover_job_write import (
     claim_commit_query,
@@ -49,18 +50,17 @@ from agrag.ingestion._pending_rows import (
     rollback_job_rows,
 )
 from agrag.ingestion.settings import CutoverJobSettings
+from agrag.ingestion.vector_sync import VectorSync
 from agrag.observability import get_tracer, record_swallowed_exception
 
 
 async def resume_incomplete_jobs(
     graph_store: GraphStore,
     *,
-    roll_forward: (
-        Callable[[list[UUID], list[UUID], list[UUID]], Awaitable[list[StageFailure]]]
-        | None
-    ) = None,
+    roll_forward: Callable[..., Awaitable[list[StageFailure]]] | None = None,
     lease_ttl_seconds: int | None = None,
     tracer: Tracer | None = None,
+    vector_sync: VectorSync | None = None,
 ) -> list[str]:
     """Recover every incomplete Cutover Job found in the graph.
 
@@ -75,6 +75,7 @@ async def resume_incomplete_jobs(
         lease_ttl_seconds: Lease duration for a resume claimant. None reads
             ``CutoverJobSettings`` when the function runs.
         tracer: Opens this pass's span.
+        vector_sync: Removes rolled-back vectors and retries committed work.
 
     Returns:
         The recovered job ids, in the order handled. Each was either
@@ -112,6 +113,7 @@ async def resume_incomplete_jobs(
                     row,
                     roll_forward=roll_forward,
                     lease_ttl_seconds=lease_ttl_seconds,
+                    vector_sync=vector_sync,
                 ):
                     handled.append(job_id)
                 continue
@@ -125,6 +127,7 @@ async def resume_incomplete_jobs(
                 affected_entity_ids=_uuid_list(row, "affected_entity_ids"),
                 component_seed_ids=_uuid_list(row, "component_seed_ids"),
                 created_entity_ids=_uuid_list(row, "created_entity_ids"),
+                vector_work=_vector_work(row.get("commit_plan")),
                 roll_forward=roll_forward,
                 lease_token=str(row["lease_token"]),
                 lease_ttl_seconds=lease_ttl_seconds,
@@ -138,11 +141,9 @@ async def _recover_unfinished(
     graph_store: GraphStore,
     row: dict[str, Any],
     *,
-    roll_forward: (
-        Callable[[list[UUID], list[UUID], list[UUID]], Awaitable[list[StageFailure]]]
-        | None
-    ),
+    roll_forward: Callable[..., Awaitable[list[StageFailure]]] | None,
     lease_ttl_seconds: int,
+    vector_sync: VectorSync | None,
 ) -> bool:
     """Recover one pending or rolling-back job: roll it back, or finish its commit.
 
@@ -172,6 +173,7 @@ async def _recover_unfinished(
         job_id=job_id,
         expected_lease_token=expected_lease_token,
         lease_ttl_seconds=lease_ttl_seconds,
+        vector_sync=vector_sync,
     )
 
 
@@ -198,12 +200,23 @@ def _uuid_list(row: dict[str, Any], key: str) -> list[UUID]:
     return ids
 
 
+def _vector_work(raw: object) -> VectorWork:
+    """Read durable vector work from a job's commit plan, if present."""
+    if raw is None:
+        return VectorWork()
+    if not isinstance(raw, str):
+        raise ValueError("The stored commit plan must be a JSON string")
+    plan = parse_commit_plan(raw)
+    return VectorWork(targets=plan.vector_targets, deletes=plan.vector_deletes)
+
+
 async def _roll_back(
     graph_store: GraphStore,
     *,
     job_id: str,
     expected_lease_token: str,
     lease_ttl_seconds: int,
+    vector_sync: VectorSync | None,
 ) -> bool:
     """Claim and delete one abandoned pending job's writes and job node.
 
@@ -238,7 +251,10 @@ async def _roll_back(
         return False
     try:
         rolled_back = await rollback_job_rows(
-            graph_store, job_id=job_uuid, token=UUID(token)
+            graph_store,
+            job_id=job_uuid,
+            token=UUID(token),
+            vector_sync=vector_sync,
         )
     except Exception as exc:  # noqa: BLE001
         record_swallowed_exception(exc)
@@ -251,10 +267,7 @@ async def _finish_commit(
     *,
     job_id: str,
     affected_entity_ids: list[UUID],
-    roll_forward: (
-        Callable[[list[UUID], list[UUID], list[UUID]], Awaitable[list[StageFailure]]]
-        | None
-    ),
+    roll_forward: Callable[..., Awaitable[list[StageFailure]]] | None,
     expected_lease_token: str,
     lease_ttl_seconds: int,
     commit_plan: str | None,
@@ -288,6 +301,14 @@ async def _finish_commit(
     token = str(uuid4())
     try:
         plan = parse_commit_plan(commit_plan) if commit_plan else None
+        vector_work = (
+            VectorWork()
+            if plan is None
+            else VectorWork(
+                targets=plan.vector_targets,
+                deletes=plan.vector_deletes,
+            )
+        )
         claimed = await graph_store.execute_write(
             claim_commit_query(),
             {
@@ -347,6 +368,7 @@ async def _finish_commit(
         affected_entity_ids=affected_entity_ids,
         component_seed_ids=[],
         created_entity_ids=[],
+        vector_work=vector_work,
         roll_forward=roll_forward,
         token=token,
         lease_ttl_seconds=lease_ttl_seconds,
@@ -360,10 +382,8 @@ async def _roll_forward(
     affected_entity_ids: list[UUID],
     component_seed_ids: list[UUID],
     created_entity_ids: list[UUID],
-    roll_forward: (
-        Callable[[list[UUID], list[UUID], list[UUID]], Awaitable[list[StageFailure]]]
-        | None
-    ),
+    vector_work: VectorWork,
+    roll_forward: Callable[..., Awaitable[list[StageFailure]]] | None,
     lease_token: str,
     lease_ttl_seconds: int,
 ) -> bool:
@@ -405,6 +425,7 @@ async def _roll_forward(
         affected_entity_ids=affected_entity_ids,
         component_seed_ids=component_seed_ids,
         created_entity_ids=created_entity_ids,
+        vector_work=vector_work,
         roll_forward=roll_forward,
         token=token,
         lease_ttl_seconds=lease_ttl_seconds,
@@ -418,10 +439,8 @@ async def _cleanup_with_renewal(
     affected_entity_ids: list[UUID],
     component_seed_ids: list[UUID],
     created_entity_ids: list[UUID],
-    roll_forward: (
-        Callable[[list[UUID], list[UUID], list[UUID]], Awaitable[list[StageFailure]]]
-        | None
-    ),
+    vector_work: VectorWork,
+    roll_forward: Callable[..., Awaitable[list[StageFailure]]] | None,
     token: str,
     lease_ttl_seconds: int,
 ) -> bool:
@@ -453,6 +472,7 @@ async def _cleanup_with_renewal(
             affected_entity_ids=affected_entity_ids,
             component_seed_ids=component_seed_ids,
             created_entity_ids=created_entity_ids,
+            vector_work=vector_work,
             roll_forward=roll_forward,
             lease_token=token,
             stop_renewal=stop_renewal,
@@ -485,23 +505,29 @@ async def _finish_roll_forward(
     affected_entity_ids: list[UUID],
     component_seed_ids: list[UUID],
     created_entity_ids: list[UUID],
-    roll_forward: (
-        Callable[[list[UUID], list[UUID], list[UUID]], Awaitable[list[StageFailure]]]
-        | None
-    ),
+    vector_work: VectorWork,
+    roll_forward: Callable[..., Awaitable[list[StageFailure]]] | None,
     lease_token: str,
     stop_renewal: asyncio.Event,
     renewal_stopped: asyncio.Event,
 ) -> bool:
     """Complete cleanup and mark one recovery claim done."""
-    has_work = bool(affected_entity_ids or component_seed_ids or created_entity_ids)
+    has_work = bool(
+        affected_entity_ids
+        or component_seed_ids
+        or created_entity_ids
+        or vector_work.targets
+        or vector_work.deletes
+    )
     if roll_forward is None and has_work:
         return False
     if roll_forward is not None and has_work:
         try:
-            failures = await roll_forward(
-                affected_entity_ids, component_seed_ids, created_entity_ids
-            )
+            args = (affected_entity_ids, component_seed_ids, created_entity_ids)
+            if vector_work.targets or vector_work.deletes:
+                failures = await roll_forward(*args, vector_work)
+            else:
+                failures = await roll_forward(*args)
         except Exception as exc:  # noqa: BLE001
             record_swallowed_exception(exc)
             return False

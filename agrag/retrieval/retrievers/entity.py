@@ -21,6 +21,7 @@ from agrag.retrieval.resolved_entities import load_resolved_entities
 from agrag.retrieval.retrievers.base import Retriever
 from agrag.retrieval.settings import RetrievalSettings
 from agrag.retrieval.tracing import record_results, retrieval_span
+from agrag.vectordb.base import VectorStore
 
 
 class EntityRetriever(Retriever):
@@ -44,6 +45,7 @@ class EntityRetriever(Retriever):
         embedder: Embedder,
         settings: RetrievalSettings | None = None,
         entity_labels: Sequence[str] | None = None,
+        vector_store: VectorStore | None = None,
         tracer: Tracer | None = None,
     ) -> None:
         """Construct an EntityRetriever.
@@ -55,6 +57,7 @@ class EntityRetriever(Retriever):
                 environment.
             entity_labels: The schema entity labels native search runs
                 against. None uses settings.entity_labels.
+            vector_store: External vector store, when configured.
             tracer: Opens spans for the retriever and its children. None
                 opens no recorded span.
         """
@@ -67,6 +70,7 @@ class EntityRetriever(Retriever):
             else list(self._settings.entity_labels)
         )
         self._tracer = tracer
+        self._vector_store = vector_store
 
     async def retrieve(  # noqa: PLR0912, PLR0915
         self,
@@ -139,6 +143,9 @@ class EntityRetriever(Retriever):
                         limit=raw_candidate_limit,
                         filters=search_filters,
                         query_vector=query_vector,
+                        vector_store=self._vector_store,
+                        hybrid=True,
+                        alpha=self._settings.hybrid_alpha,
                         tracer=self._tracer,
                     )
                     candidate_active_member_ids = (
@@ -228,6 +235,9 @@ class EntityRetriever(Retriever):
                         limit=resolved_candidate_limit,
                         filters=resolved_filters,
                         query_vector=query_vector,
+                        vector_store=self._vector_store,
+                        hybrid=True,
+                        alpha=self._settings.hybrid_alpha,
                         tracer=self._tracer,
                     )
                     candidate_by_id = await load_resolved_entities(

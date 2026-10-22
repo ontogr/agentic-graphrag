@@ -33,6 +33,7 @@ from agrag.common.data_models.extraction import (
 from agrag.common.data_models.graph_record import DeferredWrites
 from agrag.common.data_models.graph_schema import GraphSchema
 from agrag.common.data_models.stage_failure import StageFailure, cap_failures
+from agrag.common.data_models.vector_record import VectorKind
 from agrag.common.graph_rows import node_properties, row_node
 from agrag.common.schema_fingerprint import schema_fingerprint
 from agrag.cypher.entities import (
@@ -78,11 +79,13 @@ from agrag.ingestion.stats import (
     StorageStats,
 )
 from agrag.ingestion.stats.dropped import count_candidates
+from agrag.ingestion.vector_sync import VectorSync
 from agrag.loaders.types import ErrorPolicy
 from agrag.observability import (
     get_tracer,
     record_stage_failure,
 )
+from agrag.vectordb.base import VectorStore
 
 
 # Names this long are usually whole sentences that cannot match other mentions.
@@ -570,6 +573,7 @@ async def embed_chunks_stage(
             error_policy=ctx.error_policy,
             pending_job_id=ctx.job_id,
             deferred=ctx.deferred,
+            vector_sync=ctx.vector_sync,
             embed_heading_path=embed_heading_path,
         )
     return EmbedStageResult(failures=[*failures, *embed_failures])
@@ -603,6 +607,7 @@ async def embed_survivors_stage(
             error_policy=ctx.error_policy,
             pending_job_id=ctx.job_id,
             deferred=ctx.deferred,
+            vector_sync=ctx.vector_sync,
         )
     return EmbedStageResult(failures=failures)
 
@@ -681,6 +686,8 @@ async def ingest_chunks(
     write_candidates: bool = True,
     deferred: DeferredWrites | None = None,
     reuse_chunks: bool = False,
+    vector_store: VectorStore | None = None,
+    vector_sync: VectorSync | None = None,
 ) -> BatchResult:
     """Resolve, merge, write and embed one batch of extracted chunks.
 
@@ -716,6 +723,8 @@ async def ingest_chunks(
         deferred: Receives the writes over committed rows that a job must not
             apply itself. Required when ``job_id`` is set; the caller replays
             it in the job's commit transaction.
+        vector_store: External vector index for resolution candidates, or None.
+        vector_sync: Mirrors graph-owned vectors to an external store when set.
         reuse_chunks: Whether the chunks already exist in the graph and keep
             their current nodes. The chunk and structure nodes are not written
             and the chunks are not embedded.
@@ -739,6 +748,8 @@ async def ingest_chunks(
         tracer=get_tracer(tracer),
         job_id=job_uuid,
         deferred=deferred,
+        vector_store=vector_store,
+        vector_sync=vector_sync,
     )
     with ctx.tracer.start_as_current_span("agrag.ingestion.ingest_chunks"):
         resolution_stats, merge = await _resolve_and_merge(
@@ -928,6 +939,7 @@ async def _embed_and_upsert_chunks(
     error_policy: ErrorPolicy,
     pending_job_id: UUID | str | None = None,
     deferred: DeferredWrites | None = None,
+    vector_sync: VectorSync | None = None,
     embed_heading_path: bool = False,
 ) -> list[StageFailure]:
     """Embed every chunk's text and write the vectors back onto their nodes.
@@ -956,6 +968,7 @@ async def _embed_and_upsert_chunks(
             embeddings, for callers outside a job.
         deferred: Receives the vector writes over committed chunks. None
             outside a job.
+        vector_sync: Mirrors the guarded chunk vectors to an external store.
         embed_heading_path: Whether the embedder gets each chunk's heading path
             above its text.
 
@@ -969,6 +982,23 @@ async def _embed_and_upsert_chunks(
     job = str(pending_job_id) if pending_job_id is not None else None
     try:
         texts = [ch.contextual_text if embed_heading_path else ch.text for ch in chunks]
+        if vector_sync is not None:
+            await vector_sync.upsert_owned(
+                VectorKind.CHUNK,
+                [
+                    (
+                        ch.id,
+                        ["Chunk"],
+                        text,
+                        {"expected_text": ch.text},
+                    )
+                    for ch, text in zip(chunks, texts, strict=True)
+                    if ch.id is not None
+                ],
+                job_id=pending_job_id,
+                deferred=deferred,
+            )
+            return []
         vectors = await embedder.embed(texts)
         records = []
         for ch, vec in zip(chunks, vectors, strict=True):
@@ -1027,6 +1057,7 @@ async def _embed_and_upsert_survivors(
     error_policy: ErrorPolicy,
     pending_job_id: UUID | str | None = None,
     deferred: DeferredWrites | None = None,
+    vector_sync: VectorSync | None = None,
 ) -> list[StageFailure]:
     """Embed every survivor's current text and write only the vector.
 
@@ -1066,6 +1097,7 @@ async def _embed_and_upsert_survivors(
             embeddings, for callers outside a job.
         deferred: Receives the vector writes over committed entities. None
             outside a job.
+        vector_sync: Mirrors the guarded entity vectors to an external store.
 
     Returns:
         A single-item list with the failure, or empty on success.
@@ -1077,6 +1109,22 @@ async def _embed_and_upsert_survivors(
     job = str(pending_job_id) if pending_job_id is not None else None
     try:
         texts = [ent.embedding_text for ent in survivors.values()]
+        if vector_sync is not None:
+            await vector_sync.upsert_owned(
+                VectorKind.ENTITY,
+                [
+                    (
+                        ent.id,
+                        [ent.label],
+                        ent.embedding_text,
+                        _embedding_guard_fields(ent),
+                    )
+                    for ent in survivors.values()
+                ],
+                job_id=pending_job_id,
+                deferred=deferred,
+            )
+            return []
         vectors = await embedder.embed(texts)
         records = []
         for ent, vec in zip(survivors.values(), vectors, strict=True):

@@ -35,6 +35,7 @@ from agrag.evidence import (
 )
 from agrag.graphdb.base import GraphStore
 from agrag.memory import DecisionMemory, TaskMemory
+from agrag.vectordb.base import VectorStore
 
 
 def make_core_tools(  # noqa: PLR0915
@@ -49,6 +50,7 @@ def make_core_tools(  # noqa: PLR0915
     fetched_outcomes: Sequence[FetchOutcome],
     max_chars: int,
     max_tool_calls: int,
+    vector_store: VectorStore | None = None,
 ) -> tuple[list[Any], RunState]:
     """Bind evidence and memory tools to a single task and trusted scope."""
     from langchain_core.tools import tool  # noqa: PLC0415
@@ -78,6 +80,7 @@ def make_core_tools(  # noqa: PLR0915
                     mode=EvidenceSearchMode(mode),
                     limit=limit,
                     scope=scope,
+                    vector_store=vector_store,
                 )
             except (ValueError, KeyError) as exc:
                 result = f"Invalid discovery request: {exc}"
@@ -172,6 +175,7 @@ def make_core_tools(  # noqa: PLR0915
                     labels=labels,
                     mode=EvidenceSearchMode(mode),
                     limit=limit,
+                    vector_store=vector_store,
                 )
             except ValueError as exc:
                 output = f"Invalid entity search request: {exc}"

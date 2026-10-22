@@ -5,13 +5,18 @@ from typing import Literal
 from uuid import UUID
 
 from agrag.common.data_models.graph_record import DeferredWrites
-from agrag.common.data_models.resolved_entity import ResolvedEntity
+from agrag.common.data_models.resolved_entity import (
+    RESOLVED_ENTITY_LABEL,
+    ResolvedEntity,
+)
 from agrag.common.data_models.stage_failure import StageFailure
+from agrag.common.data_models.vector_record import VectorKind
 from agrag.cypher.entities import clear_property_query, set_embedding_query
 from agrag.cypher.resolution_write import set_resolved_entity_sync_status_query
 from agrag.embedding.base import Embedder
 from agrag.graphdb.base import GraphStore
 from agrag.ingestion._deferred import write_or_defer
+from agrag.ingestion.vector_sync import VectorSync
 from agrag.loaders.types import ErrorPolicy
 from agrag.observability import record_stage_failure
 
@@ -29,6 +34,15 @@ def _embedding_record(
         "expected_name": entity.name,
         "expected_description": str(description) if description is not None else "",
         "pending_job_id": pending_job_id,
+    }
+
+
+def _embedding_guard_fields(entity: ResolvedEntity) -> dict[str, str]:
+    """Return the current name and description required for a guarded write."""
+    description = entity.properties.get("description")
+    return {
+        "expected_name": entity.name,
+        "expected_description": str(description) if description else "",
     }
 
 
@@ -77,11 +91,12 @@ async def embed_resolved_entities(
     error_policy: ErrorPolicy,
     pending_job_id: UUID | str | None = None,
     deferred: DeferredWrites | None = None,
+    vector_sync: VectorSync | None = None,
 ) -> list[StageFailure]:
     """Write resolved-entity embeddings to the graph and record their sync status.
 
-    A failed write clears the graph vector and records ``failed`` for a later
-    rebuild pass to retry.
+    Graph-native failures clear the graph vector. External-store failures
+    record ``failed`` for a later repair pass.
 
     Only entities whose guarded graph write actually matched a live node have
     their sync status updated. A
@@ -99,7 +114,35 @@ async def embed_resolved_entities(
     if not entities:
         return []
     job_id = str(pending_job_id) if pending_job_id is not None else None
+    before = (
+        {(target.kind, target.id) for target in deferred.vector_targets}
+        if deferred is not None
+        else set()
+    )
     try:
+        if vector_sync is not None:
+            written_ids = await vector_sync.upsert_owned(
+                VectorKind.RESOLVED_ENTITY,
+                [
+                    (
+                        entity.id,
+                        [RESOLVED_ENTITY_LABEL],
+                        entity.embedding_text,
+                        _embedding_guard_fields(entity),
+                    )
+                    for entity in entities
+                ],
+                job_id=pending_job_id,
+                deferred=deferred,
+            )
+            synced_entities = [
+                entity for entity in entities if entity.id in written_ids
+            ]
+            if synced_entities:
+                await _set_sync_status(
+                    synced_entities, graph_store=graph_store, status="synced"
+                )
+            return []
         vectors = await embedder.embed([entity.embedding_text for entity in entities])
         records: list[dict[str, object]] = []
         for entity, vector in zip(entities, vectors, strict=True):
@@ -120,6 +163,37 @@ async def embed_resolved_entities(
                 synced_entities, graph_store=graph_store, status="synced"
             )
     except Exception as exc:  # noqa: BLE001
+        if vector_sync is not None:
+            deferred_ids = (
+                {(target.kind, target.id) for target in deferred.vector_targets}
+                - before
+                if deferred is not None
+                else set()
+            )
+            failed_entities = [
+                entity
+                for entity in entities
+                if (VectorKind.RESOLVED_ENTITY, entity.id) not in deferred_ids
+            ]
+            with contextlib.suppress(Exception):
+                await _set_sync_status(
+                    failed_entities,
+                    graph_store=graph_store,
+                    status="failed",
+                    error=str(exc),
+                )
+            if error_policy is ErrorPolicy.RAISE:
+                raise
+            trace_id, span_id = record_stage_failure(exc)
+            return [
+                StageFailure(
+                    item_id="resolved_entity_embeddings",
+                    error_type=type(exc).__name__,
+                    error_message=str(exc),
+                    trace_id=trace_id,
+                    span_id=span_id,
+                )
+            ]
         for entity in entities:
             entity.embedding = None
         cleared_ids: set[UUID] = set()

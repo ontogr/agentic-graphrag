@@ -341,6 +341,7 @@ async def _rebuild_components(
                     error_policy=ctx.error_policy,
                     pending_job_id=ctx.job_id,
                     deferred=ctx.deferred,
+                    vector_sync=ctx.vector_sync,
                 )
             )
     return resolved_vector_failures

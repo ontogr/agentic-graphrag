@@ -22,8 +22,10 @@ from agrag.common.data_models.evidence import (
     IndexState,
     LegFailure,
 )
+from agrag.common.data_models.vector_record import VectorKind
 from agrag.cypher.evidence import (
     lexical_candidates_query,
+    semantic_candidates_from_rows_query,
     semantic_candidates_query,
 )
 from agrag.cypher.schema import fulltext_index_name, vector_index_name
@@ -36,9 +38,12 @@ from agrag.evidence._shared import (
     indexes_ready,
     lucene_terms,
     scope_node_ids,
+    stores_ready,
 )
 from agrag.evidence.ids import encode_evidence_id
 from agrag.graphdb.base import GraphStore
+from agrag.retrieval.settings import RetrievalSettings
+from agrag.vectordb.base import VectorStore
 
 
 # Constant of reciprocal rank fusion. The value 60 is the one from the original
@@ -96,15 +101,17 @@ async def search_evidence(
     mode: EvidenceSearchMode,
     limit: int,
     scope: frozenset[str],
+    vector_store: VectorStore | None = None,
     timeout: float | None = None,
 ) -> EvidenceSearchResult:
     """Find up to ``limit`` visible passages that match a query.
 
     The lexical leg matches the words of the query against chunk text. The
     semantic leg embeds the query and searches the chunk embeddings. The hybrid
-    mode runs both and fuses them. Search returns status ``index_not_ready``
-    when a needed index is missing or not ONLINE. It returns ``empty_scope``
-    without searching when ``scope`` is empty.
+    mode runs both and fuses them, or delegates fusion to an external store.
+    Search returns status ``index_not_ready`` when a needed index or external
+    collection is missing. It returns ``empty_scope`` without searching when
+    ``scope`` is empty.
 
     Args:
         store: The graph store to search.
@@ -115,6 +122,8 @@ async def search_evidence(
         mode: Which legs to run.
         limit: The most hits to return. Must be positive.
         scope: Keys of the documents that may be searched.
+        vector_store: Optional external vector store. Placement is not validated
+            by this function.
         timeout: Server-side transaction timeout in seconds for each store read.
             None uses the server's default.
 
@@ -135,8 +144,20 @@ async def search_evidence(
         if mode is EvidenceSearchMode.HYBRID
         else [EvidenceSearchLeg(mode.value)]
     )
+    if vector_store is not None and mode is EvidenceSearchMode.HYBRID:
+        legs = [EvidenceSearchLeg.SEMANTIC]
     try:
-        index_state = await indexes_ready(store, _index_specs(legs), timeout=timeout)
+        index_state = await indexes_ready(
+            store, _index_specs(legs, vector_store=vector_store), timeout=timeout
+        )
+        store_state = await stores_ready(
+            vector_store,
+            [VectorKind.CHUNK]
+            if vector_store is not None and EvidenceSearchLeg.SEMANTIC in legs
+            else [],
+        )
+        if store_state is IndexState.NOT_READY:
+            index_state = IndexState.NOT_READY
     except Exception:
         _LOGGER.exception("Evidence index state read failed")
         return EvidenceSearchResult(status=EvidenceSearchStatus.FAILED)
@@ -156,8 +177,11 @@ async def search_evidence(
                 embedder,
                 leg,
                 query,
+                mode=mode,
                 scope_ids=scope_ids,
                 limit=limit,
+                vector_store=vector_store,
+                alpha=RetrievalSettings().hybrid_alpha,
                 timeout=timeout,
             )
         except Exception:
@@ -185,7 +209,9 @@ async def search_evidence(
     )
 
 
-def _index_specs(legs: Sequence[EvidenceSearchLeg]) -> list[IndexSpec]:
+def _index_specs(
+    legs: Sequence[EvidenceSearchLeg], *, vector_store: VectorStore | None = None
+) -> list[IndexSpec]:
     """Return the index each leg searches."""
     specs: list[IndexSpec] = []
     if EvidenceSearchLeg.LEXICAL in legs:
@@ -197,7 +223,7 @@ def _index_specs(legs: Sequence[EvidenceSearchLeg]) -> list[IndexSpec]:
                 prop=_FULLTEXT_PROPERTIES[0],
             )
         )
-    if EvidenceSearchLeg.SEMANTIC in legs:
+    if EvidenceSearchLeg.SEMANTIC in legs and vector_store is None:
         specs.append(
             IndexSpec(
                 name=vector_index_name(CHUNK_LABEL, _EMBEDDING_PROPERTY),
@@ -215,8 +241,11 @@ async def _run_leg(
     leg: EvidenceSearchLeg,
     query: str,
     *,
+    mode: EvidenceSearchMode,
     scope_ids: list[str],
     limit: int,
+    vector_store: VectorStore | None,
+    alpha: float,
     timeout: float | None,
 ) -> tuple[list[_Visible], bool]:
     """Return the visible hits of one leg and whether the search hit its ceiling.
@@ -235,6 +264,18 @@ async def _run_leg(
         parameters: dict[str, Any] = {**call.params, "fulltext_terms": terms}
     else:
         [vector] = await embedder.embed([query])
+        if vector_store is not None:
+            return await _run_external_semantic_leg(
+                store,
+                vector_store,
+                vector,
+                query,
+                mode=mode,
+                scope_ids=scope_ids,
+                limit=limit,
+                alpha=alpha,
+                timeout=timeout,
+            )
         call = await store.vector_search_call(
             label=CHUNK_LABEL, vector_property=_EMBEDDING_PROPERTY
         )
@@ -256,6 +297,59 @@ async def _run_leg(
         if candidates >= _MAX_CANDIDATES:
             return visible, True
         candidates = min(candidates * _CANDIDATE_MULTIPLIER, _MAX_CANDIDATES)
+
+
+async def _run_external_semantic_leg(
+    store: GraphStore,
+    vector_store: VectorStore,
+    vector: Sequence[float],
+    query: str,
+    *,
+    mode: EvidenceSearchMode,
+    scope_ids: list[str],
+    limit: int,
+    alpha: float,
+    timeout: float | None,
+) -> tuple[list[_Visible], bool]:
+    """Fetch external vector candidates until enough visible chunks are found."""
+    candidates = min(limit, _MAX_CANDIDATES, vector_store.max_results)
+    ceiling = min(_MAX_CANDIDATES, vector_store.max_results)
+    statement = semantic_candidates_from_rows_query()
+    while True:
+        if mode is EvidenceSearchMode.HYBRID:
+            store_hits = await vector_store.hybrid_search(
+                VectorKind.CHUNK,
+                vector,
+                query,
+                limit=candidates,
+                alpha=alpha,
+            )
+        else:
+            store_hits = await vector_store.search(
+                VectorKind.CHUNK, vector, limit=candidates
+            )
+        rows = (
+            await store.execute_read(
+                statement,
+                {
+                    "rows": [
+                        {"id": str(hit.id), "score": hit.score} for hit in store_hits
+                    ],
+                    "scope_ids": scope_ids,
+                },
+                timeout=timeout,
+            )
+            if store_hits
+            else []
+        )
+        visible = _visible_rows(rows)
+        if len(visible) >= limit:
+            return visible[:limit], False
+        if len(store_hits) < candidates:
+            return visible, False
+        if candidates >= ceiling:
+            return visible, True
+        candidates = min(candidates * _CANDIDATE_MULTIPLIER, ceiling)
 
 
 def _candidate_count(rows: Sequence[Mapping[str, Any]]) -> int:

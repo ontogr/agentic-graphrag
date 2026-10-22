@@ -21,6 +21,7 @@ from agrag.common.data_models.resolved_entity import (
     RESOLVED_ENTITY_LABEL,
     ResolvedEntity,
 )
+from agrag.common.data_models.vector_record import VectorKind
 from agrag.cypher.resolution_read import (
     fetch_active_match_neighbors_query,
     fetch_committed_component_decided_at_query,
@@ -43,6 +44,7 @@ from agrag.graphdb.serialize import parse_entity_node
 from agrag.ingestion._deferred import run_staged_transaction
 from agrag.ingestion.merge import compute_merge
 from agrag.ingestion.resolve.resolver import ResolvedMatch
+from agrag.ingestion.vector_sync import VectorSync
 
 
 async def fetch_active_component_members(
@@ -275,6 +277,7 @@ async def write_matches_and_rebuild(
     pending_job_id: str | None = None,
     deferred: DeferredWrites | None = None,
     tracer: Tracer | None = None,
+    vector_sync: VectorSync | None = None,
 ) -> RebuildResult:
     """Persist matches and rebuild their supplied connected component.
 
@@ -292,6 +295,7 @@ async def write_matches_and_rebuild(
         deferred: Receives the writes over committed rows, such as a match
             edge that already exists. Required when ``pending_job_id`` is set.
         tracer: Passed to description summarization.
+        vector_sync: Removes stale resolved-entity vectors when set.
 
     Raises:
         ValueError: No decisions are supplied, a decision references a
@@ -369,7 +373,12 @@ async def write_matches_and_rebuild(
             tracer=tracer,
         )
 
-    return await run_staged_transaction(graph_store, write, deferred=deferred)
+    result = await run_staged_transaction(graph_store, write, deferred=deferred)
+    if vector_sync is not None:
+        await vector_sync.delete_absent(
+            VectorKind.RESOLVED_ENTITY, result.removed_entity_ids
+        )
+    return result
 
 
 async def rebuild_resolved_entities(
@@ -378,6 +387,7 @@ async def rebuild_resolved_entities(
     graph_store: GraphStore,
     schema: GraphSchema,
     tracer: Tracer | None = None,
+    vector_sync: VectorSync | None = None,
 ) -> list[RebuildResult]:
     """Rebuild the resolved entity of each committed component from its seeds.
 
@@ -396,6 +406,7 @@ async def rebuild_resolved_entities(
         graph_store: Where the components are read and rewritten.
         schema: The schema the members belong to.
         tracer: Passed to description summarization.
+        vector_sync: Removes vectors for resolved entities that no longer exist.
 
     Returns:
         One result per rebuilt component, in seed order.
@@ -446,6 +457,10 @@ async def rebuild_resolved_entities(
         if result is not None:
             results.append(result)
             rebuilt_member_ids.update(member.id for member in members)
+            if vector_sync is not None:
+                await vector_sync.delete_absent(
+                    VectorKind.RESOLVED_ENTITY, result.removed_entity_ids
+                )
     return results
 
 
@@ -530,6 +545,7 @@ async def deactivate_match_and_rebuild(
     graph_store: GraphStore,
     schema: GraphSchema,
     tracer: Tracer | None = None,
+    vector_sync: VectorSync | None = None,
 ) -> DeactivationResult:
     """Deactivate a match and return its replacements and deleted derived IDs."""
 
@@ -621,7 +637,12 @@ async def deactivate_match_and_rebuild(
             ],
         )
 
-    return await graph_store.run_in_transaction(deactivate)
+    result = await graph_store.run_in_transaction(deactivate)
+    if vector_sync is not None:
+        await vector_sync.delete_absent(
+            VectorKind.RESOLVED_ENTITY, result.removed_entity_ids
+        )
+    return result
 
 
 def _uuid_list(rows: object, key: str) -> list[UUID]:
@@ -653,6 +674,7 @@ async def prune_orphaned_entities(
     graph_store: GraphStore,
     schema: GraphSchema,
     tracer: Tracer | None = None,
+    vector_sync: VectorSync | None = None,
 ) -> PruningResult:
     """Delete candidates with no open-chunk evidence and rebuild clusters.
 
@@ -790,8 +812,14 @@ async def prune_orphaned_entities(
                 delete_resolved_entities_query(), {"ids": [resolved_id]}
             )
             removed_resolved_entity_ids.extend(_uuid_list(pruned_rows, "resolved_id"))
-    return PruningResult(
+    result = PruningResult(
         removed_entity_ids=removed_entity_ids,
         removed_resolved_entity_ids=list(dict.fromkeys(removed_resolved_entity_ids)),
         rebuilt_entities=rebuilt_resolved,
     )
+    if vector_sync is not None:
+        await vector_sync.delete_absent(VectorKind.ENTITY, unique_ids)
+        await vector_sync.delete_absent(
+            VectorKind.RESOLVED_ENTITY, result.removed_resolved_entity_ids
+        )
+    return result

@@ -18,16 +18,19 @@ from agrag.common.data_models.community import (
 from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.relation import Relation
 from agrag.common.data_models.stage_failure import StageFailure
+from agrag.common.data_models.vector_record import VectorKind
 from agrag.common.validation import (
     require_positive_batch_size,
     require_positive_max_concurrency,
 )
 from agrag.cypher.community_write import delete_communities_batch_query
 from agrag.cypher.relations import fetch_all_relations_query_cursor
+from agrag.cypher.vector_targets import community_ids_query
 from agrag.embedding.base import Embedder
 from agrag.graphdb.base import GraphStore, GraphStoreTransaction
 from agrag.graphdb.entities import load_entities
 from agrag.ingestion.reports import CommunityDetectionReport
+from agrag.ingestion.vector_sync import VectorSync
 from agrag.loaders.types import ErrorPolicy
 from agrag.observability import get_tracer, record_stage_failure
 
@@ -543,12 +546,14 @@ async def embed_communities(
     batch_size: int = _DEFAULT_EMBED_BATCH_SIZE,
     max_concurrency: int = 4,
     tracer: Tracer | None = None,
+    vector_sync: VectorSync | None = None,
 ) -> list[StageFailure]:
     """Compute each community's embedding from its report text, in place.
 
     Called after generate_community_reports and before to_node_record(), so
     the vector is already present on the very first (and only) write a
-    replace cycle makes.
+    graph-native replace cycle makes. External-store writes happen after the
+    graph replacement, so this function leaves models unchanged in that mode.
 
     Embedder.embed's contract makes no chunking guarantee (see
     agrag/embedding/base.py), so at 1M+ entity scale, where a full recompute
@@ -568,6 +573,7 @@ async def embed_communities(
         batch_size: Communities embedded per embed() call.
         max_concurrency: Max concurrent embed calls.
         tracer: Opens one span per batch.
+        vector_sync: Suppresses graph embedding assignment when set.
 
     Returns:
         One StageFailure per community whose batch embed() call failed.
@@ -576,6 +582,8 @@ async def embed_communities(
     require_positive_batch_size(batch_size)
     require_positive_max_concurrency(max_concurrency)
     if not communities:
+        return []
+    if vector_sync is not None:
         return []
     sem = asyncio.Semaphore(max_concurrency)
     failures: list[StageFailure] = []
@@ -651,18 +659,36 @@ def required_member_ids(
 _WRITE_BATCH_SIZE = 5000
 
 
-async def _clear_communities(graph_store: GraphStore) -> None:
+async def _clear_communities(
+    graph_store: GraphStore, *, vector_sync: VectorSync | None = None
+) -> None:
     """Delete every stored community and its membership edges."""
+    old_rows = (
+        await graph_store.execute_read(community_ids_query(), {})
+        if vector_sync is not None
+        else []
+    )
+    old_ids = [
+        UUID(str(row["id"]))
+        for row in old_rows
+        if isinstance(row, dict) and row.get("id") is not None
+    ]
     await graph_store.run_in_transaction(delete_all_communities)
+    if vector_sync is not None:
+        await vector_sync.delete_absent(VectorKind.COMMUNITY, old_ids)
 
 
 async def _replace_community_nodes(
-    graph_store: GraphStore, communities: list[Community]
+    graph_store: GraphStore,
+    communities: list[Community],
+    *,
+    vector_sync: VectorSync | None = None,
 ) -> None:
     """Write the communities and their MEMBER_OF edges in one transaction.
 
     The write first deletes every earlier community, so a failure leaves the
-    previous communities in place.
+    previous communities in place. External vectors are synced only after the
+    replacement transaction commits.
     """
 
     async def replace(tx: GraphStoreTransaction) -> None:
@@ -687,7 +713,19 @@ async def _replace_community_nodes(
         if buffer:
             await tx.upsert_relations(buffer)
 
+    old_rows = (
+        await graph_store.execute_read(community_ids_query(), {})
+        if vector_sync is not None
+        else []
+    )
+    old_ids = [
+        UUID(str(row["id"]))
+        for row in old_rows
+        if isinstance(row, dict) and row.get("id") is not None
+    ]
     await graph_store.run_in_transaction(replace)
+    if vector_sync is not None:
+        await vector_sync.replace_communities(communities, old_ids=old_ids)
 
 
 async def _write_communities(
@@ -697,6 +735,7 @@ async def _write_communities(
     *,
     embedder: Embedder,
     tracer: Tracer | None,
+    vector_sync: VectorSync | None = None,
 ) -> list[StageFailure]:
     """Report, embed and store the communities, replacing earlier ones."""
     entities_by_id = await load_entities(
@@ -709,8 +748,13 @@ async def _write_communities(
         error_policy=ErrorPolicy.SKIP,
         tracer=tracer,
     )
-    failures += await embed_communities(communities, embedder=embedder, tracer=tracer)
-    await _replace_community_nodes(graph_store, communities)
+    failures += await embed_communities(
+        communities,
+        embedder=embedder,
+        tracer=tracer,
+        vector_sync=vector_sync,
+    )
+    await _replace_community_nodes(graph_store, communities, vector_sync=vector_sync)
     return failures
 
 
@@ -720,6 +764,7 @@ async def detect_communities(
     embedder: Embedder,
     tracer: Tracer | None = None,
     apply: bool = False,
+    vector_sync: VectorSync | None = None,
     max_cluster_size: int = 10,
     resolution: float = 1.0,
     seed: int | None = 0xDEADBEEF,
@@ -738,6 +783,7 @@ async def detect_communities(
         embedder: Embeds the community summaries.
         tracer: Opens the detection span. None opens no recorded span.
         apply: Write the communities. False returns a report only.
+        vector_sync: Mirrors community vectors outside the graph when set.
         max_cluster_size: Forwarded to ``compute_communities``.
         resolution: Forwarded to ``compute_communities``.
         seed: Forwarded to ``compute_communities``.
@@ -757,7 +803,7 @@ async def detect_communities(
                 return CommunityDetectionReport(
                     communities=[], applied=False, failures=[]
                 )
-            await _clear_communities(graph_store)
+            await _clear_communities(graph_store, vector_sync=vector_sync)
             return CommunityDetectionReport(communities=[], applied=True, failures=[])
 
         communities = await asyncio.to_thread(
@@ -772,7 +818,7 @@ async def detect_communities(
                 communities=communities, applied=False, failures=[]
             )
         if not communities:
-            await _clear_communities(graph_store)
+            await _clear_communities(graph_store, vector_sync=vector_sync)
             return CommunityDetectionReport(communities=[], applied=True, failures=[])
         failures = await _write_communities(
             graph_store,
@@ -780,6 +826,7 @@ async def detect_communities(
             edges,
             embedder=embedder,
             tracer=tracer,
+            vector_sync=vector_sync,
         )
         return CommunityDetectionReport(
             communities=communities, applied=True, failures=failures

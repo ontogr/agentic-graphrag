@@ -86,6 +86,38 @@ def semantic_candidates_query(search_call: str) -> str:
     return f"{search_call} " + _candidate_tail()
 
 
+def semantic_candidates_from_rows_query() -> str:
+    """Build the visible-chunk join for hits from an external vector store.
+
+    Returns:
+        Parameterized Cypher expecting ``$rows`` with ``id`` and ``score``,
+        ``$scope_ids``, and returning every candidate as in
+        ``semantic_candidates_query``.
+    """
+    return (
+        "UNWIND $rows AS row "
+        f"MATCH (node:{NODE_IDENTITY_LABEL}:{CHUNK_LABEL} {{id: row.id}}) "
+        "WITH node, row.score AS score "
+        + _candidate_tail()
+    )
+
+
+def entity_candidates_from_rows_query() -> str:
+    """Build the pending-safe graph join for external entity search hits.
+
+    Returns:
+        Parameterized Cypher expecting ``$rows`` with ``id`` and ``score`` and
+        returning entity ids and scores in score order.
+    """
+    return (
+        "UNWIND $rows AS row "
+        f"MATCH (node:{NODE_IDENTITY_LABEL} {{id: row.id}}) "
+        f"WHERE {pending_filter_clause('node')} "
+        "RETURN node.id AS entity_id, row.score AS score "
+        "ORDER BY score DESC, entity_id"
+    )
+
+
 def _document_has_open_chunk_clause() -> str:
     """Return a clause keeping the bound document rows that have an open chunk edge.
 

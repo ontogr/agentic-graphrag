@@ -80,6 +80,7 @@ async def run_staged_transaction(
     result = await graph_store.run_in_transaction(attempt)
     if deferred is not None and staged is not None:
         deferred.entries.extend(staged.entries)
+        deferred.vector_targets.extend(staged.vector_targets)
     return result
 
 

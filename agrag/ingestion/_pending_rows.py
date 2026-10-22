@@ -6,6 +6,7 @@ indexes serve it and the cost follows the size of the job, not the graph.
 
 from uuid import UUID
 
+from agrag.common.data_models.vector_record import VectorKind
 from agrag.cypher.cutover_job_write import (
     clear_pending_node_tags_query,
     clear_pending_relation_tags_query,
@@ -18,7 +19,9 @@ from agrag.cypher.cutover_job_write import (
 )
 from agrag.cypher.entities import PENDING_TAGGED_NODE_LABELS, is_safe_identifier
 from agrag.cypher.schema import list_relation_types_query
+from agrag.cypher.vector_cleanup import pending_vector_ids_query
 from agrag.graphdb.base import GraphStore, GraphStoreTransaction
+from agrag.ingestion.vector_sync import VectorSync
 
 
 async def _relation_types(txn: GraphStoreTransaction) -> list[str]:
@@ -75,7 +78,11 @@ async def clear_job_tags(txn: GraphStoreTransaction, *, job_id: UUID) -> None:
 
 
 async def rollback_job_rows(
-    graph_store: GraphStore, *, job_id: UUID, token: UUID
+    graph_store: GraphStore,
+    *,
+    job_id: UUID,
+    token: UUID,
+    vector_sync: VectorSync | None = None,
 ) -> bool:
     """Delete one job's tagged rows and its job node under a lease fence.
 
@@ -89,6 +96,7 @@ async def rollback_job_rows(
         graph_store: The store to run the rollback on.
         job_id: The job to roll back.
         token: The lease token the rollback holds.
+        vector_sync: Removes vectors for rows that the graph rollback deletes.
 
     Returns:
         ``True`` when the rows were deleted, ``False`` when the fence did not
@@ -96,11 +104,24 @@ async def rollback_job_rows(
     """
     job_params = {"job_id": str(job_id)}
     fenced_params = {"job_id": str(job_id), "lease_token": str(token)}
+    vector_ids: dict[VectorKind, list[UUID]] = {}
 
     async def rollback(txn: GraphStoreTransaction) -> bool:
         locked = await txn.execute_write(lock_rolling_back_job_query(), fenced_params)
         if not locked:
             return False
+        vector_ids.clear()
+        if vector_sync is not None:
+            rows = await txn.execute_read(
+                pending_vector_ids_query(), {"job_id": str(job_id)}
+            )
+            for row in rows:
+                try:
+                    kind = VectorKind(str(row["kind"]))
+                    vector_id = UUID(str(row["id"]))
+                except (KeyError, TypeError, ValueError):
+                    continue
+                vector_ids.setdefault(kind, []).append(vector_id)
         rel_types = await _relation_types(txn)
         for rel_type in rel_types:
             await txn.execute_write(
@@ -111,4 +132,8 @@ async def rollback_job_rows(
         await txn.execute_write(rollback_job_query(), fenced_params)
         return True
 
-    return await graph_store.run_in_transaction(rollback)
+    rolled_back = await graph_store.run_in_transaction(rollback)
+    if rolled_back and vector_sync is not None:
+        for kind, ids in vector_ids.items():
+            await vector_sync.delete_absent(kind, ids)
+    return rolled_back

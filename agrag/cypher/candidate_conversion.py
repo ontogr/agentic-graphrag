@@ -56,6 +56,7 @@ def convert_entity_candidates_query(
     *,
     embedding_value: str = "row.embedding",
     text_copy_set: str = "",
+    with_embedding: bool = True,
 ) -> str:
     """Turn each approved entity candidate into its identity node in place.
 
@@ -66,10 +67,12 @@ def convert_entity_candidates_query(
             ``GraphStore.vector_value("row.embedding")``.
         text_copy_set: Extra ``SET`` clauses for the converted node, from
             ``GraphStore.fulltext_copy_set``. Empty by default.
+        with_embedding: Whether the graph node stores its embedding.
     """
     if not labels:
         raise ValueError("at least one entity label is required")
     label_clause = ":".join(validate_identifier(label) for label in labels)
+    embedding_property = f"embedding: {embedding_value}, " if with_embedding else ""
     return (
         f"UNWIND $rows AS row MATCH (c:{CANDIDATE_LABEL} "
         "{id: row.id, kind: 'entity', state: 'approved'}) "
@@ -102,7 +105,7 @@ def convert_entity_candidates_query(
         f"SET c:{NODE_IDENTITY_LABEL}:{label_clause} "
         "SET c = {id: row.id, name: row.text, merge_key: row.merge_key, "
         "merge_count: row.count, source_chunk_ids: row.chunk_ids, "
-        f"embedding: {embedding_value}, created_at: row.now}} "
+        f"{embedding_property}created_at: row.now}} "
         f"{text_copy_set}) "
         "FOREACH (_ IN CASE WHEN alias.entity_id <> row.id AND owner IS NOT NULL "
         "THEN [1] ELSE [] END | SET owner.merge_count = "

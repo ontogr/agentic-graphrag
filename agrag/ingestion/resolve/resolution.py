@@ -52,6 +52,7 @@ from agrag.ingestion.resolve.resolver import (
 from agrag.ingestion.resolve.zone_classifier import DEFAULT_LLM_CONCURRENCY
 from agrag.loaders.types import ErrorPolicy
 from agrag.observability import get_tracer, record_swallowed_exception
+from agrag.vectordb.base import VectorStore
 
 
 # Relationship types Graph.open() always registers. Resolution leaves them out
@@ -278,6 +279,7 @@ async def resolve_batch(  # noqa: PLR0915
     tracer: Tracer | None,
     max_llm_pairs: int,
     error_policy: ErrorPolicy,
+    vector_store: VectorStore | None = None,
     job_id: UUID | str | None = None,
     llm_concurrency: int = DEFAULT_LLM_CONCURRENCY,
     on_progress: Callable[[int, int, float], None] | None = None,
@@ -295,6 +297,7 @@ async def resolve_batch(  # noqa: PLR0915
         chunks_by_id: The batch's chunks, for LLM verification context.
         graph_store: Where exact-match, candidate, and neighbor reads run.
         embedder: Embeds mention text for candidate search and fuzzy review.
+        vector_store: External dense candidate index. None uses graph indexes.
         entity_labels: The labels the schema defines.
         tracer: Opens the phase spans and traces the resolver.
         max_llm_pairs: The most ambiguous pairs per label sent to the LLM.
@@ -329,6 +332,7 @@ async def resolve_batch(  # noqa: PLR0915
         graph_store=graph_store,
         embedder=embedder,
         entity_labels=entity_labels,
+        vector_store=vector_store,
     )
     combined_mentions: list[ExtractedEntity] = list(mentions)
     persisted_candidates: dict[int, list[int]] = {}
@@ -466,6 +470,7 @@ async def resolve_persisted(
     tracer: Tracer | None,
     max_llm_pairs: int,
     error_policy: ErrorPolicy,
+    vector_store: VectorStore | None = None,
     llm_concurrency: int = DEFAULT_LLM_CONCURRENCY,
 ) -> tuple[ResolutionResult, list[StageFailure]]:
     """Resolve persisted entities against each other.
@@ -476,6 +481,7 @@ async def resolve_persisted(
         entities: The persisted entities to compare, all of one label.
         graph_store: Where the candidate and neighbor reads run.
         embedder: Embeds entity names for candidate search and fuzzy review.
+        vector_store: External dense candidate index. None uses graph indexes.
         entity_labels: The labels the schema defines.
         tracer: Traces the resolver.
         max_llm_pairs: The most ambiguous pairs per label sent to the LLM.
@@ -496,6 +502,7 @@ async def resolve_persisted(
         graph_store=graph_store,
         embedder=embedder,
         entity_labels=entity_labels,
+        vector_store=vector_store,
     )
     persisted_neighbors = await fetch_persisted_neighbors(
         [entity.id for entity in entities],
@@ -548,6 +555,7 @@ async def resolve_created(
     tracer: Tracer | None,
     max_llm_pairs: int,
     error_policy: ErrorPolicy,
+    vector_store: VectorStore | None = None,
     llm_concurrency: int = DEFAULT_LLM_CONCURRENCY,
 ) -> tuple[list[Entity], ResolutionResult, list[StageFailure]]:
     """Resolve newly committed entities against everything committed.
@@ -562,6 +570,7 @@ async def resolve_created(
         created: The committed entities to resolve.
         graph_store: Where the candidate and neighbor reads run.
         embedder: Embeds entity names for candidate search and fuzzy review.
+        vector_store: External dense candidate index. None uses graph indexes.
         entity_labels: The labels the schema defines.
         tracer: Traces the resolver.
         max_llm_pairs: The most ambiguous pairs per label sent to the LLM.
@@ -584,6 +593,7 @@ async def resolve_created(
         graph_store=graph_store,
         embedder=embedder,
         entity_labels=entity_labels,
+        vector_store=vector_store,
     )
     candidates_by_index: dict[int, set[int]] = {}
     similarity_by_pair: dict[tuple[int, int], float] = {}

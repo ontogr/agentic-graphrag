@@ -34,11 +34,13 @@ from agrag.common.data_models.structure import (
     SOURCE_LABEL,
     TABLE_LABEL,
 )
+from agrag.common.data_models.vector_record import VectorKind, VectorRepairResult
 from agrag.common.schema_fingerprint import (
     LLMOutputSettings,
     RunRecord,
     run_record,
 )
+from agrag.cypher.vector_placement import VECTOR_PLACEMENT_LABEL
 from agrag.embedding.base import Embedder
 from agrag.evidence.source_status import source_status as read_source_status
 from agrag.graphdb.base import GraphStore
@@ -88,12 +90,15 @@ from agrag.ingestion.settings import (
     ExtractionSettings,
     effective_mode,
 )
+from agrag.ingestion.vector_sync import VectorSync
 from agrag.loaders import registry as _corpus_registry
 from agrag.loaders.base import Loader
 from agrag.loaders.types import ErrorPolicy, ReadOptions
 from agrag.observability import get_tracer
 from agrag.schema import load_schema
 from agrag.schema.loader import SchemaSource
+from agrag.vectordb.base import VectorStore
+from agrag.vectordb.placement import validate_placement
 
 
 logger = logging.getLogger(__name__)
@@ -243,6 +248,7 @@ class Graph:
         schema: SchemaSource,
         graph_store: GraphStore,
         embedder: Embedder,
+        vector_store: VectorStore | None = None,
         extractor: Extractor | None = None,
         tracer: Tracer | None = None,
         cutover_settings: CutoverJobSettings | None = None,
@@ -265,6 +271,7 @@ class Graph:
             graph_store: Where entities, relations, chunks, and MENTIONED_IN
                 edges are written.
             embedder: Populates entity embeddings for native vector search.
+            vector_store: Exclusive external vector index. None uses graph indexes.
             extractor: The local extraction slot, used in ``gliner`` and
                 ``hybrid`` modes.
             tracer: A tracer to record spans for every step. Pass None for none.
@@ -299,6 +306,18 @@ class Graph:
         )
         self._graph_store = graph_store
         self._embedder = embedder
+        self._vector_store = vector_store
+        self._vector_sync = (
+            VectorSync(
+                store=vector_store,
+                embedder=embedder,
+                graph_store=graph_store,
+                tracer=tracer,
+                embed_heading_path=embed_heading_path,
+            )
+            if vector_store is not None
+            else None
+        )
         settings = (
             extraction_settings
             if extraction_settings is not None
@@ -337,6 +356,7 @@ class Graph:
         schema: SchemaSource,
         graph_store: GraphStore,
         embedder: Embedder,
+        vector_store: VectorStore | None = None,
         extractor: Extractor | None = None,
         tracer: Tracer | None = None,
         cutover_settings: CutoverJobSettings | None = None,
@@ -370,6 +390,7 @@ class Graph:
             graph_store: Where entities, relations, chunks, and MENTIONED_IN
                 edges are written.
             embedder: Populates entity embeddings for native vector search.
+            vector_store: Exclusive external vector index. None uses graph indexes.
             extractor: The local extraction slot, used in ``gliner`` and
                 ``hybrid`` modes.
             tracer: A tracer to record spans for every step. Pass None for none.
@@ -422,6 +443,7 @@ class Graph:
                         SECTION_LABEL,
                         SOURCE_LABEL,
                         TABLE_LABEL,
+                        VECTOR_PLACEMENT_LABEL,
                     ]
                 )
                 await graph_store.register_relation_types(
@@ -431,44 +453,54 @@ class Graph:
                 await graph_store.setup_indexes()
                 dimensions = await embedder.dimensions()
                 distance = embedder.distance
+                await validate_placement(
+                    graph_store,
+                    vector_store=vector_store,
+                    dimensions=dimensions,
+                    distance=distance,
+                    write=False,
+                )
+                if vector_store is not None:
+                    await vector_store.initialize()
+                    for kind in VectorKind:
+                        await vector_store.ensure_collection(
+                            kind, dimensions=dimensions, distance=distance
+                        )
+                else:
+                    for label in [
+                        *entity_labels,
+                        CHUNK_LABEL,
+                        COMMUNITY_LABEL,
+                        RESOLVED_ENTITY_LABEL,
+                    ]:
+                        await graph_store.ensure_vector_index(
+                            label=label,
+                            vector_property="embedding",
+                            dimensions=dimensions,
+                            distance=distance,
+                        )
                 for label in entity_labels:
-                    await graph_store.ensure_vector_index(
-                        label=label,
-                        vector_property="embedding",
-                        dimensions=dimensions,
-                        distance=distance,
-                    )
                     await graph_store.ensure_fulltext_index(
                         label=label,
                         properties=["name"],
                     )
-                await graph_store.ensure_vector_index(
-                    label=CHUNK_LABEL,
-                    vector_property="embedding",
-                    dimensions=dimensions,
-                    distance=distance,
-                )
                 await graph_store.ensure_fulltext_index(
                     label=CHUNK_LABEL,
                     properties=["text"],
                 )
-                await graph_store.ensure_vector_index(
-                    label=COMMUNITY_LABEL,
-                    vector_property="embedding",
+                await validate_placement(
+                    graph_store,
+                    vector_store=vector_store,
                     dimensions=dimensions,
                     distance=distance,
-                )
-                await graph_store.ensure_vector_index(
-                    label=RESOLVED_ENTITY_LABEL,
-                    vector_property="embedding",
-                    dimensions=dimensions,
-                    distance=distance,
+                    write=True,
                 )
                 await _await_indexes_online(graph_store)
                 graph = cls(
                     schema=schema,
                     graph_store=graph_store,
                     embedder=embedder,
+                    vector_store=vector_store,
                     extractor=extractor,
                     tracer=tracer,
                     cutover_settings=cutover_settings,
@@ -491,11 +523,15 @@ class Graph:
                 with contextlib.suppress(Exception):
                     await resume_incomplete_jobs(
                         graph_store,
+                        vector_sync=graph._vector_sync,
                         roll_forward=graph._cleanup(),
                         lease_ttl_seconds=graph._cutover_settings.lease_ttl_seconds,
                         tracer=resolved_tracer,
                     )
             except Exception:
+                if vector_store is not None:
+                    with contextlib.suppress(Exception):
+                        await vector_store.close()
                 await graph_store.close()
                 raise
         return graph
@@ -626,6 +662,8 @@ class Graph:
             max_llm_pairs=self._max_llm_pairs,
             llm_concurrency=self._llm_concurrency,
             write_candidates=self.extraction_settings.candidates_enabled,
+            vector_store=self._vector_store,
+            vector_sync=self._vector_sync,
             cleanup=self._cleanup(error_policy),
             tracer=self._tracer,
         )
@@ -737,6 +775,8 @@ class Graph:
             max_llm_pairs=self._max_llm_pairs,
             llm_concurrency=self._llm_concurrency,
             write_candidates=self.extraction_settings.candidates_enabled,
+            vector_store=self._vector_store,
+            vector_sync=self._vector_sync,
             cleanup=self._cleanup(error_policy),
             tracer=self._tracer,
         )
@@ -772,6 +812,7 @@ class Graph:
         return await delete_document(
             document_key,
             graph_store=self._graph_store,
+            vector_sync=self._vector_sync,
             cutover_settings=self._cutover_settings,
             cleanup=self._cleanup(),
             tracer=self._tracer,
@@ -779,7 +820,12 @@ class Graph:
 
     async def source_status(self, document_key: str) -> SourceStatus:
         """Read a source's version, job lease and search index state."""
-        return await read_source_status(self._graph_store, document_key)
+        return await read_source_status(
+            self._graph_store,
+            document_key,
+            vector_store=self._vector_store,
+            dimensions=await self._embedder.dimensions(),
+        )
 
     async def purge_document(self, document_key: str) -> UpdateResult:
         """Hard-delete every stored version of a document and its evidence.
@@ -819,6 +865,7 @@ class Graph:
         return await purge_document(
             document_key,
             graph_store=self._graph_store,
+            vector_sync=self._vector_sync,
             cutover_settings=self._cutover_settings,
             cleanup=self._cleanup(),
             tracer=self._tracer,
@@ -855,6 +902,8 @@ class Graph:
             graph_store=self._graph_store,
             schema=self._schema,
             embedder=self._embedder,
+            vector_store=self._vector_store,
+            vector_sync=self._vector_sync,
             tracer=self._tracer,
             max_llm_pairs=self._max_llm_pairs,
             llm_concurrency=self._llm_concurrency,
@@ -884,6 +933,7 @@ class Graph:
             schema=self._schema,
             graph_store=self._graph_store,
             embedder=self._embedder,
+            vector_sync=self._vector_sync,
             tracer=self._tracer,
         )
 
@@ -923,6 +973,8 @@ class Graph:
             schema=self._schema,
             graph_store=self._graph_store,
             embedder=self._embedder,
+            vector_store=self._vector_store,
+            vector_sync=self._vector_sync,
             tracer=self._tracer,
             max_llm_pairs=self._max_llm_pairs,
             llm_concurrency=self._llm_concurrency,
@@ -958,6 +1010,7 @@ class Graph:
             graph_store=self._graph_store,
             schema=self._schema,
             embedder=self._embedder,
+            vector_sync=self._vector_sync,
             error_policy=error_policy,
             tracer=self._tracer,
         )
@@ -1002,6 +1055,7 @@ class Graph:
             schema=self._schema,
             graph_store=self._graph_store,
             embedder=self._embedder,
+            vector_sync=self._vector_sync,
             tracer=self._tracer,
             max_llm_pairs=self._max_llm_pairs,
             llm_concurrency=self._llm_concurrency,
@@ -1046,9 +1100,29 @@ class Graph:
         return await detect_communities(
             self._graph_store,
             embedder=self._embedder,
+            vector_sync=self._vector_sync,
             tracer=self._tracer,
             apply=apply,
             max_cluster_size=max_cluster_size,
             resolution=resolution,
             seed=seed,
         )
+
+    async def repair_vectors(
+        self, kinds: Sequence[VectorKind] | None = None, *, prune: bool = False
+    ) -> VectorRepairResult:
+        """Re-embed missing committed vectors and optionally prune absent nodes.
+
+        Args:
+            kinds: Collections to repair. None repairs all four kinds.
+            prune: Delete store ids whose nodes no longer exist in the graph.
+
+        Returns:
+            Checked, missing, upserted and pruned counts and failures per kind.
+
+        Raises:
+            ValueError: The graph uses graph-native vector indexes.
+        """
+        if self._vector_sync is None:
+            raise ValueError("repair_vectors requires an external vector store")
+        return await self._vector_sync.repair(kinds, prune=prune)

@@ -30,6 +30,7 @@ from agrag.evidence import check_citations, render_citations
 from agrag.evidence.citation import parse_citations
 from agrag.graphdb.base import GraphStore
 from agrag.memory import DecisionMemory, TaskMemory
+from agrag.vectordb.base import VectorStore
 
 
 def build_agent(
@@ -41,6 +42,7 @@ def build_agent(
     agent_id: str,
     llm_settings: AgentLLMSettings,
     agent_settings: AgentSettings | None = None,
+    vector_store: VectorStore | None = None,
     tracer: Tracer | None = None,
 ) -> Any:
     """Build one agent bound to trusted document and memory scopes.
@@ -53,6 +55,7 @@ def build_agent(
         agent_id: Trusted author identifier for memory writes.
         llm_settings: Model configuration and composition strategy.
         agent_settings: Run limits. Defaults to environment settings.
+        vector_store: Optional external store for evidence search.
         tracer: Optional OpenTelemetry tracer for agent and model calls.
 
     Returns:
@@ -82,6 +85,7 @@ def build_agent(
         settings=settings,
         middleware=middleware,
         provider=model_provider_key(llm_settings.clients[0].provider),
+        vector_store=vector_store,
         tracer=tracer,
     )
 
@@ -101,6 +105,7 @@ class _TaskAgent:
         settings: AgentSettings,
         middleware: list[Any],
         provider: str,
+        vector_store: VectorStore | None,
         tracer: Tracer | None,
     ) -> None:
         self._graph_store = graph_store
@@ -112,6 +117,7 @@ class _TaskAgent:
         self._settings = settings
         self._middleware = middleware
         self._provider = provider
+        self._vector_store = vector_store
         self._tracer = tracer
 
     async def ainvoke(  # noqa: PLR0912, PLR0915
@@ -141,6 +147,7 @@ class _TaskAgent:
             fetched_outcomes=[],
             max_chars=self._settings.max_result_characters,
             max_tool_calls=self._settings.max_tool_calls,
+            vector_store=self._vector_store,
         )
         if lookup.view is not None and lookup.view.step_counts[StepState.IN_PROGRESS]:
             await _mark_interrupted_steps(self._memory, task_name, run_state)

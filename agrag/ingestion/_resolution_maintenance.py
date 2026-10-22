@@ -31,8 +31,10 @@ from agrag.ingestion.resolved_entities import (
     matches_id,
     write_matches_and_rebuild,
 )
+from agrag.ingestion.vector_sync import VectorSync
 from agrag.loaders.types import ErrorPolicy
 from agrag.observability import record_stage_failure
+from agrag.vectordb.base import VectorStore
 
 
 async def all_entities_by_label(graph_store: GraphStore, label: str) -> list[Entity]:
@@ -96,6 +98,7 @@ async def write_and_rebuild_components(
     embedder: Embedder,
     tracer: Tracer,
     error_policy: ErrorPolicy,
+    vector_sync: VectorSync | None = None,
 ) -> tuple[list[ResolvedEntity], list[StageFailure]]:
     """Rebuild committed match components and embed the resolved entities.
 
@@ -112,6 +115,7 @@ async def write_and_rebuild_components(
         tracer: A tracer to record spans.
         error_policy: RAISE propagates the first failure; any other
             policy records it and continues.
+        vector_sync: Mirrors rebuilt resolved-entity vectors when set.
 
     Returns:
         The resolved-entities and the recorded failures.
@@ -134,6 +138,7 @@ async def write_and_rebuild_components(
                         schema=schema,
                         members=members,
                         tracer=tracer,
+                        vector_sync=vector_sync,
                     )
                 except Exception as exc:  # noqa: BLE001
                     if error_policy is ErrorPolicy.RAISE:
@@ -156,6 +161,7 @@ async def write_and_rebuild_components(
                 embedder=embedder,
                 graph_store=graph_store,
                 error_policy=error_policy,
+                vector_sync=vector_sync,
             )
         )
         return rebuilt, failures
@@ -168,6 +174,7 @@ async def deactivate_match(
     graph_store: GraphStore,
     embedder: Embedder,
     tracer: Tracer,
+    vector_sync: VectorSync | None = None,
 ) -> list[ResolvedEntity]:
     """Deactivate a semantic match and embed the replacement resolved entities."""
     with tracer.start_as_current_span(
@@ -179,12 +186,14 @@ async def deactivate_match(
             graph_store=graph_store,
             schema=schema,
             tracer=tracer,
+            vector_sync=vector_sync,
         )
         await embed_resolved_entities(
             result.resolved_entities,
             embedder=embedder,
             graph_store=graph_store,
             error_policy=ErrorPolicy.RAISE,
+            vector_sync=vector_sync,
         )
         return result.resolved_entities
 
@@ -198,6 +207,8 @@ async def reconcile_created_entities(
     tracer: Tracer,
     max_llm_pairs: int,
     llm_concurrency: int = DEFAULT_LLM_CONCURRENCY,
+    vector_store: VectorStore | None = None,
+    vector_sync: VectorSync | None = None,
 ) -> list[StageFailure]:
     """Resolve entities a committed job created against everything committed.
 
@@ -215,6 +226,8 @@ async def reconcile_created_entities(
         tracer: A tracer to record spans.
         max_llm_pairs: The most ambiguous pairs per label sent to the LLM.
         llm_concurrency: Maximum concurrent LLM verification requests.
+        vector_store: External vector index for resolution candidates, or None.
+        vector_sync: Uses the configured external vector store when set.
 
     Returns:
         The recorded failures.
@@ -234,6 +247,7 @@ async def reconcile_created_entities(
                 created,
                 graph_store=graph_store,
                 embedder=embedder,
+                vector_store=vector_store,
                 entity_labels=[entity.label for entity in schema.entities],
                 tracer=tracer,
                 max_llm_pairs=max_llm_pairs,
@@ -269,6 +283,7 @@ async def reconcile_created_entities(
                 embedder=embedder,
                 tracer=tracer,
                 error_policy=ErrorPolicy.SKIP,
+                vector_sync=vector_sync,
             )
         except Exception as exc:  # noqa: BLE001
             trace_id, span_id = record_stage_failure(exc)
@@ -295,6 +310,8 @@ async def consolidate(
     tracer: Tracer,
     max_llm_pairs: int,
     llm_concurrency: int = DEFAULT_LLM_CONCURRENCY,
+    vector_store: VectorStore | None = None,
+    vector_sync: VectorSync | None = None,
 ) -> ConsolidationReport:
     """Run resolution against every persisted entity. See ``Graph.consolidate``."""
     with tracer.start_as_current_span("agrag.ingestion.consolidate"):
@@ -315,6 +332,7 @@ async def consolidate(
                 all_entities,
                 graph_store=graph_store,
                 embedder=embedder,
+                vector_store=vector_store,
                 entity_labels=[entity.label for entity in schema.entities],
                 tracer=tracer,
                 max_llm_pairs=max_llm_pairs,
@@ -365,6 +383,7 @@ async def consolidate(
                 embedder=embedder,
                 tracer=tracer,
                 error_policy=ErrorPolicy.SKIP,
+                vector_sync=vector_sync,
             )
             consolidation_failures.extend(rebuild_failures)
 
@@ -388,6 +407,7 @@ async def reevaluate(
     tracer: Tracer,
     max_llm_pairs: int,
     llm_concurrency: int = DEFAULT_LLM_CONCURRENCY,
+    vector_sync: VectorSync | None = None,
 ) -> ReevaluationReport:
     """Reevaluate matches among the given entities. See ``Graph.reevaluate``."""
     with tracer.start_as_current_span(
@@ -476,6 +496,7 @@ async def reevaluate(
                     schema=schema,
                     members=[entities_by_id[m] for m in member_ids],
                     tracer=tracer,
+                    vector_sync=vector_sync,
                 )
             rebuilt.append(rebuild.resolved_entity)
             matches_added.extend(component)
@@ -497,6 +518,7 @@ async def reevaluate(
                     graph_store=graph_store,
                     schema=schema,
                     tracer=tracer,
+                    vector_sync=vector_sync,
                 )
             rebuilt.extend(deactivation.resolved_entities)
             matches_removed.append(match_id)
@@ -506,6 +528,7 @@ async def reevaluate(
             embedder=embedder,
             graph_store=graph_store,
             error_policy=ErrorPolicy.SKIP,
+            vector_sync=vector_sync,
         )
         touched = {e for d in matches_added for e in (d.entity_a_id, d.entity_b_id)}
         touched |= {e for pair in removed_pairs for e in pair}
