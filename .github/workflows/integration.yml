@@ -106,6 +106,20 @@ jobs:
             dist: loadgroup
             services: falkordb
             timeout: 15
+          - name: vector-seam
+            backend: neo4j
+            paths: "tests/integration/vectordb"
+            workers: auto
+            dist: loadgroup
+            services: neo4j
+            timeout: 15
+          - name: vector-seam
+            backend: falkordb
+            paths: "tests/integration/vectordb"
+            workers: auto
+            dist: loadgroup
+            services: falkordb
+            timeout: 15
           - name: evidence-search
             backend: falkordb
             paths: "tests/integration/retrieval/evidence/test_search.py tests/integration/retrieval/evidence/test_citations.py"
