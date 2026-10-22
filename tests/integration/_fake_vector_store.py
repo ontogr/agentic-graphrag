@@ -148,6 +148,8 @@ class FakeVectorStore(VectorStore):
                 if query_tokens
                 else 0.0
             )
+            if alpha == 0.0 and lexical == 0.0:
+                continue
             matches.append((record, alpha * dense + (1.0 - alpha) * lexical))
         matches.sort(key=lambda item: (-item[1], str(item[0].id)))
         return [self._hit(record, score) for record, score in matches[:limit]]

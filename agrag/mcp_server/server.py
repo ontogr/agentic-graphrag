@@ -104,14 +104,13 @@ def _store_lifespan(
     async def lifespan(_server: MCPServer) -> AsyncIterator[_Session]:
         try:
             await store.connect()
-            if vector_store is not None:
-                await validate_placement(
-                    store,
-                    vector_store=vector_store,
-                    dimensions=await embedder.dimensions(),
-                    distance=embedder.distance,
-                    write=False,
-                )
+            await validate_placement(
+                store,
+                vector_store=vector_store,
+                dimensions=await embedder.dimensions(),
+                distance=embedder.distance,
+                write=False,
+            )
         except Exception:
             _LOGGER.exception("Could not validate the evidence store placement")
             raise

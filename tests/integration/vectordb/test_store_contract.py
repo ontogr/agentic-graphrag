@@ -134,8 +134,13 @@ class TestVectorStoreContract:
             UUID(int=3),
             UUID(int=1),
             UUID(int=2),
-            UUID(int=4),
         ]
+        assert (
+            await vector_store.hybrid_search(
+                VectorKind.ENTITY, [1.0, 0.0], "mango", limit=4, alpha=0.0
+            )
+            == []
+        )
         assert [hit.score for hit in mixed_hybrid] == sorted(
             (hit.score for hit in mixed_hybrid), reverse=True
         )
@@ -163,6 +168,22 @@ class TestVectorStoreContract:
         assert len(hits) == 2
         assert hits[0].id == UUID(int=1)
         assert hits[0].payload == {"labels": ["Person", "Entity"]}
+        capped_hits = await vector_store.search(
+            VectorKind.ENTITY,
+            [1.0, 0.0],
+            limit=1,
+            labels=["Person", "Organization"],
+        )
+        assert [hit.id for hit in capped_hits] == [UUID(int=1)]
+        capped_hybrid = await vector_store.hybrid_search(
+            VectorKind.ENTITY,
+            [1.0, 0.0],
+            "person",
+            limit=1,
+            alpha=1.0,
+            labels=["Person", "Organization"],
+        )
+        assert [hit.id for hit in capped_hybrid] == [UUID(int=1)]
         hybrid_hits = await vector_store.hybrid_search(
             VectorKind.ENTITY,
             [1.0, 0.0],
