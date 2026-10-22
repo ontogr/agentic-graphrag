@@ -7,6 +7,8 @@ default) or ``falkordb``. Tests that depend on Neo4j-only behavior carry the
 
 import asyncio
 import os
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from uuid import uuid4
 
 from opentelemetry.trace import Tracer
@@ -55,6 +57,35 @@ def build_test_store(*, tracer: Tracer | None = None) -> GraphStore:
             settings=base.model_copy(update={"graph": _FALKORDB_GRAPH}), tracer=tracer
         )
     return build_graph_store("neo4j", tracer=tracer)
+
+
+@asynccontextmanager
+async def isolated_test_store() -> AsyncIterator[GraphStore]:
+    """Yield an unconnected store whose data no other test shares.
+
+    A FalkorDB store gets its own graph, dropped on exit. Deleted nodes stay in
+    the full-text index statistics of a graph, so tests that assert on ranking
+    cannot share a graph with tests that delete data. A Neo4j store uses the
+    configured database, as ``build_test_store`` does, and the test removes its
+    own data.
+    """
+    if selected_backend() != "falkordb":
+        yield build_test_store()
+        return
+    from redis.asyncio import Redis  # noqa: PLC0415
+
+    settings = FalkorDBSettings()
+    graph = f"agrag_test_{uuid4().hex[:12]}"
+    store = FalkorDBGraphStore(settings=settings.model_copy(update={"graph": graph}))
+    try:
+        yield store
+    finally:
+        await store.close()
+        password = settings.password
+        async with Redis.from_url(
+            settings.url, password=password.get_secret_value() if password else None
+        ) as redis:
+            await redis.execute_command("GRAPH.DELETE", graph)
 
 
 async def await_indexes(store: GraphStore, timeout: float = 60.0) -> None:
