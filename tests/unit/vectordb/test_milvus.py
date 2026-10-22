@@ -44,7 +44,6 @@ class TestMilvusSettings:
             MilvusSettings(
                 _env_file=None,
                 uri=f"http://milvus.example.org:19530{suffix}",
-                require_tls=True,
                 collection_prefix="test",
             )
         assert "query strings or fragments" in str(error.value)
@@ -63,13 +62,12 @@ class TestMilvusSettings:
         assert "unencrypted" in str(error.value)
         assert token not in str(error.value)
 
-    def test_require_tls_rejects_remote_without_token(self) -> None:
-        """Strict TLS applies even when the remote endpoint has no credential."""
+    def test_rejects_plaintext_remote_without_token(self) -> None:
+        """Plaintext is rejected for every non-local host, with or without a token."""
         with pytest.raises(ValidationError, match="encryption is required"):
             MilvusSettings(
                 _env_file=None,
                 uri="http://milvus.example.org:19530",
                 token=None,
-                require_tls=True,
                 collection_prefix="test",
             )

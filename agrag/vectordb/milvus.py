@@ -66,8 +66,6 @@ class MilvusSettings(BaseSettings):
     Attributes:
         uri: HTTP(S) endpoint. Env: ``MILVUS_URI``.
         token: Optional authentication token. Env: ``MILVUS_TOKEN``.
-        require_tls: Require TLS for non-local endpoints, even without a token.
-            Env: ``MILVUS_REQUIRE_TLS``.
         collection_prefix: Required namespace unique to one graph, starting with
             a letter and containing at most 41 letters, digits or underscores.
             Env: ``MILVUS_COLLECTION_PREFIX``.
@@ -83,12 +81,11 @@ class MilvusSettings(BaseSettings):
 
     uri: str = "http://localhost:19530"
     token: SecretStr | None = None
-    require_tls: bool = False
     collection_prefix: CollectionPrefix
 
     @model_validator(mode="after")
     def _validate_connection(self) -> MilvusSettings:
-        """Require a remote-server URI and protect remote credentials with TLS."""
+        """Require a remote-server URI and reject plaintext non-local hosts."""
         parsed = urlparse(self.uri)
         if parsed.scheme not in {"http", "https"} or not parsed.hostname:
             raise ValueError("MILVUS_URI must be an http:// or https:// server URI")
@@ -100,7 +97,7 @@ class MilvusSettings(BaseSettings):
             url=self.uri,
             has_credential=bool(self.token and self.token.get_secret_value()),
             encrypted_schemes=frozenset({"https"}),
-            require_encryption=self.require_tls,
+            require_encryption=True,
         )
         return self
 
@@ -240,20 +237,31 @@ class MilvusVectorStore(VectorStore):
                 )
             await client.load_collection(name)
 
-    async def collection_info(self, kind: VectorKind) -> CollectionInfo | None:
-        """Return schema metadata and a Strong count, including unflushed writes."""
+    async def collection_info(
+        self, kind: VectorKind, *, exact_count: bool = True
+    ) -> CollectionInfo | None:
+        """Return schema metadata and the record count, or None when absent.
+
+        Args:
+            kind: The collection to describe.
+            exact_count: Run a Strong count that includes unflushed writes. When
+                false, use the collection statistics, which can lag recent writes.
+        """
         async with self._connection("collection_info", kind) as client:
             name = self.collection_name(kind)
             if not await client.has_collection(name):
                 return None
             dimensions, distance = await self._metadata(client, name)
-            await client.load_collection(name)
-            rows = await client.query(
-                name, output_fields=["count(*)"], consistency_level="Strong"
-            )
-            return CollectionInfo(
-                dimensions=dimensions, distance=distance, count=int(rows[0]["count(*)"])
-            )
+            if exact_count:
+                await client.load_collection(name)
+                rows = await client.query(
+                    name, output_fields=["count(*)"], consistency_level="Strong"
+                )
+                count = int(rows[0]["count(*)"])
+            else:
+                stats = await client.get_collection_stats(name)
+                count = int(stats["row_count"])
+            return CollectionInfo(dimensions=dimensions, distance=distance, count=count)
 
     async def delete_collection(self, kind: VectorKind) -> None:
         """Drop a collection if it exists."""

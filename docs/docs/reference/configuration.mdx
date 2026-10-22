@@ -62,9 +62,8 @@ Class: `MilvusSettings`. Prefix: `MILVUS_`. Requires the `milvus` extra and Milv
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `MILVUS_URI` | `http://localhost:19530` | HTTP(S) server endpoint. The repository's Compose service publishes `7971`, so set this explicitly for local Compose. Use HTTPS for remote authentication, including Zilliz Cloud. Local-file and embedded endpoints are unsupported. |
+| `MILVUS_URI` | `http://localhost:19530` | HTTP(S) server endpoint. The repository's Compose service publishes `7971`, so set this explicitly for local Compose. Non-local endpoints must use HTTPS, including Zilliz Cloud; plaintext is allowed only for loopback hosts. Local-file and embedded endpoints are unsupported. |
 | `MILVUS_TOKEN` | none | Authentication token. URI-embedded credentials are rejected. |
-| `MILVUS_REQUIRE_TLS` | `false` | Reject plaintext non-local endpoints even without a token. Loopback connections are allowed. |
 | `MILVUS_COLLECTION_PREFIX` | required | Unique namespace for one graph. Starts with a letter and contains at most 41 letters, digits or underscores. |
 
 Collections store dense vectors and an analyzed BM25 text field. Stored text is truncated at a whole UTF-8 character within 65535 bytes, with one warning per upsert call. Truncation does not change the dense embedding or its input. Labels are an any-of scalar-array filter, with at most 4096 labels per record and at most 256 UTF-8 bytes per label. Oversized labels reject the whole call before writing. Server failures can leave earlier upsert or delete batches applied; retrying the same records or IDs is idempotent. Reads use Strong consistency after writes and deletes without a manual flush.

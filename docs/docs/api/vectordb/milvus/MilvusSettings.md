@@ -13,8 +13,6 @@ Milvus or Zilliz Cloud connection and collection namespace.
 
 - [**uri**](#agrag-vectordb-milvus-MilvusSettings-uri) (<code>str</code>) – HTTP(S) endpoint. Env: `MILVUS_URI`.
 - [**token**](#agrag-vectordb-milvus-MilvusSettings-token) (<code>SecretStr | None</code>) – Optional authentication token. Env: `MILVUS_TOKEN`.
-- [**require_tls**](#agrag-vectordb-milvus-MilvusSettings-require_tls) (<code>bool</code>) – Require TLS for non-local endpoints, even without a token.
-  Env: `MILVUS_REQUIRE_TLS`.
 - [**collection_prefix**](#agrag-vectordb-milvus-MilvusSettings-collection_prefix) (<code>[CollectionPrefix](../settings/CollectionPrefix.md)</code>) – Required namespace unique to one graph, starting with
   a letter and containing at most 41 letters, digits or underscores.
   Env: `MILVUS_COLLECTION_PREFIX`.
@@ -33,12 +31,6 @@ collection_prefix: CollectionPrefix
 
 ```python
 model_config = SettingsConfigDict(env_prefix='MILVUS_', env_file='.env', extra='ignore', hide_input_in_errors=True)
-```
-
-## `require_tls` \{#agrag-vectordb-milvus-MilvusSettings-require_tls}
-
-```python
-require_tls: bool = False
 ```
 
 ## `token` \{#agrag-vectordb-milvus-MilvusSettings-token}

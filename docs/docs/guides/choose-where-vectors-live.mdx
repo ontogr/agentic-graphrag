@@ -49,7 +49,7 @@ MILVUS_URI=http://localhost:7971
 MILVUS_COLLECTION_PREFIX=project_notes
 ```
 
-Remote authentication requires an HTTPS endpoint and `MILVUS_TOKEN`. Set the token privately, not in the URI or Git. Construct `MilvusVectorStore(settings=MilvusSettings())` from `agrag.vectordb` and use it in place of Qdrant in the example below. Milvus generates BM25 vectors on the server and uses normalized weighted ranking for hybrid search. Alpha zero searches BM25 only and omits records with no lexical match; alpha one searches dense vectors only. Stored BM25 text is truncated at a whole UTF-8 character within 65535 bytes without changing dense embeddings. [Milvus settings](../reference/configuration.mdx#milvus) lists label limits, consistency, and response-size constraints.
+Non-local endpoints require HTTPS. Remote authentication also needs `MILVUS_TOKEN`. Set the token privately, not in the URI or Git. Construct `MilvusVectorStore(settings=MilvusSettings())` from `agrag.vectordb` and use it in place of Qdrant in the example below. Milvus generates BM25 vectors on the server and uses normalized weighted ranking for hybrid search. Alpha zero searches BM25 only and omits records with no lexical match; alpha one searches dense vectors only. Stored BM25 text is truncated at a whole UTF-8 character within 65535 bytes without changing dense embeddings. [Milvus settings](../reference/configuration.mdx#milvus) lists label limits, consistency, and response-size constraints.
 
 ## Open and search the graph
 

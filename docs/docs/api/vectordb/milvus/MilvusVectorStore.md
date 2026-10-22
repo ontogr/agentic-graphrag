@@ -20,7 +20,7 @@ path so a zero-weight path cannot add hits. All reads use Strong consistency.
 **Functions:**
 
 - [**close**](#agrag-vectordb-milvus-MilvusVectorStore-close) – Release the connection; a later initialize reconnects.
-- [**collection_info**](#agrag-vectordb-milvus-MilvusVectorStore-collection_info) – Return schema metadata and a Strong count, including unflushed writes.
+- [**collection_info**](#agrag-vectordb-milvus-MilvusVectorStore-collection_info) – Return schema metadata and the record count, or None when absent.
 - [**collection_name**](#agrag-vectordb-milvus-MilvusVectorStore-collection_name) – Return the prefixed collection name for a kind.
 - [**delete**](#agrag-vectordb-milvus-MilvusVectorStore-delete) – Delete in batches, ignoring absent IDs and collections.
 - [**delete_collection**](#agrag-vectordb-milvus-MilvusVectorStore-delete_collection) – Drop a collection if it exists.
@@ -49,10 +49,16 @@ Release the connection; a later initialize reconnects.
 ## `collection_info` \{#agrag-vectordb-milvus-MilvusVectorStore-collection_info}
 
 ```python
-collection_info(kind:VectorKind) -> CollectionInfo | None
+collection_info(kind:VectorKind, *, exact_count:bool = True) -> CollectionInfo | None
 ```
 
-Return schema metadata and a Strong count, including unflushed writes.
+Return schema metadata and the record count, or None when absent.
+
+**Parameters:**
+
+- **kind** (<code>[VectorKind](../../common/data_models/vector_record/VectorKind.md)</code>) – The collection to describe.
+- **exact_count** (<code>bool</code>) – Run a Strong count that includes unflushed writes. When
+  false, use the collection statistics, which can lag recent writes.
 
 ## `collection_name` \{#agrag-vectordb-milvus-MilvusVectorStore-collection_name}
 
