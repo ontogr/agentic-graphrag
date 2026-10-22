@@ -5,6 +5,12 @@ from collections.abc import AsyncIterator
 from uuid import UUID, uuid4
 
 import pytest
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
+    InMemorySpanExporter,
+)
+from opentelemetry.trace import SpanKind
 
 from agrag.common.data_models.vector_record import Distance, VectorKind, VectorRecord
 from agrag.vectordb.errors import CollectionMismatchError
@@ -196,3 +202,48 @@ class TestMilvusVectorStore:
         with pytest.raises(ValueError, match="labels"):
             await milvus_store.upsert(VectorKind.ENTITY, records, batch_size=1)
         assert await milvus_store.list_ids(VectorKind.ENTITY) == []
+
+
+class TestMilvusTracing:
+    """Operations emit documented spans to a supplied tracer."""
+
+    async def test_spans_group_batches(self, milvus_store: MilvusVectorStore) -> None:
+        """Upsert and delete group their batch spans under an internal span."""
+        exporter = InMemorySpanExporter()
+        provider = TracerProvider()
+        provider.add_span_processor(SimpleSpanProcessor(exporter))
+        traced = MilvusVectorStore(
+            milvus_store.settings, tracer=provider.get_tracer("test")
+        )
+        records = [
+            VectorRecord(id=UUID(int=i), vector=[1.0, 0.0], labels=[], text="alpha")
+            for i in range(1, 4)
+        ]
+        try:
+            await traced.upsert(VectorKind.ENTITY, records, batch_size=2)
+            await traced.hybrid_search(
+                VectorKind.ENTITY, [1.0, 0.0], "alpha", limit=1, alpha=0.5
+            )
+            await traced.delete(VectorKind.ENTITY, [record.id for record in records])
+        finally:
+            await traced.close()
+
+        spans = {span.name: span for span in exporter.get_finished_spans()}
+        upsert = spans["agrag.vectordb.upsert"]
+        assert upsert.kind == SpanKind.INTERNAL
+        assert (upsert.attributes or {})["agrag.record_count"] == 3
+        batches = [
+            span
+            for span in exporter.get_finished_spans()
+            if span.name == "agrag.vectordb.upsert_batch"
+        ]
+        assert [
+            (b.attributes or {}).get("db.operation.batch.size") for b in batches
+        ] == [
+            2,
+            None,
+        ]
+        assert all(b.kind == SpanKind.CLIENT for b in batches)
+        hybrid = spans["agrag.vectordb.hybrid_search"]
+        assert (hybrid.attributes or {})["agrag.alpha"] == 0.5
+        assert spans["agrag.vectordb.delete_batch"].kind == SpanKind.CLIENT

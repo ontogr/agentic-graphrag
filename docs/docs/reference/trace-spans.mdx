@@ -193,6 +193,25 @@ Operations that send a request open a `CLIENT` span. `qdrant.upsert` and `qdrant
 
 Every span except `qdrant.initialize` and `qdrant.close` also carries `db.collection.name`.
 
+## Milvus spans
+
+Milvus operations open spans when a tracer is supplied to `MilvusVectorStore`. Without a tracer, no spans are emitted. Every span carries `db.system.name="milvus"` and `db.collection.name`. Spans do not record endpoint URLs, tokens, vectors, query text, or source text. SDK errors are translated to sanitized messages before the span ends.
+
+Operations that send a request open a `CLIENT` span. `agrag.vectordb.upsert` and `agrag.vectordb.delete` open an `INTERNAL` span that groups one `CLIENT` span for each batch.
+
+| Span | Kind | Extra attributes | Opens when |
+|---|---|---|---|
+| `agrag.vectordb.ensure_collection` | `CLIENT` | none | Collection schema is created or checked |
+| `agrag.vectordb.collection_info` | `CLIENT` | none | Collection configuration is read, with an exact count unless the caller opts out |
+| `agrag.vectordb.delete_collection` | `CLIENT` | none | A collection is removed |
+| `agrag.vectordb.upsert` | `INTERNAL` | `agrag.record_count` | Records are written in batches |
+| `agrag.vectordb.upsert_batch` | `CLIENT` | `db.operation.batch.size` (absent for a single record) | One batch is written |
+| `agrag.vectordb.search` | `CLIENT` | `agrag.limit` | Dense vectors are searched, including hybrid alpha one |
+| `agrag.vectordb.hybrid_search` | `CLIENT` | `agrag.limit`, `agrag.alpha` | BM25 or fused ranks are searched with alpha below one |
+| `agrag.vectordb.delete` | `INTERNAL` | `agrag.record_count` | IDs are deleted in batches |
+| `agrag.vectordb.delete_batch` | `CLIENT` | `db.operation.batch.size` (absent for a single ID) | One batch of IDs is deleted |
+| `agrag.vectordb.list_ids` | `CLIENT` | `agrag.limit` | IDs are read in ascending UUID order |
+
 ## Embedding spans
 
 | Span | Attributes |

@@ -7,7 +7,7 @@ import json
 import logging
 from collections.abc import AsyncGenerator, Mapping, Sequence
 from contextlib import asynccontextmanager
-from typing import TYPE_CHECKING, ClassVar
+from typing import TYPE_CHECKING, ClassVar, Self
 from urllib.parse import urlparse
 from uuid import UUID
 from weakref import WeakKeyDictionary
@@ -84,7 +84,7 @@ class MilvusSettings(BaseSettings):
     collection_prefix: CollectionPrefix
 
     @model_validator(mode="after")
-    def _validate_connection(self) -> MilvusSettings:
+    def _validate_connection(self) -> Self:
         """Require a remote-server URI and reject plaintext non-local hosts."""
         parsed = urlparse(self.uri)
         if parsed.scheme not in {"http", "https"} or not parsed.hostname:
