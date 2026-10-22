@@ -25,13 +25,13 @@ from agrag.common.data_models.graph_schema import (
 )
 from agrag.cypher.entities import validate_identifier
 from agrag.embedding.base import Embedder
-from agrag.graphdb import build_graph_store
 from agrag.graphdb.base import GraphStore
 from agrag.ingestion.extract import Extractor
 from agrag.ingestion.graph import Graph
 from agrag.ingestion.settings import ExtractionSettings
 from agrag.loaders.types import ErrorPolicy
 from tests.conftest import FAKE_EMBEDDING_DIMENSIONS
+from tests.integration._backend import build_test_store
 from tests.integration._schema_cleanup import drop_schema_for
 from tests.integration.e2e._artifact import write_artifact
 
@@ -182,7 +182,7 @@ class TestCandidatesE2E:
                 )
             ],
         )
-        store = build_graph_store("neo4j")
+        store = build_test_store()
         extractor = _CandidateExtractor(person, organization, relation)
         graph = await Graph.open(
             schema=schema,

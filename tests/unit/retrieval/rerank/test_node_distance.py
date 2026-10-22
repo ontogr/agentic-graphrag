@@ -10,6 +10,7 @@ from uuid import uuid4
 from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.resolved_entity import ResolvedEntity
 from agrag.common.data_models.search_result import SearchResult
+from agrag.cypher.relations import shortest_path_distance_query
 from agrag.retrieval.rerank.node_distance import node_distance_rerank
 
 
@@ -19,6 +20,10 @@ class MockGraphStore:
     def __init__(self, distances: dict | None = None) -> None:
         """Method under test."""
         self._distances = distances or {}
+
+    def shortest_path_distance_query(self) -> str:
+        """Return the unbounded shortest path query."""
+        return shortest_path_distance_query()
 
     async def execute_read(self, query: str, params: dict) -> list:
         """Method under test."""

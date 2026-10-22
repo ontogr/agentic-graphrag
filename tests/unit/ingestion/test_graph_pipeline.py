@@ -35,7 +35,6 @@ from agrag.common.data_models.graph_schema import (
 )
 from agrag.common.data_models.vector_record import VectorHit
 from agrag.cypher.cutover_job_read import find_incomplete_jobs_query
-from agrag.cypher.documents import indexes_not_ready_query
 from agrag.embedding.base import Embedder
 from agrag.graphdb.base import GraphStore
 from agrag.graphdb.serialize import parse_entity_node
@@ -49,10 +48,11 @@ from agrag.ingestion.extract import Extractor
 from agrag.ingestion.graph import Graph
 from agrag.ingestion.reports import AddResult
 from agrag.loaders.types import ErrorPolicy
+from tests.unit.ingestion._index_fake import NoIndexesMixin
 from tests.unit.ingestion._lease_fake import CutoverJobLeaseFake
 
 
-class MockStore(CutoverJobLeaseFake, GraphStore):
+class MockStore(NoIndexesMixin, CutoverJobLeaseFake, GraphStore):
     """In-memory GraphStore that records calls for assertions."""
 
     def __init__(self) -> None:
@@ -105,7 +105,6 @@ class MockStore(CutoverJobLeaseFake, GraphStore):
         self.execute_read_calls.append((query, parameters))
         if query in {
             find_incomplete_jobs_query(),
-            indexes_not_ready_query(),
         }:
             return []
         if self._read_index < len(self.execute_read_responses):

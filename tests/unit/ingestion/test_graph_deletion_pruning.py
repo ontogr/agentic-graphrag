@@ -20,6 +20,7 @@ from agrag.common.data_models.graph_schema import EntityType, GraphSchema
 from agrag.common.data_models.vector_record import Distance, VectorHit
 from agrag.graphdb.base import GraphStore
 from agrag.ingestion.resolved_entities import prune_orphaned_entities
+from tests.unit.ingestion._index_fake import NoIndexesMixin
 
 
 def _schema() -> GraphSchema:
@@ -37,7 +38,7 @@ def _node(entity_id: UUID, name: str) -> dict[str, Any]:
     return {"id": str(entity_id), "name": name, "merge_key": f"Person:{name}"}
 
 
-class _ScriptedStore(GraphStore):
+class _ScriptedStore(NoIndexesMixin, GraphStore):
     """GraphStore serving canned reads and routed write responses."""
 
     def __init__(

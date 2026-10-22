@@ -23,7 +23,6 @@ from agrag.common.data_models.extraction import ExtractedEntity
 from agrag.common.data_models.graph_record import RelationRecord
 from agrag.common.data_models.provenance import TextProvenance
 from agrag.cypher.entities import validate_identifier
-from agrag.graphdb import build_graph_store
 from agrag.ingestion.extract import ExtractionLLMSettings
 from agrag.ingestion.resolve import (
     ComparisonVerdict,
@@ -34,6 +33,7 @@ from agrag.ingestion.resolve import (
     Resolver,
 )
 from agrag.ingestion.resolve.candidate_source import fetch_persisted_neighbors
+from tests.integration._backend import build_test_store
 
 
 neo4j_missing = importlib.util.find_spec("neo4j") is None
@@ -93,7 +93,7 @@ class TestFetchPersistedNeighborsIntegration:
     @pytest.fixture(autouse=True)
     async def setup_store(self) -> AsyncGenerator[None, None]:
         """Set up a fresh store with a unique entity label."""
-        self.store = build_graph_store("neo4j")
+        self.store = build_test_store()
         await self.store.connect()
         self.label = validate_identifier(f"Neighbor_{uuid4().hex[:8]}")
         yield

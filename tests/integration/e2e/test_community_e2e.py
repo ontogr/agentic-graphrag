@@ -24,7 +24,6 @@ from agrag.common.data_models.resolved_entity import ResolvedEntity
 from agrag.common.data_models.vector_record import Distance
 from agrag.cypher.entities import validate_identifier
 from agrag.embedding.base import Embedder
-from agrag.graphdb import build_graph_store
 from agrag.graphdb.base import GraphStore
 from agrag.ingestion.community import required_member_ids
 from agrag.ingestion.extract import Extractor
@@ -32,6 +31,7 @@ from agrag.ingestion.graph import Graph
 from agrag.retrieval.recipes import HYBRID_RERANKED, THEMATIC
 from agrag.retrieval.search_engine import SearchEngine
 from agrag.retrieval.settings import RetrievalSettings
+from tests.integration._backend import build_test_store
 from tests.integration._schema_cleanup import delete_resolved_entities, drop_schema_for
 from tests.integration.e2e._artifact import write_artifact
 
@@ -212,7 +212,7 @@ async def _cleanup_community_test_data(
 @pytest.mark.skipif(graspologic_missing, reason="graspologic-native missing")
 async def test_community_via_store_e2e() -> None:  # noqa: PLR0915
     """Store-seeded seam: upsert -> detect -> HYBRID_RERANKED + THEMATIC."""
-    store = build_graph_store("neo4j")
+    store = build_test_store()
     await store.connect()
     suffix = uuid4().hex[:8]
     person_label = validate_identifier(f"Person_{suffix}")
@@ -438,7 +438,7 @@ async def test_community_via_graph_add_e2e() -> None:  # noqa: PLR0915
     dim = 4
     embedder = _FixedEmbedder(dim=dim, vector=_run_vector(suffix, dim))
     extractor = _FakeWorksAtExtractor(person_label, org_label)
-    store = build_graph_store("neo4j")
+    store = build_test_store()
     graph = await Graph.open(
         schema=schema, graph_store=store, embedder=embedder, extractor=extractor
     )
@@ -582,7 +582,7 @@ async def test_community_via_graph_add_e2e() -> None:  # noqa: PLR0915
 )
 async def test_community_real_baml() -> None:
     """Real BAML: title non-empty, rating 0-10, findings list, embedding length."""
-    store = build_graph_store("neo4j")
+    store = build_test_store()
     await store.connect()
     suffix = uuid4().hex[:8]
     person_label = validate_identifier(f"Person_{suffix}")

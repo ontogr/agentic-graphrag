@@ -14,8 +14,8 @@ import pytest
 from agrag.common.data_models.extraction import ExtractedEntity
 from agrag.common.data_models.graph_schema import EntityType, GraphSchema
 from agrag.cypher.entities import fetch_all_by_label_query
-from agrag.graphdb import build_graph_store
 from agrag.ingestion.merge import apply_merge, compute_merge
+from tests.integration._backend import build_test_store
 
 
 neo4j_missing = importlib.util.find_spec("neo4j") is None
@@ -33,7 +33,7 @@ class TestApplyMergeAncestorLabelsIntegration:
         with its leaf label Vendor. Resolution therefore never merges
         Vendors into Organizations.
         """
-        store = build_graph_store("neo4j")
+        store = build_test_store()
         await store.connect()
         schema = GraphSchema(
             name="test",

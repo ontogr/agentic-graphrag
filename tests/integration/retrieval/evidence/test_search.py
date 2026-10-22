@@ -347,6 +347,7 @@ class TestScope:
         assert {hit.document_key for hit in result.hits} == {evidence_env.harbor}
 
 
+@pytest.mark.neo4j_only
 class TestIndexReadiness:
     """Search reports index_not_ready instead of an empty list."""
 
@@ -440,6 +441,7 @@ class TestHistory:
 class TestSearchFailures:
     """Read errors and oversized requests stay inside search's contract."""
 
+    @pytest.mark.neo4j_only
     async def test_index_state_read_error_returns_a_failed_result(
         self,
         evidence_env: EvidenceEnv,
@@ -512,6 +514,7 @@ class TestSearchFailures:
         assert result.status is EvidenceSearchStatus.OK
         assert len(result.hits) == 4
 
+    @pytest.mark.neo4j_only
     async def test_index_with_the_right_name_but_another_label_is_not_ready(
         self,
         evidence_env: EvidenceEnv,
@@ -592,6 +595,7 @@ class TestReAddedDocument:
 class TestTelemetry:
     """Full-text search terms do not reach exported span attributes."""
 
+    @pytest.mark.neo4j_only
     async def test_search_terms_are_not_exported_as_span_attributes(
         self, evidence_env: EvidenceEnv, embedder: BagOfWordsEmbedder
     ) -> None:

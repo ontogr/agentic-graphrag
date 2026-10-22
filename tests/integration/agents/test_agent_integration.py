@@ -26,9 +26,9 @@ from agrag.common.data_models.search_result import SearchResult
 from agrag.common.data_models.vector_record import Distance
 from agrag.cypher.entities import validate_identifier
 from agrag.embedding.base import Embedder
-from agrag.graphdb import build_graph_store
 from agrag.ingestion.graph import Graph
 from tests.conftest import FAKE_EMBEDDING_DIMENSIONS
+from tests.integration._backend import await_indexes, build_test_store
 from tests.integration.retrieval.evidence._corpus import (
     NoEntityExtractor,
     make_document,
@@ -146,7 +146,7 @@ class TestAgentBuildIntegration:
     @pytest.fixture(autouse=True)
     async def setup_engine(self) -> AsyncGenerator[None, None]:
         """Set up a graph store and isolated labels for this test."""
-        self.store = build_graph_store("neo4j")
+        self.store = build_test_store()
         await self.store.connect()
         self.label = validate_identifier(f"Person_{uuid4().hex[:8]}")
         self.other_label = validate_identifier(f"Organization_{uuid4().hex[:8]}")
@@ -212,7 +212,7 @@ class TestAgentBuildIntegration:
             chunker=Chunker(size=2000),
         )
         await graph.add(documents=[make_document(self.document_one, text)])
-        await self.store.execute_read("CALL db.awaitIndexes(60)")
+        await await_indexes(self.store)
 
     @staticmethod
     def _message_text(result: dict) -> str:

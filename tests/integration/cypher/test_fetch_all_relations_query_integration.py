@@ -21,8 +21,8 @@ from agrag.common.data_models.graph_record import NodeRecord, RelationRecord
 from agrag.cypher.entities import validate_identifier
 from agrag.cypher.relations import fetch_all_relations_query_cursor
 from agrag.embedding.base import Embedder
-from agrag.graphdb import build_graph_store
 from tests.conftest import FAKE_EMBEDDING_DIMENSIONS
+from tests.integration._backend import build_test_store
 
 
 neo4j_missing = importlib.util.find_spec("neo4j") is None
@@ -49,7 +49,7 @@ class TestFetchAllRelationsQueryIntegration:
     @pytest.fixture(autouse=True)
     async def setup_store(self) -> AsyncGenerator[None, None]:
         """Set up a fresh store with a unique entity label."""
-        self.store = build_graph_store("neo4j")
+        self.store = build_test_store()
         await self.store.connect()
         self.entity_label = validate_identifier(f"Entity_{uuid4().hex[:8]}")
         self.embedder = _FixedEmbedder()

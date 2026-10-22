@@ -27,7 +27,6 @@ from agrag.common.data_models.provenance import TextProvenance
 from agrag.common.data_models.vector_record import Distance
 from agrag.cypher.entities import validate_identifier
 from agrag.embedding.base import Embedder
-from agrag.graphdb import build_graph_store
 from agrag.ingestion.extract import Extractor
 from agrag.ingestion.graph import Graph
 from agrag.ingestion.merge import mentioned_in_id
@@ -36,6 +35,7 @@ from agrag.retrieval.recipes import CHUNK, ENTITY, HYBRID
 from agrag.retrieval.search_engine import SearchEngine
 from agrag.retrieval.settings import RetrievalSettings
 from tests.conftest import FAKE_EMBEDDING_DIMENSIONS
+from tests.integration._backend import await_indexes, build_test_store
 from tests.integration._schema_cleanup import delete_resolved_entities, drop_schema_for
 from tests.integration.e2e._artifact import write_artifact
 
@@ -149,7 +149,7 @@ class TestRetrievalE2E:
     @pytest.fixture(autouse=True)
     async def setup_store(self) -> AsyncGenerator[None, None]:
         """Set up a fresh store for each test."""
-        self.store = build_graph_store("neo4j")
+        self.store = build_test_store()
         await self.store.connect()
         self.token = uuid4().hex[:8]
         self.chunk_ids: list[str] = []
@@ -267,7 +267,7 @@ class TestRetrievalE2E:
         await self.store.ensure_fulltext_index(label=CHUNK_LABEL, properties=["text"])
         # New indexes populate asynchronously; search reports
         # INDEX_NOT_READY until they are ONLINE.
-        await self.store.execute_read("CALL db.awaitIndexes(60)")
+        await await_indexes(self.store)
 
     async def _seed_graph(
         self,
@@ -353,7 +353,7 @@ class TestRetrievalE2E:
         await self.store.execute_write(
             "UNWIND $records AS record "
             f"MATCH (n:{self.drug_label} {{id: record.id}}) "
-            "SET n.embedding = record.vector",
+            f"SET n.embedding = {self.store.vector_value('record.vector')}",
             {
                 "records": [
                     {

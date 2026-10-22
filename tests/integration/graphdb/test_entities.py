@@ -15,9 +15,9 @@ import pytest_asyncio
 
 from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.graph_record import DeferredWrites
-from agrag.graphdb import build_graph_store
 from agrag.graphdb.base import GraphStore
 from agrag.graphdb.entities import load_entities
+from tests.integration._backend import build_test_store
 
 
 neo4j_missing = importlib.util.find_spec("neo4j") is None
@@ -28,7 +28,7 @@ pytestmark = pytest.mark.asyncio(loop_scope="module")
 @pytest_asyncio.fixture(loop_scope="module")
 async def store() -> AsyncIterator[GraphStore]:
     """Yield a connected graph store."""
-    graph_store = build_graph_store("neo4j")
+    graph_store = build_test_store()
     await graph_store.connect()
     try:
         yield graph_store

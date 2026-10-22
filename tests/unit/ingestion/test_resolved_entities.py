@@ -128,10 +128,22 @@ def _member_row(seed: Entity, member: Entity) -> dict[str, Any]:
     }
 
 
+def _use_components(
+    monkeypatch: pytest.MonkeyPatch, rows: list[dict[str, Any]]
+) -> None:
+    """Make the component walk return fixed rows, whatever the seeds are."""
+    monkeypatch.setattr(
+        "agrag.ingestion.resolved_entities.fetch_active_component_members",
+        AsyncMock(return_value=rows),
+    )
+
+
 class TestRebuildResolvedEntities:
     """Committed components are rebuilt from seeds without new matches."""
 
-    async def test_rebuilds_the_component_and_reports_replaced_ids(self) -> None:
+    async def test_rebuilds_the_component_and_reports_replaced_ids(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """A seed's component gets one resolved entity, replacing the old one."""
         first, second = _entity("Ada"), _entity("Ada Lovelace")
         stale_id = uuid4()
@@ -139,10 +151,10 @@ class TestRebuildResolvedEntities:
             node_result=UpsertResult(written=1), relation_result=UpsertResult(written=2)
         )
         transaction = store.current_transaction
-        transaction.execute_read.return_value = [
-            _member_row(first, first),
-            _member_row(first, second),
-        ]
+        _use_components(
+            monkeypatch, [_member_row(first, first), _member_row(first, second)]
+        )
+        transaction.execute_read.return_value = []
         transaction.execute_write.return_value = [
             {"removed_resolved_entity_ids": [str(stale_id)]}
         ]
@@ -161,7 +173,9 @@ class TestRebuildResolvedEntities:
         assert upsert_matches_query() not in queries
         assert transaction.execute_write.await_args.args[1]["pending_job_id"] is None
 
-    async def test_memberships_carry_the_newest_committed_match_time(self) -> None:
+    async def test_memberships_carry_the_newest_committed_match_time(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Rebuilt memberships keep the newest committed match decision time."""
         first, second = _entity("Ada"), _entity("Ada Lovelace")
         older = datetime(2026, 1, 1, tzinfo=UTC)
@@ -170,15 +184,17 @@ class TestRebuildResolvedEntities:
             node_result=UpsertResult(written=1), relation_result=UpsertResult(written=2)
         )
         transaction = store.current_transaction
+        _use_components(
+            monkeypatch, [_member_row(first, first), _member_row(first, second)]
+        )
         transaction.execute_read.side_effect = [
-            [_member_row(first, first), _member_row(first, second)],
             [{"decided_at": older.isoformat()}, {"decided_at": newer.isoformat()}],
         ]
         transaction.execute_write.return_value = [{"removed_resolved_entity_ids": []}]
 
         await rebuild_resolved_entities([first.id], graph_store=store, schema=_schema())
 
-        decided_at_call = transaction.execute_read.await_args_list[1]
+        decided_at_call = transaction.execute_read.await_args_list[0]
         assert set(decided_at_call.args[1]["member_ids"]) == {
             str(first.id),
             str(second.id),
@@ -189,16 +205,18 @@ class TestRebuildResolvedEntities:
             newer.isoformat(),
         ]
 
-    async def test_seeds_in_one_component_rebuild_it_once(self) -> None:
+    async def test_seeds_in_one_component_rebuild_it_once(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """A second seed that the first rebuild already covered is skipped."""
         first, second = _entity("Ada"), _entity("Ada Lovelace")
         store = _store(
             node_result=UpsertResult(written=1), relation_result=UpsertResult(written=2)
         )
-        store.current_transaction.execute_read.return_value = [
-            _member_row(first, first),
-            _member_row(first, second),
-        ]
+        _use_components(
+            monkeypatch, [_member_row(first, first), _member_row(first, second)]
+        )
+        store.current_transaction.execute_read.return_value = []
         store.current_transaction.execute_write.return_value = [
             {"removed_resolved_entity_ids": []}
         ]
@@ -211,13 +229,13 @@ class TestRebuildResolvedEntities:
         store.current_transaction.upsert_nodes.assert_awaited_once()
 
     @pytest.mark.parametrize("members", [0, 1])
-    async def test_skips_a_seed_with_no_component_left(self, members: int) -> None:
+    async def test_skips_a_seed_with_no_component_left(
+        self, members: int, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """A component that shrank below two members has nothing to rebuild."""
         seed = _entity("Ada")
         store = _store()
-        store.current_transaction.execute_read.return_value = [_member_row(seed, seed)][
-            :members
-        ]
+        _use_components(monkeypatch, [_member_row(seed, seed)][:members])
 
         results = await rebuild_resolved_entities(
             [seed.id], graph_store=store, schema=_schema()
@@ -241,11 +259,14 @@ class TestDeactivateMatch:
         )
         store.current_transaction.execute_read.side_effect = [
             [{"a": first, "b": second}],
+        ]
+        _use_components(
+            monkeypatch,
             [
                 {"seed_id": str(first.id), "member": first},
                 {"seed_id": str(first.id), "member": second},
             ],
-        ]
+        )
         monkeypatch.setattr(
             "agrag.ingestion.resolved_entities.parse_entity_node", lambda node: node
         )

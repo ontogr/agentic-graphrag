@@ -86,13 +86,14 @@ from agrag.loaders.prose import TextLoader
 from agrag.loaders.types import ErrorPolicy, LoadStats, ReadOptions, SourceRef
 from agrag.schema import SchemaLoadError, load_schema
 from agrag.schema.loader import SchemaSource
+from tests.unit.ingestion._index_fake import NoIndexesMixin
 from tests.unit.ingestion._lease_fake import CutoverJobLeaseFake
 
 
 _FIXTURES = Path(__file__).parents[1] / "loaders" / "fixtures"
 
 
-class _MockGraphStore(CutoverJobLeaseFake, GraphStore):
+class _MockGraphStore(NoIndexesMixin, CutoverJobLeaseFake, GraphStore):
     """A no-op GraphStore for ingestion-only unit tests."""
 
     def __init__(self) -> None:

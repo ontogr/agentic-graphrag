@@ -21,15 +21,15 @@ from agrag.cypher.relations import (
     bfs_expand_query,
     fetch_all_relations_query_cursor,
     relationship_types_from_query,
-    shortest_path_distance_query,
 )
 from agrag.cypher.resolution_read import (
     fetch_active_matches_among_ids_query,
     fetch_active_resolved_member_ids_query,
     load_resolved_entities_by_id_query,
 )
-from agrag.graphdb import build_graph_store
 from agrag.graphdb.base import GraphStore
+from agrag.graphdb.errors import GraphStoreConstraintViolationError
+from tests.integration._backend import await_indexes, build_test_store
 
 
 neo4j_missing = importlib.util.find_spec("neo4j") is None
@@ -40,7 +40,7 @@ pytestmark = pytest.mark.skipif(neo4j_missing, reason="neo4j extra not installed
 @pytest_asyncio.fixture
 async def store() -> AsyncIterator[GraphStore]:
     """Open the configured Neo4j store for one test module."""
-    graph_store = build_graph_store("neo4j")
+    graph_store = build_test_store()
     await graph_store.connect()
     await graph_store.setup_constraints()
     try:
@@ -157,7 +157,7 @@ class TestCandidateVisibility:
                 dimensions=3,
                 distance=Distance.COSINE,
             )
-            await store.execute_write("CALL db.awaitIndexes(60)")
+            await await_indexes(store)
 
             hits = await store.vector_search(
                 label=label,
@@ -207,7 +207,7 @@ class TestCandidateVisibility:
 
             assert (
                 await store.execute_read(
-                    shortest_path_distance_query(),
+                    store.shortest_path_distance_query(),
                     {"seed_ids": [str(a)], "target_ids": [str(b)]},
                 )
                 == []
@@ -215,7 +215,7 @@ class TestCandidateVisibility:
             assert [
                 row["dist"]
                 for row in await store.execute_read(
-                    shortest_path_distance_query(),
+                    store.shortest_path_distance_query(),
                     {"seed_ids": [str(c)], "target_ids": [str(d)]},
                 )
             ] == [1]
@@ -277,11 +277,18 @@ class TestCandidateVisibility:
             assert pairs == {(str(c), str(d))}
 
             await store.setup_constraints()
-            assert await store.execute_read(
-                "SHOW CONSTRAINTS YIELD name, labelsOrTypes "
-                "WHERE labelsOrTypes = [$label] RETURN name",
-                {"label": CANDIDATE_LABEL},
-            ) == [{"name": "candidate_id_unique"}]
+            duplicate_id = str(uuid4())
+            await store.execute_write(
+                f"CREATE (:{CANDIDATE_LABEL} {{id: $id}})", {"id": duplicate_id}
+            )
+            with pytest.raises(GraphStoreConstraintViolationError):
+                await store.execute_write(
+                    f"CREATE (:{CANDIDATE_LABEL} {{id: $id}})", {"id": duplicate_id}
+                )
+            await store.execute_write(
+                f"MATCH (c:{CANDIDATE_LABEL} {{id: $id}}) DELETE c",
+                {"id": duplicate_id},
+            )
 
             for query in (
                 f"MATCH (n:{label}) WHERE n._pending_job_id IS NULL RETURN n",

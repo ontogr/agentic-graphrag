@@ -19,8 +19,9 @@ from agrag.common.data_models.candidate import CANDIDATE_LABEL, CandidateRecord
 from agrag.common.data_models.chunk import CHUNK_LABEL
 from agrag.common.data_models.graph_record import RelationRecord
 from agrag.cypher.entities import NODE_IDENTITY_LABEL
-from agrag.graphdb import build_graph_store
 from agrag.graphdb.base import GraphStore
+from agrag.graphdb.errors import GraphStoreConstraintViolationError
+from tests.integration._backend import build_test_store
 
 
 neo4j_missing = importlib.util.find_spec("neo4j") is None
@@ -34,7 +35,7 @@ pytestmark = [
 @pytest_asyncio.fixture
 async def fresh_store() -> AsyncIterator[GraphStore]:
     """Open a store that has not yet created the candidate schema."""
-    graph_store = build_graph_store("neo4j")
+    graph_store = build_test_store()
     await graph_store.connect()
     try:
         yield graph_store
@@ -50,17 +51,19 @@ async def test_concurrent_first_candidate_writes_both_succeed(
         fresh_store.upsert_candidates([]),
         fresh_store.upsert_candidates([]),
     )
-    constraints = await fresh_store.execute_read(
-        "SHOW CONSTRAINTS YIELD name, labelsOrTypes "
-        "WHERE labelsOrTypes = [$label] RETURN name",
-        {"label": CANDIDATE_LABEL},
+    candidate_id = str(uuid4())
+    await fresh_store.execute_write(
+        f"CREATE (:{CANDIDATE_LABEL} {{id: $id}})", {"id": candidate_id}
     )
 
     assert (first.written, second.written) == (0, 0)
     assert first.failures == []
     assert second.failures == []
     assert await fresh_store.blocked_candidate_keys([]) == set()
-    assert constraints == [{"name": "candidate_id_unique"}]
+    with pytest.raises(GraphStoreConstraintViolationError):
+        await fresh_store.execute_write(
+            f"CREATE (:{CANDIDATE_LABEL} {{id: $id}})", {"id": candidate_id}
+        )
 
 
 async def test_write_after_review_transition_is_suppressed_successfully(

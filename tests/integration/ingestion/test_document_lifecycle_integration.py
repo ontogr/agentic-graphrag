@@ -19,11 +19,11 @@ from agrag.common.data_models.document import Document, DocumentFamily, SourceFo
 from agrag.common.data_models.extraction import ExtractedEntity, ExtractionResult
 from agrag.common.data_models.graph_schema import GraphSchema
 from agrag.embedding.base import Embedder
-from agrag.graphdb import build_graph_store
 from agrag.graphdb.base import GraphStore
 from agrag.ingestion.extract import Extractor
 from agrag.ingestion.graph import Graph
 from tests.conftest import FAKE_EMBEDDING_DIMENSIONS
+from tests.integration._backend import build_test_store
 from tests.integration.e2e._artifact import write_artifact
 
 
@@ -126,7 +126,7 @@ class TestDocumentLifecycle:
 
     async def test_update_supersedes_chunks(self) -> None:
         """Changed content closes old edges; chunks stay present and unmodified."""
-        store = build_graph_store("neo4j")
+        store = build_test_store()
         await store.connect()
         graph = await _open_graph(store)
         key = f"lifecycle://{uuid4().hex}"
@@ -218,7 +218,7 @@ class TestDocumentLifecycle:
 
     async def test_update_same_text_twice_is_a_no_op(self) -> None:
         """A repeated update with unchanged text writes nothing new."""
-        store = build_graph_store("neo4j")
+        store = build_test_store()
         await store.connect()
         graph = await _open_graph(store)
         key = f"lifecycle://{uuid4().hex}"
@@ -254,7 +254,7 @@ class TestDocumentLifecycle:
 
     async def test_structure_only_change_writes_a_new_version(self) -> None:
         """Same text with sections added is a new version, not a rewrite in place."""
-        store = build_graph_store("neo4j")
+        store = build_test_store()
         await store.connect()
         graph = await _open_graph(store)
         key = f"lifecycle://{uuid4().hex}"
@@ -297,7 +297,7 @@ class TestDocumentLifecycle:
         self,
     ) -> None:
         """Delete closes HAS_PART edges, keeps chunks, and prunes orphaned entities."""
-        store = build_graph_store("neo4j")
+        store = build_test_store()
         await store.connect()
         probe_name = f"Zzxqy Deleteprobe {uuid4().hex[:8]}"
         graph = await Graph.open(
@@ -382,7 +382,7 @@ class TestDocumentLifecycle:
 
         The second add finds the stored version and writes nothing.
         """
-        store = build_graph_store("neo4j")
+        store = build_test_store()
         await store.connect()
         graph = await _open_graph(store)
         key = f"lifecycle://{uuid4().hex}"
@@ -419,7 +419,7 @@ class TestDocumentLifecycle:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """An update whose lookup missed the stored version still closes it."""
-        store = build_graph_store("neo4j")
+        store = build_test_store()
         await store.connect()
         graph = await _open_graph(store)
         key = f"lifecycle://{uuid4().hex}"

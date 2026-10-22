@@ -26,6 +26,9 @@ from agrag.cypher.entities import validate_identifier
 from agrag.graphdb.neo4j import Neo4jGraphStore
 
 
+pytestmark = pytest.mark.neo4j_only
+
+
 neo4j_missing = importlib.util.find_spec("neo4j") is None
 
 

@@ -26,10 +26,10 @@ from agrag.common.data_models.task import (
     StepState,
 )
 from agrag.embedding.base import Embedder
-from agrag.graphdb import build_graph_store
 from agrag.graphdb.base import GraphStore
 from agrag.memory import TaskMemory
 from agrag.memory.retention import RetentionMemory
+from tests.integration._backend import build_test_store
 
 
 neo4j_missing = importlib.util.find_spec("neo4j") is None
@@ -157,7 +157,7 @@ class TestAgentResumeIntegration:
         self, monkeypatch: MonkeyPatch
     ) -> None:
         """The model can address a tool result as typed event support."""
-        store = build_graph_store("neo4j")
+        store = build_test_store()
         await store.connect()
         project_id = f"event-reference-{uuid4().hex}"
         task_name = f"task-{uuid4().hex}"
@@ -188,7 +188,7 @@ class TestAgentResumeIntegration:
         self, monkeypatch: MonkeyPatch
     ) -> None:
         """A completed result with unknown support is omitted from model context."""
-        store = build_graph_store("neo4j")
+        store = build_test_store()
         await store.connect()
         project_id = f"resume-unknown-{uuid4().hex}"
         task_name = f"unknown-task-{uuid4().hex}"
@@ -230,7 +230,7 @@ class TestAgentResumeIntegration:
         self, monkeypatch: MonkeyPatch
     ) -> None:
         """A result is not reused after its supporting event is redacted."""
-        store = build_graph_store("neo4j")
+        store = build_test_store()
         await store.connect()
         project_id = f"resume-redacted-{uuid4().hex}"
         task_name = f"redacted-task-{uuid4().hex}"
@@ -294,7 +294,7 @@ class TestAgentResumeIntegration:
         self, monkeypatch: MonkeyPatch
     ) -> None:
         """A completed result remains available after old events leave the page."""
-        store = build_graph_store("neo4j")
+        store = build_test_store()
         await store.connect()
         project_id = f"resume-{uuid4().hex}"
         task_name = f"memo-{uuid4().hex}"
@@ -347,7 +347,7 @@ class TestAgentResumeIntegration:
         self, monkeypatch: MonkeyPatch
     ) -> None:
         """The model receives old results and can complete an interrupted step."""
-        store = build_graph_store("neo4j")
+        store = build_test_store()
         await store.connect()
         project_id = f"resume-steps-{uuid4().hex}"
         task_name = f"long-task-{uuid4().hex}"
@@ -418,7 +418,7 @@ class TestAgentResumeIntegration:
         self, monkeypatch: MonkeyPatch
     ) -> None:
         """A failed tool step is persisted and the model produces a final answer."""
-        store = build_graph_store("neo4j")
+        store = build_test_store()
         await store.connect()
         project_id = f"resume-error-{uuid4().hex}"
         task_name = f"error-task-{uuid4().hex}"

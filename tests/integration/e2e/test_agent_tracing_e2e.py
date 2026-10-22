@@ -15,7 +15,7 @@ from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
 from agrag.agents.build import build_agent
 from agrag.agents.settings import AgentLLMSettings
 from agrag.embedding import build_embedder
-from agrag.graphdb import build_graph_store
+from tests.integration._backend import build_test_store
 from tests.integration.e2e._artifact import write_artifact
 
 
@@ -42,7 +42,7 @@ class TestAgentTracingE2E:
         exporter = InMemorySpanExporter()
         provider = TracerProvider()
         provider.add_span_processor(SimpleSpanProcessor(exporter))
-        graph_store = build_graph_store("neo4j")
+        graph_store = build_test_store()
         await graph_store.connect()
         embedder = build_embedder("ibm-granite/granite-embedding-small-english-r2")
         agent = build_agent(

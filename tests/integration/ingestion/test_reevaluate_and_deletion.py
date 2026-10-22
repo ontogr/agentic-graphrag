@@ -24,7 +24,6 @@ from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.extraction import ExtractedEntity, ExtractionResult
 from agrag.common.data_models.graph_schema import GraphSchema
 from agrag.embedding.base import Embedder
-from agrag.graphdb import build_graph_store
 from agrag.graphdb.base import GraphStore
 from agrag.ingestion.extract import Extractor
 from agrag.ingestion.graph import Graph
@@ -32,6 +31,7 @@ from agrag.ingestion.resolve import LLMVerify
 from agrag.ingestion.resolve import resolution as resolution_module
 from agrag.ingestion.resolved_entities import MatchDecision, write_matches_and_rebuild
 from tests.conftest import FAKE_EMBEDDING_DIMENSIONS
+from tests.integration._backend import build_test_store
 
 
 neo4j_missing = importlib.util.find_spec("neo4j") is None
@@ -198,7 +198,7 @@ class TestReevaluateIntegration:
 
     async def test_reevaluate_gains_new_edge(self) -> None:
         """Two similar entities with no edge gain one plus a cluster."""
-        store = build_graph_store("neo4j")
+        store = build_test_store()
         await store.connect()
         graph = await Graph.open(
             schema=DEFAULT_SCHEMA,
@@ -263,7 +263,7 @@ class TestReevaluateIntegration:
         self, monkeypatch, answer: str, max_pairs: int, expected_active: bool
     ) -> None:
         """Undecided pairs retain committed edges, but explicit rejections do not."""
-        store = build_graph_store("neo4j")
+        store = build_test_store()
         await store.connect()
         monkeypatch.setattr(
             resolution_module,
@@ -339,7 +339,7 @@ class TestDeletionPruningIntegration:
 
     async def test_delete_document_prunes_orphaned_cluster(self) -> None:
         """A 3-member cluster collapses while another document's member lives."""
-        store = build_graph_store("neo4j")
+        store = build_test_store()
         await store.connect()
         suffix = uuid4().hex[:8]
         probe_names = [

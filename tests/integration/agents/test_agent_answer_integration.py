@@ -19,9 +19,9 @@ from agrag.agents.settings import AgentLLMSettings, AgentSettings
 from agrag.common.data_models.agent_answer import AgentAnswer
 from agrag.common.data_models.task import EventKind
 from agrag.embedding.base import Embedder
-from agrag.graphdb import build_graph_store
 from agrag.graphdb.base import GraphStore
 from agrag.memory import TaskMemory
+from tests.integration._backend import build_test_store
 from tests.integration.retrieval.evidence._corpus import (
     KEEP_TEXT,
     make_document,
@@ -234,7 +234,7 @@ class TestAgentAnswerIntegration:
         self, monkeypatch: MonkeyPatch
     ) -> None:
         """A clear answer remains insufficient when the model says so."""
-        store = build_graph_store("neo4j")
+        store = build_test_store()
         await store.connect()
         project_id = f"answer-{uuid4().hex}"
         task_name = f"task-{uuid4().hex}"
@@ -263,7 +263,7 @@ class TestAgentAnswerIntegration:
         self, monkeypatch: MonkeyPatch
     ) -> None:
         """Plain text without the answer schema is not accepted as a final answer."""
-        store = build_graph_store("neo4j")
+        store = build_test_store()
         await store.connect()
         project_id = f"answer-missing-{uuid4().hex}"
         task_name = f"task-{uuid4().hex}"
@@ -286,7 +286,7 @@ class TestAgentAnswerIntegration:
         self, monkeypatch: MonkeyPatch
     ) -> None:
         """An invalid grouped citation set gets one structured repair attempt."""
-        store = build_graph_store("neo4j")
+        store = build_test_store()
         await store.connect()
         project_id = f"answer-repair-{uuid4().hex}"
         task_name = f"task-{uuid4().hex}"

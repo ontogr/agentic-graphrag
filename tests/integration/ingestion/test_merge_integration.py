@@ -17,10 +17,9 @@ from agrag.common.data_models.graph_record import RelationRecord
 from agrag.common.data_models.graph_schema import EntityType, GraphSchema
 from agrag.cypher.cutover_job_write import fold_pending_relations_query
 from agrag.cypher.entities import validate_identifier
-from agrag.cypher.schema import merge_key_constraint_query
-from agrag.graphdb import build_graph_store
 from agrag.graphdb.errors import GraphStoreAliasConflictError
 from agrag.ingestion.merge import apply_merge, compute_merge
+from tests.integration._backend import build_test_store
 
 
 neo4j_missing = importlib.util.find_spec("neo4j") is None
@@ -42,7 +41,7 @@ class TestApplyMergeAliasConflictIntegration:
         raises instead, and the rejected transaction must have committed
         nothing: plan_b's own node never becomes a second live entity.
         """
-        store = build_graph_store("neo4j")
+        store = build_test_store()
         await store.connect()
         label = validate_identifier(f"Person_{uuid4().hex[:8]}")
         schema = GraphSchema(
@@ -52,7 +51,7 @@ class TestApplyMergeAliasConflictIntegration:
             relations=[],
         )
         try:
-            await store.execute_write(merge_key_constraint_query(label))
+            await store.ensure_unique_constraint(label=label, properties=["merge_key"])
 
             bob_mention = ExtractedEntity(
                 chunk_id=uuid4(), label=label, text="Bob", char_start=0, char_end=3
@@ -111,7 +110,7 @@ class TestRelationProvenanceIntegration:
     @staticmethod
     async def test_keeps_the_largest_confidence_and_unions_extractors() -> None:
         """Repeated writes keep the highest confidence and both extractor names."""
-        store = build_graph_store("neo4j")
+        store = build_test_store()
         await store.connect()
         label = validate_identifier(f"Thing_{uuid4().hex[:8]}")
         rel_type = validate_identifier(f"LINKS_{uuid4().hex[:8]}")
@@ -163,7 +162,7 @@ class TestRelationProvenanceIntegration:
     @staticmethod
     async def test_folding_a_pending_edge_keeps_the_best_provenance() -> None:
         """A job's new edge folds into the committed one without losing either side."""
-        store = build_graph_store("neo4j")
+        store = build_test_store()
         await store.connect()
         label = validate_identifier(f"Thing_{uuid4().hex[:8]}")
         rel_type = validate_identifier(f"LINKS_{uuid4().hex[:8]}")

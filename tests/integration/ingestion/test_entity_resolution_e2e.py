@@ -22,10 +22,10 @@ from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.extraction import ExtractedEntity, ExtractionResult
 from agrag.common.data_models.graph_schema import GraphSchema
 from agrag.embedding.base import Embedder
-from agrag.graphdb import build_graph_store
 from agrag.ingestion.extract import Extractor
 from agrag.ingestion.graph import Graph
 from tests.conftest import FAKE_EMBEDDING_DIMENSIONS
+from tests.integration._backend import build_test_store
 
 
 neo4j_missing = importlib.util.find_spec("neo4j") is None
@@ -141,7 +141,7 @@ class TestEntityResolutionEndToEnd:
         and one ``embedding`` (the suffix embedder scores own-run pairs
         1.0). No pair involving a foreign entity may gain an edge.
         """
-        store = build_graph_store("neo4j")
+        store = build_test_store()
         await store.connect()
         suffix = uuid4().hex[:8]
         first, second, third = (
@@ -245,7 +245,7 @@ class TestEntityResolutionEndToEnd:
 
     async def test_consolidate_dry_run_then_apply(self) -> None:
         """Dry-run reports the seeded duplicate pair with zero writes."""
-        store = build_graph_store("neo4j")
+        store = build_test_store()
         await store.connect()
         suffix = uuid4().hex[:8]
         first_name, second_name = (

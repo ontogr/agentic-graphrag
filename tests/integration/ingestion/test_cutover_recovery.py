@@ -15,10 +15,10 @@ import pytest
 from agrag.common.data_models.cutover_job import CUTOVER_JOB_LABEL
 from agrag.common.data_models.graph_record import DeferredWrites
 from agrag.cypher.cutover_job_write import begin_rollback_query, rollback_job_query
-from agrag.graphdb import build_graph_store
 from agrag.ingestion._cutover import run_cutover_job
 from agrag.ingestion._resume import resume_incomplete_jobs
 from agrag.ingestion.settings import CutoverJobSettings
+from tests.integration._backend import build_test_store
 
 
 @pytest.mark.skipif(
@@ -27,13 +27,14 @@ from agrag.ingestion.settings import CutoverJobSettings
 class TestCutoverRecovery:
     """A destructive rollback requires the current token and rollback state."""
 
+    @pytest.mark.neo4j_only
     async def test_applied_commit_with_lost_acknowledgement_finishes_cleanup(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
         """A server commit followed by a driver error retains its closed-edge count."""
         from neo4j import AsyncSession  # noqa: PLC0415
 
-        store = build_graph_store("neo4j")
+        store = build_test_store()
         await store.connect()
         probe, document = uuid4().hex, uuid4()
         execute_write = AsyncSession.execute_write
@@ -109,7 +110,7 @@ class TestCutoverRecovery:
         self, status: str, owns_token: bool, tmp_path: Path
     ) -> None:
         """Neither rollback step deletes committed or another worker's data."""
-        store = build_graph_store("neo4j")
+        store = build_test_store()
         await store.connect()
         job, token, probe = str(uuid4()), str(uuid4()), uuid4().hex
         params = {"job_id": job, "lease_token": token if owns_token else str(uuid4())}
@@ -144,14 +145,14 @@ class TestCutoverRecovery:
         self, expired: bool, tmp_path: Path
     ) -> None:
         """Recovery resumes deletion after a crash, but leaves a live worker alone."""
-        store = build_graph_store("neo4j")
+        store = build_test_store()
         await store.connect()
         job, token, probe = str(uuid4()), str(uuid4()), uuid4().hex
         try:
             await store.execute_write(
                 "CREATE (:CutoverJob {id: $job, document_key: $probe, "
                 "status: 'rolling_back', lease_token: $token, probe: $probe, "
-                "lease_expires_at: datetime() + duration({seconds: $seconds})}) "
+                "lease_expires_at: timestamp() + $seconds * 1000}) "
                 "CREATE (:_MergeAlias {probe: $probe, id: randomUUID(), "
                 "_pending_job_id: $job})",
                 {
@@ -183,7 +184,7 @@ class TestCutoverRecovery:
         self,
     ) -> None:
         """A new run rolls back a dead pending job and reclaims its merge keys."""
-        store = build_graph_store("neo4j")
+        store = build_test_store()
         await store.connect()
         dead_job, probe = str(uuid4()), uuid4().hex
         merge_key = f"probe:{probe}"
@@ -203,7 +204,7 @@ class TestCutoverRecovery:
             await store.execute_write(
                 f"CREATE (:{CUTOVER_JOB_LABEL} {{id: $job, document_key: $probe, "
                 "status: 'pending', verb: 'add', lease_token: $token, "
-                "lease_expires_at: datetime() - duration('PT1M'), "
+                "lease_expires_at: timestamp() - 60000, "
                 "affected_entity_ids: [], probe: $probe}) "
                 "CREATE (:_MergeAlias {probe: $probe, merge_key: $merge_key, "
                 "id: randomUUID(), _pending_job_id: $job}) "

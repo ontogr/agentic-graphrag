@@ -9,6 +9,8 @@ from collections.abc import Awaitable, Callable, Mapping, Sequence
 from typing import Any, TypeVar
 from uuid import UUID
 
+import pytest
+
 from agrag.common.data_models.graph_record import (
     DeferredWrites,
     NodeRecord,
@@ -202,6 +204,7 @@ class TestRequestIds:
         assert lookup.found is False
 
 
+@pytest.mark.neo4j_only
 class TestFailureInsideTransaction:
     """A failed write leaves nothing behind, and a retry records it once."""
 

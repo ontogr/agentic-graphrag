@@ -18,7 +18,7 @@ from agrag.common.data_models.community import COMMUNITY_LABEL, MEMBER_OF_RELATI
 from agrag.common.data_models.graph_record import NodeRecord, RelationRecord
 from agrag.cypher.community_read import communities_for_entities_query
 from agrag.cypher.entities import validate_identifier
-from agrag.graphdb import build_graph_store
+from tests.integration._backend import build_test_store
 
 
 neo4j_missing = importlib.util.find_spec("neo4j") is None
@@ -46,7 +46,7 @@ class TestCommunitiesForEntitiesOverlapIntegration:
         other integration tests write ``Community`` nodes to the same
         database and may be running concurrently.
         """
-        self.store = build_graph_store("neo4j")
+        self.store = build_test_store()
         await self.store.connect()
         self.entity_label = validate_identifier(f"Entity_{uuid4().hex[:8]}")
         self.community_ids: list[UUID] = []

@@ -862,6 +862,10 @@ class _WriteRecordingStore:
         """Create a store with no recorded writes."""
         self.write_queries: list[str] = []
 
+    def node_write_extra_set(self) -> str:
+        """Add no clauses to the survivor write."""
+        return ""
+
     async def run_in_transaction(self, work: Callable[[Any], Awaitable[Any]]) -> Any:
         """Run the transactional work against this store."""
         return await work(self)
@@ -900,7 +904,9 @@ class TestApplyMerge:
             schema=_hierarchy_schema(),
         )
         await apply_merge(plan, graph_store=store, schema=_hierarchy_schema())
-        assert "SET n:Vendor:Organization " in store.write_queries[0]
+        assert any(
+            "SET n:Vendor:Organization " in query for query in store.write_queries
+        )
 
     async def test_undeclared_label_is_stored_alone(self) -> None:
         """A label the schema does not declare is stored without ancestors."""
@@ -911,7 +917,7 @@ class TestApplyMerge:
             schema=_hierarchy_schema(),
         )
         await apply_merge(plan, graph_store=store, schema=_hierarchy_schema())
-        assert "SET n:Ghost " in store.write_queries[0]
+        assert any("SET n:Ghost " in query for query in store.write_queries)
 
     async def test_job_write_without_a_deferral_list_is_rejected(self) -> None:
         """A job's merge must have a list to hold writes over committed rows."""

@@ -54,9 +54,10 @@ class TestEmbedResolvedEntities:
         """A matched graph write sets the status to synced."""
         entity = _entity()
         graph_store = SimpleNamespace(
+            vector_value=lambda expression: expression,
             execute_write=AsyncMock(
                 return_value=[{"id": str(entity.id), "written": True}]
-            )
+            ),
         )
 
         failures = await embed_resolved_entities(
@@ -75,13 +76,14 @@ class TestEmbedResolvedEntities:
         """A failed write is reported, clears the vector, and marks it failed."""
         entity = _entity()
         graph_store = SimpleNamespace(
+            vector_value=lambda expression: expression,
             execute_write=AsyncMock(
                 side_effect=[
                     RuntimeError("graph store down"),
                     [{"id": str(entity.id), "written": True}],
                     [{"id": str(entity.id), "written": True}],
                 ]
-            )
+            ),
         )
 
         failures = await embed_resolved_entities(
@@ -100,9 +102,10 @@ class TestEmbedResolvedEntities:
         """RAISE propagates the embed failure once the entity is marked failed."""
         entity = _entity()
         graph_store = SimpleNamespace(
+            vector_value=lambda expression: expression,
             execute_write=AsyncMock(
                 return_value=[{"id": str(entity.id), "written": True}]
-            )
+            ),
         )
 
         with pytest.raises(RuntimeError, match="embed backend down"):
@@ -125,9 +128,10 @@ class TestEmbedResolvedEntities:
         """
         matched, unmatched = _entity(), _entity()
         graph_store = SimpleNamespace(
+            vector_value=lambda expression: expression,
             execute_write=AsyncMock(
                 return_value=[{"id": str(matched.id), "written": True}]
-            )
+            ),
         )
 
         failures = await embed_resolved_entities(
@@ -145,9 +149,10 @@ class TestEmbedResolvedEntities:
         """A job's embedding over a committed entity waits for the commit."""
         entity = _entity()
         graph_store = SimpleNamespace(
+            vector_value=lambda expression: expression,
             execute_write=AsyncMock(
                 return_value=[{"id": str(entity.id), "written": False}]
-            )
+            ),
         )
         deferred = DeferredWrites()
 
@@ -166,7 +171,9 @@ class TestEmbedResolvedEntities:
 
     async def test_empty_input_writes_nothing(self) -> None:
         """No entities means no embedding call and no graph write."""
-        graph_store = SimpleNamespace(execute_write=AsyncMock())
+        graph_store = SimpleNamespace(
+            vector_value=lambda expression: expression, execute_write=AsyncMock()
+        )
 
         failures = await embed_resolved_entities(
             [],

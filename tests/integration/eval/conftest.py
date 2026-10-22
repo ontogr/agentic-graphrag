@@ -36,12 +36,12 @@ from agrag.cypher.entities import validate_identifier
 from agrag.embedding.base import Embedder
 from agrag.eval.judge import ChatModelJudge
 from agrag.eval.settings import EvalJudgeSettings
-from agrag.graphdb import build_graph_store
 from agrag.graphdb.base import GraphStore
 from agrag.ingestion.extract import Extractor
 from agrag.ingestion.graph import Graph
 from agrag.retrieval.search_engine import SearchEngine
 from agrag.retrieval.settings import RetrievalSettings
+from tests.integration._backend import build_test_store
 from tests.integration._schema_cleanup import drop_schema_for
 from tests.integration.eval._answer_quality import FIXTURE_DIR
 
@@ -201,7 +201,7 @@ async def tiny_corpus() -> AsyncGenerator[TinyCorpus, None]:
     """Ingest the invented company corpus into a fresh set of labels."""
     if importlib.util.find_spec("neo4j") is None:
         pytest.skip("neo4j extra not installed")
-    store = build_graph_store("neo4j")
+    store = build_test_store()
     token = f"run{uuid4().hex[:8]}"
     suffix = uuid4().hex[:8]
     person = validate_identifier(f"Person_{suffix}")
@@ -308,7 +308,7 @@ async def answer_quality_graph(
         pytest.skip("neo4j extra not installed")
     documents = tmp_path / "documents"
     shutil.copytree(FIXTURE_DIR / "documents", documents)
-    store = build_graph_store("neo4j")
+    store = build_test_store()
     suffix = uuid4().hex[:8]
     company = validate_identifier(f"Company_{suffix}")
     metric = validate_identifier(f"FinancialMetric_{suffix}")

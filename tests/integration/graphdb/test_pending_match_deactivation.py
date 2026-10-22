@@ -12,9 +12,9 @@ import pytest
 import pytest_asyncio
 
 from agrag.common.data_models.graph_schema import EntityType, GraphSchema
-from agrag.graphdb import build_graph_store
 from agrag.graphdb.base import GraphStore
 from agrag.ingestion.resolved_entities import deactivate_match_and_rebuild
+from tests.integration._backend import build_test_store
 
 
 neo4j_missing = importlib.util.find_spec("neo4j") is None
@@ -28,7 +28,7 @@ pytestmark = [
 @pytest_asyncio.fixture(scope="module", loop_scope="module")
 async def store() -> AsyncIterator[GraphStore]:
     """Open one connected store for the module."""
-    graph_store = build_graph_store("neo4j")
+    graph_store = build_test_store()
     await graph_store.connect()
     try:
         yield graph_store

@@ -23,7 +23,6 @@ from agrag.common.data_models.relation import Relation
 from agrag.common.data_models.stage_failure import StageFailure  # noqa: F401
 from agrag.cypher.entities import validate_identifier
 from agrag.embedding.base import Embedder
-from agrag.graphdb import build_graph_store
 from agrag.graphdb.entities import load_entities
 from agrag.ingestion.community import (
     CommunityDetectionMissingExtraError,
@@ -36,6 +35,7 @@ from agrag.ingestion.community import (
 from agrag.ingestion.extract import ExtractionResult, Extractor
 from agrag.ingestion.graph import Graph
 from agrag.ingestion.reports import CommunityDetectionReport
+from tests.integration._backend import build_test_store
 
 
 neo4j_missing = importlib.util.find_spec("neo4j") is None
@@ -249,7 +249,7 @@ class TestCommunityDetectionIntegration:
     @pytest.fixture(autouse=True)
     async def _setup(self):
         """Set up store and unique labels per test."""
-        self.store = build_graph_store("neo4j")
+        self.store = build_test_store()
         await self.store.connect()
         self.label = validate_identifier(f"Ent_{uuid4().hex[:8]}")
         self.schema = _schema_for(self.label)
@@ -675,9 +675,9 @@ class TestCommunityDetectionIntegration:
         graspologic_native_missing, reason="graspologic-native not installed"
     )
     async def test_vector_index_provisioned_via_Graph_open(self) -> None:
-        """Graph.open provisions Community vector index; SHOW INDEXES has it."""
+        """Graph.open provisions the Community vector index; the index list has it."""
         # Use fresh store via Graph.open.
-        store2 = build_graph_store("neo4j")
+        store2 = build_test_store()
         label2 = validate_identifier(f"Ent2_{uuid4().hex[:8]}")
         schema2 = _schema_for(label2)
         embedder = _FixedEmbedder(dim=4)
@@ -688,23 +688,17 @@ class TestCommunityDetectionIntegration:
             extractor=_NoopExtractor(),
         )
         try:
-            query = (
-                "SHOW INDEXES YIELD name, labelsOrTypes, properties "
-                "RETURN name, labelsOrTypes, properties"
-            )
-            rows = await store2.execute_read(query)
+            indexes = await store2.list_indexes()
             # Find Community embedding index.
             found = any(
-                COMMUNITY_LABEL in (r.get("labelsOrTypes") or [])
-                and "embedding" in (r.get("properties") or [])
-                for r in rows
+                COMMUNITY_LABEL in index.labels and "embedding" in index.properties
+                for index in indexes
             )
-            assert found, f"Community vector index not found: {rows}"
+            assert found, f"Community vector index not found: {indexes}"
             # Also entity label index.
             found_ent = any(
-                label2 in (r.get("labelsOrTypes") or [])
-                and "embedding" in (r.get("properties") or [])
-                for r in rows
+                label2 in index.labels and "embedding" in index.properties
+                for index in indexes
             )
             assert found_ent
         finally:

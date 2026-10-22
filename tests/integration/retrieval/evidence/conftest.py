@@ -13,9 +13,9 @@ import pytest
 
 from agrag.chunking import Chunker
 from agrag.common.data_models.graph_schema import GraphSchema
-from agrag.graphdb import build_graph_store
 from agrag.graphdb.base import GraphStore
 from agrag.ingestion.graph import Graph
+from tests.integration._backend import await_indexes, build_test_store
 from tests.integration.retrieval.evidence._corpus import (
     HARBOR_TEXT,
     KEEP_TEXT,
@@ -87,7 +87,7 @@ async def evidence_env() -> AsyncGenerator[EvidenceEnv, None]:
     """Open a graph, add the authored corpus, and wait for the indexes."""
     run = uuid4().hex[:8]
     schema = GraphSchema(name="evidence", version="1", entities=[], relations=[])
-    store = build_graph_store("neo4j")
+    store = build_test_store()
     graph = await Graph.open(
         schema=schema,
         graph_store=store,
@@ -97,7 +97,7 @@ async def evidence_env() -> AsyncGenerator[EvidenceEnv, None]:
     )
     env = EvidenceEnv(run=run, store=store, graph=graph)
     try:
-        await store.execute_read("CALL db.awaitIndexes(60)")
+        await await_indexes(store)
         await graph.add(
             documents=[
                 make_document(env.keep, KEEP_TEXT),

@@ -11,13 +11,13 @@ from agrag.common.data_models.graph_record import RelationRecord
 from agrag.common.data_models.graph_schema import EntityType, GraphSchema, RelationType
 from agrag.cypher.entities import validate_identifier
 from agrag.cypher.resolution_read import fetch_decided_pairs_query
-from agrag.graphdb import build_graph_store
 from agrag.ingestion.resolved_entities import (
     MatchDecision,
     deactivate_match_and_rebuild,
     matches_id,
     write_matches_and_rebuild,
 )
+from tests.integration._backend import build_test_store
 
 
 neo4j_missing = importlib.util.find_spec("neo4j") is None
@@ -45,7 +45,7 @@ class TestMatchRebuildIntegration:
 
     async def test_preserves_raw_nodes_and_domain_relationships(self) -> None:
         """A fuzzy match creates derived state without replacing raw graph state."""
-        store = build_graph_store("neo4j")
+        store = build_test_store()
         await store.connect()
         label = validate_identifier(f"Person_{uuid4().hex[:8]}")
         first = Entity(id=uuid4(), label=label, name="Ada", properties={"rank": 1})
@@ -126,7 +126,7 @@ class TestMatchRebuildIntegration:
 
     async def test_persists_match_provenance_and_clears_unset_values(self) -> None:
         """Match similarity and batch id persist or clear with each decision."""
-        store = build_graph_store("neo4j")
+        store = build_test_store()
         await store.connect()
         label = validate_identifier(f"Person_{uuid4().hex[:8]}")
         first = Entity(id=uuid4(), label=label, name="Ada")
@@ -199,7 +199,7 @@ class TestMatchRebuildIntegration:
 
     async def test_reverse_match_writes_are_idempotent(self) -> None:
         """Repeating a match in reverse leaves one canonical edge and cluster."""
-        store = build_graph_store("neo4j")
+        store = build_test_store()
         await store.connect()
         label = validate_identifier(f"Person_{uuid4().hex[:8]}")
         first, second = sorted(
@@ -259,7 +259,7 @@ class TestMatchRebuildIntegration:
         self,
     ) -> None:
         """A correction deactivates one edge and leaves singleton raw nodes intact."""
-        store = build_graph_store("neo4j")
+        store = build_test_store()
         await store.connect()
         label = validate_identifier(f"Person_{uuid4().hex[:8]}")
         first, second, third = (
@@ -306,17 +306,19 @@ class TestMatchRebuildIntegration:
             assert result.resolved_entities[0].member_ids == sorted(
                 [first.id, second.id], key=str
             )
-            rows = await store.execute_read(
+            memberships = await store.execute_read(
                 "MATCH (third) WHERE third.id = $third_id "
                 "OPTIONAL MATCH (third)-[membership:RESOLVED_AS]->() "
-                "MATCH ()-[edge:MATCHES {id: $match_id}]->() "
-                "RETURN count(membership) AS memberships, edge.active AS active",
-                {
-                    "third_id": str(third.id),
-                    "match_id": str(matches_id(second.id, third.id)),
-                },
+                "RETURN count(membership) AS memberships",
+                {"third_id": str(third.id)},
             )
-            assert rows == [{"memberships": 0, "active": False}]
+            edges = await store.execute_read(
+                "MATCH ()-[edge:MATCHES {id: $match_id}]->() "
+                "RETURN edge.active AS active",
+                {"match_id": str(matches_id(second.id, third.id))},
+            )
+            assert memberships == [{"memberships": 0}]
+            assert edges == [{"active": False}]
             raw_rows = await store.execute_read(
                 f"MATCH (entity:{label}) WHERE entity.id IN $ids "
                 "RETURN count(entity) AS count",

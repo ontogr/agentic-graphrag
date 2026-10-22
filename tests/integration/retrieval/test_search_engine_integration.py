@@ -24,7 +24,6 @@ from agrag.cypher.entities import (
     validate_identifier,
 )
 from agrag.embedding.base import Embedder
-from agrag.graphdb import build_graph_store
 from agrag.ingestion.merge import mentioned_in_id
 from agrag.retrieval.filters import SearchFilters
 from agrag.retrieval.recipes import (
@@ -37,6 +36,7 @@ from agrag.retrieval.recipes import (
 from agrag.retrieval.search_engine import SearchEngine
 from agrag.retrieval.settings import RetrievalSettings
 from tests.conftest import FAKE_EMBEDDING_DIMENSIONS
+from tests.integration._backend import build_test_store
 from tests.integration._schema_cleanup import drop_schema_for
 
 
@@ -128,7 +128,7 @@ class TestSearchEngineIntegration:
     @pytest.fixture(autouse=True)
     async def setup_store(self) -> AsyncGenerator[None, None]:
         """Set up a fresh store for each test and delete only its own rows."""
-        self.store = build_graph_store("neo4j")
+        self.store = build_test_store()
         await self.store.connect()
         self.label = validate_identifier(f"Person_{uuid4().hex[:8]}")
         self.chunk_ids: list[UUID] = []
@@ -476,7 +476,7 @@ class TestTraversalIntegration:
     @pytest.fixture(autouse=True)
     async def setup_store(self) -> AsyncGenerator[None, None]:
         """Set up a fresh store for each test and delete only its own rows."""
-        self.store = build_graph_store("neo4j")
+        self.store = build_test_store()
         await self.store.connect()
         suffix = uuid4().hex[:8]
         self.person_label = validate_identifier(f"Person_{suffix}")

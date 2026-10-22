@@ -541,6 +541,7 @@ class TestOutputLimits:
         assert 2 * len(capped.model_dump_json()) <= full_size // 2
 
 
+@pytest.mark.neo4j_only
 class TestStoreFailures:
     """Store failures give fixed messages, and index gaps stay data."""
 
@@ -583,6 +584,7 @@ class TestStoreFailures:
         assert result.status is EvidenceSearchStatus.INDEX_NOT_READY
 
 
+@pytest.mark.neo4j_only
 class TestEmbeddingModelMismatch:
     """A query embedder that differs from the stored vectors never searches them."""
 
@@ -758,6 +760,7 @@ class TestEmbeddingModelMismatch:
         assert "too small for an empty result" in _text(result)
 
 
+@pytest.mark.neo4j_only
 class TestCancellation:
     """A cancelled search leaves the graph and the next call unaffected."""
 

@@ -33,12 +33,12 @@ from agrag.common.data_models.document import Document, DocumentFamily, SourceFo
 from agrag.common.data_models.extraction import ExtractedEntity, ExtractionResult
 from agrag.common.data_models.graph_schema import GraphSchema
 from agrag.embedding.base import Embedder
-from agrag.graphdb import build_graph_store
 from agrag.graphdb.base import GraphStore
 from agrag.ingestion.extract import Extractor
 from agrag.ingestion.graph import Graph
 from agrag.ingestion.settings import CutoverJobSettings
 from tests.conftest import FAKE_EMBEDDING_DIMENSIONS
+from tests.integration._backend import build_test_store, selected_backend
 
 
 neo4j_missing = importlib.util.find_spec("neo4j") is None
@@ -163,7 +163,7 @@ async def noop_graph() -> AsyncIterator[tuple[GraphStore, Graph]]:
     test still writes its own uniquely keyed document, so tests do not share
     data.
     """
-    store = build_graph_store("neo4j")
+    store = build_test_store()
     await store.connect()
     try:
         yield store, await _open_graph(store, _NoopExtractor())
@@ -254,7 +254,7 @@ async def _reopen_until_settled(
     async with asyncio.timeout(30):
         while await _job_status(store, key) not in (None, "done"):
             await _age_lease(store, key)
-            recovered_store = build_graph_store("neo4j")
+            recovered_store = build_test_store()
             await recovered_store.connect()
             try:
                 await Graph.open(
@@ -281,7 +281,7 @@ async def _age_lease(store: GraphStore, key: str) -> None:
     """Push a job's lease into the past, as a dead worker's would be."""
     await store.execute_write(
         "MATCH (job:CutoverJob {document_key: $key}) "
-        "SET job.lease_expires_at = datetime() - duration('PT1H')",
+        "SET job.lease_expires_at = timestamp() - 3600000",
         {"key": key},
     )
 
@@ -364,7 +364,7 @@ async def _grow_component(
         a crashed job also before recovery (``before_resume``) and the job
         status after it (``status_after``).
     """
-    store = build_graph_store("neo4j")
+    store = build_test_store()
     await store.connect()
     name_stem = uuid4().hex.translate(str.maketrans("0123456789", "ghijklmnop"))
     names = [f"{prefix} {name_stem}{suffix}" for suffix in "abc"]
@@ -478,7 +478,7 @@ class TestCrashBeforeCommit:
         job created: the Document node and the entity the current version
         mentions both predate the call and must survive it.
         """
-        store = build_graph_store("neo4j")
+        store = build_test_store()
         await store.connect()
         probe_name = f"Zzxqy Crashprobe {uuid4().hex[:8]}"
         key = f"crash://update-{uuid4().hex}"
@@ -548,7 +548,7 @@ class TestCrashBeforeCommit:
             assert rows
             job_id = str(rows[0]["id"])
 
-            recovered_store = build_graph_store("neo4j")
+            recovered_store = build_test_store()
             await recovered_store.connect()
             try:
                 await Graph.open(
@@ -581,7 +581,7 @@ class TestCrashAfterCommit:
         terminal state. An uninterrupted run of the same update is the
         control.
         """
-        store = build_graph_store("neo4j")
+        store = build_test_store()
         await store.connect()
         control_probe = f"Zzxqy Crashprobe {uuid4().hex[:8]}"
         crashed_probe = f"Zzxqy Crashprobe {uuid4().hex[:8]}"
@@ -674,7 +674,7 @@ class TestRecoveryIsIdempotent:
             await _reopen_until_settled(store, key, _NoopExtractor())
             after_first = await _graph_state(store, key)
 
-            second_store = build_graph_store("neo4j")
+            second_store = build_test_store()
             await second_store.connect()
             try:
                 await Graph.open(
@@ -687,5 +687,57 @@ class TestRecoveryIsIdempotent:
                 assert await _job_status(store, key) is None
             finally:
                 await second_store.close()
+        finally:
+            await _cleanup(store, key, None)
+
+
+class TestCrashDuringCommit:
+    """A worker that dies part way through its commit leaves a settled graph.
+
+    A backend with multi-statement transactions undoes the whole commit, so the
+    job is rolled back. A backend without them keeps the statements that ran, so
+    recovery finishes the commit. Either way no pending tag survives and the
+    job ends settled.
+    """
+
+    async def test_recovery_settles_a_commit_that_died_after_writing_rows(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        noop_graph: tuple[GraphStore, Graph],
+    ) -> None:
+        """Recovery leaves no pending rows and either keeps or drops the document."""
+        store, graph = noop_graph
+        key = f"crash://mid-commit-{uuid4().hex}"
+        try:
+            _kill_recovery(monkeypatch)
+
+            async def die_before_tags_clear(*args: object, **kwargs: object) -> None:
+                raise RuntimeError("worker died during commit")
+
+            monkeypatch.setattr(
+                "agrag.ingestion._cutover.clear_job_tags", die_before_tags_clear
+            )
+            with pytest.raises(RuntimeError, match="worker died during commit"):
+                await graph.add(documents=[_document(key, "mid commit text. " * 60)])
+            monkeypatch.undo()
+            rows = await store.execute_read(
+                "MATCH (job:CutoverJob {document_key: $key}) "
+                "RETURN job.id AS id, job.commit_started AS started",
+                {"key": key},
+            )
+            assert rows
+            job_id = str(rows[0]["id"])
+            _kill_recovery(monkeypatch)
+
+            await _reopen_until_settled(store, key, _NoopExtractor())
+
+            assert await _tagged_rows(store, job_id) == (0, 0)
+            if selected_backend() == "neo4j":
+                assert await _job_status(store, key) is None
+                assert await _open_chunk_ids(store, key) == set()
+            else:
+                assert rows[0]["started"] is True
+                assert await _job_status(store, key) == "done"
+                assert await _open_chunk_ids(store, key)
         finally:
             await _cleanup(store, key, None)

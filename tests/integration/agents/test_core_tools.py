@@ -9,9 +9,9 @@ from agrag.common.data_models.decision import DECISION_LABEL
 from agrag.common.data_models.evidence import EvidenceSearchMode
 from agrag.common.data_models.graph_schema import GraphSchema
 from agrag.common.data_models.task import EventKind
-from agrag.graphdb import build_graph_store
 from agrag.ingestion.graph import Graph
 from agrag.memory import DecisionMemory, TaskMemory
+from tests.integration._backend import await_indexes, build_test_store
 from tests.integration.retrieval.evidence._corpus import (
     HARBOR_TEXT,
     BagOfWordsEmbedder,
@@ -24,7 +24,7 @@ async def test_core_memory_tools_read_write_and_review_persisted_data() -> None:
     """Direct core tools return paged memory and persisted decision state."""
     run = uuid4().hex
     harbor_key = f"evidence://{run}/harbor"
-    store = build_graph_store("neo4j")
+    store = build_test_store()
     graph = await Graph.open(
         schema=GraphSchema(name="core-tools", version="1", entities=[], relations=[]),
         graph_store=store,
@@ -32,7 +32,7 @@ async def test_core_memory_tools_read_write_and_review_persisted_data() -> None:
         extractor=NoEntityExtractor(),
         chunker=Chunker(size=60),
     )
-    await store.execute_read("CALL db.awaitIndexes(60)")
+    await await_indexes(store)
     await graph.add(documents=[make_document(harbor_key, HARBOR_TEXT)])
     project_id = f"core-tools-{uuid4().hex}"
     task_name = f"task-{uuid4().hex}"
@@ -211,7 +211,7 @@ async def test_core_memory_tools_read_write_and_review_persisted_data() -> None:
         await store.ensure_fulltext_index(
             label=DECISION_LABEL, properties=["conclusion", "rationale"]
         )
-        await store.execute_read("CALL db.awaitIndexes(60)")
+        await await_indexes(store)
         precedent = json.loads(
             await tool_by_name["search_decisions"].ainvoke({"query": "Retain harbor"})
         )

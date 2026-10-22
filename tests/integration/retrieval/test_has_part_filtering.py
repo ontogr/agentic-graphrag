@@ -22,11 +22,11 @@ from agrag.common.data_models.provenance import TextProvenance
 from agrag.cypher.entities import load_chunks_by_id_query
 from agrag.cypher.relations import entities_in_documents_query
 from agrag.embedding.base import Embedder
-from agrag.graphdb import build_graph_store
 from agrag.graphdb.base import GraphStore
 from agrag.ingestion.extract import Extractor
 from agrag.ingestion.graph import Graph
 from tests.conftest import FAKE_EMBEDDING_DIMENSIONS
+from tests.integration._backend import build_test_store
 
 
 neo4j_missing = importlib.util.find_spec("neo4j") is None
@@ -123,7 +123,7 @@ class TestHasPartFiltering:
 
     async def _setup(self) -> tuple[Graph, GraphStore, str, str]:
         """Open a graph and ingest two versions of one probe document."""
-        store = build_graph_store("neo4j")
+        store = build_test_store()
         await store.connect()
         probe_name = f"Zzxqy Filterprobe {uuid4().hex[:8]}"
         graph = await Graph.open(

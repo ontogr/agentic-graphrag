@@ -18,13 +18,13 @@ from agrag.common.data_models.extraction import ExtractionResult
 from agrag.common.data_models.graph_schema import GraphSchema
 from agrag.common.data_models.update_decision import UpdateDecision
 from agrag.embedding.base import Embedder
-from agrag.graphdb import build_graph_store
 from agrag.graphdb.base import GraphStore
 from agrag.ingestion.extract import Extractor
 from agrag.ingestion.graph import Graph
 from agrag.loaders.base import ProseLoader
 from agrag.loaders.types import ReadOptions, SourceRef
 from tests.conftest import FAKE_EMBEDDING_DIMENSIONS
+from tests.integration._backend import build_test_store
 from tests.integration.e2e._artifact import write_artifact
 
 
@@ -128,7 +128,7 @@ class TestDocumentDates:
         self, tmp_path: Path
     ) -> None:
         """Dates persist on add, survive a no-op, and clear on content change."""
-        store = build_graph_store("neo4j")
+        store = build_test_store()
         await store.connect()
         embedder = _FixedEmbedder()
         extractor = _NoopExtractor()
@@ -205,7 +205,7 @@ class TestDocumentDates:
         self, tmp_path: Path
     ) -> None:
         """Date changes update only metadata and preserve stored chunk ids."""
-        store = build_graph_store("neo4j")
+        store = build_test_store()
         await store.connect()
         embedder = _FixedEmbedder()
         extractor = _NoopExtractor()
@@ -307,7 +307,7 @@ class TestDocumentDates:
         self, tmp_path: Path
     ) -> None:
         """Force reuses chunks, writes new dates, and still versions changed text."""
-        store = build_graph_store("neo4j")
+        store = build_test_store()
         await store.connect()
         embedder = _FixedEmbedder()
         extractor = _NoopExtractor()

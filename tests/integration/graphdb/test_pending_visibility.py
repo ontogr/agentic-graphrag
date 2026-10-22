@@ -17,10 +17,10 @@ from agrag.cypher.entities import (
     fetch_all_by_label_query,
     fetch_entity_neighbors_query,
 )
-from agrag.cypher.relations import bfs_expand_query, shortest_path_distance_query
-from agrag.graphdb import build_graph_store
+from agrag.cypher.relations import bfs_expand_query
 from agrag.graphdb.base import GraphStore
 from agrag.ingestion._document_lifecycle import find_document
+from tests.integration._backend import build_test_store
 
 
 neo4j_missing = importlib.util.find_spec("neo4j") is None
@@ -34,7 +34,7 @@ pytestmark = [
 @pytest_asyncio.fixture(scope="module", loop_scope="module")
 async def store() -> AsyncIterator[GraphStore]:
     """Open one connected store for the module."""
-    graph_store = build_graph_store("neo4j")
+    graph_store = build_test_store()
     await graph_store.connect()
     try:
         yield graph_store
@@ -144,10 +144,11 @@ class TestPendingVisibility:
             )
 
             shortened = await store.execute_read(
-                shortest_path_distance_query(), {"seed_ids": [a], "target_ids": [b]}
+                store.shortest_path_distance_query(),
+                {"seed_ids": [a], "target_ids": [b]},
             )
             unreachable = await store.execute_read(
-                shortest_path_distance_query(),
+                store.shortest_path_distance_query(),
                 {"seed_ids": [a], "target_ids": [only_pending]},
             )
 

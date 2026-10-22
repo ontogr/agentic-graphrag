@@ -20,11 +20,14 @@ from agrag.common.data_models.extraction import ExtractedEntity, ExtractionResul
 from agrag.common.data_models.graph_schema import EntityType, GraphSchema
 from agrag.cypher.entities import validate_identifier
 from agrag.embedding.base import Embedder
-from agrag.graphdb import build_graph_store
 from agrag.ingestion import Graph
 from agrag.ingestion.extract import Extractor
 from tests.conftest import FAKE_EMBEDDING_DIMENSIONS
+from tests.integration._backend import build_test_store
 from tests.integration._schema_cleanup import drop_schema_for
+
+
+pytestmark = pytest.mark.neo4j_only
 
 
 neo4j_missing = importlib.util.find_spec("neo4j") is None
@@ -76,7 +79,7 @@ async def test_open_and_add_log_no_server_notifications(
         entities=[EntityType(label=label, description="A test entity.")],
         relations=[],
     )
-    store = build_graph_store("neo4j")
+    store = build_test_store()
     caplog.set_level(logging.WARNING, logger="neo4j.notifications")
     try:
         graph = await Graph.open(
