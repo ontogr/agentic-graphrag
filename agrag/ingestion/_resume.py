@@ -165,6 +165,7 @@ async def _recover_unfinished(
             lease_ttl_seconds=lease_ttl_seconds,
             commit_plan=row.get("commit_plan"),
             docs_applied=bool(row.get("commit_docs_applied")),
+            replayed=int(row.get("commit_replayed") or 0),
         )
     return await _roll_back(
         graph_store,
@@ -258,6 +259,7 @@ async def _finish_commit(
     lease_ttl_seconds: int,
     commit_plan: str | None,
     docs_applied: bool,
+    replayed: int,
 ) -> bool:
     """Finish the commit of a job whose worker died part way through it.
 
@@ -268,7 +270,10 @@ async def _finish_commit(
     including its deferred writes. Recovery repeats those that had not all
     finished in the commit's order: the retraction of replaced evidence, the
     replay of the deferred writes, the fold of the new relations, and the
-    closing document writes. It then clears the pending tags, flips to committed
+    closing document writes. The replay records how many of its steps ran and
+    recovery continues after them, so a write that accumulates, such as a merge
+    count, is not applied twice. A crash between one step and its record can
+    repeat that one step. Recovery then clears the pending tags, flips to committed
     and runs the usual cleanup. The component seeds and created entities that
     the dead worker would have recorded at the flip are not available here, so
     the rebuild of those components does not run.
@@ -299,10 +304,16 @@ async def _finish_commit(
 
         async def finish(txn: GraphStoreTransaction) -> None:
             if plan is not None and not docs_applied:
-                # The retraction is repeated only together with its replay, so
-                # evidence the replay restored before the worker died is not lost.
-                await apply_plan_before_replay(txn, plan)
-                await replay_deferred(txn, DeferredWrites(entries=list(plan.deferred)))
+                # The retraction runs once, before the first replay step; a
+                # repeat after a step would delete the evidence that step wrote.
+                if replayed == 0:
+                    await apply_plan_before_replay(txn, plan)
+                await replay_deferred(
+                    txn,
+                    DeferredWrites(entries=list(plan.deferred)),
+                    job_id=job_uuid,
+                    skip=replayed,
+                )
             await fold_job_relations(txn, job_id=job_uuid)
             if plan is not None and not docs_applied:
                 await apply_plan_after_fold(txn, job_id=job_uuid, plan=plan)

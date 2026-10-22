@@ -31,6 +31,7 @@ from agrag.cypher.cutover_job_write import (
     job_status_query,
     lock_rolling_back_job_query,
     record_parts_closed_query,
+    record_replay_progress_query,
     renew_lease_query,
     rollback_job_query,
     start_cleaning_query,
@@ -102,6 +103,7 @@ class _FakeCutoverStore:
             claim_pending_job_query(): self._claim_pending_rollback,
             job_status_query(): self._job_status,
             record_parts_closed_query(): self._record_parts_closed,
+            record_replay_progress_query(): lambda p: [],
             lock_rolling_back_job_query(): self._lock_rolling_back,
             rollback_job_query(): self._rollback,
         }

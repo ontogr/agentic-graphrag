@@ -525,7 +525,7 @@ async def _commit_pending_writes(
         # repeats this order from the stored plan, so a retraction is never
         # left without its replay.
         await apply_plan_before_replay(txn, plan)
-        await replay_deferred(txn, deferred)
+        await replay_deferred(txn, deferred, job_id=job_id)
         await fold_job_relations(txn, job_id=job_id)
         # The close runs before the tag clear so it can tell the
         # superseded version's edges from the ones this job just

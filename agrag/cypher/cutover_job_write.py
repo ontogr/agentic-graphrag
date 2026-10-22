@@ -75,7 +75,8 @@ def steal_terminal_job_query() -> str:
         "job.lease_expires_at = $lease_expires_at, "
         "job.affected_entity_ids = $affected_entity_ids, "
         "job.created_at = $created_at, job.commit_started = false, "
-        "job.commit_docs_applied = false, job.commit_plan = null "
+        "job.commit_docs_applied = false, job.commit_plan = null, "
+        "job.commit_replayed = 0 "
         "RETURN job.lease_token AS lease_token"
     )
 
@@ -178,6 +179,21 @@ def record_parts_closed_query() -> str:
     )
 
 
+def record_replay_progress_query() -> str:
+    """Build Cypher recording how many deferred-write steps a commit has run.
+
+    Crash recovery skips that many steps, so a write that is not safe to repeat
+    (an accumulating count, for example) is not applied twice.
+
+    Returns:
+        Parameterized Cypher expecting $job_id and $replayed.
+    """
+    return (
+        f"MATCH (job:{CUTOVER_JOB_LABEL} {{id: $job_id}}) "
+        "SET job.commit_replayed = $replayed"
+    )
+
+
 def begin_commit_query() -> str:
     """Build Cypher recording that a pending job has started its commit.
 
@@ -198,7 +214,8 @@ def begin_commit_query() -> str:
         "WHERE job.lease_token = $lease_token "
         "AND job.lease_expires_at >= timestamp() "
         "AND job.status = 'pending' "
-        "SET job.commit_started = true, job.commit_plan = $commit_plan "
+        "SET job.commit_started = true, job.commit_plan = $commit_plan, "
+        "job.commit_replayed = 0 "
         "RETURN job.id AS id"
     )
 
@@ -257,6 +274,7 @@ def commit_job_query() -> str:
         "AND job.status = 'pending' "
         "SET job.status = 'committed', job.commit_started = false, "
         "job.commit_docs_applied = false, job.commit_plan = null, "
+        "job.commit_replayed = 0, "
         "job.component_seed_ids = $component_seed_ids, "
         "job.created_entity_ids = $created_entity_ids "
         "RETURN job.id AS id"
