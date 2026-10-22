@@ -170,6 +170,23 @@ The Neo4j store opens these spans. Reads and writes carry the query text and the
 | `agrag.graphdb.upsert_candidates` | `agrag.record_count` |
 | `agrag.graphdb.vector_search` | `db.collection.name` (the label), `agrag.limit`, `agrag.k_final`, `agrag.index_missing` (when the index does not exist. The search then returns no hits) |
 
+## Qdrant spans
+
+Qdrant operations open `CLIENT` spans when a tracer is supplied to `QdrantVectorStore`. Every span carries `db.system.name="qdrant"` and `server.address` containing only the hostname. Collection operations also carry `db.collection.name`. Spans do not record endpoint URLs, API keys, vectors, query text, or source text. SDK errors are translated to sanitized messages before the span ends.
+
+| Span | Collection attribute | Opens when |
+|---|---|---|
+| `qdrant.initialize` | absent | A new client checks server access |
+| `qdrant.close` | absent | An initialized client closes |
+| `qdrant.ensure_collection` | collection name | Collection schema is created or checked |
+| `qdrant.collection_info` | collection name | Collection configuration and exact count are read |
+| `qdrant.delete_collection` | collection name | A collection is removed |
+| `qdrant.upsert` | collection name | Dense and BM25 vectors are written |
+| `qdrant.search` | collection name | Dense vectors are searched, including hybrid alpha one |
+| `qdrant.hybrid_search` | collection name | BM25 or fused ranks are searched with alpha below one |
+| `qdrant.delete` | collection name | Point IDs are deleted |
+| `qdrant.list_ids` | collection name | IDs are read in ascending UUID order |
+
 ## Embedding spans
 
 | Span | Attributes |

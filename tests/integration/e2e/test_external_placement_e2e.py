@@ -13,6 +13,10 @@ from uuid import uuid4
 
 import pytest
 from mcp import Client, StdioServerParameters
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+from opentelemetry.trace import SpanKind
 
 from agrag.common.data_models.chunk import Chunk
 from agrag.common.data_models.document import Document, DocumentFamily, SourceFormat
@@ -23,7 +27,7 @@ from agrag.common.data_models.evidence import (
 )
 from agrag.common.data_models.extraction import ExtractionResult
 from agrag.common.data_models.graph_schema import EntityType, GraphSchema
-from agrag.common.data_models.vector_record import VectorKind
+from agrag.common.data_models.vector_record import Distance, VectorKind, VectorRecord
 from agrag.embedding import FastEmbedEmbedder
 from agrag.embedding.base import Embedder
 from agrag.evidence import search_evidence
@@ -31,6 +35,7 @@ from agrag.ingestion.extract import Extractor
 from agrag.ingestion.graph import Graph
 from agrag.loaders.common import text_sections
 from agrag.retrieval import CHUNK, SearchEngine
+from agrag.vectordb.qdrant import QdrantSettings, QdrantVectorStore
 from tests.integration._backend import build_test_store
 from tests.integration._vector_backend import build_vector_store, selected_vector_stores
 from tests.integration.e2e._artifact import write_artifact
@@ -95,6 +100,73 @@ def _document(key: str, text: str) -> Document:
 class TestExternalPlacementE2E:
     """A real external index tracks committed graph data without graph embeddings."""
 
+    @pytest.mark.skipif("qdrant" not in _BACKENDS, reason="Qdrant is not selected")
+    async def test_qdrant_trace_describes_storage_without_source_text(self) -> None:
+        """A supplied tracer records each network operation with safe DB metadata."""
+        exporter = InMemorySpanExporter()
+        provider = TracerProvider()
+        provider.add_span_processor(SimpleSpanProcessor(exporter))
+        settings = QdrantSettings(collection_prefix=f"trace_{uuid4().hex[:12]}")
+        vectors = QdrantVectorStore(
+            settings=settings, tracer=provider.get_tracer("external-placement-test")
+        )
+        record = VectorRecord(
+            id=uuid4(),
+            vector=[1.0, 0.0],
+            labels=["Trace"],
+            text="private trace sentinel",
+        )
+        try:
+            await vectors.initialize()
+            await vectors.ensure_collection(
+                VectorKind.CHUNK, dimensions=2, distance=Distance.COSINE
+            )
+            await vectors.upsert(VectorKind.CHUNK, [record])
+            hits = await vectors.search(VectorKind.CHUNK, [1.0, 0.0], limit=1)
+            assert [hit.id for hit in hits] == [record.id]
+            await vectors.hybrid_search(
+                VectorKind.CHUNK, [1.0, 0.0], "trace", limit=1, alpha=0.5
+            )
+            assert await vectors.list_ids(VectorKind.CHUNK) == [record.id]
+            await vectors.delete(VectorKind.CHUNK, [record.id])
+            assert await vectors.list_ids(VectorKind.CHUNK) == []
+        finally:
+            await vectors.delete_collection(VectorKind.CHUNK)
+            await vectors.close()
+        spans = exporter.get_finished_spans()
+        try:
+            names = {span.name for span in spans}
+            assert names == {
+                "qdrant.initialize",
+                "qdrant.close",
+                "qdrant.ensure_collection",
+                "qdrant.collection_info",
+                "qdrant.delete_collection",
+                "qdrant.upsert",
+                "qdrant.search",
+                "qdrant.hybrid_search",
+                "qdrant.delete",
+                "qdrant.list_ids",
+            }
+            for span in spans:
+                assert span.kind == SpanKind.CLIENT
+                attributes = span.attributes or {}
+                assert attributes["db.system.name"] == "qdrant"
+                assert attributes["server.address"]
+                assert "://" not in str(attributes["server.address"])
+                if span.name not in {"qdrant.initialize", "qdrant.close"}:
+                    assert (
+                        attributes["db.collection.name"]
+                        == f"{settings.collection_prefix}_chunks"
+                    )
+                assert "private trace sentinel" not in str(attributes)
+            artifact = write_artifact(
+                "external_placement_qdrant_tracing", {"spans": sorted(names)}
+            )
+            assert artifact["spans"] == sorted(names)
+        finally:
+            provider.shutdown()
+
     @pytest.mark.parametrize("backend", _BACKENDS)
     async def test_mcp_subprocess_searches_external_placement(
         self, backend: str
@@ -151,7 +223,7 @@ class TestExternalPlacementE2E:
             assert [hit.document_key for hit in evidence.hits] == [key]
             assert "Orbit mechanics" in evidence.hits[0].snippet
             artifact = write_artifact(
-                f"external_mcp_{backend}",
+                f"external_placement_mcp_{backend}",
                 {"backend": backend, "hit": evidence.hits[0].snippet},
             )
             assert artifact["hit"] == "Orbit mechanics describe satellite motion."

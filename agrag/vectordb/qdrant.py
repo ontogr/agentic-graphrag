@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, ClassVar
 from urllib.parse import urlsplit
 from uuid import UUID
 
-from opentelemetry.trace import Tracer
+from opentelemetry.trace import SpanKind, Tracer
 from pydantic import SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -159,7 +159,7 @@ class QdrantVectorStore(VectorStore):
 
         name = self.collection_name(kind)
         lock = _COLLECTION_LOCKS.setdefault((self._settings.url, name), asyncio.Lock())
-        async with lock, self._errors("ensure_collection"):
+        async with lock, self._errors("ensure_collection", kind=kind):
             if not await client.collection_exists(name):
                 try:
                     await client.create_collection(
@@ -199,7 +199,7 @@ class QdrantVectorStore(VectorStore):
     async def collection_info(self, kind: VectorKind) -> CollectionInfo | None:
         """Return exact count and dense configuration, or None when absent."""
         client = await self._connected_client()
-        async with self._errors("collection_info", missing_ok=True):
+        async with self._errors("collection_info", kind=kind, missing_ok=True):
             info = await client.get_collection(self.collection_name(kind))
             vectors = info.config.params.vectors
             if not isinstance(vectors, dict) or "dense" not in vectors:
@@ -225,7 +225,7 @@ class QdrantVectorStore(VectorStore):
     async def delete_collection(self, kind: VectorKind) -> None:
         """Remove a collection; an absent collection is already deleted."""
         client = await self._connected_client()
-        async with self._errors("delete_collection", missing_ok=True):
+        async with self._errors("delete_collection", kind=kind, missing_ok=True):
             await client.delete_collection(self.collection_name(kind))
 
     async def upsert(
@@ -240,7 +240,7 @@ class QdrantVectorStore(VectorStore):
         client = await self._connected_client()
         from qdrant_client import models  # noqa: PLC0415
 
-        async with self._errors("upsert"):
+        async with self._errors("upsert", kind=kind):
             if not await client.collection_exists(self.collection_name(kind)):
                 raise VectorStoreError("Cannot upsert into a missing collection")
             for start in range(0, len(records), batch_size):
@@ -273,7 +273,7 @@ class QdrantVectorStore(VectorStore):
         """Return dense hits on the graph-native score scale."""
         self._validate_limit(limit)
         client = await self._connected_client()
-        async with self._errors("search", missing_ok=True):
+        async with self._errors("search", kind=kind, missing_ok=True):
             info = await client.get_collection(self.collection_name(kind))
             vectors = info.config.params.vectors
             if not isinstance(vectors, dict) or "dense" not in vectors:
@@ -320,7 +320,7 @@ class QdrantVectorStore(VectorStore):
         client = await self._connected_client()
         from qdrant_client import models  # noqa: PLC0415
 
-        async with self._errors("hybrid_search", missing_ok=True):
+        async with self._errors("hybrid_search", kind=kind, missing_ok=True):
             if not await client.collection_exists(self.collection_name(kind)):
                 return []
             lexical = models.Document(text=text, model="Qdrant/bm25")
@@ -370,7 +370,7 @@ class QdrantVectorStore(VectorStore):
         client = await self._connected_client()
         from qdrant_client import models  # noqa: PLC0415
 
-        async with self._errors("delete", missing_ok=True):
+        async with self._errors("delete", kind=kind, missing_ok=True):
             for start in range(0, len(ids), 256):
                 await client.delete(
                     self.collection_name(kind),
@@ -388,7 +388,7 @@ class QdrantVectorStore(VectorStore):
         client = await self._connected_client()
         from qdrant_client import models  # noqa: PLC0415
 
-        async with self._errors("list_ids", missing_ok=True):
+        async with self._errors("list_ids", kind=kind, missing_ok=True):
             points, _ = await client.scroll(
                 self.collection_name(kind),
                 offset=str(after) if after is not None else None,
@@ -433,13 +433,26 @@ class QdrantVectorStore(VectorStore):
 
     @asynccontextmanager
     async def _errors(
-        self, operation: str, *, missing_ok: bool = False
+        self,
+        operation: str,
+        *,
+        kind: VectorKind | None = None,
+        missing_ok: bool = False,
     ) -> AsyncIterator[None]:
         """Translate SDK failures without exposing endpoint credentials or text."""
         from qdrant_client.http.exceptions import UnexpectedResponse  # noqa: PLC0415
 
+        attributes = {
+            "db.system.name": "qdrant",
+            "server.address": str(urlsplit(self._settings.url).hostname),
+        }
+        if kind is not None:
+            attributes["db.collection.name"] = self.collection_name(kind)
         with self._tracer.start_as_current_span(
-            f"qdrant.{operation}", record_exception=False
+            f"qdrant.{operation}",
+            kind=SpanKind.CLIENT,
+            attributes=attributes,
+            record_exception=False,
         ):
             try:
                 yield
