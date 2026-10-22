@@ -116,13 +116,14 @@ class TestExternalPlacementE2E:
             labels=["Trace"],
             text="private trace sentinel",
         )
-        other = record.model_copy(update={"id": uuid4()})
+        other = record.model_copy(update={"id": uuid4(), "vector": [0.0, 1.0]})
+        third = other.model_copy(update={"id": uuid4()})
         try:
             await vectors.initialize()
             await vectors.ensure_collection(
                 VectorKind.CHUNK, dimensions=2, distance=Distance.COSINE
             )
-            await vectors.upsert(VectorKind.CHUNK, [record, other], batch_size=1)
+            await vectors.upsert(VectorKind.CHUNK, [record, other, third], batch_size=2)
             hits = await vectors.search(VectorKind.CHUNK, [1.0, 0.0], limit=1)
             assert [hit.id for hit in hits] == [record.id]
             await vectors.hybrid_search(
@@ -131,8 +132,9 @@ class TestExternalPlacementE2E:
             assert set(await vectors.list_ids(VectorKind.CHUNK)) == {
                 record.id,
                 other.id,
+                third.id,
             }
-            await vectors.delete(VectorKind.CHUNK, [record.id, other.id])
+            await vectors.delete(VectorKind.CHUNK, [record.id, other.id, third.id])
             assert await vectors.list_ids(VectorKind.CHUNK) == []
         finally:
             await vectors.delete_collection(VectorKind.CHUNK)
@@ -175,7 +177,7 @@ class TestExternalPlacementE2E:
                 for span in spans
                 if span.name in {"qdrant.upsert", "qdrant.delete"}
             }
-            assert counts == {"qdrant.upsert": 2, "qdrant.delete": 2}
+            assert counts == {"qdrant.upsert": 3, "qdrant.delete": 3}
             limits = {
                 span.name: (span.attributes or {}).get("agrag.limit")
                 for span in spans
@@ -186,11 +188,11 @@ class TestExternalPlacementE2E:
             batches = [span for span in spans if span.name == "qdrant.upsert_batch"]
             assert [
                 (
-                    (batch.attributes or {})["db.operation.batch.size"],
+                    (batch.attributes or {}).get("db.operation.batch.size"),
                     batch.parent.span_id if batch.parent else None,
                 )
                 for batch in batches
-            ] == [(1, group.context.span_id)] * 2
+            ] == [(2, group.context.span_id), (None, group.context.span_id)]
             artifact = write_artifact(
                 "external_placement_qdrant_tracing", {"spans": sorted(names)}
             )

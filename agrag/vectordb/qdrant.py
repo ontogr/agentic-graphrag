@@ -41,6 +41,11 @@ if TYPE_CHECKING:
 _COLLECTION_LOCKS: dict[tuple[str, str], asyncio.Lock] = {}
 
 
+def _batch_attributes(size: int) -> dict[str, AttributeValue]:
+    """Report the batch size only when a batch holds several operations."""
+    return {"db.operation.batch.size": size} if size > 1 else {}
+
+
 class QdrantSettings(BaseSettings):
     """Qdrant connection and per-graph collection names.
 
@@ -185,7 +190,7 @@ class QdrantVectorStore(VectorStore):
                     # Another process can create the collection after the check.
                     if not await client.collection_exists(name):
                         raise
-            info = await self.collection_info(kind)
+            info = await self.collection_info(kind, exact_count=False)
             if info is None or (info.dimensions, info.distance) != (
                 dimensions,
                 distance,
@@ -270,7 +275,7 @@ class QdrantVectorStore(VectorStore):
                 async with self._errors(
                     "upsert_batch",
                     kind=kind,
-                    attributes={"db.operation.batch.size": len(batch)},
+                    attributes=_batch_attributes(len(batch)),
                 ):
                     await client.upsert(
                         self.collection_name(kind),
@@ -419,7 +424,7 @@ class QdrantVectorStore(VectorStore):
                     "delete_batch",
                     kind=kind,
                     missing_ok=True,
-                    attributes={"db.operation.batch.size": len(batch)},
+                    attributes=_batch_attributes(len(batch)),
                 ):
                     await client.delete(
                         self.collection_name(kind),

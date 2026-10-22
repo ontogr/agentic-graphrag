@@ -184,11 +184,11 @@ Operations that send a request open a `CLIENT` span. `qdrant.upsert` and `qdrant
 | `qdrant.collection_info` | `CLIENT` | none | Collection configuration is read, with an exact count unless the caller opts out |
 | `qdrant.delete_collection` | `CLIENT` | none | A collection is removed |
 | `qdrant.upsert` | `INTERNAL` | `agrag.record_count` | Records are written in batches |
-| `qdrant.upsert_batch` | `CLIENT` | `db.operation.batch.size` | One batch of dense and BM25 vectors is written |
+| `qdrant.upsert_batch` | `CLIENT` | `db.operation.batch.size` (absent for a single record) | One batch of dense and BM25 vectors is written |
 | `qdrant.search` | `CLIENT` | `agrag.limit` | Dense vectors are searched, including hybrid alpha one |
 | `qdrant.hybrid_search` | `CLIENT` | `agrag.limit`, `agrag.alpha` | BM25 or fused ranks are searched with alpha below one |
 | `qdrant.delete` | `INTERNAL` | `agrag.record_count` | Point IDs are deleted in batches |
-| `qdrant.delete_batch` | `CLIENT` | `db.operation.batch.size` | One batch of point IDs is deleted |
+| `qdrant.delete_batch` | `CLIENT` | `db.operation.batch.size` (absent for a single ID) | One batch of point IDs is deleted |
 | `qdrant.list_ids` | `CLIENT` | `agrag.limit` | IDs are read in ascending UUID order |
 
 Every span except `qdrant.initialize` and `qdrant.close` also carries `db.collection.name`.
