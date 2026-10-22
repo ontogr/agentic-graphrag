@@ -5,6 +5,11 @@ from collections.abc import AsyncIterator
 from uuid import UUID, uuid4
 
 import pytest
+from opentelemetry import trace
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+from opentelemetry.trace import SpanKind
 
 from agrag.common.data_models.vector_record import Distance, VectorKind, VectorRecord
 from agrag.vectordb.errors import CollectionMismatchError
@@ -34,6 +39,45 @@ async def weaviate_store() -> AsyncIterator[WeaviateVectorStore]:
 
 class TestWeaviateVectorStore:
     """Collection metadata survives reconnects and UUID pages remain ordered."""
+
+    @pytest.mark.parametrize("traced", [False, True])
+    async def test_tracing_is_injected_and_identifies_collections(
+        self,
+        weaviate_store: WeaviateVectorStore,
+        monkeypatch: pytest.MonkeyPatch,
+        traced: bool,
+    ) -> None:
+        """Default stores stay silent even when global tracing is configured."""
+        exporter = InMemorySpanExporter()
+        provider = TracerProvider()
+        provider.add_span_processor(SimpleSpanProcessor(exporter))
+        tracer = provider.get_tracer("weaviate-integration")
+        monkeypatch.setattr(trace, "get_tracer", lambda *args, **kwargs: tracer)
+        store = WeaviateVectorStore(
+            settings=WeaviateSettings(collection_prefix=f"trace_{uuid4().hex}"),
+            tracer=tracer if traced else None,
+        )
+        try:
+            assert await store.collection_info(VectorKind.CHUNK) is None
+            spans = exporter.get_finished_spans()
+            if traced:
+                span = next(
+                    span
+                    for span in spans
+                    if span.name == "agrag.vectordb.collection_info"
+                )
+                assert span.kind == SpanKind.CLIENT
+                assert span.attributes is not None
+                assert span.attributes["db.system.name"] == "weaviate"
+                assert span.attributes["db.collection.name"] == store.collection_name(
+                    VectorKind.CHUNK
+                )
+                assert span.attributes["agrag.vector.kind"] == VectorKind.CHUNK.value
+            else:
+                assert spans == ()
+        finally:
+            await store.close()
+            provider.shutdown()
 
     async def test_empty_collection_reopen_rejects_dimension_change(
         self,

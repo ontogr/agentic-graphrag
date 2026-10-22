@@ -1,17 +1,16 @@
 """Weaviate collections with self-provided vectors and native BM25 fusion."""
 
 import asyncio
-import contextlib
 import heapq
 import json
+import logging
 from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Any, ClassVar, Literal
 from urllib.parse import urlparse
 from uuid import UUID
 
-from opentelemetry import trace
-from opentelemetry.trace import Tracer
+from opentelemetry.trace import SpanKind, Tracer
 from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -26,6 +25,7 @@ from agrag.common.validation import (
     require_encrypted_remote_connection,
     require_positive_batch_size,
 )
+from agrag.observability import get_tracer
 from agrag.vectordb.base import VectorStore
 from agrag.vectordb.errors import (
     CollectionMismatchError,
@@ -42,6 +42,7 @@ if TYPE_CHECKING:
 _METRICS = {Distance.COSINE: "cosine", Distance.EUCLID: "l2-squared"}
 _COLLECTION_LOCKS: dict[tuple[str, str], asyncio.Lock] = {}
 _DESCRIPTION_PREFIX = "agrag-vector-v1:"
+_logger = logging.getLogger(__name__)
 
 
 class WeaviateSettings(BaseSettings):
@@ -122,10 +123,16 @@ class WeaviateVectorStore(VectorStore):
         settings: WeaviateSettings | None = None,
         tracer: Tracer | None = None,
     ) -> None:
-        """Bind connection settings without importing the optional client."""
+        """Bind settings and an optional tracer without loading the client.
+
+        Args:
+            settings: Connection settings and the graph's collection prefix.
+            tracer: Emits database client spans when supplied. None disables
+                tracing even when a global provider is configured.
+        """
         self._settings = settings if settings is not None else WeaviateSettings()
         self.collection_prefix = self._settings.collection_prefix
-        self._tracer = tracer if tracer is not None else trace.get_tracer(__name__)
+        self._tracer = get_tracer(tracer)
         self._client: WeaviateAsyncClient | None = None
         self._connect_lock = asyncio.Lock()
 
@@ -177,7 +184,7 @@ class WeaviateVectorStore(VectorStore):
 
         name = self.collection_name(kind)
         lock = _COLLECTION_LOCKS.setdefault((self._settings.url, name), asyncio.Lock())
-        async with lock, self._operation("ensure_collection"):
+        async with lock, self._operation("ensure_collection", kind):
             if not await client.collections.exists(name):
                 description = _DESCRIPTION_PREFIX + json.dumps(
                     {
@@ -218,7 +225,7 @@ class WeaviateVectorStore(VectorStore):
         """Return persisted dimensions, actual metric and count, or None if absent."""
         client = await self._connected_client()
         name = self.collection_name(kind)
-        async with self._operation("collection_info"):
+        async with self._operation("collection_info", kind):
             metadata = await self._collection_metadata(kind)
             if metadata is None:
                 return None
@@ -241,7 +248,7 @@ class WeaviateVectorStore(VectorStore):
     async def delete_collection(self, kind: VectorKind) -> None:
         """Delete a collection, ignoring one that does not exist."""
         client = await self._connected_client()
-        async with self._operation("delete_collection"):
+        async with self._operation("delete_collection", kind):
             name = self.collection_name(kind)
             if await client.collections.exists(name):
                 await client.collections.delete(name)
@@ -262,7 +269,7 @@ class WeaviateVectorStore(VectorStore):
         client = await self._connected_client()
         from weaviate.classes.data import DataObject  # noqa: PLC0415
 
-        async with self._operation("upsert"):
+        async with self._operation("upsert", kind):
             info = await self.collection_info(kind)
             if info is None:
                 raise VectorStoreError("Cannot upsert into a missing collection")
@@ -298,7 +305,7 @@ class WeaviateVectorStore(VectorStore):
         client = await self._connected_client()
         from weaviate.classes.query import MetadataQuery  # noqa: PLC0415
 
-        async with self._operation("search"):
+        async with self._operation("search", kind):
             metadata = await self._collection_metadata(kind)
             if metadata is None or (labels is not None and not labels):
                 return []
@@ -354,7 +361,7 @@ class WeaviateVectorStore(VectorStore):
             MetadataQuery,
         )
 
-        async with self._operation("hybrid_search"):
+        async with self._operation("hybrid_search", kind):
             name = self.collection_name(kind)
             if not await client.collections.exists(name) or (
                 labels is not None and not labels
@@ -401,7 +408,7 @@ class WeaviateVectorStore(VectorStore):
         client = await self._connected_client()
         from weaviate.classes.query import Filter  # noqa: PLC0415
 
-        async with self._operation("delete"):
+        async with self._operation("delete", kind):
             name = self.collection_name(kind)
             if not await client.collections.exists(name):
                 return
@@ -432,7 +439,7 @@ class WeaviateVectorStore(VectorStore):
         if limit <= 0:
             raise ValueError("limit must be positive")
         client = await self._connected_client()
-        async with self._operation("list_ids"):
+        async with self._operation("list_ids", kind):
             name = self.collection_name(kind)
             if not await client.collections.exists(name):
                 return []
@@ -532,8 +539,10 @@ class WeaviateVectorStore(VectorStore):
                     if not await client.is_ready():
                         raise VectorStoreError("Weaviate is not ready")
             except BaseException:
-                with contextlib.suppress(Exception):
+                try:
                     await client.close()
+                except Exception:
+                    _logger.warning("Weaviate cleanup after failed connection failed")
                 raise
             self._client = client
             return client
@@ -553,11 +562,21 @@ class WeaviateVectorStore(VectorStore):
         )
 
     @asynccontextmanager
-    async def _operation(self, operation: str) -> AsyncIterator[None]:
+    async def _operation(
+        self, operation: str, kind: VectorKind | None = None
+    ) -> AsyncIterator[None]:
         """Translate SDK failures without exposing server responses or credentials."""
         from weaviate.exceptions import WeaviateBaseError  # noqa: PLC0415
 
-        with self._tracer.start_as_current_span(f"agrag.vectordb.{operation}"):
+        attributes = {"db.system.name": "weaviate", "agrag.vector.operation": operation}
+        if kind is not None:
+            attributes["db.collection.name"] = self.collection_name(kind)
+            attributes["agrag.vector.kind"] = kind.value
+        with self._tracer.start_as_current_span(
+            f"agrag.vectordb.{operation}",
+            kind=SpanKind.CLIENT,
+            attributes=attributes,
+        ):
             try:
                 yield
             except WeaviateBaseError:

@@ -39,6 +39,12 @@ consistency. Each collection belongs to exactly one graph.
 - [**max_results**](#agrag-vectordb-weaviate-WeaviateVectorStore-max_results) (<code>int</code>) –
 - [**name**](#agrag-vectordb-weaviate-WeaviateVectorStore-name) (<code>str</code>) –
 
+**Parameters:**
+
+- **settings** (<code>[WeaviateSettings](WeaviateSettings.md) | None</code>) – Connection settings and the graph's collection prefix.
+- **tracer** (<code>Tracer | None</code>) – Emits database client spans when supplied. None disables
+  tracing even when a global provider is configured.
+
 ## `close` \{#agrag-vectordb-weaviate-WeaviateVectorStore-close}
 
 ```python
