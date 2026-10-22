@@ -316,3 +316,25 @@ MILVUS_PORT=29533 docker compose -p agrag-milvus -f docker/docker-compose.dev.ym
 ```
 
 Set `MILVUS_URI=http://localhost:29533` for that service. The container runs embedded etcd and local storage with a project-scoped persistent volume. The [Milvus settings](../reference/configuration.mdx#milvus) define text and search limits. Use smaller search limits if a Zilliz gateway rejects a response for size.
+
+## Set up Weaviate for vectors
+
+Install `agentic-graphrag[neo4j,weaviate]`, replacing `neo4j` with `falkordb` if needed. Weaviate stores embeddings and BM25 text while the graph database keeps graph records. External placement is exclusive and fixed for a graph.
+
+1. Set the deployment mode and endpoints. Both HTTP and gRPC must be reachable. HTTPS enables TLS on both transports. Keep server-side `ASYNC_INDEXING=false` for read-after-write consistency.
+
+   ```dotenv
+   WEAVIATE_MODE=custom
+   WEAVIATE_URL=http://localhost:8080
+   WEAVIATE_GRPC_PORT=50051
+   WEAVIATE_API_KEY=your-api-key
+   WEAVIATE_COLLECTION_PREFIX=my_graph
+   ```
+
+   For Weaviate Cloud, set `WEAVIATE_MODE=cloud` and use the cluster's HTTPS URL and API key. Cloud uses gRPC over TLS on port 443 and ignores `WEAVIATE_GRPC_PORT`.
+
+2. Construct `WeaviateVectorStore(settings=WeaviateSettings())` from `agrag.vectordb`. Pass the same instance to ingestion and retrieval as in [Choose where vectors live](./choose-where-vectors-live.mdx).
+
+The adapter creates four collections with a capitalized first letter, such as `My_graph_chunks`. Prefixes must start with a lowercase letter so capitalization cannot make two prefixes select the same collections. Each prefix belongs to one graph. Keep the collection description unchanged because it records dimensions even before the first object is written.
+
+Dense scores use the graph-native scale. Hybrid search combines the supplied vector with BM25 over the embedded text. Alpha one uses dense search; alpha zero uses BM25 and omits lexical nonmatches. Search requests are capped at 10,000 results. [Weaviate settings](../reference/configuration.mdx#weaviate) define connection and collection limits.

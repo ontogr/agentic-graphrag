@@ -20,7 +20,7 @@ help:
 	@echo "  make bench-dry DOMAIN=<name> MODE=lite|full - Bound calls and tokens without a model"
 	@echo "  make bench-clean      - Delete the benchmark graphs and volumes"
 	@echo "  make test-cov-map     - Run all suites with JUnit files and per-test coverage contexts"
-	@echo "  make dev-services-up  - Start local Neo4j for integration tests"
+	@echo "  make dev-services-up  - Start local Neo4j, FalkorDB and Weaviate for integration tests"
 	@echo "  make dev-services-down - Stop and remove local backend services and their data"
 	@echo "  make cov-report       - Generate coverage reports (xml, html)"
 	@echo "  make cov              - Run tests and generate coverage reports"

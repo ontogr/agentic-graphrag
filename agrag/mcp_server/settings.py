@@ -59,7 +59,7 @@ class McpServerSettings(BaseSettings):
     )
 
     graph_store: Literal["neo4j", "falkordb"] = "neo4j"
-    vector_store: Literal["qdrant", "milvus"] | None = None
+    vector_store: Literal["qdrant", "milvus", "weaviate"] | None = None
     scope_document_keys: str = ""
     max_hits: int = Field(default=10, ge=1)
     max_snippet_chars: int = Field(default=240, ge=1)

@@ -6,12 +6,13 @@ from opentelemetry import trace
 from agrag.vectordb import VectorStoreName, build_vector_store
 from agrag.vectordb.milvus import MilvusSettings, MilvusVectorStore
 from agrag.vectordb.qdrant import QdrantSettings, QdrantVectorStore
+from agrag.vectordb.weaviate import WeaviateSettings, WeaviateVectorStore
 
 
 class TestBuildVectorStore:
     """Names construct stores; instances preserve their configuration."""
 
-    @pytest.mark.parametrize("backend", ["qdrant", "milvus"])
+    @pytest.mark.parametrize("backend", ["qdrant", "milvus", "weaviate"])
     def test_builds_named_store_without_connecting(
         self, backend: VectorStoreName, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -27,6 +28,10 @@ class TestBuildVectorStore:
         assert build_vector_store(store) is store
         milvus = MilvusVectorStore(settings=MilvusSettings(collection_prefix="unit"))
         assert build_vector_store(milvus) is milvus
+        weaviate = WeaviateVectorStore(
+            settings=WeaviateSettings(collection_prefix="unit")
+        )
+        assert build_vector_store(weaviate) is weaviate
 
     def test_rejects_tracer_with_instance(self) -> None:
         """A tracer cannot silently override an instance's tracer."""
@@ -36,6 +41,11 @@ class TestBuildVectorStore:
         milvus = MilvusVectorStore(settings=MilvusSettings(collection_prefix="unit"))
         with pytest.raises(ValueError, match="tracer has no effect"):
             build_vector_store(milvus, tracer=trace.get_tracer("test"))
+        weaviate = WeaviateVectorStore(
+            settings=WeaviateSettings(collection_prefix="unit")
+        )
+        with pytest.raises(ValueError, match="tracer has no effect"):
+            build_vector_store(weaviate, tracer=trace.get_tracer("test"))
 
     def test_rejects_unknown_name(self) -> None:
         """Unknown backend names report a configuration error."""

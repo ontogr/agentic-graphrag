@@ -47,6 +47,7 @@ neo4j = ["neo4j>=5.22"]
 falkordb = ["falkordb>=1.8,<2"]
 qdrant = ["qdrant-client>=1.17"]
 milvus = ["pymilvus>=3.0.2"]
+weaviate = ["weaviate-client>=4.24.0"]
 mcp = ["mcp>=2.3,<3"]
 observability = [
   "opentelemetry-sdk>=1.20",

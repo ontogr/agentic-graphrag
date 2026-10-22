@@ -14,6 +14,7 @@ from agrag.vectordb.errors import (
 from agrag.vectordb.milvus import MilvusSettings, MilvusVectorStore
 from agrag.vectordb.placement import validate_placement
 from agrag.vectordb.qdrant import QdrantSettings, QdrantVectorStore
+from agrag.vectordb.weaviate import WeaviateSettings, WeaviateVectorStore
 
 
 def _build_qdrant(tracer: Tracer | None = None) -> VectorStore:
@@ -26,12 +27,18 @@ def _build_milvus(tracer: Tracer | None = None) -> VectorStore:
     return MilvusVectorStore(settings=MilvusSettings(), tracer=tracer)
 
 
+def _build_weaviate(tracer: Tracer | None = None) -> VectorStore:
+    """Construct a Weaviate index from environment-backed settings."""
+    return WeaviateVectorStore(settings=WeaviateSettings(), tracer=tracer)
+
+
 _VECTOR_STORE_FACTORIES: dict[str, Callable[..., VectorStore]] = {
     "qdrant": _build_qdrant,
     "milvus": _build_milvus,
+    "weaviate": _build_weaviate,
 }
 
-VectorStoreName = Literal["qdrant", "milvus"]
+VectorStoreName = Literal["qdrant", "milvus", "weaviate"]
 
 
 def build_vector_store(
@@ -75,6 +82,8 @@ __all__ = [
     "VectorStoreError",
     "VectorStoreMissingExtraError",
     "VectorStoreName",
+    "WeaviateSettings",
+    "WeaviateVectorStore",
     "build_vector_store",
     "validate_placement",
 ]

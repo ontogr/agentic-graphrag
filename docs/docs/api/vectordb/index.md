@@ -17,6 +17,7 @@ External vector indexes with graph-owned visibility and placement.
 - [**placement**](placement/index.md) – Validate that a graph continues to use its original vector placement.
 - [**qdrant**](qdrant/index.md) – Qdrant indexes with dense vectors and locally computed BM25 sparse vectors.
 - [**settings**](settings/index.md) – Validation shared by external vector store settings.
+- [**weaviate**](weaviate/index.md) – Weaviate collections with self-provided vectors and native BM25 fusion.
 
 **Classes:**
 
@@ -29,6 +30,8 @@ External vector indexes with graph-owned visibility and placement.
 - [**VectorStore**](base/VectorStore.md) – An external index whose hits must be joined to visible graph nodes.
 - [**VectorStoreError**](errors/VectorStoreError.md) – An external vector index operation failed.
 - [**VectorStoreMissingExtraError**](errors/VectorStoreMissingExtraError.md) – The selected vector store's optional client is not installed.
+- [**WeaviateSettings**](weaviate/WeaviateSettings.md) – Weaviate connection and collection isolation settings.
+- [**WeaviateVectorStore**](weaviate/WeaviateVectorStore.md) – An exclusive external index backed by Weaviate.
 
 **Functions:**
 

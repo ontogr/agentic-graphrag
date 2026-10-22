@@ -51,7 +51,7 @@ Class: `QdrantSettings`. Prefix: `QDRANT_`. Requires the `qdrant` extra and Qdra
 | `QDRANT_API_KEY` | none | Authentication secret. Leave unset for an unauthenticated local server. |
 | `QDRANT_REQUIRE_TLS` | `false` | Require HTTPS for remote connections even without a credential. Loopback hosts remain exempt. |
 | `QDRANT_COLLECTION_PREFIX` | required | Unique graph prefix matching `^[A-Za-z][A-Za-z0-9_]{0,40}$`. Four collections use this prefix. |
-| `MCP_VECTOR_STORE` | none | `qdrant` or `milvus` selects external placement in MCP. Unset selects graph-native placement. |
+| `MCP_VECTOR_STORE` | none | `qdrant`, `milvus`, or `weaviate` selects external placement in MCP. Unset selects graph-native placement. |
 | `RETRIEVAL_HYBRID_ALPHA` | `0.5` | Dense weight in external hybrid search, from `0.0` (lexical only) to `1.0` (dense only). Graph-native search does not use it. |
 
 Qdrant limits one search to 16384 results. Dense scores use the graph-native scale; hybrid scores carry rank only. Labels are the only payload pre-filter. Document scope and properties are filtered after joining results to the graph. [Choose where vectors live](../guides/choose-where-vectors-live.mdx) describes placement and repair.
@@ -247,6 +247,25 @@ Class: `McpServerSettings`. Prefix: `MCP_`. The `agrag-mcp` server reads these v
 | `MCP_REQUEST_DEADLINE_SECONDS` | `30.0` | The timeout of each store read. |
 
 The server reads `NEO4J_*` or `FALKORDB_*` according to `MCP_GRAPH_STORE`, along with `EMBEDDING_*`. Set `EMBEDDING_MODEL` to the model you used for ingestion. `MCP_GRAPH_STORE` selects the backend only for MCP. Python callers select it with `build_graph_store("neo4j")` or `build_graph_store("falkordb")`.
+
+## Weaviate
+
+Class: `WeaviateSettings` in `agrag.vectordb.weaviate`. Prefix: `WEAVIATE_`.
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `WEAVIATE_MODE` | `custom` | Explicit deployment type, `custom` or `cloud`. |
+| `WEAVIATE_URL` | `http://localhost:8080` | HTTP(S) endpoint without a path or embedded credentials. Cloud requires HTTPS. |
+| `WEAVIATE_API_KEY` | none | API key sent to both HTTP and gRPC endpoints. |
+| `WEAVIATE_GRPC_PORT` | `50051` | Custom deployment gRPC port. Cloud uses TLS on port 443. |
+| `WEAVIATE_REQUIRE_TLS` | `false` | Reject plaintext connections to non-loopback hosts even without credentials. Remote credentials always require TLS. |
+| `WEAVIATE_COLLECTION_PREFIX` | required | Graph-specific prefix matching `[A-Za-z][A-Za-z0-9_]{0,40}`, with an additional lowercase-first-letter requirement. |
+
+The adapter capitalizes the first letter of each collection name. For example, `my_graph` produces `My_graph_chunks`, `My_graph_entities`, `My_graph_resolved_entities`, and `My_graph_communities`. An uppercase initial prefix is rejected because it would alias the lowercase prefix. Do not reuse a prefix across graphs.
+
+The collection description stores adapter-owned dimensions and prefix metadata. Do not edit it. Existing collections must match both the persisted dimensions and the actual vector-index distance. An empty collection still has dimension metadata and a count of zero.
+
+One dense or hybrid search accepts at most 10,000 results. A larger limit raises `ValueError`. UUID listing is strictly ascending with an exclusive cursor at every collection size. Each page scans the collection and retains only the requested page in memory. Disable server-side `ASYNC_INDEXING` to keep vector reads consistent with completed writes.
 
 ## Related
 
