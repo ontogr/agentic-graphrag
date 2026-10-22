@@ -180,6 +180,14 @@ jobs:
             services: neo4j qdrant
             vector_store: qdrant
             timeout: 20
+          - name: vector-weaviate
+            backend: neo4j
+            vector_store: weaviate
+            paths: "tests/integration/vectordb tests/integration/e2e/test_external_placement_e2e.py"
+            workers: 0
+            dist: loadscope
+            services: neo4j weaviate
+            timeout: 20
     env:
       UV_PYTHON: "3.12"
       AGRAG_TEST_BACKENDS: ${{ matrix.suite.backend }}
@@ -195,6 +203,11 @@ jobs:
       NEO4J_PASSWORD: ci-test-password
       NEO4J_DATABASE: neo4j
       FALKORDB_URL: redis://localhost:6379
+      WEAVIATE_MODE: custom
+      WEAVIATE_URL: http://localhost:8080
+      WEAVIATE_GRPC_PORT: "50051"
+      WEAVIATE_API_KEY: ci-weaviate-key
+      WEAVIATE_COLLECTION_PREFIX: ci_weaviate
       COVERAGE_FILE: coverage-data-${{ matrix.suite.backend }}-${{ matrix.suite.name }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

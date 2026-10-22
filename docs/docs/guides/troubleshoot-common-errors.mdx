@@ -286,6 +286,14 @@ for row in indexes:
 
 The server must support Milvus 3.0.1 APIs, including sorted scalar queries used to page UUIDs. Use the same collection prefix for ingestion and retrieval. Check the [Milvus connection settings](../reference/configuration.mdx#milvus) without printing token values.
 
+## Weaviate cannot connect or rejects a collection
+
+The Weaviate client requires both HTTP and gRPC access. For a custom deployment, check `WEAVIATE_URL` and `WEAVIATE_GRPC_PORT`. For cloud, use `WEAVIATE_MODE=cloud` and an HTTPS cluster URL. A remote API key over plaintext is rejected before connection.
+
+`CollectionMismatchError` means the collection does not match the requested dimensions or distance, or its description lacks valid adapter metadata. Reopen with the original embedder and prefix. Do not edit the description to bypass a mismatch. To change placement or embedding dimensions, ingest into a new graph with a new prefix.
+
+A search limit above 10,000 raises `ValueError`. Reduce the requested limit. A selective graph-side filter can still return fewer hits than requested at that ceiling.
+
 ## Related
 
 - Concepts: [Graph storage](../concepts/graph-storage.mdx), [Retrieval](../concepts/retrieval.mdx)

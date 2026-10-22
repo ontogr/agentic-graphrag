@@ -100,6 +100,12 @@ The server caps what it returns. A result states when it left items out.
 
 The [Configuration reference](../reference/configuration.mdx#mcp-server) lists every variable.
 
+## Read a graph with Weaviate vectors
+
+Install the `weaviate` extra beside the graph and MCP extras. Set `MCP_VECTOR_STORE=weaviate` and the same `WEAVIATE_MODE`, `WEAVIATE_URL`, `WEAVIATE_COLLECTION_PREFIX`, and credentials used for ingestion. Custom deployments also need `WEAVIATE_GRPC_PORT`. The server validates placement before serving requests. A different prefix, store, or embedding configuration cannot read that graph's vectors.
+
+Store-hybrid hits report `legs=["semantic"]` because Weaviate fuses dense and lexical results internally. Lexical-only evidence search still uses the graph's full-text index.
+
 ## Related
 
 - How-to: [Find and cite evidence](./find-and-cite-evidence.mdx) calls the same operations from Python.
