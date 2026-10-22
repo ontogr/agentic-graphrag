@@ -26,6 +26,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field, field_validator
 
+from agrag.common.data_models.vector_record import VectorTarget
+
 
 PENDING_JOB_ID_PROPERTY = "_pending_job_id"
 """Graph property marking a node or edge as created by an in-flight job.
@@ -33,8 +35,8 @@ PENDING_JOB_ID_PROPERTY = "_pending_job_id"
 Written by ``GraphStore`` on every node or edge a Cutover Job creates. A job
 never tags a committed row, so committed data never carries it. Retrieval
 query builders exclude rows carrying it, the commit step removes it
-atomically, and rollback deletes every row carrying it. Vector-store payloads
-hold the job id under the same key.
+atomically, and rollback deletes every row carrying it. External vector hits
+join these graph rows to enforce the same visibility rule.
 """
 
 
@@ -134,9 +136,11 @@ class DeferredWrites:
     Attributes:
         entries: Each deferred ``(query, parameters)`` in write order. Order
             matters: a survivor's text replays before its embedding.
+        vector_targets: Committed nodes to re-embed after the graph commit.
     """
 
     entries: list[tuple[str, dict[str, Any]]] = field(default_factory=list)
+    vector_targets: list[VectorTarget] = field(default_factory=list)
 
     def __len__(self) -> int:
         """Return the number of deferred statements."""

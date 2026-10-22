@@ -26,7 +26,15 @@ from agrag.common.data_models.provenance import PageProvenance, TextProvenance
 from agrag.common.data_models.relation import Relation
 from agrag.common.data_models.resolved_entity import ResolvedEntity
 from agrag.common.data_models.search_result import SearchResult
-from agrag.common.data_models.vector_record import Distance
+from agrag.common.data_models.vector_record import (
+    CollectionInfo,
+    Distance,
+    VectorKind,
+    VectorRecord,
+    VectorRepairCounts,
+    VectorRepairResult,
+    VectorTarget,
+)
 
 
 __all__ = [
@@ -35,6 +43,7 @@ __all__ = [
     "OPERATIONS",
     "Cardinality",
     "Chunk",
+    "CollectionInfo",
     "Community",
     "Distance",
     "Document",
@@ -57,4 +66,9 @@ __all__ = [
     "TextProvenance",
     "Unit",
     "UnitKind",
+    "VectorKind",
+    "VectorRecord",
+    "VectorRepairCounts",
+    "VectorRepairResult",
+    "VectorTarget",
 ]
