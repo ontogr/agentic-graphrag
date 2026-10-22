@@ -270,10 +270,10 @@ class WeaviateVectorStore(VectorStore):
         from weaviate.classes.data import DataObject  # noqa: PLC0415
 
         async with self._operation("upsert", kind):
-            info = await self.collection_info(kind)
-            if info is None:
+            metadata = await self._collection_metadata(kind)
+            if metadata is None:
                 raise VectorStoreError("Cannot upsert into a missing collection")
-            if any(len(record.vector) != info.dimensions for record in records):
+            if any(len(record.vector) != metadata[0] for record in records):
                 raise VectorStoreError("Vector dimensions do not match the collection")
             collection = client.collections.use(self.collection_name(kind))
             for start in range(0, len(records), batch_size):
