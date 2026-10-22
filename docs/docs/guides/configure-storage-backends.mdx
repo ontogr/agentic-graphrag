@@ -264,7 +264,7 @@ Use `Distance.COSINE` or `Distance.EUCLID`. `ensure_vector_index` raises `ValueE
 
 ### Filtered vector search
 
-Filters apply after the native index picks nearest candidates. agrag requests more candidates when needed, up to an internal cap. A selective filter can still return fewer hits than the requested limit. Both backends use candidate expansion, and neither guarantees identical rankings.
+Filters apply after the native index picks nearest candidates. We request more candidates when needed, up to an internal cap. A selective filter can still return fewer hits than the requested limit. Both backends use candidate expansion, and neither guarantees identical rankings.
 
 ### Crash recovery of a commit
 
@@ -276,7 +276,7 @@ A failed multi-statement memory write can leave partial effects. Retrying can re
 
 ### Full-text search
 
-A query matches text containing any query word, ranked by FalkorDB's native TF-IDF score. agrag adds `1.0` so matches with a native score of zero remain positive, without changing their order. Neo4j uses its native full-text scores, so keyword and hybrid rankings can differ. agrag indexes internal copies of FalkorDB text properties with line breaks replaced by spaces to work around tokenization at line breaks. Those copies are hidden from returned properties.
+A query matches text containing any query word, ranked by FalkorDB's native TF-IDF score. We add `1.0` so matches with a native score of zero remain positive, without changing their order. Neo4j uses its native full-text scores, so keyword and hybrid rankings can differ. We index internal copies of FalkorDB text properties with line breaks replaced by spaces to work around tokenization at line breaks. Those copies are hidden from returned properties.
 
 ### Path distance in ranking
 
