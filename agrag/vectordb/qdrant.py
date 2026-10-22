@@ -399,7 +399,8 @@ class QdrantVectorStore(VectorStore):
         if not 1 <= limit <= self.max_results:
             raise ValueError(f"limit must be between 1 and {self.max_results}")
 
-    def _label_filter(self, labels: Sequence[str] | None) -> "models.Filter | None":
+    @staticmethod
+    def _label_filter(labels: Sequence[str] | None) -> "models.Filter | None":
         """Match any requested label in the stored keyword array."""
         from qdrant_client import models  # noqa: PLC0415
 
