@@ -22,6 +22,7 @@ from uuid import UUID, uuid4
 from opentelemetry.trace import Tracer
 
 from agrag.common.data_models.cutover_job import CutoverJobStatus
+from agrag.common.data_models.graph_record import DeferredWrites
 from agrag.common.data_models.stage_failure import StageFailure
 from agrag.cypher.cutover_job_read import find_incomplete_jobs_query
 from agrag.cypher.cutover_job_write import (
@@ -41,6 +42,7 @@ from agrag.ingestion._cutover import (
     lease_expiry_millis,
     parse_commit_plan,
 )
+from agrag.ingestion._deferred import replay_deferred
 from agrag.ingestion._pending_rows import (
     clear_job_tags,
     fold_job_relations,
@@ -262,12 +264,14 @@ async def _finish_commit(
     On a backend without multi-statement transactions the commit's statements
     are applied one by one, so the job can be left with some of them done. The
     job marks the start of its commit first, and every statement after the mark
-    is safe to repeat. The job also stores the document writes of the commit, so
-    recovery repeats those that had not all finished, then folds the new
-    relations, clears the pending tags, flips to committed and runs the usual
-    cleanup. Writes that the dead worker held in memory, and the component seeds
-    and created entities it would have recorded at the flip, are not available
-    here, so the rebuild of those components does not run.
+    is safe to repeat. The job also stores the document writes of the commit,
+    including its deferred writes. Recovery repeats those that had not all
+    finished in the commit's order: the retraction of replaced evidence, the
+    replay of the deferred writes, the fold of the new relations, and the
+    closing document writes. It then clears the pending tags, flips to committed
+    and runs the usual cleanup. The component seeds and created entities that
+    the dead worker would have recorded at the flip are not available here, so
+    the rebuild of those components does not run.
 
     Returns:
         Whether this open finished the commit and the cleanup.
@@ -295,7 +299,10 @@ async def _finish_commit(
 
         async def finish(txn: GraphStoreTransaction) -> None:
             if plan is not None and not docs_applied:
+                # The retraction is repeated only together with its replay, so
+                # evidence the replay restored before the worker died is not lost.
                 await apply_plan_before_replay(txn, plan)
+                await replay_deferred(txn, DeferredWrites(entries=list(plan.deferred)))
             await fold_job_relations(txn, job_id=job_uuid)
             if plan is not None and not docs_applied:
                 await apply_plan_after_fold(txn, job_id=job_uuid, plan=plan)

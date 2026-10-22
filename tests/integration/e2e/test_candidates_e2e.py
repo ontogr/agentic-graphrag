@@ -38,6 +38,8 @@ from tests.integration.e2e._artifact import write_artifact
 
 neo4j_missing = importlib.util.find_spec("neo4j") is None
 
+pytestmark = pytest.mark.xdist_group(name="candidate_rows")
+
 
 class _ConstantEmbedder(Embedder):
     """Return one stable four-dimensional vector for every text."""

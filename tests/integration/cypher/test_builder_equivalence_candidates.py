@@ -25,10 +25,18 @@ from agrag.graphdb.base import GraphStore
 from tests.integration._backend import build_test_store
 
 
-pytestmark = pytest.mark.neo4j_only
+pytestmark = [
+    pytest.mark.neo4j_only,
+    pytest.mark.xdist_group(name="candidate_rows"),
+]
 
 
 neo4j_missing = importlib.util.find_spec("neo4j") is None
+
+# Other tests seed candidates with counts of at least 1. The prune count test
+# uses counts far below that range so a below_count threshold only matches its
+# own groups.
+_COUNT_BASE = -1_000_000
 
 # Query text before the rewrite, kept verbatim for comparison.
 OLD_UPSERT_CANDIDATES = (
@@ -342,7 +350,7 @@ class TestCandidateBuilderEquivalence:
                 "older_than": "2024-03-01T10:00:00.250000+00:00",
                 "below_count": None,
             },
-            {"rejected": False, "older_than": None, "below_count": 2},
+            {"rejected": False, "older_than": None, "below_count": _COUNT_BASE + 2},
         ],
         ids=["rejected", "older_than", "below_count"],
     )
@@ -360,12 +368,17 @@ class TestCandidateBuilderEquivalence:
         await _seed_chunk(self.store, chunk_id)
         fresh = datetime.now(UTC).isoformat()
         seeds = [
-            ("rej", "rejected", 1, "2026-01-01T00:00:00+00:00"),
-            ("old", "pending", 1, "2020-01-01T00:00:00+00:00"),
-            ("mix-a", "pending", 1, "2024-03-01T10:00:00.500000+00:00"),
-            ("mix-b", "pending", 1, "2024-03-01T10:00:00+00:00"),
-            ("fresh", "pending", 5, fresh),
-            ("approved", "approved", 1, "2020-01-01T00:00:00+00:00"),
+            ("rej", "rejected", _COUNT_BASE + 1, "2026-01-01T00:00:00+00:00"),
+            ("old", "pending", _COUNT_BASE + 1, "2020-01-01T00:00:00+00:00"),
+            (
+                "mix-a",
+                "pending",
+                _COUNT_BASE + 1,
+                "2024-03-01T10:00:00.500000+00:00",
+            ),
+            ("mix-b", "pending", _COUNT_BASE + 1, "2024-03-01T10:00:00+00:00"),
+            ("fresh", "pending", _COUNT_BASE + 5, fresh),
+            ("approved", "approved", _COUNT_BASE + 1, "2020-01-01T00:00:00+00:00"),
         ]
         for name, state, count, created_at in seeds:
             await _seed_candidate(

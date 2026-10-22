@@ -465,6 +465,203 @@ def falkordb_indexes_query() -> str:
     return "CALL db.indexes()"
 
 
+def falkordb_constraints_query() -> str:
+    """Build the FalkorDB query listing the constraints of the graph.
+
+    Returns:
+        A Cypher query returning one row per constraint, with its ``entitytype``,
+        ``label``, ``properties``, and ``status``.
+    """
+    return "CALL db.constraints()"
+
+
+def falkordb_range_index_query(target: str, prop: str, *, relationship: bool) -> str:
+    """Build a CREATE INDEX query for an exact-match index on one property.
+
+    Args:
+        target: The node label, or the relationship type when ``relationship``
+            is true. Must be a well-formed identifier.
+        prop: The property to index. Must be a well-formed identifier.
+        relationship: Whether ``target`` names a relationship type.
+
+    Returns:
+        A Cypher query creating the index. The database reports
+        ``already indexed`` when the index exists.
+
+    Raises:
+        ValueError: ``target`` or ``prop`` is not a well-formed identifier.
+    """
+    safe_target = validate_identifier_syntax(target)
+    safe_prop = validate_identifier_syntax(prop)
+    pattern = (
+        f"()-[e:{safe_target}]-() ON (e.{safe_prop})"
+        if relationship
+        else f"(n:{safe_target}) ON (n.{safe_prop})"
+    )
+    return f"CREATE INDEX FOR {pattern}"
+
+
+def falkordb_vector_index_query(
+    label: str, vector_property: str, dimensions: int, similarity: str
+) -> str:
+    """Build a CREATE VECTOR INDEX query in FalkorDB's ``OPTIONS`` syntax.
+
+    Args:
+        label: The node label. Must be a safe identifier.
+        vector_property: The vector property name. Must be a safe identifier.
+        dimensions: The embedding dimension.
+        similarity: The similarity function, ``"cosine"`` or ``"euclidean"``.
+
+    Returns:
+        A Cypher query creating the vector index. The database reports
+        ``already indexed`` when the index exists.
+
+    Raises:
+        ValueError: ``label`` or ``vector_property`` is not a safe identifier.
+    """
+    safe_label = validate_identifier(label)
+    safe_property = validate_identifier(vector_property)
+    return (
+        f"CREATE VECTOR INDEX FOR (n:{safe_label}) ON (n.{safe_property}) "
+        f"OPTIONS {{dimension: {int(dimensions)}, "
+        f"similarityFunction: '{similarity}'}}"
+    )
+
+
+def falkordb_fulltext_index_query(label: str, prop: str) -> str:
+    """Build a CREATE FULLTEXT INDEX query over the search copy of a property.
+
+    The index covers ``_ft_<prop>``, the copy that ``fulltext_copy_set`` keeps in
+    step with ``prop``. The database reports ``already indexed`` when the index
+    exists.
+
+    Args:
+        label: The node label. Must be a safe identifier.
+        prop: The text property whose search copy is indexed. Must be a safe
+            identifier.
+
+    Returns:
+        A Cypher query creating the full-text index.
+
+    Raises:
+        ValueError: ``label`` or ``prop`` is not a safe identifier.
+    """
+    safe_label = validate_identifier(label)
+    safe_prop = validate_identifier(prop)
+    return (
+        f"CREATE FULLTEXT INDEX FOR (n:{safe_label}) "
+        f"ON (n.{FULLTEXT_COPY_PREFIX}{safe_prop})"
+    )
+
+
+def falkordb_fulltext_search_call(label: str, properties: Sequence[str]) -> str:
+    """Build the Cypher fragment that queries a full-text index.
+
+    The match is restricted to the search copies of ``properties``. The fragment
+    yields ``node`` and ``score`` and ends with ``LIMIT $k``.
+
+    Expects the parameters ``$k``, the row limit, and ``$fulltext_terms``, the
+    search text. ``$fulltext_terms`` is spliced into each field clause with
+    Cypher string concatenation, so it is query text, not a bound value.
+
+    Args:
+        label: The node label. Must be a safe identifier.
+        properties: The indexed text properties to search. Each must be a safe
+            identifier.
+
+    Returns:
+        The Cypher fragment.
+
+    Raises:
+        ValueError: ``properties`` is empty, or a name is not a safe identifier.
+    """
+    safe_label = validate_identifier(label)
+    if not properties:
+        raise ValueError("a full-text search needs at least one property")
+    # Field restriction needs the terms inside the query string, so the
+    # terms parameter is concatenated into each field clause.
+    fields = "|".join(
+        f"(@{FULLTEXT_COPY_PREFIX}{validate_identifier(prop)}:"
+        "(' + $fulltext_terms + '))"
+        for prop in properties
+    )
+    return (
+        f"CALL db.idx.fulltext.queryNodes('{safe_label}', '{fields}') "
+        "YIELD node, score WITH node, score + 1.0 AS score "
+        "ORDER BY score DESC LIMIT $k"
+    )
+
+
+def falkordb_vector_search_call(
+    label: str, vector_property: str, similarity: str
+) -> str:
+    """Build the Cypher fragment that queries a vector index.
+
+    FalkorDB scores a match by distance, lowest first. The fragment converts that
+    into the score Neo4j reports: cosine ``1 - distance / 2`` and euclidean
+    ``1 / (1 + distance ^ 2)``. Any similarity other than ``"cosine"`` takes the
+    euclidean expression.
+
+    Expects the parameters ``$k``, the number of matches, and ``$vector``, the
+    query vector as a list of floats.
+
+    Args:
+        label: The node label. Must be a safe identifier.
+        vector_property: The vector property name. Must be a safe identifier.
+        similarity: The similarity function the index was created with.
+
+    Returns:
+        The Cypher fragment, which yields ``node`` and ``score``.
+
+    Raises:
+        ValueError: ``label`` or ``vector_property`` is not a safe identifier.
+    """
+    safe_label = validate_identifier(label)
+    safe_property = validate_identifier(vector_property)
+    score = (
+        "1.0 - score / 2.0" if similarity == "cosine" else "1.0 / (1.0 + score * score)"
+    )
+    return (
+        f"CALL db.idx.vector.queryNodes('{safe_label}', '{safe_property}', $k, "
+        f"vecf32($vector)) YIELD node, score WITH node, {score} AS score"
+    )
+
+
+def falkordb_vector_value(expression: str) -> str:
+    """Build an expression that stores a float list as a FalkorDB vector.
+
+    Args:
+        expression: A Cypher expression that evaluates to a list of floats.
+
+    Returns:
+        An expression that is null when ``expression`` is null, and the vector
+        otherwise.
+    """
+    return f"CASE WHEN {expression} IS NULL THEN null ELSE vecf32({expression}) END"
+
+
+def falkordb_vector_set_clauses(vector_properties: Iterable[str]) -> str:
+    """Build the ``SET`` clauses that store vector properties on upsert.
+
+    Expects the upsert query to bind the written node as ``n`` and the written
+    properties as ``record.properties``. A null incoming value keeps the stored
+    vector.
+
+    Args:
+        vector_properties: The vector property names. Each must be a well-formed
+            identifier.
+
+    Returns:
+        The clauses in property-name order, or an empty string when there are
+        none.
+    """
+    return " ".join(
+        f"SET n.{name} = CASE WHEN record.properties.{name} IS NULL "
+        f"THEN n.{name} ELSE vecf32(record.properties.{name}) END"
+        for name in sorted(validate_identifier_syntax(p) for p in vector_properties)
+    )
+
+
 def fulltext_copy_set(alias: str, source: str, properties: Iterable[str]) -> str:
     """Build the ``SET`` clauses that keep the search copies of text properties.
 

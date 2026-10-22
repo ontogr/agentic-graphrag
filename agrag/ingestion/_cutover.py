@@ -8,7 +8,7 @@ import asyncio
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import Literal, TypeVar
+from typing import Any, Literal, TypeVar
 from uuid import NAMESPACE_OID, UUID, uuid4, uuid5
 
 from opentelemetry.trace import Tracer
@@ -358,7 +358,9 @@ class CommitPlan:
 
     The commit stores the plan with its start mark. A backend without
     multi-statement transactions can lose the worker part way through, and
-    recovery replays the steps that had not finished from the stored plan.
+    recovery replays the steps that had not finished from the stored plan. The
+    plan holds the deferred writes too, so recovery replays them in the same
+    place as the commit does, between the retraction and the fold.
 
     Attributes:
         close_document_node_id: The document whose open edges the commit closes.
@@ -367,6 +369,10 @@ class CommitPlan:
         keep_node_ids: The nodes whose edges the close leaves open.
         in_place: The in-place refresh, when the commit keeps its chunks.
         change: The document change recorded as an activation, if any.
+        deferred: The deferred writes of the commit as ``(query, parameters)``
+            pairs in write order. Their parameters hold only JSON-safe values,
+            because the graph store converts ids to strings before a write is
+            deferred.
     """
 
     close_document_node_id: UUID | None
@@ -374,6 +380,7 @@ class CommitPlan:
     keep_node_ids: list[UUID]
     in_place: InPlaceRefresh | None
     change: DocumentChange | None
+    deferred: list[tuple[str, dict[str, Any]]]
 
 
 _PLAN_ADAPTER = TypeAdapter(CommitPlan)
@@ -497,6 +504,7 @@ async def _commit_pending_writes(
         keep_node_ids=list(keep_node_ids),
         in_place=in_place,
         change=change,
+        deferred=list(deferred.entries),
     )
     plan_json = _PLAN_ADAPTER.dump_json(plan).decode()
 
@@ -513,7 +521,9 @@ async def _commit_pending_writes(
         # Relations the new run finds again are deferred writes over committed
         # rows. The replay writes them back, including one deleted here, and
         # the relations it does not find stay gone. The retraction reads the
-        # MENTIONED_IN edges, so it runs before they are deleted.
+        # MENTIONED_IN edges, so it runs before they are deleted. Recovery
+        # repeats this order from the stored plan, so a retraction is never
+        # left without its replay.
         await apply_plan_before_replay(txn, plan)
         await replay_deferred(txn, deferred)
         await fold_job_relations(txn, job_id=job_id)

@@ -23,7 +23,7 @@ from tests.integration._backend import build_test_store
 neo4j_missing = importlib.util.find_spec("neo4j") is None
 pytestmark = [
     pytest.mark.skipif(neo4j_missing, reason="neo4j extra not installed"),
-    pytest.mark.xdist_group(name="candidate_state"),
+    pytest.mark.xdist_group(name="candidate_rows"),
 ]
 
 

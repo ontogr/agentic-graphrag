@@ -103,16 +103,25 @@ def record_activation_query() -> str:
     document by ``HAS_ACTIVATION``. The cutover job runs it in its commit
     transaction, so a record exists exactly when its change is committed.
 
+    The record id is the caller's, so a commit that is repeated after a crash
+    names the same record. When the document already has a record with ``$id``,
+    the query changes nothing and returns no row, so the sequence is not
+    incremented twice.
+
     Returns:
         Parameterized Cypher expecting ``$document_node_id``, ``$id``,
         ``$document_key``, ``$verb``, ``$content_hash``,
         ``$previous_content_hash``, ``$version_id``, ``$activated_at`` and
         ``$job_id``. ``$activated_at`` is an ISO-8601 string stored as given.
         Null hashes and version ids are left unset on the node. Returns the new
-        ``activation_seq``.
+        ``activation_seq`` on the first run, and no row when the record exists
+        or the document is absent.
     """
     return (
         f"MATCH (d:{NODE_IDENTITY_LABEL}:Document {{id: $document_node_id}}) "
+        f"OPTIONAL MATCH (d)-[:{HAS_ACTIVATION}]->"
+        f"(existing:{NODE_IDENTITY_LABEL}:{DOCUMENT_ACTIVATION_LABEL} {{id: $id}}) "
+        "WITH d, existing WHERE existing IS NULL "
         "SET d.activation_seq = coalesce(d.activation_seq, 0) + 1 "
         "WITH d "
         f"CREATE (d)-[:{HAS_ACTIVATION}]->"

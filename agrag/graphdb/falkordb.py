@@ -48,7 +48,15 @@ from agrag.cypher.entities import (
 from agrag.cypher.relations import shortest_path_distance_query
 from agrag.cypher.schema import (
     FULLTEXT_COPY_PREFIX,
+    falkordb_constraints_query,
+    falkordb_fulltext_index_query,
+    falkordb_fulltext_search_call,
     falkordb_indexes_query,
+    falkordb_range_index_query,
+    falkordb_vector_index_query,
+    falkordb_vector_search_call,
+    falkordb_vector_set_clauses,
+    falkordb_vector_value,
     fulltext_copy_backfill_query,
     fulltext_index_name,
     vector_index_name,
@@ -560,15 +568,11 @@ class FalkorDBGraphStore(CypherGraphStore):
 
         A null expression stays null, so a missing embedding is not an error.
         """
-        return f"CASE WHEN {expression} IS NULL THEN null ELSE vecf32({expression}) END"
+        return falkordb_vector_value(expression)
 
     def node_write_extra_set(self) -> str:
         """Return the clauses that store vectors and search copies on upsert."""
-        vectors = " ".join(
-            f"SET n.{name} = CASE WHEN record.properties.{name} IS NULL "
-            f"THEN n.{name} ELSE vecf32(record.properties.{name}) END"
-            for name in sorted(self._vector_properties)
-        )
+        vectors = falkordb_vector_set_clauses(self._vector_properties)
         copies = self.fulltext_copy_set(
             "n", "record.properties", self._fulltext_properties
         )
@@ -606,7 +610,7 @@ class FalkorDBGraphStore(CypherGraphStore):
     ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
         """Return the raw index rows and constraint rows of the graph."""
         indexes = await self.execute_read(falkordb_indexes_query())
-        constraints = await self.execute_read("CALL db.constraints()")
+        constraints = await self.execute_read(falkordb_constraints_query())
         return indexes, constraints
 
     async def _apply_schema(self, objects: Sequence[_SchemaObject]) -> None:
@@ -653,15 +657,11 @@ class FalkorDBGraphStore(CypherGraphStore):
 
     async def _create_index(self, obj: _SchemaObject, prop: str) -> None:
         """Create one exact-match index, ignoring one that already exists."""
-        target = validate_identifier_syntax(obj.target)
-        safe_prop = validate_identifier_syntax(prop)
-        pattern = (
-            f"()-[e:{target}]-() ON (e.{safe_prop})"
-            if obj.relationship
-            else f"(n:{target}) ON (n.{safe_prop})"
+        query = falkordb_range_index_query(
+            obj.target, prop, relationship=obj.relationship
         )
         try:
-            await self.execute_write(f"CREATE INDEX FOR {pattern}")
+            await self.execute_write(query)
         except Exception as exc:
             if "already indexed" not in str(exc):
                 raise
@@ -694,7 +694,7 @@ class FalkorDBGraphStore(CypherGraphStore):
         deadline = loop.time() + _SCHEMA_TIMEOUT_SECONDS
         pending = set(wanted)
         while True:
-            rows = await self.execute_read("CALL db.constraints()")
+            rows = await self.execute_read(falkordb_constraints_query())
             pending -= {
                 (
                     row["entitytype"] == "RELATIONSHIP",
@@ -955,9 +955,9 @@ class FalkorDBGraphStore(CypherGraphStore):
         if key not in await self._vector_settings():
             try:
                 await self.execute_write(
-                    f"CREATE VECTOR INDEX FOR (n:{label}) ON (n.{vector_property}) "
-                    f"OPTIONS {{dimension: {int(dimensions)}, "
-                    f"similarityFunction: '{similarity}'}}"
+                    falkordb_vector_index_query(
+                        label, vector_property, dimensions, similarity
+                    )
                 )
             except Exception as exc:
                 if "already indexed" not in str(exc):
@@ -1001,10 +1001,7 @@ class FalkorDBGraphStore(CypherGraphStore):
         created = [prop for prop in safe_properties if prop not in indexed]
         for prop in created:
             try:
-                await self.execute_write(
-                    f"CREATE FULLTEXT INDEX FOR (n:{label}) "
-                    f"ON (n.{FULLTEXT_COPY_PREFIX}{prop})"
-                )
+                await self.execute_write(falkordb_fulltext_index_query(label, prop))
             except Exception as exc:
                 if "already indexed" not in str(exc):
                     raise
@@ -1030,21 +1027,7 @@ class FalkorDBGraphStore(CypherGraphStore):
             ValueError: ``properties`` is empty, or a name is not a safe
                 identifier.
         """
-        safe_label = validate_identifier(label)
-        if not properties:
-            raise ValueError("a full-text search needs at least one property")
-        # Field restriction needs the terms inside the query string, so the
-        # terms parameter is concatenated into each field clause.
-        fields = "|".join(
-            f"(@{FULLTEXT_COPY_PREFIX}{validate_identifier(prop)}:"
-            "(' + $fulltext_terms + '))"
-            for prop in properties
-        )
-        return SearchCall(
-            f"CALL db.idx.fulltext.queryNodes('{safe_label}', '{fields}') "
-            "YIELD node, score WITH node, score + 1.0 AS score "
-            "ORDER BY score DESC LIMIT $k"
-        )
+        return SearchCall(falkordb_fulltext_search_call(label, properties))
 
     async def vector_search_call(
         self, *, label: str, vector_property: str
@@ -1058,14 +1041,8 @@ class FalkorDBGraphStore(CypherGraphStore):
         safe_label = validate_identifier(label)
         safe_property = validate_identifier(vector_property)
         similarity = await self._similarity(safe_label, safe_property)
-        score = (
-            "1.0 - score / 2.0"
-            if similarity == "cosine"
-            else "1.0 / (1.0 + score * score)"
-        )
         return SearchCall(
-            f"CALL db.idx.vector.queryNodes('{safe_label}', '{safe_property}', $k, "
-            f"vecf32($vector)) YIELD node, score WITH node, {score} AS score"
+            falkordb_vector_search_call(safe_label, safe_property, similarity)
         )
 
     async def _vector_settings(self) -> dict[tuple[str, str], tuple[str, int | None]]:

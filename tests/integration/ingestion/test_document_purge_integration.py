@@ -10,6 +10,8 @@ import hashlib
 import unicodedata
 from uuid import uuid4
 
+import pytest
+
 from agrag.chunking import Chunker
 from agrag.common.data_models.candidate import CandidateRecord
 from agrag.common.data_models.chunk import Chunk
@@ -36,6 +38,9 @@ from agrag.ingestion.extract import Extractor
 from agrag.ingestion.graph import Graph
 from tests.integration._backend import await_indexes, build_test_store
 from tests.integration.retrieval.evidence._corpus import BagOfWordsEmbedder
+
+
+pytestmark = pytest.mark.xdist_group(name="candidate_rows")
 
 
 class _ProbeGraphExtractor(Extractor):
