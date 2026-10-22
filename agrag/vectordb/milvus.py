@@ -41,6 +41,9 @@ if TYPE_CHECKING:
 
 _logger = logging.getLogger(__name__)
 _METRICS = {Distance.COSINE: "COSINE", Distance.EUCLID: "L2"}
+_MAX_TEXT_BYTES = 65535
+_MAX_LABELS = 4096
+_MAX_LABEL_BYTES = 256
 _creation_locks: WeakKeyDictionary[
     asyncio.AbstractEventLoop, dict[tuple[str, str], asyncio.Lock]
 ] = WeakKeyDictionary()
@@ -183,11 +186,14 @@ class MilvusVectorStore(VectorStore):
                     "labels",
                     DataType.ARRAY,
                     element_type=DataType.VARCHAR,
-                    max_capacity=4096,
-                    max_length=256,
+                    max_capacity=_MAX_LABELS,
+                    max_length=_MAX_LABEL_BYTES,
                 )
                 schema.add_field(
-                    "text", DataType.VARCHAR, max_length=65535, enable_analyzer=True
+                    "text",
+                    DataType.VARCHAR,
+                    max_length=_MAX_TEXT_BYTES,
+                    enable_analyzer=True,
                 )
                 schema.add_field("sparse", DataType.SPARSE_FLOAT_VECTOR)
                 schema.add_function(
@@ -271,10 +277,13 @@ class MilvusVectorStore(VectorStore):
         """
         require_positive_batch_size(batch_size)
         for record in records:
-            if len(record.labels) > 4096 or any(
-                len(label.encode("utf-8")) > 256 for label in record.labels
+            if len(record.labels) > _MAX_LABELS or any(
+                len(label.encode("utf-8")) > _MAX_LABEL_BYTES for label in record.labels
             ):
-                raise ValueError("Milvus labels allow 4096 values of at most 256 bytes")
+                raise ValueError(
+                    f"Milvus labels allow {_MAX_LABELS} values "
+                    f"of at most {_MAX_LABEL_BYTES} bytes"
+                )
         truncated = False
         async with self._connection("upsert", kind) as client:
             name = self.collection_name(kind)
@@ -284,18 +293,22 @@ class MilvusVectorStore(VectorStore):
                 rows = []
                 for record in records[offset : offset + batch_size]:
                     encoded = record.text.encode("utf-8")
-                    truncated |= len(encoded) > 65535
+                    truncated |= len(encoded) > _MAX_TEXT_BYTES
                     rows.append(
                         {
                             "id": str(record.id),
                             "vector": record.vector,
                             "labels": record.labels,
-                            "text": encoded[:65535].decode("utf-8", errors="ignore"),
+                            "text": encoded[:_MAX_TEXT_BYTES].decode(
+                                "utf-8", errors="ignore"
+                            ),
                         }
                     )
                 await client.upsert(name, data=rows)
         if truncated:
-            _logger.warning("Milvus BM25 text truncated to 65535 UTF-8 bytes")
+            _logger.warning(
+                "Milvus BM25 text truncated to %d UTF-8 bytes", _MAX_TEXT_BYTES
+            )
 
     async def search(
         self,
@@ -313,7 +326,7 @@ class MilvusVectorStore(VectorStore):
             name = self.collection_name(kind)
             if not await client.has_collection(name):
                 return []
-            _, distance = await self._metadata(client, name)
+            distance = await self._distance(client, name)
             results = await client.search(
                 name,
                 data=[list(vector)],
@@ -373,7 +386,7 @@ class MilvusVectorStore(VectorStore):
             else:
                 from pymilvus import AnnSearchRequest, WeightedRanker  # noqa: PLC0415
 
-                _, distance = await self._metadata(client, name)
+                distance = await self._distance(client, name)
                 requests = [
                     AnnSearchRequest(
                         data=[list(vector)],
@@ -477,8 +490,9 @@ class MilvusVectorStore(VectorStore):
                     f"Milvus {operation} failed ({type(error).__name__}{diagnostic})"
                 ) from None
 
-    @staticmethod
-    async def _metadata(client: AsyncMilvusClient, name: str) -> tuple[int, Distance]:
+    async def _metadata(
+        self, client: AsyncMilvusClient, name: str
+    ) -> tuple[int, Distance]:
         """Validate required dense/BM25 fields and return dimensions and distance."""
         from pymilvus import DataType, FunctionType  # noqa: PLC0415
 
@@ -505,9 +519,9 @@ class MilvusVectorStore(VectorStore):
             or not fields["id"].get("is_primary", False)
             or int(fields["id"]["params"].get("max_length", 0)) < 64
             or labels.get("element_type") != DataType.VARCHAR
-            or int(labels["params"].get("max_length", 0)) < 256
-            or int(labels["params"].get("max_capacity", 0)) < 4096
-            or int(text["params"].get("max_length", 0)) < 65535
+            or int(labels["params"].get("max_length", 0)) < _MAX_LABEL_BYTES
+            or int(labels["params"].get("max_capacity", 0)) < _MAX_LABELS
+            or int(text["params"].get("max_length", 0)) < _MAX_TEXT_BYTES
             or str(text["params"].get("enable_analyzer", False)).lower() != "true"
         ):
             raise CollectionMismatchError(
@@ -527,15 +541,20 @@ class MilvusVectorStore(VectorStore):
             raise CollectionMismatchError(
                 f"Milvus collection {name!r} has no BM25 index"
             )
+        return int(fields["vector"]["params"]["dim"]), await self._distance(
+            client, name
+        )
+
+    @staticmethod
+    async def _distance(client: AsyncMilvusClient, name: str) -> Distance:
+        """Read the dense metric without revalidating the collection schema."""
         index = await client.describe_index(name, index_name="dense")
         metric = index.get("metric_type") if index else None
         if metric not in {"COSINE", "L2"}:
             raise CollectionMismatchError(
                 f"Milvus collection {name!r} has unsupported metric"
             )
-        return int(fields["vector"]["params"]["dim"]), (
-            Distance.COSINE if metric == "COSINE" else Distance.EUCLID
-        )
+        return Distance.COSINE if metric == "COSINE" else Distance.EUCLID
 
     def _validate_limit(self, limit: int) -> None:
         """Reject unusable result counts before contacting the server."""
