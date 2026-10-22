@@ -219,42 +219,19 @@ class WeaviateVectorStore(VectorStore):
         client = await self._connected_client()
         name = self.collection_name(kind)
         async with self._operation("collection_info"):
-            if not await client.collections.exists(name):
+            metadata = await self._collection_metadata(kind)
+            if metadata is None:
                 return None
+            dimensions, distance = metadata
             collection = client.collections.use(name)
-            config = await collection.config.get()
-            description = config.description or ""
-            if not description.startswith(_DESCRIPTION_PREFIX):
-                raise CollectionMismatchError(f"{name} lacks dimension metadata")
-            try:
-                metadata = json.loads(description[len(_DESCRIPTION_PREFIX) :])
-                dimensions = metadata["dimensions"]
-                if (
-                    type(dimensions) is not int
-                    or dimensions <= 0
-                    or metadata["prefix"] != self.collection_prefix
-                ):
-                    raise ValueError("invalid collection metadata")
-                if config.vector_config is None:
-                    raise ValueError("missing named vector configuration")
-                vector_config = config.vector_config["vector"]
-                index_config = vector_config.vector_index_config
-                if not hasattr(index_config, "distance_metric"):
-                    raise ValueError("missing vector distance metric")
-                metric = index_config.distance_metric
-                distance = next(
-                    key for key, value in _METRICS.items() if value == metric
-                )
-            except (ValueError, TypeError, KeyError, StopIteration) as exc:
-                raise CollectionMismatchError(
-                    f"{name} has incompatible metadata"
-                ) from exc
             sample = await collection.query.fetch_objects(limit=1, include_vector=True)
             if sample.objects:
                 vector = sample.objects[0].vector.get("vector")
                 if vector is None or len(vector) != dimensions:
                     raise CollectionMismatchError(f"{name} vector dimension mismatch")
             count = await collection.aggregate.over_all(total_count=True)
+            if count.total_count is None:
+                raise VectorStoreError("Weaviate omitted collection count metadata")
             return CollectionInfo(
                 dimensions=dimensions,
                 distance=distance,
@@ -322,9 +299,10 @@ class WeaviateVectorStore(VectorStore):
         from weaviate.classes.query import MetadataQuery  # noqa: PLC0415
 
         async with self._operation("search"):
-            info = await self.collection_info(kind)
-            if info is None or (labels is not None and not labels):
+            metadata = await self._collection_metadata(kind)
+            if metadata is None or (labels is not None and not labels):
                 return []
+            _, metric = metadata
             response = await client.collections.use(
                 self.collection_name(kind)
             ).query.near_vector(
@@ -342,7 +320,7 @@ class WeaviateVectorStore(VectorStore):
                     raise VectorStoreError("Weaviate omitted dense distance metadata")
                 score = (
                     1 - distance / 2
-                    if info.distance == Distance.COSINE
+                    if metric == Distance.COSINE
                     else 1 / (1 + distance)
                 )
                 hits.append(
@@ -478,6 +456,38 @@ class WeaviateVectorStore(VectorStore):
                 cursor = response.objects[-1].uuid
             return [UUID(int=-value) for value in sorted(smallest, reverse=True)]
 
+    async def _collection_metadata(
+        self, kind: VectorKind
+    ) -> tuple[int, Distance] | None:
+        """Read and validate schema metadata without fetching objects or counts."""
+        client = await self._connected_client()
+        name = self.collection_name(kind)
+        if not await client.collections.exists(name):
+            return None
+        config = await client.collections.use(name).config.get()
+        description = config.description or ""
+        if not description.startswith(_DESCRIPTION_PREFIX):
+            raise CollectionMismatchError(f"{name} lacks dimension metadata")
+        try:
+            metadata = json.loads(description[len(_DESCRIPTION_PREFIX) :])
+            dimensions = metadata["dimensions"]
+            if (
+                type(dimensions) is not int
+                or dimensions <= 0
+                or metadata["prefix"] != self.collection_prefix
+            ):
+                raise ValueError("invalid collection metadata")
+            if config.vector_config is None:
+                raise ValueError("missing named vector configuration")
+            index_config = config.vector_config["vector"].vector_index_config
+            if not hasattr(index_config, "distance_metric"):
+                raise ValueError("missing vector distance metric")
+            metric = index_config.distance_metric
+            distance = next(key for key, value in _METRICS.items() if value == metric)
+        except (ValueError, TypeError, KeyError, StopIteration) as exc:
+            raise CollectionMismatchError(f"{name} has incompatible metadata") from exc
+        return dimensions, distance
+
     async def _connected_client(self) -> "WeaviateAsyncClient":
         """Import the optional SDK lazily and serialize connection creation."""
         async with self._connect_lock:
@@ -495,6 +505,9 @@ class WeaviateVectorStore(VectorStore):
                 else None
             )
             parsed = urlparse(settings.url)
+            host = parsed.hostname
+            if host is None:
+                raise VectorStoreError("Weaviate endpoint requires a hostname")
             if settings.mode == "cloud":
                 if auth is None:
                     raise VectorStoreError("Weaviate cloud requires an API key")
@@ -505,10 +518,10 @@ class WeaviateVectorStore(VectorStore):
             else:
                 secure = parsed.scheme == "https"
                 client = weaviate.use_async_with_custom(
-                    http_host=parsed.hostname,
-                    http_port=parsed.port or (443 if secure else 8080),
+                    http_host=host,
+                    http_port=parsed.port or (443 if secure else 80),
                     http_secure=secure,
-                    grpc_host=parsed.hostname,
+                    grpc_host=host,
                     grpc_port=settings.grpc_port,
                     grpc_secure=secure,
                     auth_credentials=auth,

@@ -183,7 +183,7 @@ jobs:
           - name: vector-weaviate
             backend: neo4j
             vector_store: weaviate
-            paths: "tests/integration/vectordb tests/integration/e2e/test_external_placement_e2e.py"
+            paths: "tests/integration/vectordb/test_store_contract.py tests/integration/vectordb/test_weaviate.py tests/integration/e2e/test_external_placement_e2e.py"
             workers: 0
             dist: loadscope
             services: neo4j weaviate

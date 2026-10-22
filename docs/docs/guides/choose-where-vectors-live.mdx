@@ -5,7 +5,7 @@ sidebar_position: 3
 
 # Choose where vectors live
 
-Keep vectors in Neo4j or FalkorDB by default, or store them exclusively in Qdrant or Milvus. The graph database always keeps documents, entities, relations, provenance, and full-text indexes. One vector placement covers chunks, entities, resolved entities, and communities for the lifetime of a graph.
+Keep vectors in Neo4j or FalkorDB by default, or store them exclusively in Qdrant, Milvus, or Weaviate. The graph database always keeps documents, entities, relations, provenance, and full-text indexes. One vector placement covers chunks, entities, resolved entities, and communities for the lifetime of a graph.
 
 ## Prepare a Qdrant server
 
@@ -50,6 +50,14 @@ MILVUS_COLLECTION_PREFIX=project_notes
 ```
 
 Non-local endpoints require HTTPS. Remote authentication also needs `MILVUS_TOKEN`. Set the token privately, not in the URI or Git. Construct `MilvusVectorStore(settings=MilvusSettings())` from `agrag.vectordb` and use it in place of Qdrant in the example below. Milvus generates BM25 vectors on the server and uses normalized weighted ranking for hybrid search. Alpha zero searches BM25 only and omits records with no lexical match; alpha one searches dense vectors only. Stored BM25 text is truncated at a whole UTF-8 character within 65535 bytes without changing dense embeddings. [Milvus settings](../reference/configuration.mdx#milvus) lists label limits, consistency, and response-size constraints.
+
+## Prepare a Weaviate server
+
+Install `agentic-graphrag[neo4j,weaviate]`, replacing `neo4j` with `falkordb` if needed. Configure both HTTP and gRPC access using the [Weaviate setup instructions](./configure-storage-backends.mdx#set-up-weaviate-for-vectors). For cloud, use `WEAVIATE_MODE=cloud`, the HTTPS cluster URL, and a privately supplied API key. Keep `ASYNC_INDEXING=false` on custom servers.
+
+Set `WEAVIATE_COLLECTION_PREFIX` to a graph-specific prefix starting with a lowercase letter. Weaviate capitalizes the first letter of collection names. The lowercase restriction prevents distinct prefixes from aliasing the same collections. Keep collection descriptions unchanged because they persist dimensions for empty collections.
+
+Construct `WeaviateVectorStore(settings=WeaviateSettings())` from `agrag.vectordb` and use it in place of Qdrant below. Hybrid search uses native relative-score fusion. Alpha zero uses BM25 and omits lexical nonmatches; alpha one uses dense search. Requests are capped at 10,000 results. [Weaviate settings](../reference/configuration.mdx#weaviate) define transport and collection constraints.
 
 ## Open and search the graph
 
@@ -97,4 +105,4 @@ The report gives checked, missing, upserted, and pruned counts and failures per 
 
 ## Use the same placement in MCP
 
-Install the `mcp` extra too. Set `MCP_VECTOR_STORE=qdrant` with the same `QDRANT_*` settings used during ingestion, or `MCP_VECTOR_STORE=milvus` with the same `MILVUS_*` settings. MCP validates placement at startup. In hybrid evidence search, the store fuses both signals internally and the reported hit has `legs=["semantic"]`. Lexical-only evidence search continues to use the graph full-text index.
+Install the `mcp` extra too. Set `MCP_VECTOR_STORE` to `qdrant`, `milvus`, or `weaviate`, with the same backend settings used during ingestion. MCP validates placement at startup. In hybrid evidence search, the store fuses both signals internally and the reported hit has `legs=["semantic"]`. Lexical-only evidence search continues to use the graph full-text index.

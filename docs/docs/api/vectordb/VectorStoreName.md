@@ -6,5 +6,5 @@ sidebar_label: VectorStoreName
 # `agrag.vectordb.VectorStoreName` \{#agrag-vectordb-VectorStoreName}
 
 ```python
-VectorStoreName = Literal['qdrant', 'milvus']
+VectorStoreName = Literal['qdrant', 'milvus', 'weaviate']
 ```

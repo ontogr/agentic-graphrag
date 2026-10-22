@@ -51,7 +51,7 @@ Class: `QdrantSettings`. Prefix: `QDRANT_`. Requires the `qdrant` extra and Qdra
 | `QDRANT_API_KEY` | none | Authentication secret. Leave unset for an unauthenticated local server. |
 | `QDRANT_REQUIRE_TLS` | `false` | Require HTTPS for remote connections even without a credential. Loopback hosts remain exempt. |
 | `QDRANT_COLLECTION_PREFIX` | required | Unique graph prefix matching `^[A-Za-z][A-Za-z0-9_]{0,40}$`. Four collections use this prefix. |
-| `MCP_VECTOR_STORE` | none | `qdrant` or `milvus` selects external placement in MCP. Unset selects graph-native placement. |
+| `MCP_VECTOR_STORE` | none | `qdrant`, `milvus`, or `weaviate` selects external placement in MCP. Unset selects graph-native placement. |
 | `RETRIEVAL_HYBRID_ALPHA` | `0.5` | Dense weight in external hybrid search, from `0.0` (lexical only) to `1.0` (dense only). Graph-native search does not use it. |
 
 Qdrant limits one search to 16384 results. Dense scores use the graph-native scale; hybrid scores carry rank only. Labels are the only payload pre-filter. Document scope and properties are filtered after joining results to the graph. [Choose where vectors live](../guides/choose-where-vectors-live.mdx) describes placement and repair.
