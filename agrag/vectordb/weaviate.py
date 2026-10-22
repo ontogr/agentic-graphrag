@@ -449,8 +449,10 @@ class WeaviateVectorStore(VectorStore):
         Scans all UUIDs with the server cursor and retains only the smallest
         requested page. Memory is bounded by the page size for all collections.
         """
-        if limit <= 0:
-            raise ValueError("limit must be positive")
+        if limit < 0:
+            raise ValueError("limit must be nonnegative")
+        if limit == 0:
+            return []
         client = await self._connected_client()
         async with self._operation("list_ids", kind):
             name = self.collection_name(kind)
