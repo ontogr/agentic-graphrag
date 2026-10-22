@@ -13,6 +13,7 @@ Writes are idempotent and immediately visible on the same client. Reads and
 deletes of missing collections return empty results. Dense scores use
 `(1 + cosine) / 2` or `1 / (1 + squared_distance)`. Hybrid scores are
 rank-only, with alpha one selecting dense order and zero lexical order.
+Lexical-only search omits records that do not match the query text.
 Labels filter by any overlap. Search limits above max_results are rejected.
 
 **Functions:**
