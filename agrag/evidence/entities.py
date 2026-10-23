@@ -45,7 +45,6 @@ from agrag.cypher.evidence import (
     entity_mentions_query,
     explore_edges_query,
 )
-from agrag.cypher.schema import fulltext_index_name, vector_index_name
 from agrag.embedding.base import Embedder
 from agrag.evidence._shared import (
     IndexSpec,
@@ -435,7 +434,6 @@ def _index_specs(
         if EvidenceSearchLeg.LEXICAL in legs:
             specs.append(
                 IndexSpec(
-                    name=fulltext_index_name(label, [_NAME_PROPERTY]),
                     index_type=_FULLTEXT_TYPE,
                     label=label,
                     prop=_NAME_PROPERTY,
@@ -444,7 +442,6 @@ def _index_specs(
         if EvidenceSearchLeg.SEMANTIC in legs and vector_store is None:
             specs.append(
                 IndexSpec(
-                    name=vector_index_name(label, _EMBEDDING_PROPERTY),
                     index_type=_VECTOR_TYPE,
                     label=label,
                     prop=_EMBEDDING_PROPERTY,

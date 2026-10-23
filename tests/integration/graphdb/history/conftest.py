@@ -19,6 +19,7 @@ from agrag.common.data_models.graph_schema import GraphSchema
 from agrag.cypher.schema import fulltext_index_name
 from agrag.graphdb.base import GraphStore
 from agrag.ingestion.graph import Graph
+from agrag.ingestion.settings import ExtractionSettings
 from tests.integration._backend import await_indexes, build_test_store
 from tests.integration.retrieval.evidence._corpus import (
     HARBOR_TEXT,
@@ -164,6 +165,7 @@ async def documents(store: GraphStore) -> AsyncGenerator[DocumentEnv, None]:
         graph_store=store,
         embedder=BagOfWordsEmbedder(),
         extractor=NoEntityExtractor(),
+        extraction_settings=ExtractionSettings(mode="gliner"),
         chunker=Chunker(size=60),
     )
     env = DocumentEnv(run=run, store=store, graph=graph)

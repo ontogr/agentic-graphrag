@@ -492,7 +492,7 @@ class DecisionTraces:
         rows = await self._store.execute_read(
             f"{call.text} "
             f"MATCH (t:{TASK_LABEL} {{{HISTORY_RECORD_PROPERTY}: true, "
-            "project_id: $project_id})-[:{MADE}]->(node) "
+            f"project_id: $project_id}})-[:{MADE}]->(node) "
             f"WHERE node:{DECISION_LABEL} AND node.{HISTORY_RECORD_PROPERTY} = true "
             "AND node.status = 'active' "
             "AND ($task_name IS NULL OR t.name = $task_name) "
