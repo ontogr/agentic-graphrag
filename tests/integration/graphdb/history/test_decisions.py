@@ -254,8 +254,12 @@ async def test_concurrent_reject_and_supersede_have_one_winner(store, project):
     )
 
     assert sum((rejected.recorded, superseded.recorded)) == 1
-    history = await history.list_decisions("lifecycle")
-    assert history.page.count == 2 if superseded.recorded else history.page.count == 1
+    history_page = await history.list_decisions("lifecycle")
+    assert (
+        history_page.page.count == 2
+        if superseded.recorded
+        else history_page.page.count == 1
+    )
 
 
 async def test_lists_are_capped_and_resume_keeps_older_active_decision(store, project):

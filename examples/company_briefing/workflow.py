@@ -120,7 +120,8 @@ def _data_path() -> Path:
 def _download_pdf() -> Path:
     """Download the pinned report once and reject content that fails its hash."""
     path = _data_path()
-    if not path.exists():
+    downloaded = not path.exists()
+    if downloaded:
         request = urllib.request.Request(
             SOURCE["download_url"],
             headers={"User-Agent": "agentic-graphrag-company-briefing/1.0"},
@@ -133,14 +134,25 @@ def _download_pdf() -> Path:
                 f"Could not download the pinned report from {SOURCE['download_url']}. "
                 "Check network access and retry."
             ) from error
-        path.write_bytes(data)
+    else:
+        data = path.read_bytes()
 
-    digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    digest = hashlib.sha256(data).hexdigest()
     if digest != SOURCE["sha256"]:
-        raise ValueError(
-            f"The cached report at {path} has SHA-256 {digest}, expected "
-            f"{SOURCE['sha256']}. Move that file away and rerun the stage."
+        source = (
+            "the downloaded report" if downloaded else f"the cached report at {path}"
         )
+        remedy = (
+            "No cache was written."
+            if downloaded
+            else "Move that file away and rerun the stage."
+        )
+        raise ValueError(
+            f"The content of {source} has SHA-256 {digest}, expected "
+            f"{SOURCE['sha256']}. {remedy}"
+        )
+    if downloaded:
+        path.write_bytes(data)
     return path
 
 
@@ -484,20 +496,24 @@ async def review() -> None:
             raise RuntimeError("Run the resume stage before source review.")
 
         _print({"derivative": "one risk paragraph omitted; source report unchanged"})
-        _print({"incomplete_source_ingestion": await _add_document(derivative)})
-        review_queue = await decisions.list_decisions_for_review(task_name=TASK_NAME)
-        _print({"review_after_incomplete_derivative": review_queue})
-        if not any(
-            decision.id == original.id
-            and decision.review_state is ReviewState.NEEDS_REVIEW
-            for decision in review_queue.decisions
-        ):
-            raise RuntimeError(
-                "The incomplete source did not flag the decision for review."
+        try:
+            _print({"incomplete_source_ingestion": await _add_document(derivative)})
+            review_queue = await decisions.list_decisions_for_review(
+                task_name=TASK_NAME
             )
+            _print({"review_after_incomplete_derivative": review_queue})
+            if not any(
+                decision.id == original.id
+                and decision.review_state is ReviewState.NEEDS_REVIEW
+                for decision in review_queue.decisions
+            ):
+                raise RuntimeError(
+                    "The incomplete source did not flag the decision for review."
+                )
+        finally:
+            restored = await _add_document(report)
+            _print({"restored_pinned_report": restored})
 
-        restored = await _add_document(report)
-        _print({"restored_pinned_report": restored})
         review_queue = await decisions.list_decisions_for_review(task_name=TASK_NAME)
         _print({"review_after_restoring_source": review_queue})
         current = await _fetch_support(
