@@ -5,7 +5,7 @@ title: Configure storage backends
 
 # Configure storage backends
 
-Connect to Neo4j or FalkorDB to store the graph, embeddings, full-text indexes, and vector indexes. Both backends support ingestion, retrieval, and agent memory. Choose by [transaction and search behavior](../concepts/graph-storage.mdx#choose-a-backend), then follow the setup for that server.
+Connect to Neo4j or FalkorDB to store the graph, embeddings, full-text indexes, and vector indexes. Both backends support ingestion, retrieval, conversation history, and decision traces. Choose by [transaction and search behavior](../concepts/graph-storage.mdx#choose-a-backend), then follow the setup for that server.
 
 Vectors stay in the graph database by default. To use an exclusive Qdrant index instead, [choose where vectors live](./choose-where-vectors-live.mdx). The graph database and its full-text indexes are required in either case.
 
@@ -236,7 +236,7 @@ MCP_SCOPE_DOCUMENT_KEYS=/full/path/to/your-document.md
 EMBEDDING_MODEL=ibm-granite/granite-embedding-small-english-r2
 ```
 
-For Neo4j, set `MCP_GRAPH_STORE=neo4j` and use `NEO4J_*` connection values. Neo4j is the MCP default if the selector is omitted. Keep the database, document keys, and embedding model consistent with ingestion. [Run the MCP server](./run-the-mcp-server.mdx) to configure the client and enable memory writes when needed.
+For Neo4j, set `MCP_GRAPH_STORE=neo4j` and use `NEO4J_*` connection values. Neo4j is the MCP default if the selector is omitted. Keep the database, document keys, and embedding model consistent with ingestion. [Run the MCP server](./run-the-mcp-server.mdx) to configure the client and enable history or decision writes when needed.
 
 ## Configure the embedder
 
@@ -272,9 +272,9 @@ Filters apply after the native index picks nearest candidates. We request more c
 
 A document change commits in several statements. If the process stops after the commit-started marker, a later `Graph.open` attempts to finish that commit after its lease expires instead of rolling it back. Recovery resumes persisted deferred writes after their recorded progress, folds relations, and completes the document status change. A crash between a replay step and its progress record can repeat that step. Recovery does not rebuild the resolved-entity components for that interrupted change. Run `graph.reevaluate()` for the affected entities when that rebuild is needed.
 
-### Retried memory writes
+### Retried history and decision writes
 
-A failed multi-statement memory write can leave partial effects. Retrying can repeat an effect because the earlier statements were not rolled back. Keep a stable `request_id` across retries, but do not treat the request ID as a guarantee of all-or-nothing execution on FalkorDB.
+A failed multi-statement history or decision write can leave partial effects. Retrying can repeat an effect because the earlier statements were not rolled back. Keep a stable `request_id` across retries, but do not treat the request ID as a guarantee of all-or-nothing execution on FalkorDB.
 
 ### Full-text search
 

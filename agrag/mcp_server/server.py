@@ -1,8 +1,8 @@
 """Build the local MCP server that exposes the evidence operations as tools.
 
-Each tool is a thin layer over the functions in ``agrag.evidence`` or the
-project-scoped memory services. The layer adds trusted scope, output limits,
-and explicit write gates.
+Each tool is a thin layer over ``agrag.evidence`` or the project-scoped history
+and decision services. The layer adds trusted scope, output limits, and write
+gates.
 
 Semantic and hybrid search need the same ``EMBEDDING_*`` settings that ingestion
 used. Each semantic or hybrid call compares the query embedder's dimension with
@@ -43,7 +43,7 @@ from agrag.evidence import fetch_evidence, search_evidence
 from agrag.graphdb.base import GraphStore
 from agrag.mcp_server.read_tools import (
     register_evidence_read_tools,
-    register_memory_read_tools,
+    register_history_read_tools,
 )
 from agrag.mcp_server.settings import McpServerSettings
 from agrag.mcp_server.write_tools import register_write_tools
@@ -124,7 +124,7 @@ def _store_lifespan(
     return lifespan
 
 
-def _register_memory_tools(
+def _register_history_tools(
     server: MCPServer,
     store: GraphStore,
     embedder: Embedder,
@@ -135,7 +135,7 @@ def _register_memory_tools(
     register_evidence_read_tools(server, store, embedder, settings, vector_store)
     if not settings.project_id.strip() or not settings.agent_id.strip():
         return
-    register_memory_read_tools(server, store, settings)
+    register_history_read_tools(server, store, settings)
     if settings.read_only:
         return
     register_write_tools(
@@ -177,7 +177,8 @@ def build_server(  # noqa: PLR0915
         name=_SERVER_NAME,
         instructions=(
             "Access is limited to evidence passages in the configured documents "
-            "and memory in the configured project. Writes are available only "
+            "and conversation history and decision traces in the configured "
+            "project. Writes are available only "
             "when enabled by server settings. A score is not a confidence. A "
             "valid citation shows that the text was fetched, not that it supports "
             "a claim. No match is not proof that a passage does not exist. "
@@ -192,7 +193,7 @@ def build_server(  # noqa: PLR0915
         lifespan=_store_lifespan(store, embedder, vector_store),
     )
 
-    _register_memory_tools(server, store, embedder, settings, vector_store)
+    _register_history_tools(server, store, embedder, settings, vector_store)
 
     @server.tool(
         name="search_evidence",

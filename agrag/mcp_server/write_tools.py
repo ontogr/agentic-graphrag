@@ -26,10 +26,11 @@ from agrag.common.data_models.task import (
     StepResultBasis,
     StepState,
 )
+from agrag.decisions import DecisionTraces
 from agrag.graphdb.base import GraphStore
+from agrag.history import ConversationHistory
 from agrag.mcp_server.results import bounded_result
 from agrag.mcp_server.settings import McpServerSettings
-from agrag.memory import DecisionMemory, TaskMemory
 
 
 _WRITE = ToolAnnotations(
@@ -57,17 +58,17 @@ def register_write_tools(
 
     Args:
         server: MCP server that receives the tools.
-        store: Graph store used by the memory services.
+        store: Graph store used by the history and decision services.
         settings: Trusted project, author, access gates and limits.
         fetched_evidence_for: Returns complete evidence fetches from this
             server process, never from model-controlled arguments.
     """
-    tasks = TaskMemory(
+    history = ConversationHistory(
         store,
         project_id=settings.project_id,
         agent_id=settings.agent_id,
     )
-    decisions = DecisionMemory(
+    decisions = DecisionTraces(
         store, project_id=settings.project_id, agent_id=settings.agent_id
     )
     deadline = settings.request_deadline_seconds
@@ -88,7 +89,7 @@ def register_write_tools(
         return await bounded_result(
             deadline,
             settings.max_response_chars,
-            tasks.create_task(task_name, goal, request_id=request_id),
+            history.create_task(task_name, goal, request_id=request_id),
         )
 
     @server.tool(
@@ -110,7 +111,7 @@ def register_write_tools(
         return await bounded_result(
             deadline,
             settings.max_response_chars,
-            tasks.record_event(
+            history.record_event(
                 task_name,
                 kind,
                 role=role,
@@ -137,7 +138,7 @@ def register_write_tools(
         return await bounded_result(
             deadline,
             settings.max_response_chars,
-            tasks.set_step(
+            history.set_step(
                 task_name,
                 name,
                 state,

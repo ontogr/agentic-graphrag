@@ -10,11 +10,11 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field
 
 from agrag.common.data_models.evidence import EvidenceKind
-from agrag.common.data_models.memory_result import WriteResult
+from agrag.common.data_models.write_result import WriteResult
 
 
-DECISION_LABEL = "MemoryDecision"
-SUPPORT_LABEL = "MemorySupport"
+DECISION_LABEL = "Decision"
+SUPPORT_LABEL = "DecisionSupport"
 MADE = "MADE"
 HAS_SUPPORT = "HAS_SUPPORT"
 DEPENDS_ON = "DEPENDS_ON"

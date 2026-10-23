@@ -32,7 +32,7 @@ Run the [FalkorDB connection check](./configure-storage-backends.mdx#set-up-a-fa
 
 ## A FalkorDB write leaves partial changes
 
-FalkorDB has no multi-statement rollback. A failed callback can leave earlier statements written. A stable request ID identifies a completed memory write, but does not undo partial effects. Follow the [retry limits](./configure-storage-backends.mdx#retried-memory-writes) rather than assuming that a retry starts from an unchanged graph. For an interrupted document commit, `Graph.open` attempts [recovery after the lease expires](./configure-storage-backends.mdx#crash-recovery-of-a-commit).
+FalkorDB has no multi-statement rollback. A failed callback can leave earlier statements written. A stable request ID identifies a completed history or decision write, but does not undo partial effects. Follow the [retry limits](./configure-storage-backends.mdx#retried-history-and-decision-writes) rather than assuming that a retry starts from an unchanged graph. For an interrupted document commit, `Graph.open` attempts [recovery after the lease expires](./configure-storage-backends.mdx#crash-recovery-of-a-commit).
 
 ## Neo4j rejects the login
 

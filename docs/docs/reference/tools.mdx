@@ -10,7 +10,7 @@ The evidence tools search, read, and cite your documents. The task and decision 
 
 ## Tool names
 
-The Python functions, the built-in agent, and the MCP server use the same name for each tool. The methods of `TaskMemory` and `DecisionMemory` have the names of the task and decision tools. A parameter has the same name on every surface, except where the agent or the server supplies the value itself.
+The Python functions, the built-in agent, and the MCP server use the same name for each tool. `ConversationHistory` provides the task methods, and `DecisionTraces` provides the decision methods. A parameter has the same name on every surface, except where the agent or the server supplies the value itself.
 
 ### Evidence tools
 
@@ -140,7 +140,7 @@ Python takes the cited ids, the fetched ids, and the scope. It returns one verdi
 
 ## Task and decision tools
 
-The task and decision tools act on the configured project, and the document scope does not apply to them. [Record decisions and review them](../guides/connected-memory.mdx) describes the workflow, and [Agent loop](../concepts/agent-loop.mdx#tasks-and-resuming) describes how the built-in agent uses them.
+The task and decision tools act on the configured project, and the document scope does not apply to them. Use [Decision traces](../guides/decision-traces.mdx) to record supported decisions and review them. [Agent loop](../concepts/agent-loop.mdx#tasks-and-resuming) describes how the built-in agent records and resumes task work.
 
 ### Read tools
 

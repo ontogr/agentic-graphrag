@@ -20,7 +20,7 @@ from agrag.common.data_models.agent_answer import AgentAnswer
 from agrag.common.data_models.task import EventKind
 from agrag.embedding.base import Embedder
 from agrag.graphdb.base import GraphStore
-from agrag.memory import TaskMemory
+from agrag.history import ConversationHistory
 from tests.integration._backend import build_test_store
 from tests.integration.retrieval.evidence._corpus import (
     KEEP_TEXT,
@@ -146,19 +146,19 @@ def _build(
     )
 
 
-async def _delete_project_memory(store: GraphStore, project_id: str) -> None:
-    """Delete task memory rows created by this test."""
+async def _delete_project_history(store: GraphStore, project_id: str) -> None:
+    """Delete task history rows created by this test."""
     params = {"project_id": project_id}
     await store.execute_write(
-        "MATCH (t:MemoryTask {project_id: $project_id}) "
+        "MATCH (t:Task {project_id: $project_id}) "
         "OPTIONAL MATCH (t)-[:HAS_EVENT|HAS_STEP]->(child) DETACH DELETE child, t",
         params,
     )
     await store.execute_write(
-        "MATCH (r:MemoryRequest {project_id: $project_id}) DETACH DELETE r", params
+        "MATCH (r:Request {project_id: $project_id}) DETACH DELETE r", params
     )
     await store.execute_write(
-        "MATCH (p:MemoryProject {project_id: $project_id}) DETACH DELETE p", params
+        "MATCH (p:Project {project_id: $project_id}) DETACH DELETE p", params
     )
 
 
@@ -228,7 +228,7 @@ class TestAgentAnswerIntegration:
                 )
             )
         finally:
-            await _delete_project_memory(env.store, project_id)
+            await _delete_project_history(env.store, project_id)
 
     async def test_insufficient_evidence_status_is_structured(
         self, monkeypatch: MonkeyPatch
@@ -238,7 +238,9 @@ class TestAgentAnswerIntegration:
         await store.connect()
         project_id = f"answer-{uuid4().hex}"
         task_name = f"task-{uuid4().hex}"
-        memory = TaskMemory(store, project_id=project_id, agent_id="answer-test")
+        history = ConversationHistory(
+            store, project_id=project_id, agent_id="answer-test"
+        )
         try:
             model = _FinalModel(
                 answer=AgentAnswer(
@@ -253,10 +255,10 @@ class TestAgentAnswerIntegration:
 
             assert result["status"] == "insufficient_evidence"
             assert result["answer"].startswith("I cannot establish")
-            events = await memory.list_events(task_name, limit=20)
+            events = await history.list_events(task_name, limit=20)
             assert any(event.kind is EventKind.MESSAGE for event in events.events)
         finally:
-            await _delete_project_memory(store, project_id)
+            await _delete_project_history(store, project_id)
             await store.close()
 
     async def test_missing_structured_answer_is_partial(
@@ -279,7 +281,7 @@ class TestAgentAnswerIntegration:
             assert result["status"] == "partial"
             assert result["answer"] == ""
         finally:
-            await _delete_project_memory(store, project_id)
+            await _delete_project_history(store, project_id)
             await store.close()
 
     async def test_grouped_and_malformed_citations_are_repaired_once(
@@ -314,5 +316,5 @@ class TestAgentAnswerIntegration:
             assert result["invalid_citations"] == []
             assert model.calls == 2
         finally:
-            await _delete_project_memory(store, project_id)
+            await _delete_project_history(store, project_id)
             await store.close()

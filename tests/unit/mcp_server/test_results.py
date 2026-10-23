@@ -1,4 +1,4 @@
-"""Unit tests for the size of memory tool results as the SDK sends them.
+"""Unit tests for the size of task-history tool results as the SDK sends them.
 
 The result of a record_event call with a full-size payload must fit the
 default response limit once. Measuring it with the text block and structured
@@ -40,12 +40,12 @@ def _recorded(payload: str) -> RecordEventResult:
 
 
 async def _awaited(value: _T) -> _T:
-    """Return the value as an awaitable, like a memory operation."""
+    """Return the value as an awaitable, like a completed history operation."""
     return value
 
 
 class TestBoundedResult:
-    """A memory result is sent once and bounded by its real size."""
+    """A task-history result is sent once and bounded by its serialized size."""
 
     async def test_full_size_payload_event_stays_under_the_default_limit(
         self,
@@ -62,5 +62,7 @@ class TestBoundedResult:
 
     async def test_result_over_the_limit_is_refused(self) -> None:
         """A result larger than the limit raises instead of being truncated."""
-        with pytest.raises(ToolError, match="exceeds the configured response limit"):
+        with pytest.raises(
+            ToolError, match="tool result exceeds the configured response limit"
+        ):
             await bounded_result(5.0, 100, _awaited(_recorded("y" * 200)))

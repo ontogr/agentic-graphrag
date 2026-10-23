@@ -1,4 +1,4 @@
-"""Exercise the task agent's memory and evidence tools against Neo4j."""
+"""Exercise the task agent's history and evidence tools against Neo4j."""
 
 import json
 from uuid import uuid4
@@ -9,8 +9,9 @@ from agrag.common.data_models.decision import DECISION_LABEL
 from agrag.common.data_models.evidence import EvidenceSearchMode
 from agrag.common.data_models.graph_schema import GraphSchema
 from agrag.common.data_models.task import EventKind
+from agrag.decisions import DecisionTraces
+from agrag.history import ConversationHistory
 from agrag.ingestion.graph import Graph
-from agrag.memory import DecisionMemory, TaskMemory
 from tests.integration._backend import await_indexes, build_test_store
 from tests.integration.retrieval.evidence._corpus import (
     HARBOR_TEXT,
@@ -20,8 +21,8 @@ from tests.integration.retrieval.evidence._corpus import (
 )
 
 
-async def test_core_memory_tools_read_write_and_review_persisted_data() -> None:  # noqa: PLR0915
-    """Direct core tools return paged memory and persisted decision state."""
+async def test_core_history_tools_read_write_and_review_persisted_data() -> None:  # noqa: PLR0915
+    """Core tools return paged history and persisted decision state."""
     run = uuid4().hex
     harbor_key = f"evidence://{run}/harbor"
     store = build_test_store()
@@ -36,14 +37,16 @@ async def test_core_memory_tools_read_write_and_review_persisted_data() -> None:
     await graph.add(documents=[make_document(harbor_key, HARBOR_TEXT)])
     project_id = f"core-tools-{uuid4().hex}"
     task_name = f"task-{uuid4().hex}"
-    memory = TaskMemory(store, project_id=project_id, agent_id="core-tools-test")
-    decisions = DecisionMemory(store, project_id=project_id, agent_id="core-tools-test")
+    history = ConversationHistory(
+        store, project_id=project_id, agent_id="core-tools-test"
+    )
+    decisions = DecisionTraces(store, project_id=project_id, agent_id="core-tools-test")
     tools, _ = make_core_tools(
         graph_store=store,
         embedder=BagOfWordsEmbedder(),
         scope=frozenset({harbor_key}),
         task_name=task_name,
-        memory=memory,
+        history=history,
         decisions=decisions,
         fetched_ids=[],
         fetched_outcomes=[],
@@ -52,14 +55,16 @@ async def test_core_memory_tools_read_write_and_review_persisted_data() -> None:
     )
     tool_by_name = {item.name: item for item in tools}
     try:
-        assert (await memory.create_task(task_name, "Review source evidence.")).recorded
+        assert (
+            await history.create_task(task_name, "Review source evidence.")
+        ).recorded
         task_view = json.loads(await tool_by_name["get_task"].ainvoke({}))
         assert task_view["found"] is True
 
-        await memory.record_event(
+        await history.record_event(
             task_name, EventKind.NOTE, payload="first durable note"
         )
-        event_two = await memory.record_event(
+        event_two = await history.record_event(
             task_name, EventKind.NOTE, payload="second durable note"
         )
         event_page = json.loads(
@@ -248,22 +253,22 @@ async def test_core_memory_tools_read_write_and_review_persisted_data() -> None:
         assert old["decision"]["status"] == "superseded"
     finally:
         await store.execute_write(
-            "MATCH (d:MemoryDecision {project_id: $project_id}) "
+            "MATCH (d:Decision {project_id: $project_id}) "
             "OPTIONAL MATCH (d)-[:HAS_SUPPORT]->(s) DETACH DELETE s, d",
             {"project_id": project_id},
         )
         await store.execute_write(
-            "MATCH (t:MemoryTask {project_id: $project_id}) "
+            "MATCH (t:Task {project_id: $project_id}) "
             "OPTIONAL MATCH (t)-[:HAS_EVENT|HAS_STEP]->(child) "
             "DETACH DELETE child, t",
             {"project_id": project_id},
         )
         await store.execute_write(
-            "MATCH (r:MemoryRequest {project_id: $project_id}) DETACH DELETE r",
+            "MATCH (r:Request {project_id: $project_id}) DETACH DELETE r",
             {"project_id": project_id},
         )
         await store.execute_write(
-            "MATCH (p:MemoryProject {project_id: $project_id}) DETACH DELETE p",
+            "MATCH (p:Project {project_id: $project_id}) DETACH DELETE p",
             {"project_id": project_id},
         )
         prefix = f"evidence://{run}/"

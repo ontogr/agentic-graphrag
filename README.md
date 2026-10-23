@@ -1,7 +1,7 @@
 <h1 align="center"><a href="https://github.com/ontogr/agentic-graphrag">Agentic GraphRAG</a></h1>
 
-<h3 align="center">Context graphs that give AI agents memory they can trace to its sources.</h3>
-<h4 align="center"><a href="https://ontogr.github.io/agentic-graphrag/">Documentation</a> · <a href="https://ontogr.github.io/agentic-graphrag/stable/get-started/quickstart">Quickstart</a> · <a href="https://ontogr.github.io/agentic-graphrag/stable/concepts/architecture">Concepts</a> · <a href="https://ontogr.github.io/agentic-graphrag/stable/guides/ingest-documents">Guides</a> · <a href="https://ontogr.github.io/agentic-graphrag/stable/api/">API reference</a></h4>
+<h3 align="center">Context graphs that connect enterprise knowledge, conversation history, and decision traces.</h3>
+<h4 align="center"><a href="https://ontogr.github.io/agentic-graphrag/">Documentation</a> · <a href="https://ontogr.github.io/agentic-graphrag/latest/get-started/quickstart">Quickstart</a> · <a href="https://ontogr.github.io/agentic-graphrag/latest/concepts/architecture">Concepts</a> · <a href="https://ontogr.github.io/agentic-graphrag/latest/guides/ingest-documents">Guides</a> · <a href="https://ontogr.github.io/agentic-graphrag/latest/api/">API reference</a></h4>
 
 
 <div align="center">
@@ -23,15 +23,17 @@
 
 </div>
 
-Agentic GraphRAG is an open source Python framework that connects your documents, agent activity, and decisions in one graph. Your agents can find evidence, continue work across sessions, and revisit decisions when their sources change.
+Agentic GraphRAG is an open source Python framework that connects enterprise knowledge, conversation history, and decision traces in one graph. Agents can find evidence, resume work across sessions, and review decisions when their sources change.
 
 Turn documents into searchable knowledge shaped by your own schema. Give agents tools to follow relationships, read source passages, and cite what they use. Keep decisions linked to the evidence behind them. Use the Python library, connect your agent through MCP, or start with the built-in agent.
 
-For example, a contract-review agent can record a recommendation with passages from a contract and a policy. A later session retrieves the task and its decision. When the policy changes, the decision is flagged for review against the new evidence.
+The company-briefing workflow uses an annual report as source material. It records task events and steps, then saves decisions with explicit document supports. A correction to a local working copy flags affected decisions for review. See the [company-briefing example](examples/company_briefing/README.md) for the full workflow.
+
+The Boeing FY2022 segment table reports $25,867 million for Commercial Airplanes, $23,162 million for Defense, Space & Security, and $17,611 million for Global Services. It also reports $199 million for Boeing Capital and -$231 million for unallocated items, eliminations, and other, reconciling to total revenue of $66,608 million. The example keeps the full table context and links the commercial-airline risk discussion to the passages that support it.
 
 ## Graph backends
 
-Use Neo4j or FalkorDB for the graph, embeddings, full-text indexes, and vector indexes. Both support document ingestion, entity resolution, hybrid search, evidence and citations, community summaries, and task and decision memory. No separate vector database is required.
+Use Neo4j or FalkorDB for the graph, embeddings, full-text indexes, and vector indexes. Both support document ingestion, entity resolution, hybrid search, evidence and citations, community summaries, conversation history, and decision traces. No separate vector database is required.
 
 | Backend | Install | Select in Python | Choose it when |
 | --- | --- | --- | --- |
@@ -46,15 +48,17 @@ To keep vectors exclusively in Qdrant instead of on graph nodes, install the `qd
 
 ## Features
 
-### One graph for documents, tasks, and decisions
+### One graph for enterprise knowledge, conversation history, and decision traces
 
-Documents, agent work, and decisions live together, so every answer can be traced back to its source.
+Source documents, agent activity, and decisions live in one graph, so readers can trace each decision to its evidence.
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/ontogr/agentic-graphrag/main/docs/static/img/readme/graph3d.png" alt="Three stacked graph layers. Enterprise knowledge holds documents, sections, chunks and entities. Conversation history holds tasks, events and steps. Decision traces point up to the passages and events they rely on." width="860">
+  <img src="https://raw.githubusercontent.com/ontogr/agentic-graphrag/main/docs/static/img/readme/context-graph.png" alt="Three connected graph layers. Enterprise knowledge contains documents, sections, chunks, entities, and relations. Conversation history contains tasks, events, and steps. Decision traces link conclusions to document passages, task events, and other decisions." width="860">
 </p>
 
-- **Three connected layers.** The first layer holds your documents, with their sections, tables, and passages, and the people, organizations, products, and other entities found in them. The second holds named tasks, the steps agents take, and a log of what happened. The third holds the decisions agents make.
+- **Enterprise knowledge.** The graph stores documents, sections, tables, passages, entities, and relations. Each passage retains its source and location.
+- **Conversation history.** Each task has a goal, an ordered event log, and named steps. The event log includes agent messages, tool calls, and tool results, so it is more than a chat transcript.
+- **Decision traces.** Each decision stores its conclusion, rationale, assumptions, and explicit supports. Supports can point to document passages, task events, or earlier decisions. They are structured records, not hidden model reasoning.
 - **Every passage knows where it came from.** A passage records its document, its place in the document's structure, and the exact version it came from, with page positions for PDFs.
 - **Relations can point to their evidence.** A relation links to the passages that support it when evidence exists, and a decision links to the text it was based on.
 - **Old citations keep working.** The graph keeps the history of each document, so a citation to an older version still leads to the text that was cited.
@@ -88,41 +92,50 @@ Agents find passages, read the exact text, and move around a document the way a 
 - **Follow entities back to text.** An agent can look up an entity, see the passages that mention it, and follow its relations a few steps out. Each relation is marked as backed by a passage or as a connection without direct text.
 - **Incomplete results say so.** Every result states when something was cut off or part of the search failed, so an incomplete result is never mistaken for an empty one.
 
-### Remember tasks and decisions
+### Record conversation history and decisions
 
-The memory layer records an agent's work and decisions as it runs, keeps them current when sources change, and recalls them to inform later decisions.
+Conversation history records task events and steps. Decision traces link conclusions to the evidence they use and flag decisions for review when sources change.
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/ontogr/agentic-graphrag/main/docs/static/img/readme/task-resume.png" alt="The agent records events, steps, and decisions in the memory layer as it works. A decision cites passages, events, and earlier decisions. When a cited document changes, the decision is flagged for review. The agent recalls the task and searches past decisions to inform new ones." width="860">
+  <img src="https://raw.githubusercontent.com/ontogr/agentic-graphrag/main/docs/static/img/readme/conversation-history.png" alt="The agent records messages, tool calls, tool results, and named steps under a task. Decision traces cite document passages, task events, and earlier decisions. A source change flags affected decisions for review, and a later run can resume the task and search earlier decisions." width="860">
 </p>
 
-- **Work is recorded as it happens.** The built-in agent saves each message, tool call, and tool result as a task event, and it tracks progress as steps. Request IDs identify repeated writes, but a failed multi-statement write on FalkorDB can leave partial effects. See the [retry limits](https://ontogr.github.io/agentic-graphrag/latest/guides/configure-storage-backends#retried-memory-writes).
-- **Decisions are saved as traces.** A decision records a conclusion, the reasoning, the assumptions, and the open questions, along with the passages, events, or earlier decisions it relies on.
+- **The agent records its work.** The built-in agent saves each message, tool call, and tool result as a task event, and it tracks progress as steps. Request IDs identify repeated writes, but a failed multi-statement write on FalkorDB can leave partial effects. See the [retry limits](https://ontogr.github.io/agentic-graphrag/latest/guides/configure-storage-backends#retried-history-and-decision-writes).
+- **Decisions have explicit supports.** A decision records a conclusion, a concise rationale, assumptions, and open questions. Its supports point to passages, task events, or earlier decisions.
 - **Source changes flag decisions.** When a document behind a decision is updated or removed, the decision is flagged for review, and so are the decisions that depend on it.
 - **Reviews end in a clear action.** A reviewer can reaffirm a decision after reading the current text, or replace it with a new one that explains the change. The earlier version stays in the history.
-- **Tasks resume with the full picture.** When a task resumes, the agent sees the goal, the progress so far, and the decisions already made, including any that need review. It reuses finished work that is still valid, and a step that was interrupted is marked as unknown so that it can be run again.
+- **Tasks resume from recorded state.** When a task resumes, the agent sees its goal, events, steps, and decisions, including any that need review. It reuses finished work that is still valid, and marks an interrupted step as unknown so it can run it again.
 - **Past decisions inform new ones.** Agents can search earlier decisions in the same project. The built-in agent's search leaves out decisions that need review, and the agent cannot cite one as support.
+
+Use the Python APIs directly when you need to manage this state outside the built-in agent:
+
+```python
+from agrag.history import ConversationHistory
+from agrag.decisions import DecisionTraces
+```
+
+`ConversationHistory` creates tasks, records events, and sets steps. `DecisionTraces` records supported decisions and manages review. See the [Python API reference](https://ontogr.github.io/agentic-graphrag/latest/api/) for the complete contracts.
 
 ### Use the built-in agent or any MCP client
 
 Use the agent that ships with the library, or connect your own through MCP.
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/ontogr/agentic-graphrag/main/docs/static/img/readme/full-flow.png" alt="Documents are loaded, chunked, extracted, and resolved into a graph with three layers: enterprise knowledge, conversation history, and decision traces. A changed document flags the decisions that cite it. An agent searches and reads the graph and records its events, steps, and decisions. Its answer passes a citation check and returns with numbered sources." width="860">
+  <img src="https://raw.githubusercontent.com/ontogr/agentic-graphrag/main/docs/static/img/readme/full-flow.png" alt="Documents are loaded, chunked, extracted, and resolved into a graph with enterprise knowledge, conversation history, and decision traces. A changed document flags the decisions that cite it. An agent searches and reads the graph, records its events and steps, and returns an answer with checked numbered sources." width="860">
 </p>
 
 - **Answers cite numbered sources.** The built-in agent searches your documents, reads passages, and answers with numbered sources.
 - **Every citation is checked.** The passage must have been read during that run, it must belong to the documents the agent may use, and it must match the version cited. If a citation fails the check, the agent gets one chance to fix it.
 - **Every run ends with a status.** The status tells you whether the agent answered, found too little evidence, or reached a limit. You set how many steps and tool calls a run may use.
 - **Choose your model.** Use Anthropic, OpenAI, Google, or any OpenAI-compatible model, with fallback between them.
-- **The same tools work through MCP.** A local MCP server gives other agents the same tools. It starts read-only and shows only the documents you choose, and you decide whether a client may record tasks and decisions.
+- **The same tools work through MCP.** A local MCP server gives other agents the same tools. It starts read-only and shows only the documents you choose. You control whether a client may record conversation history and decisions.
 - **Trace and evaluate your runs.** Runs can be traced with OpenTelemetry, and the evaluation tools score answers, citations, and agent runs on your own questions.
 
-See the [features page](https://ontogr.github.io/agentic-graphrag/stable/get-started/features) for the complete list, including supported file formats, chunking, keeping the graph current as documents change, and community summaries.
+See the [features page](https://ontogr.github.io/agentic-graphrag/latest/get-started/features) for supported file formats, chunking, document updates, and community summaries.
 
 ## Quickstart
 
-In this example you add one document, ask a question about it, and get an answer with numbered sources. You need Python 3.11 or newer, a running Neo4j database, and an OpenAI-compatible LLM endpoint. See the [quickstart guide](https://ontogr.github.io/agentic-graphrag/stable/get-started/quickstart) for starting Neo4j with Docker or Neo4j Aura.
+In this example you add one document, ask a question about it, and get an answer with numbered sources. You need Python 3.11 or newer, a running Neo4j database, and an OpenAI-compatible LLM endpoint. See the [quickstart guide](https://ontogr.github.io/agentic-graphrag/latest/get-started/quickstart) for starting Neo4j with Docker or Neo4j Aura.
 
 To run the example on FalkorDB, follow the [FalkorDB setup](https://ontogr.github.io/agentic-graphrag/latest/guides/configure-storage-backends#set-up-a-falkordb-graph-store), replace the `neo4j` install extra with `falkordb`, use `FALKORDB_*` connection settings, and change the store selection to `build_graph_store("falkordb")`.
 
@@ -151,7 +164,7 @@ AGENT_LLM_API_KEY=your-api-key
 AGENT_LLM_MODEL_ID=your-model-id
 ```
 
-The last three lines are the address, key, and model of your OpenAI-compatible LLM endpoint. For a Neo4j database on another machine, see [Configuration](https://ontogr.github.io/agentic-graphrag/stable/reference/configuration).
+The last three lines are the address, key, and model of your OpenAI-compatible LLM endpoint. For a Neo4j database on another machine, see [Configuration](https://ontogr.github.io/agentic-graphrag/latest/reference/configuration).
 
 ### 3. Run the example
 
@@ -212,13 +225,13 @@ The script prints an answer that ends with a numbered list of sources. Run it ag
 
 ### Next steps
 
-- See [Record decisions and review them](https://ontogr.github.io/agentic-graphrag/stable/guides/connected-memory) for tying a decision to its evidence and reviewing it when a document changes.
-- See [Find and cite evidence](https://ontogr.github.io/agentic-graphrag/stable/guides/find-and-cite-evidence) for searching passages and checking citations from your own code.
-- See the [features page](https://ontogr.github.io/agentic-graphrag/stable/get-started/features) for everything else Agentic GraphRAG does.
+- See [Decision traces](https://ontogr.github.io/agentic-graphrag/latest/guides/decision-traces) to record supported decisions and review them when sources change.
+- See [Find and cite evidence](https://ontogr.github.io/agentic-graphrag/latest/guides/find-and-cite-evidence) to search passages and check citations from Python.
+- See the [features page](https://ontogr.github.io/agentic-graphrag/latest/get-started/features) for other supported features.
 
 ## Use MCP
 
-Run `agrag-mcp` to give any MCP client tools that search your documents, read exact passages, check citations, and keep task and decision memory.
+Run `agrag-mcp` to give an MCP client tools that search your documents, read exact passages, check citations, and access conversation history and decision traces.
 
 Install the server in the same virtual environment as before:
 
@@ -246,7 +259,7 @@ Then add the server to your MCP client. Replace the document path with the full 
 }
 ```
 
-If your client cannot find `agrag-mcp`, use its full path inside the virtual environment, for example `/full/path/to/.venv/bin/agrag-mcp`. The server starts read-only and reads only the documents you list. The project and agent IDs enable task and decision memory tools; writes remain disabled until you change the server settings. See the [MCP server guide](https://ontogr.github.io/agentic-graphrag/stable/guides/run-the-mcp-server) for the other settings.
+If your client cannot find `agrag-mcp`, use its full path inside the virtual environment, for example `/full/path/to/.venv/bin/agrag-mcp`. The server starts read-only and reads only the documents you list. The project and agent IDs enable history and decision tools, but writes remain disabled until you change the server settings. See the [MCP server guide](https://ontogr.github.io/agentic-graphrag/latest/guides/run-the-mcp-server) for the other settings.
 
 For FalkorDB, install `agentic-graphrag[falkordb,mcp]` instead. In the client configuration, replace the `NEO4J_*` entries with `"MCP_GRAPH_STORE": "falkordb"`, `"FALKORDB_URL": "redis://localhost:6379"`, and `"FALKORDB_GRAPH": "agrag"`. Use the same graph and embedding model as ingestion.
 

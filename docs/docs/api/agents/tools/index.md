@@ -9,4 +9,4 @@ Tools bound to one task run: evidence, navigation, task and decision tools.
 
 **Modules:**
 
-- [**core**](core/index.md) – Tools for scoped evidence, task progress and decisions.
+- [**core**](core/index.md) – Tools for scoped evidence, conversation history, and decisions.

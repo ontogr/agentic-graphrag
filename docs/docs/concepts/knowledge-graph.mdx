@@ -45,9 +45,9 @@ The edges connect them:
 - `RESOLVED_AS` joins an entity to its resolved entity.
 - `MEMBER_OF` joins an entity to its community.
 
-### Task and decision memory
+### Conversation history and decision traces
 
-Agent memory lives in the same graph, beside the documents. A task has `HAS_EVENT` edges to its ordered events and `HAS_STEP` edges to its named steps. A task has `MADE` edges to the decisions it recorded. A decision has `HAS_SUPPORT` edges to the supports it relies on, and `DEPENDS_ON` and `SUPERSEDES` edges to other decisions. A document support names a document, the first characters of the content hash of one version, and a chunk or character span, so it keeps pointing to the same text after the document changes.
+Conversation history and decision traces live in the same graph as source documents. A task has `HAS_EVENT` edges to its ordered events and `HAS_STEP` edges to its named steps. Events include messages, tool calls, and tool results, not only chat messages. A task has `MADE` edges to its decisions. A decision has `HAS_SUPPORT` edges to its supports, and `DEPENDS_ON` and `SUPERSEDES` edges to other decisions. A document support identifies a document version and a chunk or character span, so it points to the same text after the document changes. Decision records hold explicit supports and concise rationale, not hidden model reasoning.
 
 ## Example
 

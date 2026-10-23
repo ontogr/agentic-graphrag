@@ -5,7 +5,7 @@ sidebar_label: RecordDecisionResult
 
 # `agrag.common.data_models.decision.RecordDecisionResult` \{#agrag-common-data_models-decision-RecordDecisionResult}
 
-Bases: <code>[WriteResult](../memory_result/WriteResult.md)</code>
+Bases: <code>[WriteResult](../write_result/WriteResult.md)</code>
 
 The outcome of recording a decision.
 
@@ -24,7 +24,7 @@ decision: Decision | None = None
 ## `error` \{#agrag-common-data_models-decision-RecordDecisionResult-error}
 
 ```python
-error: MemoryErrorCode | None = None
+error: WriteErrorCode | None = None
 ```
 
 ## `model_config` \{#agrag-common-data_models-decision-RecordDecisionResult-model_config}

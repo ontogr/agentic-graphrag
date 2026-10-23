@@ -1,4 +1,4 @@
-"""Register bounded evidence and project memory read tools."""
+"""Register bounded evidence, history, and decision read tools."""
 
 from typing import Annotated, Any
 from uuid import UUID
@@ -25,6 +25,7 @@ from agrag.common.data_models.task import (
     StepState,
     TaskLookup,
 )
+from agrag.decisions import DecisionTraces
 from agrag.embedding.base import Embedder
 from agrag.evidence import (
     entity_search as entity_search_evidence,
@@ -36,9 +37,9 @@ from agrag.evidence import (
     navigate_document_tree as navigate_document_tree_evidence,
 )
 from agrag.graphdb.base import GraphStore
+from agrag.history import ConversationHistory
 from agrag.mcp_server.results import bounded_result
 from agrag.mcp_server.settings import McpServerSettings
-from agrag.memory import DecisionMemory, TaskMemory
 from agrag.vectordb.base import VectorStore
 
 
@@ -145,20 +146,20 @@ def register_evidence_read_tools(
         )
 
 
-def register_memory_read_tools(
+def register_history_read_tools(
     server: MCPServer, store: GraphStore, settings: McpServerSettings
 ) -> None:
-    """Register task and decision reads in the configured project.
+    """Register task-history and decision reads in the configured project.
 
     Args:
         server: MCP server that receives the read tools.
-        store: Graph store used by the memory services.
+        store: Graph store used by the history and decision services.
         settings: Trusted project identity and output limits.
     """
-    tasks = TaskMemory(
+    history = ConversationHistory(
         store, project_id=settings.project_id, agent_id=settings.agent_id
     )
-    decisions = DecisionMemory(
+    decisions = DecisionTraces(
         store, project_id=settings.project_id, agent_id=settings.agent_id
     )
 
@@ -170,7 +171,7 @@ def register_memory_read_tools(
         task_name: Annotated[str, Field(min_length=1, max_length=200)],
     ) -> Annotated[CallToolResult, TaskLookup]:
         """Return task state without event bodies."""
-        return await _bounded(settings, tasks.get_task(task_name))
+        return await _bounded(settings, history.get_task(task_name))
 
     @server.tool(
         annotations=_READ_ONLY,
@@ -184,7 +185,7 @@ def register_memory_read_tools(
         """Return task events in sequence order."""
         return await _bounded(
             settings,
-            tasks.list_events(task_name, after_seq=after_seq, limit=limit),
+            history.list_events(task_name, after_seq=after_seq, limit=limit),
         )
 
     @server.tool(
@@ -196,7 +197,7 @@ def register_memory_read_tools(
         seq: Annotated[int, Field(ge=1)],
     ) -> Annotated[CallToolResult, EventLookup]:
         """Return exactly the requested event, or not-found."""
-        return await _bounded(settings, tasks.fetch_event(task_name, seq))
+        return await _bounded(settings, history.fetch_event(task_name, seq))
 
     @server.tool(
         annotations=_READ_ONLY, description="Read one bounded page of task steps."
@@ -210,7 +211,7 @@ def register_memory_read_tools(
         """Return steps in one state, with a continuation cursor."""
         return await _bounded(
             settings,
-            tasks.list_steps(task_name, state, after_name=after_name, limit=limit),
+            history.list_steps(task_name, state, after_name=after_name, limit=limit),
         )
 
     @server.tool(

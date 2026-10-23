@@ -27,7 +27,6 @@ Shared data models used by agrag components.
 - [**graph_record**](graph_record/index.md) – Graph storage record shapes for GraphStore.
 - [**graph_schema**](graph_schema/index.md) – The GraphSchema contract: entity and relation types extraction validates against.
 - [**index_record**](index_record/index.md) – Index descriptions that a graph store reports to retrieval and ingestion.
-- [**memory_result**](memory_result/index.md) – Error codes and the base result of every project memory write.
 - [**navigation**](navigation/index.md) – Models for bounded navigation around one evidence passage.
 - [**normalization**](normalization/index.md) – The Normalization model: how a loader turned source bytes into text.
 - [**presets**](presets/index.md) – Preset schema fragments that add entity types to a base schema.
@@ -41,6 +40,7 @@ Shared data models used by agrag components.
 - [**task**](task/index.md) – Models for durable task state: tasks, raw events, steps and resume views.
 - [**update_decision**](update_decision/index.md) – Outcomes for updating a stored document.
 - [**vector_record**](vector_record/index.md) – Vector index types shared by the graph store and retrieval.
+- [**write_result**](write_result/index.md) – Error codes and the base result of task and decision trace writes.
 
 **Classes:**
 

@@ -1,4 +1,4 @@
-"""Tools for scoped evidence, task progress and decisions."""
+"""Tools for scoped evidence, conversation history, and decisions."""
 
 import json
 from collections.abc import Sequence
@@ -24,6 +24,7 @@ from agrag.common.data_models.task import (
     StepResultBasis,
     StepState,
 )
+from agrag.decisions import DecisionTraces
 from agrag.embedding.base import Embedder
 from agrag.evidence import (
     check_citations,
@@ -34,7 +35,7 @@ from agrag.evidence import (
     search_evidence,
 )
 from agrag.graphdb.base import GraphStore
-from agrag.memory import DecisionMemory, TaskMemory
+from agrag.history import ConversationHistory
 from agrag.vectordb.base import VectorStore
 
 
@@ -44,15 +45,15 @@ def make_core_tools(  # noqa: PLR0915
     embedder: Embedder,
     scope: frozenset[str],
     task_name: str,
-    memory: TaskMemory,
-    decisions: DecisionMemory,
+    history: ConversationHistory,
+    decisions: DecisionTraces,
     fetched_ids: list[str],
     fetched_outcomes: Sequence[FetchOutcome],
     max_chars: int,
     max_tool_calls: int,
     vector_store: VectorStore | None = None,
 ) -> tuple[list[Any], RunState]:
-    """Bind evidence and memory tools to a single task and trusted scope."""
+    """Bind evidence, history, and decision tools to one trusted task scope."""
     from langchain_core.tools import tool  # noqa: PLC0415
 
     run_state = RunState(
@@ -117,7 +118,7 @@ def make_core_tools(  # noqa: PLR0915
             valid_ids = [o.evidence_id for o in outcomes if o.status is FetchStatus.OK]
             if valid_ids:
                 await record_event_or_flag(
-                    memory,
+                    history,
                     task_name,
                     run_state,
                     EventKind.NOTE,
@@ -233,7 +234,7 @@ def make_core_tools(  # noqa: PLR0915
     @tool
     async def get_task() -> str:
         """Read this task's bounded resume view."""
-        lookup = await memory.get_task(task_name)
+        lookup = await history.get_task(task_name)
         return lookup.model_dump_json()
 
     @tool
@@ -257,7 +258,7 @@ def make_core_tools(  # noqa: PLR0915
             if not result:
                 return "A completed step needs its result text."
             event = await record_event_or_flag(
-                memory,
+                history,
                 task_name,
                 run_state,
                 EventKind.NOTE,
@@ -272,7 +273,7 @@ def make_core_tools(  # noqa: PLR0915
                 raise RuntimeError("Step result was truncated; step is unresolved.")
             result_seq = event.seq
         try:
-            outcome = await memory.set_step(
+            outcome = await history.set_step(
                 task_name,
                 name,
                 state,
@@ -374,7 +375,7 @@ def make_core_tools(  # noqa: PLR0915
     @tool
     async def fetch_event(task_name: str, seq: int) -> str:
         """Read one event by its task name and sequence number."""
-        lookup = await memory.fetch_event(task_name, seq)
+        lookup = await history.fetch_event(task_name, seq)
         return lookup.model_dump_json()
 
     @tool
@@ -382,7 +383,7 @@ def make_core_tools(  # noqa: PLR0915
         """Read one bounded page of task events."""
         if not 1 <= limit <= 50:
             return "Limit must be between 1 and 50."
-        page = await memory.list_events(task_name, after_seq=after_seq, limit=limit)
+        page = await history.list_events(task_name, after_seq=after_seq, limit=limit)
         return page.model_dump_json()
 
     @tool
@@ -392,7 +393,7 @@ def make_core_tools(  # noqa: PLR0915
         """Read one bounded page of steps in a task state."""
         if not 1 <= limit <= 50:
             return "Limit must be between 1 and 50."
-        page = await memory.list_steps(
+        page = await history.list_steps(
             task_name, state, after_name=after_name, limit=limit
         )
         return page.model_dump_json()
@@ -512,7 +513,7 @@ def _current_fetches(
 
 
 async def _support_inputs_are_current(
-    decisions: DecisionMemory, supports: Sequence[SupportInput]
+    decisions: DecisionTraces, supports: Sequence[SupportInput]
 ) -> bool:
     """Reject decision dependencies that are not active and fully current."""
     for support in supports:

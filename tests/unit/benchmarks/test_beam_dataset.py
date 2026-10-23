@@ -7,10 +7,9 @@ import hashlib
 
 import pytest
 
-from benchmarks.datasets import memory
-from benchmarks.datasets.fetch import HashMismatchError
-from benchmarks.datasets.memory import (
-    MemoryAdapter,
+from benchmarks.datasets import conversation_history
+from benchmarks.datasets.conversation_history import (
+    ConversationHistoryAdapter,
     RunawayMessage,
     collapse_runaway,
     probes,
@@ -18,8 +17,9 @@ from benchmarks.datasets.memory import (
     session_text,
     text_sha256,
 )
+from benchmarks.datasets.fetch import HashMismatchError
 from benchmarks.models import Corpus, CorpusDocument
-from benchmarks.schemas.memory import MEMORY
+from benchmarks.schemas.conversation_history import CONVERSATION_HISTORY
 
 
 class TestFixtures:
@@ -27,19 +27,23 @@ class TestFixtures:
 
     def test_lite_questions_are_a_subset_of_full_with_the_same_content(self):
         """Every lite question is also a full question on the same conversation."""
-        full = MemoryAdapter().load("full")
-        lite = MemoryAdapter().load("lite")
+        full = ConversationHistoryAdapter().load("full")
+        lite = ConversationHistoryAdapter().load("lite")
+        assert full.domain == "conversation_history"
+        assert lite.domain == "conversation_history"
         by_id = {q.id: q for q in full.questions}
 
         for question in lite.questions:
             assert by_id[question.id] == question
         full_corpus = next(c for c in full.corpora if c.id == "conv17")
         assert lite.corpora[0].service == full_corpus.service
+        assert lite.corpora[0].service == "history-conv17"
+        assert lite.corpora[0].schema_name == "beam-conversation-history"
         assert all(d.messages is None for d in full_corpus.documents)
 
     def test_every_question_carries_its_rubric_and_probe_hash(self):
         """The grader reads only the rubric, and the hash pins the source probe."""
-        for question in MemoryAdapter().load("full").questions:
+        for question in ConversationHistoryAdapter().load("full").questions:
             assert question.id.startswith(f"{question.corpus_id}:{question.group}:")
             assert question.reference["rubric"]
             assert len(question.reference["probe_sha256"]) == 64
@@ -47,8 +51,8 @@ class TestFixtures:
 
     def test_known_bad_probes_are_marked_in_full_and_absent_from_lite(self):
         """Four full probes have a known rubric defect, and none is in lite."""
-        full = MemoryAdapter().load("full")
-        lite = MemoryAdapter().load("lite")
+        full = ConversationHistoryAdapter().load("full")
+        lite = ConversationHistoryAdapter().load("lite")
 
         marked = {q.id for q in full.questions if "known_bad_rubric" in q.reference}
 
@@ -63,7 +67,8 @@ class TestFixtures:
     def test_each_conversation_has_its_own_service(self):
         """No two conversations share a service."""
         services = {}
-        for corpus in MemoryAdapter().load("full").corpora:
+        for corpus in ConversationHistoryAdapter().load("full").corpora:
+            assert corpus.service == f"history-{corpus.id}"
             assert services.setdefault(corpus.service, corpus.id) == corpus.id
 
 
@@ -116,7 +121,7 @@ class TestSessionText:
             original_chars=len(long),
             original_sha256=hashlib.sha256(long.encode()).hexdigest(),
         )
-        monkeypatch.setattr(memory, "RUNAWAY_MESSAGES", [runaway])
+        monkeypatch.setattr(conversation_history, "RUNAWAY_MESSAGES", [runaway])
         messages = _messages("Question", long, "Next question", first_id=0)
 
         text = session_text(1, messages, "4")
@@ -140,8 +145,8 @@ class TestDocuments:
     def _corpus(self, row: dict) -> Corpus:
         return Corpus(
             id="conv9",
-            service="memory-conv17",
-            schema_name=MEMORY.name,
+            service="history-conv17",
+            schema_name=CONVERSATION_HISTORY.name,
             documents=[
                 CorpusDocument(
                     id=f"conv9-s{n}",
@@ -156,9 +161,11 @@ class TestDocuments:
     def test_builds_one_document_per_session_in_order(self, monkeypatch):
         """Two sessions give two documents with their uris and session text."""
         row = {"chat": [_messages("a", "b"), _messages("c", "d", first_id=2)]}
-        monkeypatch.setattr(memory, "load_rows", lambda columns=None: {"9": row})
+        monkeypatch.setattr(
+            conversation_history, "load_rows", lambda columns=None: {"9": row}
+        )
 
-        documents = MemoryAdapter().documents(self._corpus(row))
+        documents = ConversationHistoryAdapter().documents(self._corpus(row))
 
         assert [d.uri for d in documents] == ["beam/9/session-1", "beam/9/session-2"]
         assert documents[1].text.startswith("Session 2, date: March-15-2024")
@@ -170,8 +177,8 @@ class TestDocuments:
         slice_text = session_document_text(row["chat"][0], 1, "9", [2])
         corpus = Corpus(
             id="conv9",
-            service="memory-conv17",
-            schema_name=MEMORY.name,
+            service="history-conv17",
+            schema_name=CONVERSATION_HISTORY.name,
             documents=[
                 CorpusDocument(
                     id="conv9-s1",
@@ -182,9 +189,11 @@ class TestDocuments:
                 )
             ],
         )
-        monkeypatch.setattr(memory, "load_rows", lambda columns=None: {"9": row})
+        monkeypatch.setattr(
+            conversation_history, "load_rows", lambda columns=None: {"9": row}
+        )
 
-        (document,) = MemoryAdapter().documents(corpus)
+        (document,) = ConversationHistoryAdapter().documents(corpus)
 
         assert document.text == slice_text
         assert "[msg 2 | user] c" in document.text
@@ -195,10 +204,12 @@ class TestDocuments:
         row = {"chat": [_messages("a", "b")]}
         corpus = self._corpus(row)
         changed = {"chat": [_messages("a", "changed")]}
-        monkeypatch.setattr(memory, "load_rows", lambda columns=None: {"9": changed})
+        monkeypatch.setattr(
+            conversation_history, "load_rows", lambda columns=None: {"9": changed}
+        )
 
         with pytest.raises(HashMismatchError):
-            MemoryAdapter().documents(corpus)
+            ConversationHistoryAdapter().documents(corpus)
 
 
 class TestCorpusDocument:

@@ -16,7 +16,7 @@ The outcome of appending one event.
 ## `error` \{#agrag-common-data_models-task-RecordEventResult-error}
 
 ```python
-error: MemoryErrorCode | None = None
+error: WriteErrorCode | None = None
 ```
 
 ## `event` \{#agrag-common-data_models-task-RecordEventResult-event}

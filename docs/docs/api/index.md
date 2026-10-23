@@ -22,7 +22,8 @@ The top-level `agrag` package exports only `__version__`. Import each other name
 | `ErrorPolicy` | `from agrag.loaders import ErrorPolicy` | The action for a source that fails: `RAISE`, `SKIP`, or `QUARANTINE`. See [agrag.loaders](loaders/index.md). |
 | `SearchEngine`, `RetrievalSettings` | `from agrag.retrieval import SearchEngine, RetrievalSettings` | Runs retrieval recipes over the graph. See [agrag.retrieval](retrieval/index.md). |
 | Evidence functions | `from agrag.evidence import search_evidence, fetch_evidence, navigate_document_tree, entity_search, explore_relationships, check_citations, render_citations, source_status` | Find passages, fetch the exact text behind an evidence id, move between passages, search entities, explore relationships, and check citations. `source_status` reports a document's current, pending, failed, deleted, or unknown state. See [agrag.evidence](evidence/index.md). |
-| `TaskMemory`, `DecisionMemory` | `from agrag.memory import TaskMemory, DecisionMemory` | Record task events and steps, and record, replace, review, and search decisions. See [agrag.memory](memory/index.md). |
+| `ConversationHistory`, `HistoryRetention` | `from agrag.history import ConversationHistory, HistoryRetention` | Create tasks, record events, set steps, and apply retention actions. See [agrag.history](history/index.md). |
+| `DecisionTraces` | `from agrag.decisions import DecisionTraces` | Record, replace, review, and search decisions with explicit supports. See [agrag.decisions](decisions/index.md). |
 | `build_agent` | `from agrag.agents import build_agent` | Builds the task-scoped evidence agent. Accessing it needs the `agents` extra. See [agrag.agents](agents/index.md). |
 | `get_tracer` | `from agrag.observability import get_tracer` | Returns the tracer you pass, or a no-op tracer. See [agrag.observability](observability/index.md). |
 

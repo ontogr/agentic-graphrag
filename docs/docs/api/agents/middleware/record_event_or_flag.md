@@ -6,7 +6,7 @@ sidebar_label: record_event_or_flag
 # `agrag.agents.middleware.record_event_or_flag` \{#agrag-agents-middleware-record_event_or_flag}
 
 ```python
-record_event_or_flag(memory:Any, task_name:str, run_state:RunState, kind:EventKind, *, payload:str, role:str | None = None, name:str | None = None) -> Any
+record_event_or_flag(history:Any, task_name:str, run_state:RunState, kind:EventKind, *, payload:str, role:str | None = None, name:str | None = None) -> Any
 ```
 
 Append one event, retry it once, and flag the run if it still fails.
@@ -16,7 +16,7 @@ error returns its stored result instead of a second event.
 
 **Parameters:**
 
-- **memory** (<code>Any</code>) – The task memory that holds the event.
+- **history** (<code>Any</code>) – The conversation history that holds the event.
 - **task_name** (<code>str</code>) – The task the event belongs to.
 - **run_state** (<code>[RunState](RunState.md)</code>) – The run whose failure flag is set on a lasting error.
 - **kind** (<code>[EventKind](../../common/data_models/task/EventKind.md)</code>) – The kind of event.

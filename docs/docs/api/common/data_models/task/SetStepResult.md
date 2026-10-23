@@ -16,7 +16,7 @@ The outcome of creating or updating a step.
 ## `error` \{#agrag-common-data_models-task-SetStepResult-error}
 
 ```python
-error: MemoryErrorCode | None = None
+error: WriteErrorCode | None = None
 ```
 
 ## `model_config` \{#agrag-common-data_models-task-SetStepResult-model_config}

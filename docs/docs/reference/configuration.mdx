@@ -234,8 +234,8 @@ Class: `McpServerSettings`. Prefix: `MCP_`. The `agrag-mcp` server reads these v
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `MCP_SCOPE_DOCUMENT_KEYS` | none | Required. A comma-separated list with at least one document key that the server may read. A file document's key is its resolved absolute path. |
-| `MCP_READ_ONLY` | `true` | When `true`, the server registers no write tools. Set it to `false` to enable task and decision writes. |
-| `MCP_PROJECT_ID` | none | The project that task and decision tools read and write. Required when `MCP_READ_ONLY` is `false`. |
+| `MCP_READ_ONLY` | `true` | When `true`, the server registers no write tools. Set it to `false` to enable conversation-history and decision writes. |
+| `MCP_PROJECT_ID` | none | The project that conversation-history and decision tools read and write. Required when `MCP_READ_ONLY` is `false`. |
 | `MCP_AGENT_ID` | none | The author recorded on writes. Required when `MCP_READ_ONLY` is `false`. |
 | `MCP_ALLOW_REJECT` | `false` | Set to `true` to register `reject_decision`. |
 | `MCP_GRAPH_STORE` | `neo4j` | The graph store the server reads: `neo4j` or `falkordb`. |

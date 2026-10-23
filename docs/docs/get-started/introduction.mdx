@@ -7,31 +7,31 @@ import Diagram from '@site/src/components/Diagram';
 
 # Introduction
 
-Agentic GraphRAG is an open source Python framework that connects your documents, agent activity, and decisions in one graph. Your agents can find evidence, continue work across sessions, and revisit decisions when their sources change.
+Agentic GraphRAG is an open source Python framework that connects enterprise knowledge, conversation history, and decision traces in one graph. Agents can find evidence, resume work across sessions, and review decisions when their sources change.
 
 ## What it keeps in the graph
 
-Agentic GraphRAG keeps three connected kinds of memory in one graph. Knowledge holds your documents with their sections, chunks, entities, relations, and community summaries. Working memory holds named tasks, an ordered log of what an agent said and called, and the steps of each task. Decisions hold conclusions with their rationale and the passages, events, or other decisions they rely on.
+The graph has three connected layers. Enterprise knowledge holds documents with their sections, chunks, entities, relations, and community summaries. Conversation history holds named tasks, ordered events, and steps. Events include agent messages, tool calls, and tool results, so conversation history is more than a chat transcript. Decision traces hold conclusions, concise rationales, assumptions, and explicit supports to passages, task events, or other decisions. They are stored records, not hidden model reasoning.
 
-Add your documents and they become a knowledge graph shaped by your own schema. Agents search the graph, read the exact passage behind each result, and cite it. They record decisions that point to the passages they rely on. A later session picks a task up where it stopped, and a decision is flagged for review when a document behind it changes.
+Add documents to build a knowledge graph shaped by your schema. Agents search the graph, read the exact passage behind each result, and cite it. They record decisions with supports that identify the evidence they rely on. A later session resumes a task from its recorded events and steps, and source changes flag affected decisions for review.
 
-For example, a contract-review agent records a recommendation with passages from a contract and a policy. A later session retrieves the task and its decision. When the policy changes, the decision is flagged for review against the new text.
+The company-briefing workflow uses annual-report passages to support decisions about a business risk. A later run can resume its task and inspect the saved decision. A correction to the working copy flags decisions that cite the changed text for review.
 
 ## Three ways to use it
 
-Use the Python library when you want direct control. `Graph` adds documents, the functions in `agrag.evidence` search and cite, and `agrag.memory` records tasks and decisions. Use `build_agent` for a task-scoped agent that searches your documents, records its work, and answers with numbered sources. Run `agrag-mcp` to give any MCP client tools for search, citation, and task and decision memory.
+Use the Python library when you want direct control. `Graph` adds documents, the functions in `agrag.evidence` search and cite, `agrag.history` records task events and steps, and `agrag.decisions` records supported decisions. Use `build_agent` for a task-scoped agent that searches your documents, records its work, and answers with numbered sources. Run `agrag-mcp` to give an MCP client tools for search, citation, conversation history, and decision traces.
 
 ## How it works
 
-<Diagram folder="docs" name="introduction" alt="Documents are ingested into one graph that holds documents, entities, tasks, and decisions. An agent or MCP client searches and reads the graph, records its tasks and decisions in it, and returns a cited answer to a question." />
+<Diagram folder="docs" name="introduction" alt="Ingestion stores enterprise knowledge in one graph. An agent or MCP client searches the graph, records conversation history, and saves decision traces with evidence supports. The agent returns a cited answer." />
 
-*Ingestion builds the graph. The agent or MCP client reads it and records tasks and decisions in it.*
+*Ingestion builds the graph. Agents and MCP clients read evidence, record task activity, and save supported decisions.*
 
 1. You add documents. Agentic GraphRAG loads them, splits them into chunks, and extracts entities and relations.
 2. Agentic GraphRAG resolves duplicate mentions and writes the graph and its indexes to the graph database.
 3. You ask a question. The agent discovers and fetches evidence from the graph.
 4. The agent checks its citations against the fetched evidence and writes an answer with numbered sources.
-5. The agent records its messages, tool results, and decisions under a named task.
+5. The agent records messages, tool calls, and tool results as task events. It records progress as steps and saves decisions with explicit supports.
 
 ## Who it is for
 
@@ -51,5 +51,5 @@ Use Agentic GraphRAG if you build agents that answer from documents that you own
 - [Architecture](../concepts/architecture.mdx): how the parts fit together.
 - [Find and cite evidence](../guides/find-and-cite-evidence.mdx): search passages and check citations from Python.
 - [Run the MCP server](../guides/run-the-mcp-server.mdx): connect an MCP client.
-- [Record decisions and review them](../guides/connected-memory.mdx): tie a decision to its evidence.
+- [Decision traces](../guides/decision-traces.mdx): record supported decisions and review them when source documents change.
 - [API reference](../api/index.md): every class and function.

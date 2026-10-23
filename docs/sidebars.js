@@ -81,9 +81,9 @@ const sidebars = {
       'guides/retrieve-and-answer',
       'concepts/agent-loop',
     ]),
-    section('Agent memory', [
+    section('Conversation history and decision traces', [
       'guides/run-the-mcp-server',
-      'guides/connected-memory',
+      'guides/decision-traces',
     ]),
     section('Operate', [
       'concepts/observability',

@@ -5,8 +5,8 @@ sidebar_label: core
 
 # `agrag.agents.tools.core` \{#agrag-agents-tools-core}
 
-Tools for scoped evidence, task progress and decisions.
+Tools for scoped evidence, conversation history, and decisions.
 
 **Functions:**
 
-- [**make_core_tools**](make_core_tools.md) – Bind evidence and memory tools to a single task and trusted scope.
+- [**make_core_tools**](make_core_tools.md) – Bind evidence, history, and decision tools to one trusted task scope.
