@@ -418,9 +418,9 @@ cited, are pruned after the commit, as for a delete. The Document node
 and its activation records stay, and each dependent decision is flagged
 `source_removed`. Purging a key that has no stored content is a no-op.
 
-This lives on `Graph` rather than `RetentionMemory`: a purge needs
+This lives on `Graph` rather than `HistoryRetention`: a purge needs
 the graph schema, embedder and cutover settings to clean up, and
-`RetentionMemory` covers only project-scoped memory records.
+`HistoryRetention` covers only project-scoped conversation history.
 
 Approved and rejected candidates remain without their removed evidence
 links. Community summaries remain until community detection runs again.
