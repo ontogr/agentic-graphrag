@@ -7,6 +7,7 @@ from agrag.common.data_models.evidence import (
     EvidenceSearchStatus,
     IndexState,
 )
+from agrag.common.data_models.index_record import SearchCall
 from agrag.evidence.search import search_evidence
 from agrag.graphdb.base import GraphStore
 
@@ -18,6 +19,7 @@ class TestIndexReadiness:
         """A missing vector index does not appear as a no-match result."""
         store = AsyncMock(spec=GraphStore)
         store.execute_read.return_value = []
+        store.vector_search_call.return_value = SearchCall("", {})
 
         result = await search_evidence(
             store,

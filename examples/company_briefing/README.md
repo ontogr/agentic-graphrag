@@ -1,6 +1,6 @@
 # Company research briefing
 
-This example uses Boeing's FY2022 Form 10-K to build an evidence-backed company briefing. It links the company, its reportable business segments, reported revenue, and the commercial-airline exposure described in the filing. The figures and claims are historical and apply to FY2022. The briefing is not an investment recommendation.
+This example uses Boeing's FY2022 Form 10-K to build an evidence-backed company briefing. It links the company, its reportable business segments, and the commercial-airline exposure described in the filing. The agent reads reported revenue from cited passages rather than storing structured revenue entities. The figures and claims are historical and apply to FY2022. The briefing is not an investment recommendation.
 
 The example uses one annual report. It does not claim independent corroboration or compare multiple companies. Its source and SHA-256 are recorded in [`sources.json`](sources.json). The canonical filing is available from the [SEC](https://www.sec.gov/Archives/edgar/data/12927/000001292723000007/ba-20221231.htm). The pinned PDF copy is downloaded at setup time and is not included in this repository.
 

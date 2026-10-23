@@ -250,8 +250,8 @@ async def indexes_ready(
 ) -> IndexState:
     """Return READY when every spec is covered by an ONLINE index.
 
-    Some stores report one full-text index for several properties. Match the
-    required label and property instead of relying on a backend-specific name.
+    Some stores search by label and property rather than by index name. Require
+    the exact name when the search call supplies one.
 
     Args:
         store: The graph store to ask.
@@ -264,11 +264,24 @@ async def indexes_ready(
     """
     indexes = await store.list_indexes(timeout=timeout)
     for spec in specs:
+        search_call = (
+            await store.fulltext_search_call(label=spec.label, properties=[spec.prop])
+            if spec.index_type == "FULLTEXT"
+            else await store.vector_search_call(
+                label=spec.label, vector_property=spec.prop
+            )
+        )
+        expected_name = search_call.params.get("index")
         if not any(
             index.state == INDEX_STATE_ONLINE
             and index.type == spec.index_type
             and index.labels == [spec.label]
-            and spec.prop in index.properties
+            and (
+                index.properties == [spec.prop]
+                if isinstance(expected_name, str)
+                else spec.prop in index.properties
+            )
+            and (expected_name is None or index.name == expected_name)
             for index in indexes
         ):
             return IndexState.NOT_READY

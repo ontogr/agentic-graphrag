@@ -276,15 +276,15 @@ async def test_lists_are_capped_and_resume_keeps_older_active_decision(store, pr
         rejected = await history.reject_decision(result.decision.id, "closed")
         assert rejected.recorded
 
-    history = await history.list_decisions("bounded")
-    active = await history.list_decisions("bounded", include_history=False)
+    history_page = await history.list_decisions("bounded")
+    active_page = await history.list_decisions("bounded", include_history=False)
     resumed = await tasks.get_task("bounded")
 
-    assert history.page.count == 21
-    assert len(history.page.decisions) == 20
-    assert history.page.truncated
-    assert active.page.count == 1
-    assert not active.page.truncated
+    assert history_page.page.count == 21
+    assert len(history_page.page.decisions) == 20
+    assert history_page.page.truncated
+    assert active_page.page.count == 1
+    assert not active_page.page.truncated
     assert [decision.id for decision in resumed.view.decisions] == [first.decision.id]
     assert resumed.view.decision_count == 1
 

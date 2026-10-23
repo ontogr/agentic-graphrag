@@ -29,7 +29,6 @@ from agrag.common.data_models.evidence import (
 from agrag.common.data_models.graph_schema import (
     EntityType,
     GraphSchema,
-    PropertySpec,
     RelationType,
 )
 from agrag.common.data_models.navigation import NavigationRelation
@@ -72,7 +71,7 @@ AIRLINE_REVENUE_ANCHOR = "limited number of commercial airlines"
 
 
 def _schema() -> GraphSchema:
-    """Describe the company, segment, industry, and reported-revenue entities."""
+    """Describe the company, segment, and industry entities."""
     return GraphSchema(
         name="company-briefing",
         version="1",
@@ -92,25 +91,6 @@ def _schema() -> GraphSchema:
                 label="Industry",
                 description="An industry explicitly named in the filing.",
             ),
-            EntityType(
-                label="ReportedRevenue",
-                description=(
-                    "Revenue as reported in a specific fiscal year and context, "
-                    "including total and reconciliation rows."
-                ),
-                properties={
-                    "fiscal_year": PropertySpec(type="integer", required=True),
-                    "amount_millions": PropertySpec(type="float", required=True),
-                    "unit": PropertySpec(
-                        type="string", enum=["USD millions"], required=True
-                    ),
-                    "row_kind": PropertySpec(
-                        type="string",
-                        enum=["segment", "total", "reconciliation"],
-                        required=True,
-                    ),
-                },
-            ),
         ],
         relations=[
             RelationType(
@@ -119,16 +99,6 @@ def _schema() -> GraphSchema:
                     "The filing identifies a business segment as part of a company."
                 ),
                 patterns=[("Company", "BusinessSegment")],
-            ),
-            RelationType(
-                label="REPORTS_REVENUE",
-                description=(
-                    "The filing reports a revenue value for the company or a segment."
-                ),
-                patterns=[
-                    ("Company", "ReportedRevenue"),
-                    ("BusinessSegment", "ReportedRevenue"),
-                ],
             ),
             RelationType(
                 label="EXPOSED_TO_INDUSTRY",
@@ -307,7 +277,6 @@ async def investigate() -> None:
                 scope=scope,
                 relation_types=[
                     "HAS_SEGMENT",
-                    "REPORTS_REVENUE",
                     "EXPOSED_TO_INDUSTRY",
                 ],
                 depth=2,

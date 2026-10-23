@@ -401,7 +401,7 @@ class DecisionTraces:
         size = max(1, min(limit, DECISION_PAGE_LIMIT))
         rows = await self._store.execute_read(
             f"MATCH (t:{TASK_LABEL} {{{HISTORY_RECORD_PROPERTY}: true, "
-            "project_id: $project_id})-[:{MADE}]->"
+            f"project_id: $project_id}})-[:{MADE}]->"
             f"(d:{DECISION_LABEL} {{{HISTORY_RECORD_PROPERTY}: true, "
             "status: 'active'}) "
             f"MATCH (p:Project {{{HISTORY_RECORD_PROPERTY}: true, "
@@ -424,7 +424,7 @@ class DecisionTraces:
         )
         count_rows = await self._store.execute_read(
             f"MATCH (t:{TASK_LABEL} {{{HISTORY_RECORD_PROPERTY}: true, "
-            "project_id: $project_id})-[:{MADE}]->"
+            f"project_id: $project_id}})-[:{MADE}]->"
             f"(d:{DECISION_LABEL} {{{HISTORY_RECORD_PROPERTY}: true, "
             "status: 'active'}) "
             f"MATCH (p:Project {{{HISTORY_RECORD_PROPERTY}: true, "
@@ -524,7 +524,7 @@ class DecisionTraces:
         """List active same-choice decisions with different conclusions."""
         rows = await self._store.execute_read(
             f"MATCH (t:{TASK_LABEL} {{{HISTORY_RECORD_PROPERTY}: true, "
-            "project_id: $project_id})-[:{MADE}]->"
+            f"project_id: $project_id}})-[:{MADE}]->"
             f"(d:{DECISION_LABEL} {{{HISTORY_RECORD_PROPERTY}: true, "
             "status: 'active'}) "
             "WITH d.choice_key AS choice_key, collect(d) AS decisions, "
@@ -543,7 +543,7 @@ class DecisionTraces:
             if ids:
                 found = await self._store.execute_read(
                     f"MATCH (t:{TASK_LABEL} {{{HISTORY_RECORD_PROPERTY}: true, "
-                    "project_id: $project_id})-[:{MADE}]->"
+                    f"project_id: $project_id}})-[:{MADE}]->"
                     f"(d:{DECISION_LABEL} {{{HISTORY_RECORD_PROPERTY}: true}}) "
                     "WHERE d.id IN $ids "
                     f"OPTIONAL MATCH (p:Project {{{HISTORY_RECORD_PROPERTY}: true, "
