@@ -44,15 +44,15 @@ async def test_tiny_corpus_has_searchable_and_fetchable_evidence(
     )
     assert found.status is EvidenceSearchStatus.OK
     assert found.hits
-    outcomes = await fetch_evidence(
+    fetched = await fetch_evidence(
         tiny_corpus.store,
         [found.hits[0].evidence_id],
         scope=tiny_corpus.scope,
         max_chars=10_000,
     )
-    assert outcomes[0].status is FetchStatus.OK
-    assert outcomes[0].text is not None
-    assert "Tobias Renn" in outcomes[0].text
+    assert fetched.outcomes[0].status is FetchStatus.OK
+    assert fetched.outcomes[0].text is not None
+    assert "Tobias Renn" in fetched.outcomes[0].text
 
 
 async def test_answer_quality_graph_has_searchable_and_fetchable_evidence(
@@ -69,15 +69,15 @@ async def test_answer_quality_graph_has_searchable_and_fetchable_evidence(
     )
     assert found.status is EvidenceSearchStatus.OK
     assert found.hits
-    outcomes = await fetch_evidence(
+    fetched = await fetch_evidence(
         answer_quality_graph.store,
         [found.hits[0].evidence_id],
         scope=answer_quality_graph.scope,
         max_chars=10_000,
     )
-    assert outcomes[0].status is FetchStatus.OK
-    assert outcomes[0].text is not None
-    assert "foreign currency" in outcomes[0].text.lower()
+    assert fetched.outcomes[0].status is FetchStatus.OK
+    assert fetched.outcomes[0].text is not None
+    assert "foreign currency" in fetched.outcomes[0].text.lower()
 
 
 async def test_agent_answer_scores_in_unit_range(

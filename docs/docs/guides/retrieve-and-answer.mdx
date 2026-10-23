@@ -5,7 +5,7 @@ sidebar_position: 4
 
 # Retrieve and answer
 
-Use `SearchEngine` when your application needs retrieved entities or chunks. Use `build_agent` when you want the system to search, combine evidence, and return a cited answer. The direct-search example needs no agent LLM; the agent examples do.
+Use the evidence tools in `agrag.evidence` when your application needs retrieved passages. Use `build_agent` when you want the system to search, combine evidence, and return a cited answer. The direct-search example needs no agent LLM; the agent examples do.
 
 ## Prerequisites
 
@@ -21,18 +21,22 @@ Each code block on this page is complete. It opens a graph with `DEFAULT_SCHEMA`
 
 ## Search directly
 
-`SearchEngine` searches entity labels that exist in your graph. The example below ingests its data with `DEFAULT_SCHEMA`, so its labels match. If you ingested with another schema, pass that schema's labels in `entity_labels`.
+The evidence tools search passages, fetch the exact text, and check citations without an agent LLM. Each tool takes a `scope`, the set of document keys the call may read, so the example gives its document an explicit `document_key`.
 
 ```python
 import asyncio
+import hashlib
 
-from agrag.retrieval.recipes import HYBRID
-from agrag.retrieval.search_engine import SearchEngine
 from agrag.common.data_models import DEFAULT_SCHEMA
+from agrag.common.data_models.document import Document, DocumentFamily, SourceFormat
 from agrag.embedding import build_embedder
+from agrag.evidence import fetch_evidence, search_evidence
 from agrag.graphdb import build_graph_store
 from agrag.ingestion import Graph
 from agrag.ingestion.extract import GlinerExtractor
+
+TEXT = "Aspirin treats headaches. Ibuprofen also treats headaches."
+DOCUMENT_KEY = "headache-notes"
 
 
 async def main() -> None:
@@ -45,17 +49,28 @@ async def main() -> None:
         extractor=GlinerExtractor(),
     )
     try:
-        await graph.add(text="Aspirin treats headaches. Ibuprofen also treats headaches.")
-        engine = SearchEngine(
-            graph_store=graph_store,
-            embedder=embedder,
-            entity_labels=[entity.label for entity in DEFAULT_SCHEMA.entities],
+        await graph.add(documents=[Document(
+            text=TEXT,
+            title="Headache notes",
+            uri="notes://headache",
+            document_key=DOCUMENT_KEY,
+            source_format=SourceFormat.TXT,
+            family=DocumentFamily.PROSE,
+            content_hash=hashlib.sha256(TEXT.encode()).hexdigest(),
+            loader_name="manual",
+            char_count=len(TEXT),
+        )])
+        scope = frozenset({DOCUMENT_KEY})
+        found = await search_evidence(
+            graph_store, embedder, "What treats headaches?", scope=scope
         )
+        for hit in found.hits:
+            print(f"{hit.score:.3f}  {hit.snippet}")
 
-        results = await engine.search("What treats headaches?", HYBRID)
-
-        for result in results:
-            print(f"{result.item} (score={result.score:.3f})")
+        ids = [hit.evidence_id for hit in found.hits]
+        fetched = await fetch_evidence(graph_store, ids, scope=scope)
+        for outcome in fetched.outcomes:
+            print(outcome.status.value, outcome.text)
     finally:
         await graph_store.close()
 
@@ -63,7 +78,7 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
-An empty result is not an error. Check that the search labels match the schema used for ingestion, then confirm that the graph has indexed the documents. See [Troubleshoot common errors](./troubleshoot-common-errors.mdx#a-search-returns-nothing) for other causes.
+An empty result is not an error. See [Troubleshoot common errors](./troubleshoot-common-errors.mdx#a-search-returns-nothing) for its causes. [Find and cite evidence](./find-and-cite-evidence.mdx) adds the citation check and the other evidence tools.
 
 ## Answer with an agent
 
@@ -75,7 +90,6 @@ import hashlib
 
 from agrag.agents.build import build_agent
 from agrag.agents.settings import AgentLLMSettings
-from agrag.retrieval.search_engine import SearchEngine
 from agrag.common.data_models import DEFAULT_SCHEMA
 from agrag.common.data_models.document import Document, DocumentFamily, SourceFormat
 from agrag.embedding import build_embedder
@@ -202,30 +216,30 @@ asyncio.run(main())
 ```
 
 Set the scope when your application builds the agent. The tools enforce the
-scope. The model cannot see or change it.
+scope. The model cannot see or change it. To call the evidence tools from your
+own code, see [Find and cite evidence](./find-and-cite-evidence.mdx). The
+agent's tools are listed in the [tools reference](../reference/tools.mdx).
 
-Use the standalone `SearchEngine` API for recipes and graph retrieval methods.
-The task-scoped agent uses the evidence tools. To call them from your own code,
-see [Find and cite evidence](./find-and-cite-evidence.mdx). The agent's tools are
-listed in the [tools reference](../reference/tools.mdx).
+## Search themes
 
-## Available recipes
+`search_themes` answers broad questions about a corpus, such as "what do these documents cover?". It matches the query against the community report embeddings of the last `detect_communities` run and returns each theme with the in-scope passages that mention its member entities. Run [community detection](./detect-communities.mdx) first. Documents added after that run stay out of the result until the next run.
 
-Six preset recipes cover entity, passage, hybrid, re-ranked, graph-expanded, and topic searches. [Recipe search](../tools/recipe-search.mdx#overview) compares what each one runs and when it fits.
+{/* pmd-metadata: fixture:llm_env */}
+
+```python notest
+from agrag.evidence import search_themes
+
+themes = await search_themes(
+    graph_store, embedder, "What do the notes cover?", scope=scope, limit=3
+)
+for theme in themes.themes:
+    print(theme.score, theme.entities)
+    for passage in theme.passages:
+        print("   ", passage.evidence_id)
+```
+
+The result carries no community report text. Each passage is an evidence id that `fetch_evidence` reads, so a theme search feeds the same search, fetch, and citation check sequence as the other evidence tools.
 
 ## Configuration
 
-Set environment variables with the `RETRIEVAL_` prefix:
-
-```bash
-RETRIEVAL_ENTITY_LABELS='["Drug","Condition"]'
-RETRIEVAL_ENTITY_TOP_K=10
-RETRIEVAL_CHUNK_TOP_K=10
-RETRIEVAL_TRAVERSAL_DEPTH=2
-```
-
-`RETRIEVAL_ENTITY_LABELS` (or the `entity_labels` argument) names the schema
-entity labels that entity search runs against. Ingestion creates one native
-vector index per label, so search needs the labels themselves.
-
-When you pass `graph_schema` to `SearchEngine`, the schema's entity labels are used and `RETRIEVAL_ENTITY_LABELS` is not read.
+Hybrid search reorders its top hits with a cross-encoder when a reranker is configured. Rerank is on by default and needs the `embed-local` extra; a missing extra turns rerank off with a warning. The `RETRIEVAL_` variables, including `RETRIEVAL_RERANK_ENABLED` and the agent deadline `AGENT_REQUEST_DEADLINE_SECONDS`, are listed in the [configuration reference](../reference/configuration.mdx).

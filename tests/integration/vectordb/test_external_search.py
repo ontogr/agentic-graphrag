@@ -2,13 +2,11 @@
 
 from uuid import UUID, uuid4
 
-from agrag.common.data_models.chunk import Chunk
 from agrag.common.data_models.entity import Entity
-from agrag.common.data_models.graph_schema import EntityType, GraphSchema
+from agrag.common.data_models.evidence import EvidenceSearchMode, EvidenceSearchStatus
+from agrag.common.data_models.graph_record import RelationRecord
 from agrag.common.data_models.vector_record import Distance, VectorKind, VectorRecord
-from agrag.retrieval.filters import SearchFilters
-from agrag.retrieval.recipes import Recipe
-from agrag.retrieval.search_engine import SearchEngine
+from agrag.evidence import entity_search, search_evidence
 from tests.conftest import FAKE_EMBEDDING_DIMENSIONS
 from tests.integration._fake_vector_store import FakeVectorStore
 from tests.integration.retrieval.evidence._corpus import (
@@ -50,10 +48,10 @@ async def _populate_chunks(env: EvidenceEnv, vector_store: FakeVectorStore) -> N
 class TestExternalSearch:
     """External search filters stale vector ids and fetches beyond orphans."""
 
-    async def test_find_entity_uses_external_vector_store(
+    async def test_entity_search_uses_external_vector_store(
         self, evidence_env: EvidenceEnv
     ) -> None:
-        """Named entity lookup uses external placement without native indexes."""
+        """Entity search joins external hits without native vector indexes."""
         vector_store = FakeVectorStore(collection_prefix=uuid4().hex[:8])
         embedder = BagOfWordsEmbedder()
         label = f"ExternalEntity{uuid4().hex[:8]}"
@@ -76,24 +74,40 @@ class TestExternalSearch:
                     )
                 ],
             )
-            engine = SearchEngine(
-                graph_store=evidence_env.store,
-                embedder=embedder,
-                graph_schema=GraphSchema(
-                    name="external-search",
-                    version="1",
-                    entities=[EntityType(label=label, description="A test entity.")],
-                    relations=[],
-                ),
+            chunk_rows = await evidence_env.store.execute_read(
+                "MATCH (document:Document {document_key: $key})"
+                "-[part:HAS_PART]->(chunk:Chunk) "
+                "WHERE part.invalid_at IS NULL AND chunk.text CONTAINS 'keeper' "
+                "RETURN chunk.id AS id LIMIT 1",
+                {"key": evidence_env.harbor},
+            )
+            [chunk_id] = [UUID(str(row["id"])) for row in chunk_rows]
+            await evidence_env.store.upsert_relations(
+                [
+                    RelationRecord(
+                        id=uuid4(),
+                        type="MENTIONED_IN",
+                        start_id=chunk_id,
+                        end_id=entity.id,
+                        properties={},
+                    )
+                ]
+            )
+
+            result = await entity_search(
+                evidence_env.store,
+                embedder,
+                "Lighthouse Keeper",
+                scope=frozenset({evidence_env.harbor}),
+                labels=[label],
+                mode=EvidenceSearchMode.SEMANTIC,
                 vector_store=vector_store,
             )
 
-            result = await engine.find_entity("Lighthouse Keeper")
-
-            assert result is not None
-            assert isinstance(result.item, Entity)
-            assert result.item.id == entity.id
-            assert result.item.name == "Lighthouse Keeper"
+            assert result.status is EvidenceSearchStatus.OK
+            assert [hit.entity_id for hit in result.hits] == [str(entity.id)]
+            assert result.hits[0].name == "Lighthouse Keeper"
+            assert result.hits[0].support[0].document_key == evidence_env.harbor
         finally:
             await evidence_env.store.execute_write(
                 "MATCH (entity:_Node {id: $id}) DETACH DELETE entity",
@@ -133,30 +147,25 @@ class TestExternalSearch:
                     for row in old_rows
                 ],
             )
-            document_rows = await evidence_env.store.execute_read(
-                "MATCH (document:Document {document_key: $key}) "
-                "RETURN document.id AS id",
-                {"key": evidence_env.harbor},
-            )
-            document_id = str(document_rows[0]["id"])
-            engine = SearchEngine(
-                graph_store=evidence_env.store,
-                embedder=embedder,
+
+            result = await search_evidence(
+                evidence_env.store,
+                embedder,
+                "retirement probe",
+                mode=EvidenceSearchMode.SEMANTIC,
+                limit=1,
+                scope=frozenset({evidence_env.harbor}),
                 vector_store=vector_store,
             )
 
-            results = await engine.search(
-                "retirement probe",
-                Recipe(methods=["chunk"], limit=1),
-                filters=SearchFilters(document_ids=[document_id]),
-            )
-
-            assert len(results) == 1
-            assert results[0].item.content_hash == sha256_of(HARBOR_TEXT_V2)
+            assert result.status is EvidenceSearchStatus.OK
+            assert len(result.hits) == 1
+            assert result.hits[0].document_key == evidence_env.harbor
+            assert result.hits[0].content_hash == sha256_of(HARBOR_TEXT_V2)
         finally:
             await vector_store.close()
 
-    async def test_document_filter_survives_orphan_overfetch(
+    async def test_document_scope_survives_orphan_overfetch(
         self, evidence_env: EvidenceEnv
     ) -> None:
         """Fifty top-ranked orphans do not hide in-scope chunks."""
@@ -169,30 +178,20 @@ class TestExternalSearch:
                 vector_store.inject_orphan(
                     VectorKind.CHUNK, uuid4(), list(query_vector)
                 )
-            document_rows = await evidence_env.store.execute_read(
-                "MATCH (document:Document {document_key: $key}) "
-                "RETURN document.id AS id",
-                {"key": evidence_env.keep},
-            )
-            assert document_rows
-            document_id = str(document_rows[0]["id"])
 
-            engine = SearchEngine(
-                graph_store=evidence_env.store,
-                embedder=embedder,
+            result = await search_evidence(
+                evidence_env.store,
+                embedder,
+                "keep upload activity database",
+                mode=EvidenceSearchMode.SEMANTIC,
+                limit=5,
+                scope=frozenset({evidence_env.keep}),
                 vector_store=vector_store,
             )
-            results = await engine.search(
-                "keep upload activity database",
-                Recipe(methods=["chunk"], limit=5),
-                filters=SearchFilters(document_ids=[document_id]),
-            )
 
-            assert results
-            assert len(results) <= 5
-            assert all(isinstance(result.item, Chunk) for result in results)
-            assert all(
-                result.item.document_id == UUID(document_id) for result in results
-            )
+            assert result.status is EvidenceSearchStatus.OK
+            assert result.hits
+            assert len(result.hits) <= 5
+            assert all(hit.document_key == evidence_env.keep for hit in result.hits)
         finally:
             await vector_store.close()

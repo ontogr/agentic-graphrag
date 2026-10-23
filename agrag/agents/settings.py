@@ -95,6 +95,8 @@ class AgentSettings(BaseSettings):
             Env: ``AGENT_MAX_TOOL_CALLS``.
         max_result_characters: Maximum text returned by one evidence fetch.
             Env: ``AGENT_MAX_RESULT_CHARACTERS``.
+        request_deadline_seconds: Timeout in seconds for one evidence tool
+            call. Env: ``AGENT_REQUEST_DEADLINE_SECONDS``.
 
     Env prefix: ``AGENT_``.
     """
@@ -106,3 +108,4 @@ class AgentSettings(BaseSettings):
     recursion_limit: int = Field(default=50, ge=1)
     max_tool_calls: int = Field(default=20, ge=1)
     max_result_characters: int = Field(default=12_000, ge=1)
+    request_deadline_seconds: float = Field(default=30.0, gt=0)

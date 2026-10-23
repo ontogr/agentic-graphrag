@@ -10,6 +10,7 @@ from agrag.common.data_models.evidence import (
     EvidenceLocation,
     EvidenceReference,
     FetchOutcome,
+    FetchResult,
     FetchStatus,
     VersionStatus,
 )
@@ -22,6 +23,7 @@ from agrag.evidence._shared import (
     stored_chunk,
     text_range,
 )
+from agrag.evidence.contract import DEFAULT_FETCH_MAX_CHARS
 from agrag.evidence.ids import MalformedEvidenceIdError, decode_evidence_id
 from agrag.graphdb.base import GraphStore
 
@@ -35,9 +37,9 @@ async def fetch_evidence(
     evidence_ids: Sequence[str],
     *,
     scope: frozenset[str],
-    max_chars: int,
+    max_chars: int | None = None,
     timeout: float | None = None,
-) -> list[FetchOutcome]:
+) -> FetchResult:
     """Return the text of each evidence id, in the order given.
 
     A span id returns the text of its range. Fetch reads the chunks of one chunk
@@ -57,24 +59,29 @@ async def fetch_evidence(
         evidence_ids: Evidence ids to fetch.
         scope: Keys of the documents the caller may read. An empty scope makes
             every id unavailable.
-        max_chars: The most characters returned for each id. Must be positive.
-            Longer text is cut and marked ``truncated``.
+        max_chars: The most characters returned for each id. None uses the
+            default cap. Must be positive when given. Longer text is cut and
+            marked ``truncated``.
         timeout: Server-side transaction timeout in seconds for each store read.
             None uses the server's default.
 
     Returns:
-        One outcome for each id, in the same order.
+        One outcome for each id, in the same order. A serving layer may drop
+        trailing outcomes to stay within a size limit.
 
     Raises:
         ValueError: ``max_chars`` is not positive.
     """
+    if max_chars is None:
+        max_chars = DEFAULT_FETCH_MAX_CHARS
     if max_chars <= 0:
         raise ValueError(f"max_chars must be positive, got {max_chars}")
     allowed = scope_node_ids(scope)
-    return [
+    outcomes = [
         await _fetch_one(store, evidence_id, allowed, max_chars, timeout)
         for evidence_id in evidence_ids
     ]
+    return FetchResult(outcomes=outcomes, truncated=False)
 
 
 async def _fetch_one(

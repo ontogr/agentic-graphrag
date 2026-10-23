@@ -34,6 +34,7 @@ from tests.integration.retrieval.evidence._corpus import (
     HARBOR_TEXT_V2,
     HEADED_HEADING,
     KEEP_TEXT,
+    VECTOR_DIMENSIONS,
     BagOfWordsEmbedder,
     locate,
     make_document,
@@ -45,6 +46,10 @@ from tests.integration.retrieval.evidence.conftest import EvidenceEnv
 
 _QUERY = "do you keep and upload my activity to your database"
 _GOLD_START, _GOLD_END = locate(KEEP_TEXT, GOLD_SENTENCE)
+_EMBEDDING_MISMATCH = (
+    "the query embedding model does not match the stored vectors; set the same "
+    "EMBEDDING_* settings that ingestion used or use lexical mode"
+)
 
 
 def _covers_gold(hit: EvidenceSearchHit, keep_key: str) -> bool:
@@ -237,16 +242,16 @@ class TestHeadedChunks:
         assert result.status is EvidenceSearchStatus.OK
         hit = result.hits[0]
         assert hit.evidence_id.startswith("ev1:c:")
-        outcomes = await fetch_evidence(
+        fetched = await fetch_evidence(
             evidence_env.store,
             [hit.evidence_id],
             scope=frozenset({key}),
             max_chars=8000,
         )
-        assert outcomes[0].status is FetchStatus.OK
-        assert outcomes[0].text is not None
-        assert outcomes[0].text.startswith(HEADED_HEADING)
-        assert hit.snippet == outcomes[0].text[: len(hit.snippet)]
+        assert fetched.outcomes[0].status is FetchStatus.OK
+        assert fetched.outcomes[0].text is not None
+        assert fetched.outcomes[0].text.startswith(HEADED_HEADING)
+        assert hit.snippet == fetched.outcomes[0].text[: len(hit.snippet)]
 
 
 class _FailingEmbedder(BagOfWordsEmbedder):
@@ -683,6 +688,60 @@ class TestTelemetry:
         ]
         assert values
         assert not any("lighthouse" in value for value in values)
+
+
+class _MismatchedEmbedder(BagOfWordsEmbedder):
+    """The bag-of-words fake reporting one dimension more than the index."""
+
+    async def dimensions(self) -> int:
+        """Return one more dimension than the Chunk vector index has."""
+        return VECTOR_DIMENSIONS + 1
+
+
+class TestDimensionMismatch:
+    """A query embedder that does not match the stored vectors loses one leg."""
+
+    async def test_hybrid_runs_lexical_only_and_reports_the_mismatch(
+        self, evidence_env: EvidenceEnv
+    ) -> None:
+        """Hybrid returns the lexical hits as partial with the mismatch failure."""
+        result = await search_evidence(
+            evidence_env.store,
+            _MismatchedEmbedder(),
+            _QUERY,
+            mode=EvidenceSearchMode.HYBRID,
+            limit=5,
+            scope=frozenset(
+                {evidence_env.keep, evidence_env.viber, evidence_env.harbor}
+            ),
+        )
+
+        assert result.status is EvidenceSearchStatus.PARTIAL
+        assert result.failures == [
+            LegFailure(leg=EvidenceSearchLeg.SEMANTIC, message=_EMBEDDING_MISMATCH)
+        ]
+        positions = _gold_positions(result.hits, evidence_env.keep)
+        assert positions
+        assert result.hits[positions[0]].legs == [EvidenceSearchLeg.LEXICAL]
+
+    async def test_semantic_fails_with_the_mismatch_message(
+        self, evidence_env: EvidenceEnv
+    ) -> None:
+        """Semantic mode returns the failed status with the mismatch failure."""
+        result = await search_evidence(
+            evidence_env.store,
+            _MismatchedEmbedder(),
+            _QUERY,
+            mode=EvidenceSearchMode.SEMANTIC,
+            limit=5,
+            scope=frozenset({evidence_env.keep}),
+        )
+
+        assert result.status is EvidenceSearchStatus.FAILED
+        assert result.hits == []
+        assert result.failures == [
+            LegFailure(leg=EvidenceSearchLeg.SEMANTIC, message=_EMBEDDING_MISMATCH)
+        ]
 
 
 class TestStaleHitsFillTheWindow:

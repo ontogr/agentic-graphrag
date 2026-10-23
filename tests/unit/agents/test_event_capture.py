@@ -21,6 +21,7 @@ from agrag.common.data_models.task import (
     StepKind,
     StepState,
 )
+from agrag.retrieval import RetrievalSettings
 
 
 class _ScriptedModel(BaseChatModel):
@@ -351,6 +352,7 @@ class TestToolBudgetAdmission:
             fetched_outcomes=[],
             max_chars=1_000,
             max_tool_calls=1,
+            retrieval_settings=RetrievalSettings(),
         )
 
         result = await next(

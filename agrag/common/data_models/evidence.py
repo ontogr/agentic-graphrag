@@ -139,10 +139,18 @@ class EvidenceSearchMode(StrEnum):
 
 
 class EvidenceSearchLeg(StrEnum):
-    """One search leg that can find a passage."""
+    """One search leg that can find a passage.
+
+    Attributes:
+        LEXICAL: Full-text search over stored text.
+        SEMANTIC: Vector search over stored embeddings.
+        RERANK: The cross-encoder stage that reorders fused hits; it appears
+            in failures, never in a hit's legs.
+    """
 
     LEXICAL = "lexical"
     SEMANTIC = "semantic"
+    RERANK = "rerank"
 
 
 class EvidenceSearchStatus(StrEnum):
@@ -284,7 +292,11 @@ class EvidenceSearchResult(BaseModel):
             found ``limit`` visible passages, so more passages may exist.
         index_state: Whether the needed indexes were ready. None when no index
             was checked, which happens for an empty scope.
-        failures: The legs that failed. Empty when every leg ran.
+        failures: Failed legs, and a failed rerank stage. A failed rerank does
+            not change the status.
+        reranked: True when a reranker reordered the hits. Each hit's score is
+            then the cross-encoder score, whose scale differs from the fused
+            score.
     """
 
     status: EvidenceSearchStatus
@@ -292,6 +304,7 @@ class EvidenceSearchResult(BaseModel):
     truncated: bool = False
     index_state: IndexState | None = None
     failures: list[LegFailure] = Field(default_factory=list)
+    reranked: bool = False
 
 
 class FetchStatus(StrEnum):

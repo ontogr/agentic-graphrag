@@ -90,7 +90,7 @@ async def test_decisions_require_fetched_documents_and_support_events(
     fetched = await fetch_evidence(
         store, [evidence_id], scope=frozenset({documents.harbor}), max_chars=500
     )
-    assert fetched[0].status is FetchStatus.OK
+    assert fetched.outcomes[0].status is FetchStatus.OK
     history = DecisionTraces(store, project_id=project, agent_id="agent")
 
     recorded = await history.record_decision(
@@ -311,7 +311,7 @@ async def test_changed_document_support_records_full_old_hash_and_current_activa
     fetched = await fetch_evidence(
         store, [evidence_id], scope=frozenset({documents.harbor}), max_chars=500
     )
-    old_hash = fetched[0].content_hash
+    old_hash = fetched.outcomes[0].content_hash
     await documents.graph.add(
         documents=[
             make_document(documents.harbor, "Harbor lighthouse replacement record.")
@@ -335,7 +335,11 @@ async def test_changed_document_support_records_full_old_hash_and_current_activa
     assert recorded.decision.review_state is ReviewState.NEEDS_REVIEW
     assert recorded.decision.review_reason.value == "source_changed_during_recording"
     assert support.content_hash == old_hash
-    assert support.recorded_activation_seq == fetched[0].observed_activation_seq == 1
+    assert (
+        support.recorded_activation_seq
+        == fetched.outcomes[0].observed_activation_seq
+        == 1
+    )
 
 
 async def test_refuses_inactive_decision_as_support(store, project):

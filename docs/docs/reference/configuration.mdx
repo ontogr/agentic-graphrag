@@ -200,6 +200,7 @@ Class: `AgentSettings`. Prefix: `AGENT_`.
 | `AGENT_RECURSION_LIMIT` | `50` | The maximum LangGraph steps before the run stops. |
 | `AGENT_MAX_TOOL_CALLS` | `20` | The maximum tool calls in one task run. |
 | `AGENT_MAX_RESULT_CHARACTERS` | `12000` | The maximum text that one evidence fetch returns. |
+| `AGENT_REQUEST_DEADLINE_SECONDS` | `30.0` | The timeout of each store read that an evidence tool makes. |
 
 ## Retrieval
 
@@ -207,16 +208,10 @@ Class: `RetrievalSettings`. Prefix: `RETRIEVAL_`.
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `RETRIEVAL_ENTITY_LABELS` | `[]` | A JSON list of graph labels for native entity search. `SearchEngine` reads it only when the caller passes neither `entity_labels` nor a `graph_schema`. With a schema, the schema's entity labels are used. |
-| `RETRIEVAL_ENTITY_TOP_K` | `10` | Results per entity search. |
-| `RETRIEVAL_RESOLVED_ENTITY_TOP_K` | `10` | Results per resolved-entity search. |
-| `RETRIEVAL_CHUNK_TOP_K` | `10` | Results per chunk search. |
-| `RETRIEVAL_COMMUNITY_TOP_K` | `5` | Results per community search. |
-| `RETRIEVAL_TRAVERSAL_DEPTH` | `2` | The maximum hops of a graph expansion. |
-| `RETRIEVAL_TRAVERSAL_LIMIT` | `50` | The maximum nodes a graph expansion returns. |
-| `RETRIEVAL_RRF_K` | `60` | The reciprocal-rank-fusion constant of `SearchEngine`. Evidence search and entity search in `agrag.evidence` fuse with a fixed constant of `60` and ignore this variable. |
-| `RETRIEVAL_RERANKER_MIN_SCORE` | none | Drop results below this score after reranking. None keeps all. |
-| `RETRIEVAL_NODE_DISTANCE_SEED_TOP_K` | `3` | How many top entity hits seed the node-distance reranker. |
+| `RETRIEVAL_RRF_K` | `60` | The reciprocal-rank-fusion constant for the evidence tools. A rank position counts less as the value grows. |
+| `RETRIEVAL_RERANK_ENABLED` | `true` | Whether hybrid search reorders its top hits with the cross-encoder. Turning it on needs the `embed-local` extra; a missing extra turns rerank off with a warning. |
+| `RETRIEVAL_RERANK_CANDIDATES` | `30` | How many of the top fused hits the cross-encoder scores. |
+| `RETRIEVAL_RERANK_TIMEOUT_SECONDS` | `5.0` | The most seconds one rerank call may take. A timed-out or failed rerank keeps the fused order. |
 | `RETRIEVAL_CROSS_ENCODER_MODEL` | `cross-encoder/ms-marco-MiniLM-L-6-v2` | The cross-encoder for reranking. |
 
 ## Ingestion
@@ -242,7 +237,7 @@ Class: `McpServerSettings`. Prefix: `MCP_`. The `agrag-mcp` server reads these v
 | `MCP_MAX_HITS` | `10` | The most hits one search returns. |
 | `MCP_MAX_SNIPPET_CHARS` | `240` | The most characters of one hit snippet. |
 | `MCP_MAX_FETCH_CHARS` | `4000` | The most characters returned for each fetched evidence id. |
-| `MCP_MAX_FETCH_IDS` | `20` | The most evidence ids one fetch or citation check takes. |
+| `MCP_MAX_FETCH_IDS` | `20` | The most evidence ids one fetch or citation check takes. A tool call accepts at most 20 ids on every surface, so a larger value lowers the cap but cannot raise it. |
 | `MCP_MAX_RESPONSE_CHARS` | `60000` | The most characters of one result as sent. Search and fetch results send their JSON twice, so they count at twice their JSON length. |
 | `MCP_REQUEST_DEADLINE_SECONDS` | `30.0` | The timeout of each store read. |
 

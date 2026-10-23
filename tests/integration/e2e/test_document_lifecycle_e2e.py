@@ -453,10 +453,10 @@ class TestDocumentLifecycleE2E:
             scope=frozenset({key_b}),
             max_chars=1000,
         )
-        assert before_delete[0].status is FetchStatus.OK
-        assert before_delete[0].status_of_version is VersionStatus.CURRENT
-        assert before_delete[0].text is not None
-        assert "Ibuprofen" in before_delete[0].text
+        assert before_delete.outcomes[0].status is FetchStatus.OK
+        assert before_delete.outcomes[0].status_of_version is VersionStatus.CURRENT
+        assert before_delete.outcomes[0].text is not None
+        assert "Ibuprofen" in before_delete.outcomes[0].text
         deleted = await env.graph.delete_document(key_b)
         assert deleted.no_op is False
         assert deleted.parts_closed == 2
@@ -486,9 +486,9 @@ class TestDocumentLifecycleE2E:
             scope=frozenset({key_b}),
             max_chars=1000,
         )
-        assert historical_fetch[0].status is FetchStatus.UNAVAILABLE
-        assert historical_fetch[0].status_of_version is None
-        assert historical_fetch[0].text is None
+        assert historical_fetch.outcomes[0].status is FetchStatus.UNAVAILABLE
+        assert historical_fetch.outcomes[0].status_of_version is None
+        assert historical_fetch.outcomes[0].text is None
         assert (await env.graph.source_status(key_b)).state is SourceState.DELETED
         assert "Ibuprofen" not in await env.entity_hits("Ibuprofen")
         assert (await env.chunk_hits("headache"))[0] == "headache+inflammation+naproxen"

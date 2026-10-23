@@ -8,6 +8,7 @@ size and edge count. A relation with a visible passage is an assertion, and a
 connection with no passage is a path.
 """
 
+import asyncio
 import logging
 from collections import defaultdict
 from collections.abc import Iterable, Mapping, Sequence
@@ -37,6 +38,7 @@ from agrag.common.data_models.evidence import (
     LegFailure,
 )
 from agrag.common.data_models.graph_schema import RESERVED_RELATION_TYPES
+from agrag.common.data_models.index_record import IndexInfo
 from agrag.common.data_models.resolved_entity import RESOLVED_ENTITY_LABEL
 from agrag.common.data_models.vector_record import VectorKind
 from agrag.cypher.evidence import (
@@ -45,19 +47,31 @@ from agrag.cypher.evidence import (
     entity_mentions_query,
     explore_edges_query,
 )
+from agrag.cypher.schema import vector_index_name
 from agrag.embedding.base import Embedder
 from agrag.evidence._shared import (
+    EMBEDDING_MISMATCH_MESSAGE,
     IndexSpec,
     chunk_location,
     chunk_reference,
+    embedding_matches,
     indexes_ready,
     lucene_terms,
+    run_with_timeout,
     scope_node_ids,
     stored_chunk,
     stores_ready,
 )
+from agrag.evidence.contract import (
+    DEFAULT_MAX_EDGES,
+    DEFAULT_MAX_NODES,
+    DEFAULT_SEARCH_LIMIT,
+    DEFAULT_SUPPORT_LIMIT,
+    MAX_DEPTH,
+    MAX_EXPLORE_BOUND,
+)
 from agrag.evidence.ids import encode_evidence_id
-from agrag.evidence.search import RRF_CONSTANT, reciprocal_rank_fusion
+from agrag.evidence.search import reciprocal_rank_fusion
 from agrag.graphdb.base import GraphStore
 from agrag.retrieval.settings import RetrievalSettings
 from agrag.vectordb.base import VectorStore
@@ -70,7 +84,6 @@ _NAME_PROPERTY = "name"
 _EMBEDDING_PROPERTY = "embedding"
 _FULLTEXT_TYPE = "FULLTEXT"
 _VECTOR_TYPE = "VECTOR"
-_CANDIDATE_MULTIPLIER = 4
 _MAX_CANDIDATES = 1000
 _NON_ENTITY_LABELS = frozenset({CHUNK_LABEL, COMMUNITY_LABEL, RESOLVED_ENTITY_LABEL})
 _INTERNAL_PROPERTIES = frozenset(
@@ -84,8 +97,6 @@ _INTERNAL_PROPERTIES = frozenset(
         "embedding",
     }
 )
-_MAX_DEPTH = 2
-_MAX_EXPLORE_BOUND = 200
 _EDGE_SUPPORT_LIMIT = 3
 _EXPLORE_ROW_LIMIT = 1000
 
@@ -134,10 +145,12 @@ async def entity_search(
     *,
     scope: frozenset[str],
     labels: Sequence[str] | None = None,
-    limit: int,
     mode: EvidenceSearchMode = EvidenceSearchMode.HYBRID,
-    support_limit: int = 3,
+    limit: int = DEFAULT_SEARCH_LIMIT,
+    support_limit: int = DEFAULT_SUPPORT_LIMIT,
     vector_store: VectorStore | None = None,
+    settings: RetrievalSettings | None = None,
+    timeout: float | None = None,
 ) -> EntityResult:
     """Find up to ``limit`` entities that match a query by name or by meaning.
 
@@ -161,12 +174,15 @@ async def entity_search(
         scope: Keys of the documents whose passages may be used.
         labels: The entity labels to search. None discovers labels from graph
             indexes for native search, or entity name indexes for external search.
-        limit: The most entities to return. Must be positive.
         mode: Which legs to run.
+        limit: The most entities to return. Must be positive.
         support_limit: The most supporting passages listed for each entity. Must
             be positive.
         vector_store: Optional external vector store. Placement is not validated
             by this function.
+        settings: Fusion configuration. None uses the defaults.
+        timeout: Server-side transaction timeout in seconds for each store read.
+            None uses the server's default.
 
     Returns:
         The entities, best first, with the status and the index state.
@@ -174,6 +190,7 @@ async def entity_search(
     Raises:
         ValueError: ``limit`` or ``support_limit`` is not positive.
     """
+    retrieval = settings or RetrievalSettings()
     if limit <= 0:
         raise ValueError(f"limit must be positive, got {limit}")
     if support_limit <= 0:
@@ -181,51 +198,147 @@ async def entity_search(
     if not scope:
         return EntityResult(status=EvidenceSearchStatus.EMPTY_SCOPE)
 
-    entity_labels = await _entity_labels(store, labels, vector_store=vector_store)
+    try:
+        indexes = await store.list_indexes(timeout=timeout)
+    except Exception:
+        _LOGGER.exception("Entity label discovery failed")
+        return EntityResult(status=EvidenceSearchStatus.FAILED)
+    entity_labels = _entity_labels(indexes, labels, vector_store=vector_store)
     if not entity_labels:
         return EntityResult(status=EvidenceSearchStatus.NO_MATCH)
+
     legs = _search_legs(mode, vector_store)
-    index_state = await indexes_ready(
-        store, _index_specs(entity_labels, legs, vector_store=vector_store)
+    legs, guard_failure, index_state, error = await _semantic_fallback(
+        store,
+        embedder,
+        entity_labels,
+        legs,
+        mode=mode,
+        indexes=indexes,
+        vector_store=vector_store,
+        timeout=timeout,
     )
-    store_state = await stores_ready(
-        vector_store,
-        [VectorKind.ENTITY]
-        if vector_store is not None and EvidenceSearchLeg.SEMANTIC in legs
-        else [],
-    )
-    if store_state is IndexState.NOT_READY:
-        index_state = IndexState.NOT_READY
-    if index_state is IndexState.NOT_READY:
-        return EntityResult(
-            status=EvidenceSearchStatus.INDEX_NOT_READY, index_state=index_state
-        )
+    if error is not None:
+        return error
 
     candidate_cap = (
         min(_MAX_CANDIDATES, vector_store.max_results)
         if vector_store is not None and EvidenceSearchLeg.SEMANTIC in legs
         else _MAX_CANDIDATES
     )
-    candidate_count = min(limit * _CANDIDATE_MULTIPLIER, candidate_cap)
+    outcome = await _leg_outcome(
+        store,
+        embedder,
+        legs,
+        query,
+        entity_labels,
+        mode=mode,
+        vector_store=vector_store,
+        retrieval=retrieval,
+        limit=limit,
+        candidate_cap=candidate_cap,
+        scope=scope,
+        support_limit=support_limit,
+        timeout=timeout,
+    )
+    if outcome.store_failed:
+        return EntityResult(
+            status=EvidenceSearchStatus.FAILED,
+            index_state=index_state,
+            failures=[
+                LegFailure(leg=leg, message=_STORE_ERROR_MESSAGE) for leg in legs
+            ],
+        )
+
+    hits = _combine(
+        outcome.rankings,
+        outcome.visible,
+        mode=mode,
+        limit=limit,
+        constant=retrieval.rrf_k,
+    )
+    truncated = any(ranked.ceiling for ranked in outcome.rankings.values())
+    return EntityResult(
+        status=_result_status(
+            outcome.leg_failures, len(legs), guard_failure, bool(hits)
+        ),
+        hits=hits,
+        truncated=truncated and len(hits) < limit,
+        index_state=index_state,
+        failures=([guard_failure] if guard_failure else []) + outcome.leg_failures,
+    )
+
+
+@dataclass(frozen=True)
+class _LegOutcome:
+    """What one entity search collected from its legs.
+
+    Attributes:
+        rankings: The candidates of each completed leg.
+        leg_failures: The legs that failed.
+        visible: The candidates that have a passage in scope, with their support.
+        store_failed: True when the support read failed, so the search failed
+            no matter what the legs returned.
+    """
+
+    rankings: dict[EvidenceSearchLeg, _Ranked]
+    leg_failures: list[LegFailure]
+    visible: dict[str, _Visible]
+    store_failed: bool
+
+
+async def _leg_outcome(
+    store: GraphStore,
+    embedder: Embedder,
+    legs: Sequence[EvidenceSearchLeg],
+    query: str,
+    labels: Sequence[str],
+    *,
+    mode: EvidenceSearchMode,
+    vector_store: VectorStore | None,
+    retrieval: RetrievalSettings,
+    limit: int,
+    candidate_cap: int,
+    scope: frozenset[str],
+    support_limit: int,
+    timeout: float | None,
+) -> _LegOutcome:
+    """Run the legs together and load the visible support of their candidates.
+
+    With an external store, the candidate count grows once, to the ceiling,
+    when the first read filled up without enough visible entities. The support
+    read failure marks the outcome instead of raising.
+    """
+    candidate_count = min(limit * 2, candidate_cap)
     while True:
-        rankings: dict[EvidenceSearchLeg, _Ranked] = {}
-        failures: list[LegFailure] = []
-        for leg in legs:
-            try:
-                rankings[leg] = await _leg_candidates(
+        results = await asyncio.gather(
+            *(
+                _leg_candidates(
                     store,
                     embedder,
                     leg=leg,
                     query=query,
-                    labels=entity_labels,
+                    labels=labels,
                     count=candidate_count,
                     vector_store=vector_store,
                     hybrid=mode is EvidenceSearchMode.HYBRID,
-                    alpha=RetrievalSettings().hybrid_alpha,
+                    alpha=retrieval.hybrid_alpha,
+                    timeout=timeout,
                 )
-            except Exception:
-                _LOGGER.exception("Entity search leg %s failed", leg.value)
-                failures.append(LegFailure(leg=leg, message=_LEG_FAILED_MESSAGE))
+                for leg in legs
+            ),
+            return_exceptions=True,
+        )
+        rankings: dict[EvidenceSearchLeg, _Ranked] = {}
+        leg_failures: list[LegFailure] = []
+        for leg, result in zip(legs, results, strict=True):
+            if isinstance(result, asyncio.CancelledError):
+                raise result
+            if isinstance(result, BaseException):
+                _LOGGER.error("Entity search leg %s failed: %r", leg.value, result)
+                leg_failures.append(LegFailure(leg=leg, message=_LEG_FAILED_MESSAGE))
+                continue
+            rankings[leg] = result
 
         candidate_ids = {
             candidate.entity_id
@@ -233,15 +346,16 @@ async def entity_search(
             for candidate in ranked.candidates
         }
         try:
-            visible = await _load_visible(store, candidate_ids, scope, support_limit)
+            visible = await _load_visible(
+                store, candidate_ids, scope, support_limit, timeout=timeout
+            )
         except Exception:
             _LOGGER.exception("Entity support query failed")
-            return EntityResult(
-                status=EvidenceSearchStatus.FAILED,
-                index_state=index_state,
-                failures=[
-                    LegFailure(leg=leg, message=_STORE_ERROR_MESSAGE) for leg in legs
-                ],
+            return _LegOutcome(
+                rankings=rankings,
+                leg_failures=leg_failures,
+                visible={},
+                store_failed=True,
             )
 
         external_ranking = rankings.get(EvidenceSearchLeg.SEMANTIC)
@@ -260,18 +374,137 @@ async def entity_search(
             or visible_count >= limit
             or candidate_count >= candidate_cap
         ):
-            break
-        candidate_count = min(candidate_count * _CANDIDATE_MULTIPLIER, candidate_cap)
+            return _LegOutcome(
+                rankings=rankings,
+                leg_failures=leg_failures,
+                visible=visible,
+                store_failed=False,
+            )
+        candidate_count = candidate_cap
 
-    hits = _combine(rankings, visible, mode=mode, limit=limit)
-    truncated = any(ranked.ceiling for ranked in rankings.values())
-    return EntityResult(
-        status=_result_status(failures, len(legs), bool(hits)),
-        hits=hits,
-        truncated=truncated and len(hits) < limit,
-        index_state=index_state,
-        failures=failures,
+
+async def _semantic_guard_failure(
+    embedder: Embedder,
+    *,
+    legs: Sequence[EvidenceSearchLeg],
+    indexes: Sequence[IndexInfo],
+    index_name: str,
+    vector_store: VectorStore | None,
+    timeout: float | None,
+) -> LegFailure | None:
+    """Return the semantic failure recorded by the dimension guard, or None.
+
+    A dimension mismatch and an unreadable embedder both withdraw the semantic
+    leg; only the mismatch carries the mismatch message.
+    """
+    if EvidenceSearchLeg.SEMANTIC not in legs:
+        return None
+    try:
+        matched = await embedding_matches(
+            embedder,
+            indexes=indexes,
+            index_name=index_name,
+            vector_store=vector_store,
+            kind=VectorKind.ENTITY,
+            timeout=timeout,
+        )
+    except Exception:
+        _LOGGER.exception("The query embedder could not report its dimensions")
+        return LegFailure(leg=EvidenceSearchLeg.SEMANTIC, message=_LEG_FAILED_MESSAGE)
+    if not matched:
+        return LegFailure(
+            leg=EvidenceSearchLeg.SEMANTIC, message=EMBEDDING_MISMATCH_MESSAGE
+        )
+    return None
+
+
+async def _semantic_fallback(
+    store: GraphStore,
+    embedder: Embedder,
+    labels: Sequence[str],
+    legs: list[EvidenceSearchLeg],
+    *,
+    mode: EvidenceSearchMode,
+    indexes: Sequence[IndexInfo],
+    vector_store: VectorStore | None,
+    timeout: float | None,
+) -> tuple[list[EvidenceSearchLeg], LegFailure | None, IndexState, EntityResult | None]:
+    """Apply the dimension guard, then check index readiness.
+
+    On a guard failure the hybrid search falls back to the graph lexical leg,
+    and semantic search fails. The returned legs are the ones to run.
+
+    Returns:
+        The legs to run, the guard failure if any, the index state, and the
+        error result that answers instead of a search, or None.
+    """
+    guard_failure = await _semantic_guard_failure(
+        embedder,
+        legs=legs,
+        indexes=indexes,
+        index_name=vector_index_name(labels[0], _EMBEDDING_PROPERTY),
+        vector_store=vector_store,
+        timeout=timeout,
     )
+    if guard_failure is not None:
+        if mode is not EvidenceSearchMode.HYBRID:
+            return (
+                legs,
+                guard_failure,
+                IndexState.READY,
+                EntityResult(
+                    status=EvidenceSearchStatus.FAILED, failures=[guard_failure]
+                ),
+            )
+        legs = [EvidenceSearchLeg.LEXICAL]
+    index_state, error = await _readiness(
+        store,
+        labels,
+        legs,
+        vector_store=vector_store,
+        indexes=indexes,
+        timeout=timeout,
+    )
+    return legs, guard_failure, index_state, error
+
+
+async def _readiness(
+    store: GraphStore,
+    labels: Sequence[str],
+    legs: Sequence[EvidenceSearchLeg],
+    *,
+    vector_store: VectorStore | None,
+    indexes: Sequence[IndexInfo],
+    timeout: float | None,
+) -> tuple[IndexState, EntityResult | None]:
+    """Return the index state, or the error result of an unreadable store.
+
+    The result is None when the needed indexes and collections were checked.
+    """
+    try:
+        index_state = await indexes_ready(
+            store,
+            _index_specs(labels, legs, vector_store=vector_store),
+            timeout=timeout,
+            indexes=indexes,
+        )
+        store_state = await stores_ready(
+            vector_store,
+            [VectorKind.ENTITY]
+            if vector_store is not None and EvidenceSearchLeg.SEMANTIC in legs
+            else [],
+            timeout=timeout,
+        )
+        if store_state is IndexState.NOT_READY:
+            index_state = IndexState.NOT_READY
+    except Exception:
+        _LOGGER.exception("Entity index state read failed")
+        return IndexState.READY, EntityResult(status=EvidenceSearchStatus.FAILED)
+    if index_state is IndexState.NOT_READY:
+        return index_state, EntityResult(
+            status=EvidenceSearchStatus.INDEX_NOT_READY, index_state=index_state
+        )
+    return index_state, None
 
 
 def _search_legs(
@@ -286,12 +519,19 @@ def _search_legs(
 
 
 def _result_status(
-    failures: Sequence[LegFailure], leg_count: int, has_hits: bool
+    leg_failures: Sequence[LegFailure],
+    leg_count: int,
+    guard_failure: LegFailure | None,
+    has_hits: bool,
 ) -> EvidenceSearchStatus:
-    """Return the aggregate search status from its completed legs."""
-    if failures and len(failures) == leg_count:
+    """Return the aggregate search status from its completed legs.
+
+    A withdrawn semantic leg makes a completed search partial even without a
+    failed leg.
+    """
+    if leg_failures and len(leg_failures) == leg_count:
         return EvidenceSearchStatus.FAILED
-    if failures:
+    if leg_failures or guard_failure is not None:
         return EvidenceSearchStatus.PARTIAL
     if has_hits:
         return EvidenceSearchStatus.OK
@@ -305,8 +545,9 @@ async def explore_relationships(
     scope: frozenset[str],
     relation_types: Sequence[str] | None = None,
     depth: int = 1,
-    max_nodes: int = 25,
-    max_edges: int = 50,
+    max_nodes: int = DEFAULT_MAX_NODES,
+    max_edges: int = DEFAULT_MAX_EDGES,
+    timeout: float | None = None,
 ) -> ExplorationResult:
     """Explore the entity relations around one entity, within bounds.
 
@@ -334,6 +575,8 @@ async def explore_relationships(
         max_nodes: The most entities to return, not counting the start. Between 1
             and 200.
         max_edges: The most edges to return. Between 1 and 200.
+        timeout: Server-side transaction timeout in seconds for each store read.
+            None uses the server's default.
 
     Returns:
         The nodes, edges and bounds. An unavailable or malformed start gives no
@@ -342,16 +585,12 @@ async def explore_relationships(
     Raises:
         ValueError: ``depth``, ``max_nodes`` or ``max_edges`` is outside its range.
     """
-    if not 1 <= depth <= _MAX_DEPTH:
+    if not 1 <= depth <= MAX_DEPTH:
         raise ValueError(f"depth must be 1 or 2, got {depth}")
-    if not 1 <= max_nodes <= _MAX_EXPLORE_BOUND:
-        raise ValueError(
-            f"max_nodes must be 1 to {_MAX_EXPLORE_BOUND}, got {max_nodes}"
-        )
-    if not 1 <= max_edges <= _MAX_EXPLORE_BOUND:
-        raise ValueError(
-            f"max_edges must be 1 to {_MAX_EXPLORE_BOUND}, got {max_edges}"
-        )
+    if not 1 <= max_nodes <= MAX_EXPLORE_BOUND:
+        raise ValueError(f"max_nodes must be 1 to {MAX_EXPLORE_BOUND}, got {max_nodes}")
+    if not 1 <= max_edges <= MAX_EXPLORE_BOUND:
+        raise ValueError(f"max_edges must be 1 to {MAX_EXPLORE_BOUND}, got {max_edges}")
     if not _is_canonical_uuid(entity_id):
         return ExplorationResult(
             status=ExplorationStatus.MALFORMED, detail="not an entity id"
@@ -360,7 +599,7 @@ async def explore_relationships(
         return ExplorationResult(status=ExplorationStatus.UNAVAILABLE)
 
     try:
-        visible = await _load_visible(store, {entity_id}, scope, 1)
+        visible = await _load_visible(store, {entity_id}, scope, 1, timeout=timeout)
     except Exception:
         _LOGGER.exception("Entity support query failed for an exploration")
         return ExplorationResult(
@@ -378,6 +617,7 @@ async def explore_relationships(
             depth=depth,
             max_nodes=max_nodes,
             max_edges=max_edges,
+            timeout=timeout,
         )
     except Exception:
         _LOGGER.exception("Exploration walk failed for an entity")
@@ -401,8 +641,8 @@ def _is_canonical_uuid(value: str) -> bool:
         return False
 
 
-async def _entity_labels(
-    store: GraphStore,
+def _entity_labels(
+    indexes: Sequence[IndexInfo],
     labels: Sequence[str] | None,
     *,
     vector_store: VectorStore | None,
@@ -410,7 +650,6 @@ async def _entity_labels(
     """Return labels to search, using the available graph index kind."""
     if labels is not None:
         return sorted(set(labels))
-    indexes = await store.list_indexes()
     index_type = "FULLTEXT" if vector_store is not None else _VECTOR_TYPE
     index_property = _NAME_PROPERTY if vector_store is not None else _EMBEDDING_PROPERTY
     found = {
@@ -461,8 +700,12 @@ async def _leg_candidates(
     vector_store: VectorStore | None,
     hybrid: bool,
     alpha: float,
+    timeout: float | None,
 ) -> _Ranked:
-    """Return the candidates of one leg over every label, best first, once each."""
+    """Return the candidates of one leg over every label, best first, once each.
+
+    The per-label queries run together. One failing label fails the leg.
+    """
     terms = ""
     vector: list[float] = []
     if leg is EvidenceSearchLeg.LEXICAL:
@@ -473,23 +716,26 @@ async def _leg_candidates(
         [embedded] = await embedder.embed([query])
         vector = list(embedded)
 
-    found: list[_Candidate] = []
-    ceiling = False
     if leg is EvidenceSearchLeg.SEMANTIC and vector_store is not None:
-        store_hits = (
-            await vector_store.hybrid_search(
-                VectorKind.ENTITY,
-                vector,
-                query,
-                limit=count,
-                alpha=alpha,
-                labels=labels,
+        if hybrid:
+            store_hits = await run_with_timeout(
+                lambda: vector_store.hybrid_search(
+                    VectorKind.ENTITY,
+                    vector,
+                    query,
+                    limit=count,
+                    alpha=alpha,
+                    labels=labels,
+                ),
+                timeout,
             )
-            if hybrid
-            else await vector_store.search(
-                VectorKind.ENTITY, vector, limit=count, labels=labels
+        else:
+            store_hits = await run_with_timeout(
+                lambda: vector_store.search(
+                    VectorKind.ENTITY, vector, limit=count, labels=labels
+                ),
+                timeout,
             )
-        )
         rows = (
             await store.execute_read(
                 entity_candidates_from_rows_query(),
@@ -499,22 +745,18 @@ async def _leg_candidates(
                     ],
                     "labels": list(labels),
                 },
+                timeout=timeout,
             )
             if store_hits
             else []
         )
-        ceiling = len(store_hits) >= count
-        found.extend(
+        found = [
             _Candidate(str(row["entity_id"]), float(row["score"]), str(row["label"]))
             for row in rows
-        )
-        found.sort(key=lambda candidate: (-candidate.score, candidate.entity_id))
-        first_seen: dict[str, _Candidate] = {}
-        for candidate in found:
-            first_seen.setdefault(candidate.entity_id, candidate)
-        return _Ranked(candidates=list(first_seen.values()), ceiling=ceiling)
+        ]
+        return _ranked(found, ceiling=len(store_hits) >= count)
 
-    for label in labels:
+    async def read_label(label: str) -> Sequence[Mapping[str, Any]]:
         if leg is EvidenceSearchLeg.LEXICAL:
             call = await store.fulltext_search_call(
                 label=label, properties=[_NAME_PROPERTY]
@@ -531,15 +773,29 @@ async def _leg_candidates(
             )
             statement = entity_candidates_query(label, call.text)
             parameters = {**call.params, "vector": vector, "k": count}
-        rows = await store.execute_read(statement, parameters)
-        ceiling = ceiling or len(rows) >= count
+        return await store.execute_read(statement, parameters, timeout=timeout)
+
+    label_results = await asyncio.gather(
+        *(read_label(label) for label in labels), return_exceptions=True
+    )
+    found = []
+    ceiling = False
+    for label, result in zip(labels, label_results, strict=True):
+        if isinstance(result, BaseException):
+            raise result
+        ceiling = ceiling or len(result) >= count
         found.extend(
             _Candidate(str(row["entity_id"]), float(row["score"]), label)
-            for row in rows
+            for row in result
         )
-    found.sort(key=lambda candidate: (-candidate.score, candidate.entity_id))
+    return _ranked(found, ceiling=ceiling)
+
+
+def _ranked(candidates: list[_Candidate], *, ceiling: bool) -> _Ranked:
+    """Order the candidates best first and keep the first entry of each id."""
+    candidates.sort(key=lambda candidate: (-candidate.score, candidate.entity_id))
     first_seen: dict[str, _Candidate] = {}
-    for candidate in found:
+    for candidate in candidates:
         first_seen.setdefault(candidate.entity_id, candidate)
     return _Ranked(candidates=list(first_seen.values()), ceiling=ceiling)
 
@@ -549,6 +805,7 @@ async def _load_visible(
     entity_ids: Iterable[str],
     scope: frozenset[str],
     support_limit: int,
+    timeout: float | None = None,
 ) -> dict[str, _Visible]:
     """Return the entities that have a passage in scope, with their visible support.
 
@@ -565,6 +822,7 @@ async def _load_visible(
             "scope_ids": sorted(scope_node_ids(scope)),
             "support_limit": support_limit,
         },
+        timeout=timeout,
     )
     visible: dict[str, _Visible] = {}
     for row in rows:
@@ -606,6 +864,7 @@ def _combine(
     *,
     mode: EvidenceSearchMode,
     limit: int,
+    constant: int,
 ) -> list[EntityHit]:
     """Fuse the legs over the visible entities, and build the best hits."""
     kept: dict[EvidenceSearchLeg, list[_Candidate]] = {
@@ -632,7 +891,7 @@ def _combine(
                 for leg in EvidenceSearchLeg
                 if leg in kept
             ],
-            constant=RRF_CONSTANT,
+            constant=constant,
         )
     else:
         scores = raw_score
@@ -661,6 +920,7 @@ async def _walk(
     depth: int,
     max_nodes: int,
     max_edges: int,
+    timeout: float | None = None,
 ) -> tuple[list[ExplorationNode], list[ExplorationEdge], list[ExplorationBound]]:
     """Walk the entity relations breadth first and return the bounded result.
 
@@ -687,6 +947,7 @@ async def _walk(
                 "support_limit": _EDGE_SUPPORT_LIMIT,
                 "row_limit": _EXPLORE_ROW_LIMIT + 1,
             },
+            timeout=timeout,
         )
         if len(rows) > _EXPLORE_ROW_LIMIT:
             bounds.add(ExplorationBound.CANDIDATES)

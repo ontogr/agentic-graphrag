@@ -46,13 +46,13 @@ async def main() -> None:
             print(hit.evidence_id, hit.snippet)
 
         ids = [hit.evidence_id for hit in found.hits[:2]]
-        outcomes = await fetch_evidence(store, ids, scope=scope, max_chars=4000)
-        for outcome in outcomes:
+        fetched = await fetch_evidence(store, ids, scope=scope)
+        for outcome in fetched.outcomes:
             print(outcome.status, outcome.status_of_version, outcome.text)
 
-        fetched = [o.evidence_id for o in outcomes if o.status is FetchStatus.OK]
-        checks = await check_citations(ids, fetched, scope=scope)
-        print([(c.cited_id, c.verdict) for c in checks])
+        ok_ids = [o.evidence_id for o in fetched.outcomes if o.status is FetchStatus.OK]
+        checks = await check_citations(ids, ok_ids, scope=scope)
+        print([(c.cited_id, c.verdict) for c in checks.checks])
     finally:
         await store.close()
 
@@ -64,9 +64,9 @@ asyncio.run(main())
 
 `search_evidence` takes three modes. `EvidenceSearchMode.LEXICAL` runs a keyword search, `EvidenceSearchMode.SEMANTIC` runs a vector search, and `EvidenceSearchMode.HYBRID` runs both and combines them. Use the embedder that you used for ingestion.
 
-`fetch_evidence` returns one `FetchOutcome` for each id. Its `text` is the exact stored text, cut to `max_chars`. The `status` is `ok`, `partial`, `truncated`, `unavailable`, `malformed`, `index_not_ready`, or `failed`, and `status_of_version` is `current` or `superseded`. An id from an earlier version of an updated document still returns its text and is labeled superseded.
+`fetch_evidence` returns a `FetchResult` whose `outcomes` list holds one `FetchOutcome` per id, in order. Its `text` is the exact stored text, cut to `max_chars`, which defaults to 4000 characters. The `status` is `ok`, `partial`, `truncated`, `unavailable`, `malformed`, `index_not_ready`, or `failed`, and `status_of_version` is `current` or `superseded`. An id from an earlier version of an updated document still returns its text and is labeled superseded.
 
-`check_citations` returns one verdict for each cited id. A verdict is `valid` when you fetched the id in scope. The other verdicts are `not_fetched`, `unavailable`, and `malformed`.
+`check_citations` returns a `CitationResult` whose `checks` list holds one verdict for each cited id. A verdict is `valid` when you fetched the id in scope. The other verdicts are `not_fetched`, `unavailable`, and `malformed`.
 
 ## Move around a passage
 
@@ -125,10 +125,10 @@ else:
 from agrag.common.data_models.evidence import CitationVerdict
 from agrag.evidence import render_citations
 
-valid_ids = [check.cited_id for check in checks if check.verdict is CitationVerdict.VALID]
+valid_ids = [check.cited_id for check in checks.checks if check.verdict is CitationVerdict.VALID]
 if valid_ids:
     answer = f"The document sets a deadline. [{valid_ids[0]}]"
-    rendered, sources = render_citations(answer, valid_ids, outcomes)
+    rendered, sources = render_citations(answer, valid_ids, fetched.outcomes)
     print(rendered)
 else:
     print("No fetched citation passed validation.")

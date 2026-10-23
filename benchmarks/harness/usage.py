@@ -8,6 +8,7 @@ and judge call counts are a lower bound. A span with an error status and no toke
 counts is a failed request: it counts as a call and adds no tokens.
 """
 
+import re
 from collections import defaultdict
 from collections.abc import Sequence
 from dataclasses import dataclass, field
@@ -34,7 +35,13 @@ QUESTION_ATTRIBUTE = "benchmark.question_id"
 # The default of 128 drops attributes silently on long agent runs.
 _MAX_ATTRIBUTES = 100_000
 
-_SEARCH_SPAN = "agrag.retrieval.search"
+# The evidence tools open no spans of their own; the OpenInference LangChain
+# callback names each tool span after the tool and records the serialized
+# result as the output value.
+_SEARCH_TOOL_SPAN = "search_evidence"
+_EVIDENCE_ID_PATTERN = re.compile(
+    r"ev1:[sc]:[0-9a-f-]{36}:[0-9a-f]{16}:(?:[0-9]+-[0-9]+|[0-9a-f-]{36})"
+)
 _EXTRACTION_PREFIX = "agrag.extraction."
 _EXTRACTION_BAML_SPAN = "agrag.extraction.baml"
 _JUDGE_SPANS = ("agrag.eval.judge", GRADE_SPAN)
@@ -83,7 +90,7 @@ class CorpusSpans:
 
 @dataclass
 class QuestionSpans:
-    """LLM calls and retrieved chunk ids for one question."""
+    """LLM calls and retrieved evidence ids for one question."""
 
     llm_calls: int = 0
     retrieved_chunk_ids: list[str] = field(default_factory=list)
@@ -118,13 +125,6 @@ def _is_llm(span: ReadableSpan) -> bool:
 def _count(value: object) -> int:
     """Read a token count attribute, treating a missing one as zero."""
     return value if isinstance(value, int) else 0
-
-
-def _strings(value: object) -> list[str]:
-    """Read a string-array attribute, treating a missing one as empty."""
-    if isinstance(value, (list, tuple)):
-        return [str(item) for item in value]
-    return []
 
 
 def _path_of(name: str) -> str | None:
@@ -188,13 +188,13 @@ def summarize(spans: Sequence[ReadableSpan]) -> UsageSummary:
             and attributes.get("agrag.entities_extracted") == 0
         ):
             corpora[corpus_id].empty_extractions += 1
-        if span.name == _SEARCH_SPAN and question_id is not None:
-            ids = _strings(attributes.get("agrag.result_ids"))
-            kinds = _strings(attributes.get("agrag.result_kinds"))
-            seen = questions[question_id].retrieved_chunk_ids
-            for result_id, kind in zip(ids, kinds, strict=False):
-                if kind == "Chunk" and str(result_id) not in seen:
-                    seen.append(str(result_id))
+        if span.name == _SEARCH_TOOL_SPAN and question_id is not None:
+            output = attributes.get(SpanAttributes.OUTPUT_VALUE)
+            if isinstance(output, str):
+                seen = questions[question_id].retrieved_chunk_ids
+                for evidence_id in _EVIDENCE_ID_PATTERN.findall(output):
+                    if evidence_id not in seen:
+                        seen.append(evidence_id)
         if not _is_llm(span):
             continue
 

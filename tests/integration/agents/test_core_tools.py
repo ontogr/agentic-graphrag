@@ -12,6 +12,7 @@ from agrag.common.data_models.task import EventKind
 from agrag.decisions import DecisionTraces
 from agrag.history import ConversationHistory
 from agrag.ingestion.graph import Graph
+from agrag.retrieval import RetrievalSettings
 from tests.integration._backend import await_indexes, build_test_store
 from tests.integration.retrieval.evidence._corpus import (
     HARBOR_TEXT,
@@ -52,6 +53,7 @@ async def test_core_history_tools_read_write_and_review_persisted_data() -> None
         fetched_outcomes=[],
         max_chars=12_000,
         max_tool_calls=30,
+        retrieval_settings=RetrievalSettings(),
     )
     tool_by_name = {item.name: item for item in tools}
     try:

@@ -8,7 +8,6 @@ says nothing about whether the cited text supports a claim.
 from uuid import uuid4
 
 from agrag.common.data_models.evidence import (
-    CitationCheck,
     CitationVerdict,
     EvidenceKind,
     EvidenceReference,
@@ -33,20 +32,21 @@ _OTHER_START, _OTHER_END = locate(
 
 async def _fetched_ids(env: EvidenceEnv, evidence_ids: list[str]) -> list[str]:
     """Fetch ids with every corpus document in scope and keep the ok ones."""
-    outcomes = await fetch_evidence(
+    result = await fetch_evidence(
         env.store,
         evidence_ids,
         scope=frozenset({env.keep, env.viber, env.harbor}),
         max_chars=8000,
     )
-    return [o.evidence_id for o in outcomes if o.status is FetchStatus.OK]
+    return [o.evidence_id for o in result.outcomes if o.status is FetchStatus.OK]
 
 
 async def _verdicts(
     cited: list[str], fetched: list[str], scope: frozenset[str]
 ) -> list[CitationVerdict]:
     """Return the verdicts for cited ids in order."""
-    checks: list[CitationCheck] = await check_citations(cited, fetched, scope=scope)
+    result = await check_citations(cited, fetched, scope=scope)
+    checks = result.checks
     assert [check.cited_id for check in checks] == cited
     return [check.verdict for check in checks]
 

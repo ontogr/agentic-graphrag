@@ -234,6 +234,7 @@ class TestToolListing:
             "entity_search",
             "navigate_document_tree",
             "search_evidence",
+            "search_themes",
         } <= set(names)
         for tool in listing.tools:
             assert tool.input_schema is not None
@@ -271,6 +272,7 @@ class TestToolListing:
             "navigate_document_tree",
             "search_decisions",
             "search_evidence",
+            "search_themes",
         ]
 
 
@@ -385,7 +387,7 @@ class TestEquivalenceWithDirectCalls:
             )
 
         outcomes = FetchResult.model_validate(structured).outcomes
-        assert outcomes == direct
+        assert outcomes == direct.outcomes
         assert outcomes[0].status is FetchStatus.OK
         assert outcomes[0].text == GOLD_SENTENCE
         assert outcomes[1].status is FetchStatus.UNAVAILABLE
@@ -415,7 +417,7 @@ class TestEquivalenceWithDirectCalls:
 
         direct = await check_citations(cited, [gold], scope=scope)
         verdicts = CitationResult.model_validate(structured).checks
-        assert verdicts == direct
+        assert verdicts == direct.checks
         assert [check.verdict for check in verdicts] == [
             CitationVerdict.VALID,
             CitationVerdict.VALID,

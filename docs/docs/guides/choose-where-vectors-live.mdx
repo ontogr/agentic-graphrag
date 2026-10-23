@@ -61,11 +61,11 @@ Construct `WeaviateVectorStore(settings=WeaviateSettings())` from `agrag.vectord
 
 ## Open and search the graph
 
-Pass the Qdrant instance to both ingestion and retrieval. The example assumes `graph_store`, `embedder`, `extractor`, and `schema` are configured as in [Ingest documents](./ingest-documents.mdx).
+Pass the Qdrant instance to both ingestion and retrieval. The example assumes `graph_store`, `embedder`, `extractor`, and `schema` are configured as in [Ingest documents](./ingest-documents.mdx), and that `scope` is the `frozenset` of document keys the search may read.
 
 ```python notest
+from agrag.evidence import search_evidence
 from agrag.ingestion import Graph
-from agrag.retrieval import CHUNK, SearchEngine
 from agrag.vectordb import QdrantSettings, QdrantVectorStore
 
 vectors = QdrantVectorStore(settings=QdrantSettings())
@@ -78,16 +78,19 @@ graph = await Graph.open(
 )
 try:
     await graph.add(text="Ada worked on the Analytical Engine.")
-    engine = SearchEngine(
-        graph_store=graph_store, embedder=embedder, vector_store=vectors,
+    result = await search_evidence(
+        graph_store,
+        embedder,
+        "Who worked on the Analytical Engine?",
+        scope=scope,
+        vector_store=vectors,
     )
-    result = await engine.search("Who worked on the Analytical Engine?", CHUNK)
 finally:
     await vectors.close()
     await graph_store.close()
 ```
 
-`Graph.open` creates the four collections and checks their dimensions and distance metric on reopening. With Qdrant configured, ingestion stores no embedding property on graph nodes and creates no graph vector indexes. Each external search result is joined back to graph data before visibility, document scope, and property filters are applied. Entity label filters match any requested label, including ancestor labels.
+`Graph.open` creates the four collections and checks their dimensions and distance metric on reopening. With Qdrant configured, ingestion stores no embedding property on graph nodes and creates no graph vector indexes. Each external search result is joined back to graph data before visibility and document scope are applied. An `entity_search` call with `labels` matches any requested label, including ancestor labels.
 
 Dense scores use the graph-native scale. Hybrid search uses Qdrant's weighted reciprocal rank fusion over dense and BM25 results. `RETRIEVAL_HYBRID_ALPHA` defaults to `0.5`; `1.0` returns dense order and graph-native dense scores, `0.0` returns BM25 order and scores while omitting nonmatches, and intermediate values return weighted RRF scores. Treat scores from the hybrid API as ranking values, not a common similarity scale across alpha settings. Resolution candidate searches remain dense. Qdrant searches are capped at 16384 results per call.
 

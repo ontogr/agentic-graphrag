@@ -60,10 +60,7 @@ async def vector_search(
         ValueError: No labels were given to search.
     """
     if not labels:
-        raise ValueError(
-            "Native vector search needs at least one label. Set "
-            "RETRIEVAL_ENTITY_LABELS or pass entity_labels to SearchEngine."
-        )
+        raise ValueError("Native vector search needs at least one label.")
     with get_tracer(tracer).start_as_current_span(
         "agrag.retrieval.vector_search"
     ) as span:

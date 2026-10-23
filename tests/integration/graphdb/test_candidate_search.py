@@ -1,12 +1,13 @@
 """Candidate search checks committed review groups and their lexical ranking."""
 
 import importlib.util
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import AsyncIterator
 from uuid import uuid4
 
 import pytest
 import pytest_asyncio
 
+from agrag.candidates.search import search_candidates
 from agrag.common.data_models.candidate import (
     CANDIDATE_LABEL,
     EVIDENCED_BY,
@@ -14,9 +15,7 @@ from agrag.common.data_models.candidate import (
 )
 from agrag.common.data_models.graph_record import NodeRecord
 from agrag.cypher.entities import NODE_IDENTITY_LABEL
-from agrag.embedding.base import Embedder
 from agrag.graphdb.base import GraphStore
-from agrag.retrieval.search_engine import SearchEngine
 from tests.integration._backend import build_test_store
 
 
@@ -25,18 +24,6 @@ pytestmark = [
     pytest.mark.skipif(neo4j_missing, reason="neo4j extra not installed"),
     pytest.mark.xdist_group(name="candidate_rows"),
 ]
-
-
-class _TestEmbedder(Embedder):
-    """Provide a valid embedder for SearchEngine construction."""
-
-    model = "candidate-search-test"
-
-    async def dimensions(self) -> int:
-        return 2
-
-    async def embed(self, texts: Sequence[str]) -> list[list[float]]:
-        return [[0.0, 1.0] for _ in texts]
 
 
 @pytest_asyncio.fixture
@@ -52,7 +39,7 @@ async def store() -> AsyncIterator[GraphStore]:
 
 
 class TestSearchCandidates:
-    """SearchEngine returns only matching, committed candidate groups."""
+    """Candidate search returns only matching, committed candidate groups."""
 
     async def test_searches_matching_review_groups_in_rank_order(
         self, store: GraphStore
@@ -159,8 +146,7 @@ class TestSearchCandidates:
                 {"id": str(chunk_ids[6]), "job_id": str(uuid4())},
             )
 
-            engine = SearchEngine(graph_store=store, embedder=_TestEmbedder())
-            found = await engine.search_candidates(f"ACME? {token}", limit=10)
+            found = await search_candidates(store, f"ACME? {token}", limit=10)
 
             assert [(record.kind, record.state, record.count) for record in found] == [
                 ("entity", "pending", 5),
@@ -168,13 +154,13 @@ class TestSearchCandidates:
             ]
             assert found[0].text in {f"Acme, {token}", f"Acme {token}"}
 
-            relations = await engine.search_candidates(
-                f"ACME? {token}", kind="relation"
+            relations = await search_candidates(
+                store, f"ACME? {token}", kind="relation"
             )
             assert [record.kind for record in relations] == ["relation"]
-            limited = await engine.search_candidates(f"ACME? {token}", limit=1)
+            limited = await search_candidates(store, f"ACME? {token}", limit=1)
             assert limited == found[:1]
-            assert await engine.search_candidates("!? aa") == []
+            assert await search_candidates(store, "!? aa") == []
 
         finally:
             await store.execute_write(

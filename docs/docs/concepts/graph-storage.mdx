@@ -26,7 +26,6 @@ Both backends support document ingestion and updates, entity resolution, communi
 | Multi-statement writes | `run_in_transaction` commits or rolls back the callback's writes together | Statements run in order, with no rollback of earlier statements |
 | Keyword ranking | Neo4j's native full-text index scores matches | Native TF-IDF score plus `1.0`, preserving the native ranking |
 | Vector metrics | Cosine and euclidean | Cosine and euclidean |
-| Node-distance reranking | Shortest-path distance | Shortest-path distance up to five relationships |
 
 Use Neo4j when you need rollback across a multi-statement write or already operate Neo4j or Aura. Use FalkorDB when you want a Redis-protocol graph server and can account for its partial-write behavior. Identical search requests can return different rankings because the native indexes differ.
 
@@ -34,7 +33,7 @@ Use Neo4j when you need rollback across a multi-statement write or already opera
 
 ## Why it exists
 
-A graph and a vector index answer different questions. The graph stores relations and provenance, while a vector index finds text or entities that are semantically close to a query. Retrieval can combine the initial matches with graph context when its recipe requests a walk.
+A graph and a vector index answer different questions. The graph stores relations and provenance, while a vector index finds text or entities that are semantically close to a query. Search joins vector results back to the graph records, so each hit keeps its document and provenance.
 
 Keeping both in the selected graph store means graph records and vectors share one database, but an ingestion call is not one transaction. A cutover job stages writes and makes them visible at commit. Search reads graph data and vectors from the same database. FalkorDB's [commit recovery and retry limits](../guides/configure-storage-backends.mdx#falkordb-behavior-to-know) still apply.
 
@@ -42,7 +41,7 @@ Keeping both in the selected graph store means graph records and vectors share o
 
 1. Write. `Graph.add` writes documents with their sections, tables and figures, chunks, entities, and relations to the selected graph store. It writes embeddings onto graph nodes for graph-native placement, or to Qdrant for external placement.
 2. Search. Graph-native placement uses the graph store's full-text and vector indexes. External hybrid search uses Qdrant's dense and BM25 rankings.
-3. Read. The engine reads the full items back from the store and walks the graph when the recipe asks for it.
+3. Read. Search reads the full items back from the store.
 
 ## The store
 

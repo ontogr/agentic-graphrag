@@ -41,7 +41,7 @@ async def _record_document_decision(
         scope=frozenset({document_key or documents.harbor}),
         max_chars=500,
     )
-    assert fetched[0].status is FetchStatus.OK
+    assert fetched.outcomes[0].status is FetchStatus.OK
     history = DecisionTraces(store, project_id=project, agent_id="agent")
     result = await history.record_decision(
         task_name,
@@ -375,7 +375,7 @@ async def _current_harbor_support(store, documents, query: str = "harbor"):
     fetched = await fetch_evidence(
         store, [evidence_id], scope=frozenset({documents.harbor}), max_chars=500
     )
-    assert fetched[0].status is FetchStatus.OK
+    assert fetched.outcomes[0].status is FetchStatus.OK
     return evidence_id, fetched
 
 
@@ -456,7 +456,7 @@ async def test_reaffirm_with_current_fetch_clears_flag_and_records_reviewer(
     assert result.recorded
     assert result.decision.review_state is ReviewState.CLEAR
     assert result.decision.review_reason is None
-    assert result.decision.supports[0].content_hash == fetched[0].content_hash
+    assert result.decision.supports[0].content_hash == fetched.outcomes[0].content_hash
     history = await reviewer.list_support_history(decision.id, limit=1)
     assert history.truncated
     assert history.next_after_ordinal is not None
