@@ -6,5 +6,5 @@ sidebar_label: TASK_LABEL
 # `agrag.common.data_models.task.TASK_LABEL` \{#agrag-common-data_models-task-TASK_LABEL}
 
 ```python
-TASK_LABEL = 'MemoryTask'
+TASK_LABEL = 'Task'
 ```

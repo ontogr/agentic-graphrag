@@ -5,7 +5,7 @@ sidebar_label: ReaffirmDecisionResult
 
 # `agrag.common.data_models.decision.ReaffirmDecisionResult` \{#agrag-common-data_models-decision-ReaffirmDecisionResult}
 
-Bases: <code>[WriteResult](../memory_result/WriteResult.md)</code>
+Bases: <code>[WriteResult](../write_result/WriteResult.md)</code>
 
 The outcome of reaffirming a flagged decision.
 
@@ -22,7 +22,7 @@ decision: Decision | None = None
 ## `error` \{#agrag-common-data_models-decision-ReaffirmDecisionResult-error}
 
 ```python
-error: MemoryErrorCode | None = None
+error: WriteErrorCode | None = None
 ```
 
 ## `model_config` \{#agrag-common-data_models-decision-ReaffirmDecisionResult-model_config}

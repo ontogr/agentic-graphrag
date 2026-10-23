@@ -66,7 +66,7 @@ class _HookedStore(Neo4jGraphStore):
     """A Neo4j store whose reads can be delayed, failed or filtered.
 
     Reads and connections go through the wrapped store, which the test corpus
-    was written with. These evidence tests do not wrap the memory write paths.
+    was written with. These evidence tests do not wrap task or decision writes.
 
     Args:
         inner: The store that answers the reads.
@@ -242,10 +242,10 @@ class TestToolListing:
             assert tool.annotations.read_only_hint is True
             assert "scope" not in tool.input_schema["properties"]
 
-    async def test_lists_memory_reads_when_project_and_agent_are_set(
+    async def test_lists_history_and_decision_reads_when_project_and_agent_are_set(
         self, evidence_env: EvidenceEnv
     ) -> None:
-        """Add the project-scoped memory reads to the evidence tools."""
+        """Add project-scoped history and decision reads to the evidence tools."""
         settings = _settings(evidence_env).model_copy(
             update={"project_id": "project-a", "agent_id": "assistant-a"}
         )

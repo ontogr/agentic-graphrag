@@ -1,16 +1,14 @@
 ---
 sidebar_position: 4
 title: Features
-description: What Agentic GraphRAG does, from reading files to recording decisions that stay tied to their evidence.
+description: How Agentic GraphRAG builds enterprise knowledge, records conversation history, and links decisions to evidence.
 ---
 
 import Diagram from '@site/src/components/Diagram';
 
 # Features
 
-The groups below list what Agentic GraphRAG does. Most groups link to the page that explains the group in detail.
-
-<Diagram name="graph3d" alt="Three stacked graph layers. Enterprise knowledge holds documents, sections, chunks and entities. Conversation history holds tasks, events and steps. Decision traces point up to the passages and events they rely on." />
+<Diagram name="context-graph" alt="Three connected graph layers. Enterprise knowledge contains documents, sections, chunks, entities, and relations. Conversation history contains tasks, events, and steps. Decision traces link conclusions to document passages, task events, and other decisions." />
 
 ## Read the files you already have
 
@@ -79,7 +77,7 @@ See [Ingestion](../concepts/ingestion.mdx) and [Update and delete documents](../
 
 ## Keep the graph and its indexes in one database
 
-- **One database.** The graph, its vector indexes, and its keyword indexes live in Neo4j or FalkorDB. Both support ingestion, retrieval, and agent memory. Compare their [search and transaction behavior](../concepts/graph-storage.mdx#choose-a-backend) and [configure either backend](../guides/configure-storage-backends.mdx).
+- **One database.** The graph, its vector indexes, and its keyword indexes live in Neo4j or FalkorDB. Both support ingestion, retrieval, conversation history, and decision traces. Compare their [search and transaction behavior](../concepts/graph-storage.mdx#choose-a-backend) and [configure either backend](../guides/configure-storage-backends.mdx).
 - **Efficient writes.** Records are written in batches, and each failed record is reported by identifier.
 - **Indexes and constraints are created for you.** Uniqueness constraints and native vector and keyword indexes are set up when a graph opens.
 - **Mismatched embeddings are caught early.** The embedder is checked against the existing vector indexes before anything is written.
@@ -121,20 +119,20 @@ See [Graph storage](../concepts/graph-storage.mdx).
 
 See [Communities](../concepts/communities.mdx).
 
-## Remember tasks
+## Record conversation history
 
-<Diagram name="task-resume" alt="The agent records events, steps, and decisions in the memory layer as it works. A decision cites passages, events, and earlier decisions. When a cited document changes, the decision is flagged for review. The agent recalls the task and searches past decisions to inform new ones." />
+<Diagram name="conversation-history" alt="The agent records messages, tool calls, tool results, and named steps under a task. Decision traces cite document passages, task events, and earlier decisions. A source change flags affected decisions for review, and a later run can resume the task and search earlier decisions." />
 
-- **Named tasks.** A task has a goal, an ordered log of messages, tool calls, results, and notes, and named steps.
+- **Named tasks.** A task has a goal, ordered events, and named steps. Events include messages, tool calls, tool results, and notes, so conversation history is more than a chat transcript.
 - **Step states.** A step is not started, in progress, completed, failed, or unknown.
 - **Resume with a short summary.** A resumed task starts from the goal, step counts, active decisions, and decisions that need review.
 - **Finished work is reused.** Completed steps are reused, and steps that were still running are marked unknown.
-- **Request-based retries.** A repeated request ID returns the saved result for a completed write. Failed multi-statement writes on FalkorDB can leave partial effects that repeat on retry. See [retry limits](../guides/configure-storage-backends.mdx#retried-memory-writes).
+- **Request-based retries.** A repeated request ID returns the saved result for a completed write. Failed multi-statement writes on FalkorDB can leave partial effects that repeat on retry. See [retry limits](../guides/configure-storage-backends.mdx#retried-history-and-decision-writes).
 - **Retention controls.** Redact the body of one event or delete a whole task with its events and steps.
 
-## Record decisions that stay tied to their evidence
+## Record decision traces
 
-- **Rich decisions.** A decision stores a conclusion, a rationale, assumptions, and open questions.
+- **Supported decisions.** A decision stores a conclusion, a concise rationale, assumptions, and open questions. Decision traces are structured records, not hidden model reasoning.
 - **Typed supports.** Supports can be document passages, task events, or other decisions.
 - **Explicit changes.** Replace or reject a decision, and the earlier record and its support history stay.
 - **Source changes flag decisions.** When a cited document gets a new version or is removed, the decision is flagged with the reason.
@@ -142,11 +140,11 @@ See [Communities](../concepts/communities.mdx).
 - **Reaffirm after reading.** A decision is reaffirmed only after the current text of each cited document has been read.
 - **Spot conflicts and find precedent.** List choices that different tasks decided differently, and search earlier decisions in the same project.
 
-See [Record decisions and review them](../guides/connected-memory.mdx).
+See [Decision traces](../guides/decision-traces.mdx) to record supported decisions and review them when source documents change.
 
 ## Use the built-in agent
 
-<Diagram name="full-flow" alt="Documents are loaded, chunked, extracted, and resolved into a graph with three layers: knowledge, conversation history, and decision traces. A changed document flags the decisions that cite it. An agent searches and reads the graph and records its events, steps, and decisions. Its answer passes a citation check and returns with numbered sources." />
+<Diagram name="full-flow" alt="Documents are loaded, chunked, extracted, and resolved into a graph with enterprise knowledge, conversation history, and decision traces. A changed document flags the decisions that cite it. An agent searches and reads the graph, records its events and steps, and returns an answer with checked numbered sources." />
 
 - **Scoped to your documents.** The agent is built for a fixed set of documents, a project, and an author, and it reads nothing else.
 - **Evidence tools.** It discovers passages, finds entities, explores relations, moves between passages, and fetches exact text.
@@ -162,7 +160,7 @@ See [Agent loop](../concepts/agent-loop.mdx).
 
 - **A local server.** One command starts a server that talks to your MCP client over standard input and output.
 - **Separate tools.** Search, exact fetch, navigation, entity search, relation exploration, and citation checks are separate tools.
-- **Memory tools.** Read and write tasks and decisions in a configured project.
+- **Conversation history and decision tools.** Read and write task events, steps, and decisions in a configured project.
 - **Read-only by default.** Writing is switched on by the operator, and rejecting a decision has its own switch.
 - **The operator sets the boundaries.** The documents and the project come from the server configuration, and a tool call cannot change them.
 - **Decisions rest on real reads.** A decision can cite only evidence that the same server process fetched in full.

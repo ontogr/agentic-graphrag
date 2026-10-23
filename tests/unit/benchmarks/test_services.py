@@ -58,6 +58,14 @@ class TestServices:
         assert settings.uri == f"bolt://127.0.0.1:{services.SERVICE_PORTS['fake']}"
         assert settings.password.get_secret_value() == "from-the-environment"
 
+    def test_conversation_history_service_keeps_its_assigned_port(self, monkeypatch):
+        """Conversation history services retain their existing port assignments."""
+        monkeypatch.setenv(services.PASSWORD_VARIABLE, "from-the-environment")
+
+        settings = neo4j_settings("history-conv17")
+
+        assert settings.uri == "bolt://127.0.0.1:7711"
+
     def test_connection_settings_require_the_password_variable(self, monkeypatch):
         """Connection settings require the password variable."""
         monkeypatch.delenv(services.PASSWORD_VARIABLE, raising=False)

@@ -173,7 +173,7 @@ async def main() -> None:
         )
         result = await agent.ainvoke(
             {
-                "task_name": "vendor-policy",
+                "task_name": "first-question",
                 "question": "Who approves a vendor contract? Cite your sources.",
             }
         )
@@ -196,7 +196,7 @@ BAML_LOG=off python ask.py
 
 The script prints the run status and the answer. The status says whether the run answered or reached a limit. The answer ends with a Sources list, and each number in the text refers to a passage the agent read. The wording of the answer varies with your model.
 
-Run the script again with the same `task_name`. Agentic GraphRAG continues the task from its recorded events and steps.
+Run the script again with the same `task_name`. Agentic GraphRAG resumes the task from its recorded events and steps.
 
 ## Step 5: Look at the graph
 
@@ -239,7 +239,7 @@ Entity nodes carry the label `_Node` and a `merge_key` property. The query keeps
 
 - One document with its sections and chunks. Each chunk keeps its heading path, its position in the file, and an embedding.
 - Entities from the schema that the extractor found in the chunks.
-- A task named `vendor-policy` with the messages and tool results of the agent run, stored in the same graph.
+- A task named `first-question` with the agent's messages, tool calls, and tool results stored as events, plus named steps.
 
 ## Next steps
 
@@ -247,4 +247,4 @@ Entity nodes carry the label `_Node` and a `merge_key` property. The query keeps
 - [Ingest documents](../guides/ingest-documents.mdx): add files, directories, and text.
 - [Find and cite evidence](../guides/find-and-cite-evidence.mdx): search passages and check citations from Python.
 - [Run the MCP server](../guides/run-the-mcp-server.mdx): give an MCP client access to the graph.
-- [Record decisions and review them](../guides/connected-memory.mdx): tie a decision to its evidence.
+- [Decision traces](../guides/decision-traces.mdx): record supported decisions and review them when source documents change.

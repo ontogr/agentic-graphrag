@@ -36,7 +36,7 @@ TraversalDirection = Literal["outgoing", "incoming", "both"]
 
 
 _STRUCTURE_RELATIONS = (HAS_PART, HAS_CHILD, HAS_DOCUMENT, HAS_ACTIVATION)
-_MEMORY_RELATIONS = (HAS_EVENT, HAS_STEP)
+_HISTORY_RELATIONS = (HAS_EVENT, HAS_STEP)
 _STRUCTURE_LABELS = (
     SECTION_LABEL,
     TABLE_LABEL,
@@ -56,13 +56,13 @@ _NON_ENTITY_RELATIONS = _cypher_string_list(
         "MENTIONED_IN",
         "MEMBER_OF",
         *_STRUCTURE_RELATIONS,
-        *_MEMORY_RELATIONS,
+        *_HISTORY_RELATIONS,
         *sorted(CANDIDATE_EDGE_TYPES),
     )
 )
 
 _DEFAULT_TRAVERSAL_EXCLUSIONS = _cypher_string_list(
-    (*_STRUCTURE_RELATIONS, *_MEMORY_RELATIONS)
+    (*_STRUCTURE_RELATIONS, *_HISTORY_RELATIONS)
 )
 _STRUCTURE_LABEL_EXCLUSIONS = " AND ".join(
     f"NOT neighbor:{validate_identifier(label)}" for label in _STRUCTURE_LABELS

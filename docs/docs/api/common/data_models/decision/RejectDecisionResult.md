@@ -5,7 +5,7 @@ sidebar_label: RejectDecisionResult
 
 # `agrag.common.data_models.decision.RejectDecisionResult` \{#agrag-common-data_models-decision-RejectDecisionResult}
 
-Bases: <code>[WriteResult](../memory_result/WriteResult.md)</code>
+Bases: <code>[WriteResult](../write_result/WriteResult.md)</code>
 
 The outcome of rejecting a decision.
 
@@ -22,7 +22,7 @@ decision: Decision | None = None
 ## `error` \{#agrag-common-data_models-decision-RejectDecisionResult-error}
 
 ```python
-error: MemoryErrorCode | None = None
+error: WriteErrorCode | None = None
 ```
 
 ## `model_config` \{#agrag-common-data_models-decision-RejectDecisionResult-model_config}

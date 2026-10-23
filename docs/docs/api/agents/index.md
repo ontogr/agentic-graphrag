@@ -36,4 +36,4 @@ extra. Importing this package does not require that extra.
 
 **Functions:**
 
-- [**build_agent**](build/build_agent.md) – Build one agent bound to trusted document and memory scopes.
+- [**build_agent**](build/build_agent.md) – Build one agent bound to trusted document, history, and decision scopes.

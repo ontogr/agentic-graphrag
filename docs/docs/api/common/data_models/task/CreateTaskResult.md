@@ -16,7 +16,7 @@ The outcome of creating or reusing a task.
 ## `error` \{#agrag-common-data_models-task-CreateTaskResult-error}
 
 ```python
-error: MemoryErrorCode | None = None
+error: WriteErrorCode | None = None
 ```
 
 ## `model_config` \{#agrag-common-data_models-task-CreateTaskResult-model_config}

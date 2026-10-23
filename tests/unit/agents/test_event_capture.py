@@ -51,8 +51,8 @@ class _ScriptedModel(BaseChatModel):
         return ChatResult(generations=[ChatGeneration(message=reply)])
 
 
-class _FakeMemory:
-    """Task memory stand-in that keeps events and steps in memory."""
+class _FakeHistory:
+    """Conversation history stand-in that stores events and steps."""
 
     def __init__(self, failures: int = 0, record: bool = True) -> None:
         """Fail the first ``failures`` writes with a store error."""
@@ -116,7 +116,7 @@ class TestTaskEventCapture:
 
     async def test_records_tool_call_and_result_payloads(self) -> None:
         """A tool round trip records call identity, arguments, and content."""
-        memory = _FakeMemory()
+        history = _FakeHistory()
         model = _ScriptedModel(
             replies=[
                 AIMessage(
@@ -130,27 +130,27 @@ class TestTaskEventCapture:
         agent = create_agent(
             model=model,
             tools=[lookup],
-            middleware=[TaskEventMiddleware(memory, "task", run_state)],
+            middleware=[TaskEventMiddleware(history, "task", run_state)],
         )
 
         await agent.ainvoke({"messages": [{"role": "user", "content": "question"}]})
 
-        assert [(kind, name) for kind, name, _ in memory.events] == [
+        assert [(kind, name) for kind, name, _ in history.events] == [
             (EventKind.MESSAGE, None),
             (EventKind.TOOL_CALL, "lookup"),
             (EventKind.TOOL_RESULT, "lookup"),
             (EventKind.MESSAGE, None),
         ]
-        assert memory.events[0][2] == "checking"
-        assert json.loads(memory.events[1][2]) == {
+        assert history.events[0][2] == "checking"
+        assert json.loads(history.events[1][2]) == {
             "tool_call_id": "c1",
             "arguments": {"query": "a"},
         }
-        assert json.loads(memory.events[2][2]) == {
+        assert json.loads(history.events[2][2]) == {
             "tool_call_id": "c1",
             "content": "found a",
         }
-        assert memory.events[3][2] == "done"
+        assert history.events[3][2] == "done"
         assert model.calls == 2
         assert not run_state.recording_failed
 
@@ -158,7 +158,7 @@ class TestTaskEventCapture:
         self,
     ) -> None:
         """The agent runs two calls, then returns an error for the third."""
-        memory = _FakeMemory()
+        history = _FakeHistory()
         model = _ScriptedModel(
             replies=[
                 AIMessage(
@@ -176,7 +176,7 @@ class TestTaskEventCapture:
         agent = create_agent(
             model=model,
             tools=[lookup],
-            middleware=[TaskEventMiddleware(memory, "task", run_state)],
+            middleware=[TaskEventMiddleware(history, "task", run_state)],
         )
 
         result = await agent.ainvoke(
@@ -185,12 +185,12 @@ class TestTaskEventCapture:
 
         calls = [
             json.loads(payload)
-            for kind, _, payload in memory.events
+            for kind, _, payload in history.events
             if kind == EventKind.TOOL_CALL
         ]
         tool_results = [
             json.loads(payload)
-            for kind, _, payload in memory.events
+            for kind, _, payload in history.events
             if kind == EventKind.TOOL_RESULT
         ]
         tool_messages = [
@@ -233,7 +233,7 @@ class TestToolErrors:
 
     async def test_error_result_fails_open_step_with_result_sequence(self) -> None:
         """The model gets an error message and the failed step links its event."""
-        memory = _FakeMemory()
+        history = _FakeHistory()
         model = _ScriptedModel(
             replies=[
                 AIMessage(
@@ -248,7 +248,7 @@ class TestToolErrors:
         agent = create_agent(
             model=model,
             tools=[flaky],
-            middleware=[TaskEventMiddleware(memory, "task", run_state)],
+            middleware=[TaskEventMiddleware(history, "task", run_state)],
         )
 
         result = await agent.ainvoke(
@@ -264,18 +264,18 @@ class TestToolErrors:
         assert tool_messages[0].status == "error"
         assert tool_messages[0].tool_call_id == "c1"
         assert result["messages"][-1].content == "I could not look it up."
-        assert memory.events[2][:2] == (EventKind.TOOL_RESULT, "flaky")
-        assert json.loads(memory.events[2][2]) == {
+        assert history.events[2][:2] == (EventKind.TOOL_RESULT, "flaky")
+        assert json.loads(history.events[2][2]) == {
             "tool_call_id": "c1",
             "content": "error: RuntimeError: index unavailable",
         }
-        assert memory.steps == {"draft": (StepState.FAILED, 3)}
+        assert history.steps == {"draft": (StepState.FAILED, 3)}
         assert run_state.open_steps == {}
 
     async def test_control_signals_propagate(self) -> None:
         """Graph interrupts are not converted into ordinary tool errors."""
         middleware = TaskEventMiddleware(
-            _FakeMemory(), "task", RunState(max_tool_calls=5)
+            _FakeHistory(), "task", RunState(max_tool_calls=5)
         )
 
         async def interrupted(_request: object) -> object:
@@ -291,29 +291,31 @@ class TestRecordEventOrFlag:
 
     async def test_retry_reuses_request_id(self) -> None:
         """A transient store error does not duplicate the event."""
-        memory = _FakeMemory(failures=1)
+        history = _FakeHistory(failures=1)
         run_state = RunState(max_tool_calls=5)
 
         await record_event_or_flag(
-            memory, "task", run_state, EventKind.NOTE, payload="note"
+            history, "task", run_state, EventKind.NOTE, payload="note"
         )
 
-        assert len(memory.request_ids) == 2
-        assert memory.request_ids[0] == memory.request_ids[1]
+        assert len(history.request_ids) == 2
+        assert history.request_ids[0] == history.request_ids[1]
         assert not run_state.recording_failed
 
     @pytest.mark.parametrize(
-        ("memory",),
-        [(_FakeMemory(failures=2),), (_FakeMemory(record=False),)],
+        ("history",),
+        [(_FakeHistory(failures=2),), (_FakeHistory(record=False),)],
     )
-    async def test_agent_run_flags_unrecorded_event(self, memory: _FakeMemory) -> None:
+    async def test_agent_run_flags_unrecorded_event(
+        self, history: _FakeHistory
+    ) -> None:
         """A rejected or raising event write marks the run as failed."""
         model = _ScriptedModel(replies=[AIMessage(content="done")])
         run_state = RunState(max_tool_calls=2)
         agent = create_agent(
             model=model,
             tools=[lookup],
-            middleware=[TaskEventMiddleware(memory, "task", run_state)],
+            middleware=[TaskEventMiddleware(history, "task", run_state)],
         )
 
         await agent.ainvoke({"messages": [{"role": "user", "content": "question"}]})
@@ -337,13 +339,13 @@ class TestToolBudgetAdmission:
         monkeypatch.setattr(
             "agrag.agents.tools.core.search_evidence", fake_search_evidence
         )
-        memory = _FakeMemory()
+        history = _FakeHistory()
         tools, run_state = make_core_tools(
             graph_store=object(),
             embedder=object(),
             scope=frozenset({"doc"}),
             task_name="task",
-            memory=memory,
+            history=history,
             decisions=object(),
             fetched_ids=[],
             fetched_outcomes=[],
@@ -357,5 +359,5 @@ class TestToolBudgetAdmission:
 
         assert result
         assert run_state.tool_calls == 0
-        assert memory.events == []
+        assert history.events == []
         assert not run_state.budget_exhausted

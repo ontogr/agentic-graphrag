@@ -232,16 +232,14 @@ def lucene_terms(query: str) -> str:
 
 @dataclass(frozen=True)
 class IndexSpec:
-    """The name, type, label and property a search leg's index must have.
+    """The type, label and property a search leg's index must cover.
 
     Attributes:
-        name: The index name, from ``fulltext_index_name`` or ``vector_index_name``.
         index_type: ``FULLTEXT`` or ``VECTOR``, as Neo4j reports it.
         label: The node label the index covers.
         prop: The indexed property.
     """
 
-    name: str
     index_type: str
     label: str
     prop: str
@@ -250,11 +248,10 @@ class IndexSpec:
 async def indexes_ready(
     store: GraphStore, specs: Sequence[IndexSpec], *, timeout: float | None = None
 ) -> IndexState:
-    """Return READY when every spec names an ONLINE index of the right shape.
+    """Return READY when every spec is covered by an ONLINE index.
 
-    The name alone is not enough: an index under the same name but built for
-    another label or property would return wrong passages, so type, label and
-    property are checked too.
+    Some stores search by label and property rather than by index name. Require
+    the exact name when the search call supplies one.
 
     Args:
         store: The graph store to ask.
@@ -265,16 +262,28 @@ async def indexes_ready(
     Returns:
         ``IndexState.READY`` or ``IndexState.NOT_READY``.
     """
-    found = {index.name: index for index in await store.list_indexes(timeout=timeout)}
+    indexes = await store.list_indexes(timeout=timeout)
     for spec in specs:
-        index = found.get(spec.name)
-        if index is None or index.state != INDEX_STATE_ONLINE:
-            return IndexState.NOT_READY
-        if index.type != spec.index_type:
-            return IndexState.NOT_READY
-        if index.labels != [spec.label]:
-            return IndexState.NOT_READY
-        if index.properties != [spec.prop]:
+        search_call = (
+            await store.fulltext_search_call(label=spec.label, properties=[spec.prop])
+            if spec.index_type == "FULLTEXT"
+            else await store.vector_search_call(
+                label=spec.label, vector_property=spec.prop
+            )
+        )
+        expected_name = search_call.params.get("index")
+        if not any(
+            index.state == INDEX_STATE_ONLINE
+            and index.type == spec.index_type
+            and index.labels == [spec.label]
+            and (
+                index.properties == [spec.prop]
+                if isinstance(expected_name, str)
+                else spec.prop in index.properties
+            )
+            and (expected_name is None or index.name == expected_name)
+            for index in indexes
+        ):
             return IndexState.NOT_READY
     return IndexState.READY
 

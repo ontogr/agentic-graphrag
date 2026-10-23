@@ -25,11 +25,12 @@ from agrag.common.data_models.task import (
     EventKind,
     StepState,
 )
+from agrag.decisions import DecisionTraces
 from agrag.embedding.base import Embedder
 from agrag.evidence import check_citations, render_citations
 from agrag.evidence.citation import parse_citations
 from agrag.graphdb.base import GraphStore
-from agrag.memory import DecisionMemory, TaskMemory
+from agrag.history import ConversationHistory
 from agrag.vectordb.base import VectorStore
 
 
@@ -45,14 +46,14 @@ def build_agent(
     vector_store: VectorStore | None = None,
     tracer: Tracer | None = None,
 ) -> Any:
-    """Build one agent bound to trusted document and memory scopes.
+    """Build one agent bound to trusted document, history, and decision scopes.
 
     Args:
-        graph_store: Store used by evidence and memory operations.
+        graph_store: Store used by evidence, history, and decision operations.
         embedder: Embedder used for semantic evidence search.
         scope: Document keys the agent may read.
-        project_id: Trusted project identifier for task and decision memory.
-        agent_id: Trusted author identifier for memory writes.
+        project_id: Trusted project identifier for task and decision records.
+        agent_id: Trusted author identifier for history and decision writes.
         llm_settings: Model configuration and composition strategy.
         agent_settings: Run limits. Defaults to environment settings.
         vector_store: Optional external store for evidence search.
@@ -70,8 +71,8 @@ def build_agent(
     if tracer is not None:
         require_tracing()
     settings = agent_settings or AgentSettings()
-    memory = TaskMemory(graph_store, project_id=project_id, agent_id=agent_id)
-    decisions = DecisionMemory(graph_store, project_id=project_id, agent_id=agent_id)
+    history = ConversationHistory(graph_store, project_id=project_id, agent_id=agent_id)
+    decisions = DecisionTraces(graph_store, project_id=project_id, agent_id=agent_id)
     middleware = build_model_middleware(
         llm_settings.clients, strategy=llm_settings.strategy
     )
@@ -79,7 +80,7 @@ def build_agent(
         graph_store=graph_store,
         embedder=embedder,
         scope=scope,
-        memory=memory,
+        history=history,
         decisions=decisions,
         model=build_chat_model(llm_settings.clients[0]),
         settings=settings,
@@ -99,8 +100,8 @@ class _TaskAgent:
         graph_store: GraphStore,
         embedder: Embedder,
         scope: frozenset[str],
-        memory: TaskMemory,
-        decisions: DecisionMemory,
+        history: ConversationHistory,
+        decisions: DecisionTraces,
         model: Any,
         settings: AgentSettings,
         middleware: list[Any],
@@ -111,7 +112,7 @@ class _TaskAgent:
         self._graph_store = graph_store
         self._embedder = embedder
         self._scope = scope
-        self._memory = memory
+        self._history = history
         self._decisions = decisions
         self._model = model
         self._settings = settings
@@ -129,19 +130,19 @@ class _TaskAgent:
 
         task_name = input_data["task_name"]
         question = input_data["question"]
-        lookup = await self._memory.get_task(task_name)
+        lookup = await self._history.get_task(task_name)
         if not lookup.found:
-            created = await self._memory.create_task(task_name, question)
+            created = await self._history.create_task(task_name, question)
             if not created.recorded:
                 raise ValueError(f"Could not create task: {created.error}")
-            lookup = await self._memory.get_task(task_name)
+            lookup = await self._history.get_task(task_name)
         fetched_ids: list[str] = []
         tools, run_state = make_core_tools(
             graph_store=self._graph_store,
             embedder=self._embedder,
             scope=self._scope,
             task_name=task_name,
-            memory=self._memory,
+            history=self._history,
             decisions=self._decisions,
             fetched_ids=fetched_ids,
             fetched_outcomes=[],
@@ -150,14 +151,14 @@ class _TaskAgent:
             vector_store=self._vector_store,
         )
         if lookup.view is not None and lookup.view.step_counts[StepState.IN_PROGRESS]:
-            await _mark_interrupted_steps(self._memory, task_name, run_state)
-            lookup = await self._memory.get_task(task_name)
+            await _mark_interrupted_steps(self._history, task_name, run_state)
+            lookup = await self._history.get_task(task_name)
         await self._decisions.continue_decision_review(limit=20)
-        lookup = await self._memory.get_task(task_name)
+        lookup = await self._history.get_task(task_name)
         view = lookup.view
         view_json = view.model_dump_json() if view is not None else "{}"
         await record_event_or_flag(
-            self._memory,
+            self._history,
             task_name,
             run_state,
             EventKind.MESSAGE,
@@ -165,7 +166,7 @@ class _TaskAgent:
             payload=question,
         )
         reused = await _completed_results(
-            self._memory,
+            self._history,
             task_name,
             max_chars=self._settings.max_result_characters,
             scope=self._scope,
@@ -177,7 +178,7 @@ class _TaskAgent:
             system_prompt=AGENT_SYSTEM,
             middleware=[
                 *self._middleware,
-                TaskEventMiddleware(self._memory, task_name, run_state),
+                TaskEventMiddleware(self._history, task_name, run_state),
             ],
             response_format=ToolStrategy(AgentAnswer),
         )
@@ -234,7 +235,7 @@ class _TaskAgent:
             invalid.extend(malformed)
             if invalid and run_state.tool_calls < self._settings.max_tool_calls:
                 await record_event_or_flag(
-                    self._memory,
+                    self._history,
                     task_name,
                     run_state,
                     EventKind.MESSAGE,
@@ -299,7 +300,7 @@ class _TaskAgent:
             status = "insufficient_evidence"
         elif support_status == "supported":
             status = "answered"
-        current_task = await self._memory.get_task(task_name)
+        current_task = await self._history.get_task(task_name)
         last_seq = current_task.view.last_event_seq if current_task.view else 0
         answer, sources = render_citations(
             answer, valid_citations, list(run_state.fetches.values())
@@ -316,7 +317,7 @@ class _TaskAgent:
 
 
 async def _mark_interrupted_steps(
-    memory: TaskMemory, task_name: str, run_state: RunState
+    history: ConversationHistory, task_name: str, run_state: RunState
 ) -> None:
     """Mark every step a stopped run left in progress as unknown.
 
@@ -325,7 +326,7 @@ async def _mark_interrupted_steps(
     """
     after_name = None
     while True:
-        page = await memory.list_steps(
+        page = await history.list_steps(
             task_name,
             StepState.IN_PROGRESS,
             after_name=after_name,
@@ -333,7 +334,7 @@ async def _mark_interrupted_steps(
         )
         for step in page.steps:
             try:
-                outcome = await memory.set_step(
+                outcome = await history.set_step(
                     task_name, step.name, StepState.UNKNOWN, kind=step.kind
                 )
             except Exception as exc:  # noqa: BLE001
@@ -347,7 +348,7 @@ async def _mark_interrupted_steps(
 
 
 async def _completed_results(
-    memory: TaskMemory,
+    history: ConversationHistory,
     task_name: str,
     *,
     max_chars: int,
@@ -358,7 +359,7 @@ async def _completed_results(
     used = 0
     after_name = None
     while True:
-        page = await memory.list_steps(
+        page = await history.list_steps(
             task_name, StepState.COMPLETED, after_name=after_name, limit=50
         )
         for step in page.steps:
@@ -385,7 +386,7 @@ async def _completed_results(
             if step.result_event_seq is None:
                 text = "(no stored result)"
             else:
-                lookup = await memory.fetch_event(task_name, step.result_event_seq)
+                lookup = await history.fetch_event(task_name, step.result_event_seq)
                 event = lookup.event if lookup.found else None
                 text = event.payload if event is not None else "(stored result missing)"
                 if event is not None and event.redacted_at:

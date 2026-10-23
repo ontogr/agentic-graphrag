@@ -23,7 +23,7 @@ const releases = JSON.parse(readFileSync(new URL('./versions.json', import.meta.
 /** @type {import('@docusaurus/types').Config} */
 const config = {
   title: 'Agentic GraphRAG',
-  tagline: 'Context graphs that give AI agents memory they can trace to its sources',
+  tagline: 'Context graphs that connect enterprise knowledge, conversation history, and decision traces',
   favicon: 'img/favicon.ico',
 
   future: {
@@ -111,7 +111,7 @@ const config = {
       {
         title: 'Agentic GraphRAG',
         description:
-          'Build a knowledge graph from your documents, then ask it questions with an agent that cites its evidence.',
+          'Connect enterprise knowledge, conversation history, and decision traces in one graph. Build agents that find evidence, resume work, and review decisions when sources change.',
         // The generated API pages are large and add little for a language model.
         ignoreFiles: ['api/**'],
         // The page menu copies a page as Markdown, so every page needs its own .md file.

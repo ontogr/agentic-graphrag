@@ -28,7 +28,6 @@ from agrag.cypher.evidence import (
     semantic_candidates_from_rows_query,
     semantic_candidates_query,
 )
-from agrag.cypher.schema import fulltext_index_name, vector_index_name
 from agrag.embedding.base import Embedder
 from agrag.evidence._shared import (
     IndexSpec,
@@ -217,7 +216,6 @@ def _index_specs(
     if EvidenceSearchLeg.LEXICAL in legs:
         specs.append(
             IndexSpec(
-                name=fulltext_index_name(CHUNK_LABEL, _FULLTEXT_PROPERTIES),
                 index_type=_FULLTEXT_TYPE,
                 label=CHUNK_LABEL,
                 prop=_FULLTEXT_PROPERTIES[0],
@@ -226,7 +224,6 @@ def _index_specs(
     if EvidenceSearchLeg.SEMANTIC in legs and vector_store is None:
         specs.append(
             IndexSpec(
-                name=vector_index_name(CHUNK_LABEL, _EMBEDDING_PROPERTY),
                 index_type=_VECTOR_TYPE,
                 label=CHUNK_LABEL,
                 prop=_EMBEDDING_PROPERTY,

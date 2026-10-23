@@ -9,11 +9,12 @@ from pydantic import BaseModel, ConfigDict, Field
 from agrag.common.data_models.decision import ConflictGroup, Decision, Support
 
 
-TASK_LABEL = "MemoryTask"
-EVENT_LABEL = "MemoryEvent"
-STEP_LABEL = "MemoryStep"
-REQUEST_LABEL = "MemoryRequest"
-PROJECT_LABEL = "MemoryProject"
+TASK_LABEL = "Task"
+EVENT_LABEL = "Event"
+STEP_LABEL = "Step"
+REQUEST_LABEL = "Request"
+PROJECT_LABEL = "Project"
+HISTORY_RECORD_PROPERTY = "_agrag_history_record"
 HAS_EVENT = "HAS_EVENT"
 HAS_STEP = "HAS_STEP"
 
@@ -69,8 +70,8 @@ class StepResultValidity(StrEnum):
     UNKNOWN = "unknown"
 
 
-class MemoryErrorCode(StrEnum):
-    """Fixed error codes returned by task memory operations."""
+class WriteErrorCode(StrEnum):
+    """Fixed error codes returned by conversation history writes."""
 
     TASK_EXISTS = "task_exists"
     TASK_NOT_FOUND = "task_not_found"
@@ -271,7 +272,7 @@ class EventLookup(BaseModel):
 
 
 class WriteResult(BaseModel):
-    """Base outcome of a task memory write.
+    """Base outcome of a conversation history write.
 
     Attributes:
         recorded: Whether the write is in effect. A retry with the same request
@@ -281,7 +282,7 @@ class WriteResult(BaseModel):
 
     model_config = ConfigDict(frozen=True)
     recorded: bool
-    error: MemoryErrorCode | None = None
+    error: WriteErrorCode | None = None
 
 
 class CreateTaskResult(WriteResult):

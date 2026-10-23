@@ -8,7 +8,7 @@ import Diagram from '@site/src/components/Diagram';
 
 # Agent loop
 
-The agent loop turns one question into a cited answer. A single agent works on a named task. It discovers evidence in the graph, fetches the exact text it needs, and writes an answer that cites only the evidence it fetched. A citation check runs after the answer, and one repair pass asks the agent to remove or fetch the citations that do not check out.
+The agent loop turns one question into a cited answer. A single agent works on a named task. It discovers evidence in the graph, fetches the exact text it needs, and writes an answer that cites only the evidence it fetched. A citation check runs after the answer, and one repair pass asks the agent to remove or fetch citations that do not check out. The run also records messages, tool calls, and tool results as conversation history, so the record is more than a chat transcript.
 
 ## Why it exists
 
@@ -20,7 +20,7 @@ Citations make claims traceable to the passages behind them.
 
 ## How it works
 
-<Diagram folder="docs" name="agent-loop" alt="A run creates or resumes the task and builds its task view. The agent calls evidence tools to find ids and fetch exact text, and writes an answer. The run records every message and tool result as task events. A citation check compares the cited ids with the fetched ids. If all are valid the run returns the result. If some are invalid and tool budget is left, the agent gets one repair pass." />
+<Diagram folder="docs" name="context-agent-loop" alt="A run creates or resumes a task and builds its task view. The agent calls evidence tools to find ids and fetch exact text, then writes an answer. The run records messages, tool calls, and tool results as task events. A citation check compares the cited ids with the fetched ids. The run returns the result when all ids are valid, or gives the agent one repair pass when the budget allows." />
 
 1. The run creates or resumes the task and builds its task view. The view is data, and the agent reads it before it acts.
 2. The agent calls evidence tools. `search_evidence` returns evidence ids for passages in scope. `entity_search` and `explore_relationships` search the graph. `navigate_document_tree` moves from one passage to related text. See [The agent's tools](#the-agents-tools).
@@ -57,13 +57,13 @@ For a question that names an entity, the agent usually calls the tools in this o
 
 A question with no named entity usually starts with `search_evidence`, then `fetch_evidence`, and uses `navigate_document_tree` when a passage is cut off.
 
-### Task and decision tools
+### Conversation history and decision tools
 
-The agent also has tools to read its task (`get_task`, `list_events`, `fetch_event`, `list_steps`), to record progress (`set_step`), and to read and write decisions (`search_decisions`, `get_decision`, `list_decisions`, `list_support_history`, `list_decisions_for_review`, `record_decision`, `supersede_decision`, `reaffirm_decision`, `continue_decision_review`). It cannot reject a human decision. [Tasks and resuming](#tasks-and-resuming) describes how a run records and reuses this work.
+The agent also has tools to read its task (`get_task`, `list_events`, `fetch_event`, `list_steps`), record progress (`set_step`), and read or write decisions (`search_decisions`, `get_decision`, `list_decisions`, `list_support_history`, `list_decisions_for_review`, `record_decision`, `supersede_decision`, `reaffirm_decision`, `continue_decision_review`). It cannot reject a human decision. [Tasks and resuming](#tasks-and-resuming) describes how a run records and reuses this work.
 
 ## Tasks and resuming
 
-The run records the agent's messages, each tool call, and each tool result or error as task events, in order, without any call from the agent. A repeated write returns the saved result. The first run of a task stores the question as its goal, and a later run appends its question as a message. When a run resumes, steps that were still in progress become `unknown`, and the task view lists each completed step as reusable or not. The agent uses the first client in `AGENT_LLM_CLIENTS`, and you pass a `tracer` to `build_agent` to record spans for the run.
+The run records messages, tool calls, tool results, and errors as ordered task events without a separate call from the agent. A repeated write returns the saved result. The first run stores the question as the task goal, and a later run appends its question as an event. When a run resumes, steps that were still in progress become `unknown`, and the task view lists each completed step as reusable or not. The agent uses the first client in `AGENT_LLM_CLIENTS`, and you pass a `tracer` to `build_agent` to record spans for the run.
 
 The agent can also record progress with `set_step` and record decisions with `record_decision`. It reads earlier decisions with `search_decisions`. A decision counts only when its write tool confirms that the record was saved.
 

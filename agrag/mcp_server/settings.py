@@ -31,12 +31,12 @@ class McpServerSettings(BaseSettings):
             ``MCP_MAX_FETCH_CHARS``.
         max_fetch_ids: The most evidence ids one fetch or citation check takes.
             Env: ``MCP_MAX_FETCH_IDS``.
-        max_response_chars: The most characters of one result as sent. Memory
-            tool results send their JSON once, beside a short text block. Search
-            and fetch results still send their JSON twice, so they count at twice
-            their JSON length. Env: ``MCP_MAX_RESPONSE_CHARS``.
-        request_deadline_seconds: The server-side timeout of each store read.
-            Env: ``MCP_REQUEST_DEADLINE_SECONDS``.
+        max_response_chars: The most characters of one result as sent. Most
+            tools send JSON once beside a short text block. Search, fetch, and
+            citation-check tools send JSON twice. Env:
+            ``MCP_MAX_RESPONSE_CHARS``.
+        request_deadline_seconds: The server-side timeout for each tool
+            operation. Env: ``MCP_REQUEST_DEADLINE_SECONDS``.
         project_id: Trusted project scope for task and decision operations. Env:
             ``MCP_PROJECT_ID``.
         agent_id: Trusted author for task and decision writes. Env:

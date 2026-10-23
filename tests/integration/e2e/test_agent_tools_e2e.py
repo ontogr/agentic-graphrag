@@ -45,11 +45,12 @@ from agrag.common.data_models.extraction import (
 )
 from agrag.common.data_models.graph_schema import EntityType, GraphSchema, RelationType
 from agrag.cypher.entities import validate_identifier
+from agrag.decisions import DecisionTraces
 from agrag.embedding.base import Embedder
 from agrag.graphdb.base import GraphStore
+from agrag.history import ConversationHistory
 from agrag.ingestion.extract import Extractor
 from agrag.ingestion.graph import Graph
-from agrag.memory import DecisionMemory, TaskMemory
 from agrag.retrieval.methods.traversal import extract_entity_ids
 from agrag.retrieval.rerank.node_distance import node_distance_rerank
 from agrag.retrieval.search_engine import SearchEngine
@@ -201,15 +202,15 @@ async def _core_tools(
 ) -> list[Any]:
     """Build the default agent's tools over the seeded graph for one scope."""
     store: GraphStore = env["store"]
-    memory = TaskMemory(store, project_id=env["project_id"], agent_id="e2e")
-    await memory.create_task(task, "Read the seeded graph.")
-    decisions = DecisionMemory(store, project_id=env["project_id"], agent_id="e2e")
+    history = ConversationHistory(store, project_id=env["project_id"], agent_id="e2e")
+    await history.create_task(task, "Read the seeded graph.")
+    decisions = DecisionTraces(store, project_id=env["project_id"], agent_id="e2e")
     tools, _ = make_core_tools(
         graph_store=store,
         embedder=env["embedder"],
         scope=frozenset(scope_keys),
         task_name=task,
-        memory=memory,
+        history=history,
         decisions=decisions,
         fetched_ids=[],
         fetched_outcomes=[],
@@ -219,20 +220,20 @@ async def _core_tools(
     return tools
 
 
-async def _cleanup_task_memory(store: GraphStore, project_id: str) -> None:
+async def _cleanup_task_history(store: GraphStore, project_id: str) -> None:
     """Delete the tasks, events and steps that the seeded tools wrote."""
     params = {"project_id": project_id}
     await store.execute_write(
-        "MATCH (t:MemoryTask {project_id: $project_id}) "
+        "MATCH (t:Task {project_id: $project_id}) "
         "OPTIONAL MATCH (t)-[:HAS_EVENT|HAS_STEP]->(child) "
         "DETACH DELETE child, t",
         params,
     )
     await store.execute_write(
-        "MATCH (r:MemoryRequest {project_id: $project_id}) DETACH DELETE r", params
+        "MATCH (r:Request {project_id: $project_id}) DETACH DELETE r", params
     )
     await store.execute_write(
-        "MATCH (p:MemoryProject {project_id: $project_id}) DETACH DELETE p", params
+        "MATCH (p:Project {project_id: $project_id}) DETACH DELETE p", params
     )
 
 
@@ -367,7 +368,7 @@ async def _seed_graph(*, one_add_call: bool) -> AsyncGenerator[dict, None]:
             "document_ids": document_ids,
         }
     finally:
-        await _cleanup_task_memory(store, project_id)
+        await _cleanup_task_history(store, project_id)
         await _cleanup(store, all_labels, document_ids)
         await drop_schema_for(store, *all_labels)
         await store.close()
@@ -464,11 +465,11 @@ async def test_core_tools_read_and_scope_the_seeded_graph(seeded: dict) -> None:
     assert not {"Zed", "Zeta"} & reached
 
     limited = await _core_tools(env, [env["main_key"]], "budget", max_tool_calls=2)
-    budget_memory = TaskMemory(
+    budget_history = ConversationHistory(
         env["store"], project_id=env["project_id"], agent_id="e2e"
     )
     budget_middleware = TaskEventMiddleware(
-        budget_memory, "budget", RunState(max_tool_calls=2)
+        budget_history, "budget", RunState(max_tool_calls=2)
     )
 
     async def call_search_evidence(call_id: str) -> Any:

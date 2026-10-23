@@ -12,6 +12,7 @@ from agrag.common.data_models.structure import (
     SECTION_LABEL,
     TABLE_LABEL,
 )
+from agrag.common.data_models.task import HISTORY_RECORD_PROPERTY
 from agrag.cypher._pending_filter import pending_filter_clause
 from agrag.cypher.entities import NODE_IDENTITY_LABEL
 
@@ -140,15 +141,18 @@ def flag_decisions_for_activation_query() -> str:
     return (
         f"MATCH (doc:Document)-[:{HAS_ACTIVATION}]->"
         f"(a:{DOCUMENT_ACTIVATION_LABEL} {{id: $activation_id}}) "
-        "MATCH (d:MemoryDecision {status: 'active'}) "
+        f"MATCH (d:Decision {{{HISTORY_RECORD_PROPERTY}: true, "
+        "status: 'active'}) "
         f"-[:{HAS_SUPPORT}]->"
-        "(s:MemorySupport {kind: 'document', current: true}) "
+        f"(s:DecisionSupport {{{HISTORY_RECORD_PROPERTY}: true, "
+        "kind: 'document', current: true}) "
         "WHERE s.document_node_id = doc.id "
         "AND (a.verb IN ['delete', 'purge'] "
         "OR s.recorded_activation_seq <> a.activation_seq) "
         "WITH DISTINCT d, a "
-        "MATCH (t:MemoryTask)-[:MADE]->(d) "
-        "MATCH (p:MemoryProject {project_id: t.project_id}) "
+        f"MATCH (t:Task {{{HISTORY_RECORD_PROPERTY}: true}})-[:MADE]->(d) "
+        f"MATCH (p:Project {{{HISTORY_RECORD_PROPERTY}: true, "
+        "project_id: t.project_id}) "
         "SET p.review_incomplete = true, "
         "p.review_epoch = coalesce(p.review_epoch, 0) + 1, "
         "d.review_pending = true, d.review_state = 'needs_review', "

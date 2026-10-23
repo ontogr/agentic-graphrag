@@ -67,7 +67,12 @@ def _gold_positions(hits: list[EvidenceSearchHit], keep_key: str) -> list[int]:
 
 
 def _hide_index(
-    store: Neo4jGraphStore, monkeypatch: pytest.MonkeyPatch, *, name: str, state: str
+    store: Neo4jGraphStore,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    name: str,
+    state: str,
+    replacement_name: str | None = None,
 ) -> None:
     """Make SHOW INDEXES report one index in a given state, or leave it out.
 
@@ -88,7 +93,16 @@ def _hide_index(
             return rows
         if state == "missing":
             return [row for row in rows if row["name"] != name]
-        return [{**row, "state": state} if row["name"] == name else row for row in rows]
+        return [
+            {
+                **row,
+                "name": replacement_name or row["name"],
+                "state": state,
+            }
+            if row["name"] == name
+            else row
+            for row in rows
+        ]
 
     monkeypatch.setattr(store, "execute_read", execute_read)
 
@@ -380,6 +394,45 @@ class TestIndexReadiness:
             embedder,
             _QUERY,
             mode=EvidenceSearchMode.LEXICAL,
+            limit=5,
+            scope=frozenset({evidence_env.keep}),
+        )
+
+        assert result.status is EvidenceSearchStatus.INDEX_NOT_READY
+        assert result.index_state is IndexState.NOT_READY
+        assert result.hits == []
+
+    @pytest.mark.parametrize(
+        ("mode", "index_name"),
+        [
+            (EvidenceSearchMode.LEXICAL, fulltext_index_name("Chunk", ["text"])),
+            (EvidenceSearchMode.SEMANTIC, vector_index_name("Chunk", "embedding")),
+        ],
+    )
+    async def test_reports_renamed_index_not_ready(
+        self,
+        evidence_env: EvidenceEnv,
+        embedder: BagOfWordsEmbedder,
+        monkeypatch: pytest.MonkeyPatch,
+        mode: EvidenceSearchMode,
+        index_name: str,
+    ) -> None:
+        """A differently named index cannot satisfy the search call."""
+        store = evidence_env.store
+        assert isinstance(store, Neo4jGraphStore)
+        _hide_index(
+            store,
+            monkeypatch,
+            name=index_name,
+            state="ONLINE",
+            replacement_name="unexpected_index",
+        )
+
+        result = await search_evidence(
+            store,
+            embedder,
+            _QUERY,
+            mode=mode,
             limit=5,
             scope=frozenset({evidence_env.keep}),
         )

@@ -1,16 +1,16 @@
 ---
 title: Run the MCP server
 sidebar_position: 6
-description: Give an MCP client tools to search your documents, read exact passages, check citations, and record tasks and decisions.
+description: Give an MCP client tools to search your documents, read exact passages, check citations, and access conversation history and decision traces.
 ---
 
 import Diagram from '@site/src/components/Diagram';
 
 # Run the MCP server
 
-The `agrag-mcp` command runs a local stdio server. An MCP client such as an IDE assistant or a desktop chat app uses it to search the documents in your graph, read the exact text behind each result, check citations, and keep task and decision memory.
+The `agrag-mcp` command runs a local stdio server. An MCP client such as an IDE assistant or a desktop chat app uses it to search the documents in your graph, read the exact text behind each result, check citations, and access conversation history and decision traces.
 
-<Diagram folder="docs" name="mcp-server" alt="An MCP client reaches three tool groups. The evidence tools are always on and read the documents in the server's scope. The memory read tools need a project id and an agent id and read tasks and decisions. The write tools need read_only to be false and write tasks and decisions. reject_decision also needs allow_reject." />
+<Diagram folder="docs" name="context-mcp-server" alt="An MCP client reaches three tool groups. Evidence tools read documents in the server's scope. History and decision read tools require a project id and agent id. Write tools require read_only to be false, and reject_decision also requires allow_reject." />
 
 ## Before you start
 
@@ -74,13 +74,13 @@ A typical session starts with `search_evidence`, fetches the best hits with `fet
 
 The parameters, defaults, and caps of each tool are in the [tools reference](../reference/tools.mdx#evidence-tools).
 
-## Keep task and decision memory
+## Enable conversation history and decision traces
 
-Set `MCP_PROJECT_ID` and `MCP_AGENT_ID` to turn on the memory tools. Tasks and decisions belong to the project, and the agent id is recorded as the author of each write.
+Set `MCP_PROJECT_ID` and `MCP_AGENT_ID` to enable history and decision tools. Tasks and decisions belong to the project, and the agent id is recorded as the author of each write.
 
 The built-in agent uses the same names. The [tools reference](../reference/tools.mdx#tool-names) lists them. The read tools are `get_task`, `list_events`, `fetch_event`, `list_steps`, `search_decisions`, `list_conflicts`, `get_decision`, `list_support_history`, `list_decisions`, and `list_decisions_for_review`.
 
-To let the client write, set `MCP_READ_ONLY=false`. The write tools are `create_task`, `record_event`, `set_step`, `record_decision`, `supersede_decision`, `reaffirm_decision`, and `continue_decision_review`. The request-based writes take a `request_id`, and a retry with the same id returns the saved result for a completed write. On FalkorDB, a failed multi-statement write can leave partial effects that repeat on retry. Account for the [retry limits](./configure-storage-backends.mdx#retried-memory-writes) before enabling writes. `continue_decision_review` takes a bounded `limit` instead. A decision lists the evidence it rests on, and the server accepts document evidence that the same session fetched. Set `MCP_ALLOW_REJECT=true` to add `reject_decision`.
+To let the client write, set `MCP_READ_ONLY=false`. The write tools are `create_task`, `record_event`, `set_step`, `record_decision`, `supersede_decision`, `reaffirm_decision`, and `continue_decision_review`. The request-based writes take a `request_id`, and a retry with the same id returns the saved result for a completed write. On FalkorDB, a failed multi-statement write can leave partial effects that repeat on retry. Account for the [retry limits](./configure-storage-backends.mdx#retried-history-and-decision-writes) before enabling writes. `continue_decision_review` takes a bounded `limit` instead. A decision lists the evidence it rests on, and the server accepts document evidence that the same session fetched. Set `MCP_ALLOW_REJECT=true` to add `reject_decision`.
 
 Document scope applies to evidence reads. Task and decision tools act on the configured project.
 
@@ -109,6 +109,6 @@ Store-hybrid hits report `legs=["semantic"]` because Weaviate fuses dense and le
 ## Related
 
 - How-to: [Find and cite evidence](./find-and-cite-evidence.mdx) calls the same operations from Python.
-- How-to: [Record decisions and review them](./connected-memory.mdx).
+- Use [Decision traces](./decision-traces.mdx) to record supported decisions and review them when source documents change.
 - [Retrieval](../concepts/retrieval.mdx) compares the search strategies, and [Evidence ids and citations](../concepts/evidence-and-citations.mdx) describes the fetch and citation check that a client runs.
 - Reference: [Tools](../reference/tools.mdx) for tool parameters, [Configuration](../reference/configuration.mdx#mcp-server) for server settings.

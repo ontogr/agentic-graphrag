@@ -5,12 +5,12 @@ build-backend = "uv_build"
 [project]
 name = "agentic-graphrag"
 version = "0.0.6"
-description = "Context graphs that give AI agents memory they can trace to its sources."
+description = "Context graphs that connect enterprise knowledge, conversation history, and decision traces."
 readme = "README.md"
 requires-python = ">=3.11"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
-keywords = ["agent-memory", "context-graph", "knowledge-graph", "graphrag", "ai-agents", "mcp", "neo4j", "provenance"]
+keywords = ["conversation-history", "decision-traces", "context-graph", "knowledge-graph", "graphrag", "ai-agents", "mcp", "neo4j", "provenance"]
 authors = [
   { name = "Ashwin Mathur", email = "ashwinm400@gmail.com" },
   { name = "Varun Mathur", email = "varunm500@gmail.com" },

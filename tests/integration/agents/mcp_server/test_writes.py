@@ -20,46 +20,46 @@ from tests.integration.retrieval.evidence.conftest import EvidenceEnv
 
 
 @pytest.fixture
-async def memory_identity(
+async def history_identity(
     evidence_env: EvidenceEnv,
 ) -> AsyncIterator[tuple[str, str]]:
-    """Create a project identity and remove only its memory nodes afterwards."""
+    """Create a project identity and remove its history nodes afterwards."""
     project_id = f"mcp-{uuid4().hex}"
     agent_id = f"agent-{uuid4().hex}"
     try:
         yield project_id, agent_id
     finally:
         await evidence_env.store.execute_write(
-            "MATCH (d:MemoryDecision {project_id: $project_id}) "
+            "MATCH (d:Decision {project_id: $project_id}) "
             "OPTIONAL MATCH (d)-[:HAS_SUPPORT]->(s) DETACH DELETE s, d",
             {"project_id": project_id},
         )
         await evidence_env.store.execute_write(
-            "MATCH (t:MemoryTask {project_id: $project_id}) "
+            "MATCH (t:Task {project_id: $project_id}) "
             "OPTIONAL MATCH (t)-[:HAS_EVENT|HAS_STEP]->(child) "
             "DETACH DELETE child, t",
             {"project_id": project_id},
         )
         await evidence_env.store.execute_write(
-            "MATCH (r:MemoryRequest {project_id: $project_id}) DETACH DELETE r",
+            "MATCH (r:Request {project_id: $project_id}) DETACH DELETE r",
             {"project_id": project_id},
         )
         await evidence_env.store.execute_write(
-            "MATCH (p:MemoryProject {project_id: $project_id}) DETACH DELETE p",
+            "MATCH (p:Project {project_id: $project_id}) DETACH DELETE p",
             {"project_id": project_id},
         )
 
 
-class TestMcpMemoryTools:
-    """MCP memory writes preserve scope, authority and retry guarantees."""
+class TestMcpHistoryTools:
+    """MCP task and decision writes preserve scope and retry guarantees."""
 
     async def test_tools_persist_scoped_events_and_gate_rejection(  # noqa: PLR0915
         self,
         evidence_env: EvidenceEnv,
-        memory_identity: tuple[str, str],
+        history_identity: tuple[str, str],
     ) -> None:
         """Write tools persist events, while settings control each write gate."""
-        project_id, agent_id = memory_identity
+        project_id, agent_id = history_identity
         base = McpServerSettings(
             scope_document_keys=evidence_env.keep,
             project_id=project_id,

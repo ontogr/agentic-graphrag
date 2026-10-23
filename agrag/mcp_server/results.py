@@ -1,4 +1,4 @@
-"""Bound memory tool results and shape them for the MCP wire."""
+"""Bound tool results and shape them for MCP responses."""
 
 import asyncio
 from collections.abc import Awaitable
@@ -9,8 +9,8 @@ from mcp.types import CallToolResult, TextContent
 from pydantic_core import to_json, to_jsonable_python
 
 
-# The SDK sends a text block beside every structured result. The memory tools
-# send a short block instead of a second full copy, so the data is sent once.
+# The SDK sends a text block beside every structured result. This wrapper keeps
+# that block short, so structured data is sent once.
 RESULT_TEXT = "The result is in structuredContent."
 
 
@@ -25,7 +25,7 @@ async def bounded_result(
         deadline: The most seconds the operation may take.
         response_limit: The most characters the sent result may take: the
             structured JSON plus the text block.
-        operation: The memory operation to await.
+        operation: The history, decision, or evidence operation to await.
 
     Returns:
         The result with the value as structured content.
@@ -37,13 +37,13 @@ async def bounded_result(
         async with asyncio.timeout(deadline):
             value = await operation
     except TimeoutError:
-        raise ToolError("memory operation deadline exceeded") from None
+        raise ToolError("tool operation deadline exceeded") from None
     structured = to_jsonable_python(value, by_alias=True)
     if not isinstance(structured, dict):
         # Match the wrapped output schema that the SDK advertises for lists.
         structured = {"result": structured}
     if len(to_json(structured)) + len(RESULT_TEXT) > response_limit:
-        raise ToolError("memory result exceeds the configured response limit")
+        raise ToolError("tool result exceeds the configured response limit")
     return CallToolResult(
         content=[TextContent(type="text", text=RESULT_TEXT)],
         structured_content=structured,

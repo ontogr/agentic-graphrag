@@ -51,7 +51,7 @@ class RunState:
 
 
 async def record_event_or_flag(
-    memory: Any,
+    history: Any,
     task_name: str,
     run_state: RunState,
     kind: EventKind,
@@ -66,7 +66,7 @@ async def record_event_or_flag(
     error returns its stored result instead of a second event.
 
     Args:
-        memory: The task memory that holds the event.
+        history: The conversation history that holds the event.
         task_name: The task the event belongs to.
         run_state: The run whose failure flag is set on a lasting error.
         kind: The kind of event.
@@ -81,7 +81,7 @@ async def record_event_or_flag(
     error = "not recorded"
     for _ in range(2):
         try:
-            result = await memory.record_event(
+            result = await history.record_event(
                 task_name,
                 kind,
                 role=role,
@@ -140,9 +140,9 @@ class TaskEventMiddleware(AgentMiddleware):
     model receives an error tool message so it can react.
     """
 
-    def __init__(self, memory: Any, task_name: str, run_state: RunState) -> None:
+    def __init__(self, history: Any, task_name: str, run_state: RunState) -> None:
         """Bind event capture to one task run."""
-        self._memory = memory
+        self._history = history
         self._task_name = task_name
         self._run_state = run_state
 
@@ -155,7 +155,7 @@ class TaskEventMiddleware(AgentMiddleware):
         response = await handler(request)
         for message in response.result:
             await record_event_or_flag(
-                self._memory,
+                self._history,
                 self._task_name,
                 self._run_state,
                 EventKind.MESSAGE,
@@ -172,7 +172,7 @@ class TaskEventMiddleware(AgentMiddleware):
         """Record a tool call, then its result or the error that replaced it."""
         call = request.tool_call
         await record_event_or_flag(
-            self._memory,
+            self._history,
             self._task_name,
             self._run_state,
             EventKind.TOOL_CALL,
@@ -223,7 +223,7 @@ class TaskEventMiddleware(AgentMiddleware):
     async def _record_tool_result(self, call: Any, content: Any) -> Any:
         """Store a result with the identifier of its originating tool call."""
         return await record_event_or_flag(
-            self._memory,
+            self._history,
             self._task_name,
             self._run_state,
             EventKind.TOOL_RESULT,
@@ -235,7 +235,7 @@ class TaskEventMiddleware(AgentMiddleware):
         """Mark each step this run left in progress as failed."""
         for name, kind in list(self._run_state.open_steps.items()):
             try:
-                outcome = await self._memory.set_step(
+                outcome = await self._history.set_step(
                     self._task_name,
                     name,
                     StepState.FAILED,

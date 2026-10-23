@@ -6,7 +6,7 @@ sidebar_label: TaskEventMiddleware
 # `agrag.agents.middleware.TaskEventMiddleware` \{#agrag-agents-middleware-TaskEventMiddleware}
 
 ```python
-TaskEventMiddleware(memory:Any, task_name:str, run_state:RunState) -> None
+TaskEventMiddleware(history:Any, task_name:str, run_state:RunState) -> None
 ```
 
 Bases: <code>AgentMiddleware</code>

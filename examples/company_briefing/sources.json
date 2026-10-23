@@ -1,0 +1,18 @@
+{
+  "sources": [
+    {
+      "document_key": "boeing-fy2022-annual-report",
+      "title": "The Boeing Company 2022 Annual Report (Form 10-K)",
+      "reporting_period": "Fiscal year ended December 31, 2022",
+      "file_name": "BOEING_2022_10K.pdf",
+      "download_url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/BOEING_2022_10K.pdf",
+      "canonical_source_url": "https://www.sec.gov/Archives/edgar/data/12927/000001292723000007/ba-20221231.htm",
+      "sha256": "09285ff7ee737d3302977104aa05cc53c9dfb0161f3461a89b583dc38b9f2ab6",
+      "selection_notes": [
+        "Business and risk discussion, including commercial-airline exposure. The financial benchmark locates its cyclicality passage near zero-based PDF page 7.",
+        "Summary of Business Segment Data, including the reconciliation items and total. The financial benchmark locates this table near zero-based PDF page 61."
+      ],
+      "attribution": "The Boeing Company, 2022 Form 10-K filed January 27, 2023. The example downloads a pinned copy for local processing and does not redistribute the report."
+    }
+  ]
+}
