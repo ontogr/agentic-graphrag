@@ -23,7 +23,7 @@ import asyncio
 import os
 import statistics
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -46,27 +46,27 @@ QUESTIONS = (
     {
         "id": "founder",
         "question": "Who founded Zephyra Robotics in Halvorn?",
-        "expected_tools": ["search_evidence", "fetch_evidence"],
+        "expected_tools": [["search_evidence", "entity_search"], "fetch_evidence"],
     },
     {
         "id": "joined",
         "question": "When did Tobias Renn join Zephyra Robotics as chief engineer?",
-        "expected_tools": ["search_evidence", "fetch_evidence"],
+        "expected_tools": [["search_evidence", "entity_search"], "fetch_evidence"],
     },
     {
         "id": "designer",
         "question": "Who designed the Lumen-9 lifting arm?",
-        "expected_tools": ["search_evidence", "fetch_evidence"],
+        "expected_tools": [["search_evidence", "entity_search"], "fetch_evidence"],
     },
     {
         "id": "lift",
         "question": "How much weight can the Lumen-9 warehouse robot lift?",
-        "expected_tools": ["search_evidence", "fetch_evidence"],
+        "expected_tools": [["search_evidence", "entity_search"], "fetch_evidence"],
     },
     {
         "id": "released",
         "question": "When did Zephyra Robotics release the Lumen-9?",
-        "expected_tools": ["search_evidence", "fetch_evidence"],
+        "expected_tools": [["search_evidence", "entity_search"], "fetch_evidence"],
     },
 )
 
@@ -82,7 +82,9 @@ _JUDGED = ("task_completion", "trajectory_quality")
 
 
 async def _score(
-    judge: ChatModelJudge, case: LLMTestCase, expected_tools: list[str]
+    judge: ChatModelJudge,
+    case: LLMTestCase,
+    expected_tools: Sequence[str | Sequence[str]],
 ) -> dict[str, dict[str, Any]]:
     """Score one run with every trajectory metric, at once."""
     metrics: dict[str, BaseMetric] = {
@@ -135,7 +137,7 @@ async def test_agent_trajectory_meets_thresholds(
                 "tool_calls": [
                     step.name for step in trajectory.steps if step.kind == "tool"
                 ],
-                "scores": await _score(judge, case, list(item["expected_tools"])),
+                "scores": await _score(judge, case, item["expected_tools"]),
             }
         )
         with capsys.disabled():

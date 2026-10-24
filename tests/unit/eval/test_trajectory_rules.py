@@ -110,7 +110,7 @@ class TestTrajectoryCase:
 
 
 class TestExpectedTools:
-    """Expected tools must appear; extra tools and arguments do not matter."""
+    """Expected tool calls must appear in order; extras and arguments do not matter."""
 
     def test_all_names_present_pass(self) -> None:
         """Every expected name called passes."""
@@ -142,6 +142,53 @@ class TestExpectedTools:
         assert score == 0.0
         assert "look_up_entity" in _reason(metric)
 
+    def test_out_of_order_calls_fail(self) -> None:
+        """A call for a later entry before an earlier entry's call fails."""
+        metric = expected_tools_metric(
+            [["look_up_entity", "search_source_text"], "fetch_source"]
+        )
+
+        score = metric.measure(
+            _case(
+                _research_tool("fetch_source", 20, 30),
+                _research_tool("look_up_entity", 35, 40),
+                _answer(60, 70),
+            )
+        )
+
+        assert score == 0.0
+
+    def test_in_order_calls_pass(self) -> None:
+        """Entries matched in call order pass."""
+        metric = expected_tools_metric(
+            [["look_up_entity", "search_source_text"], "fetch_source"]
+        )
+
+        score = metric.measure(
+            _case(
+                _research_tool("look_up_entity", 20, 30),
+                _research_tool("fetch_source", 35, 40),
+                _answer(60, 70),
+            )
+        )
+
+        assert score == 1.0
+
+    def test_repeated_entry_needs_one_call_per_occurrence(self) -> None:
+        """The same name expected twice needs two separate calls."""
+        metric = expected_tools_metric(["search_source_text", "search_source_text"])
+
+        score = metric.measure(
+            _case(_research_tool("search_source_text", 20, 30), _answer(60, 70))
+        )
+
+        assert score == 0.0
+
+    def test_empty_alternative_group_is_rejected(self) -> None:
+        """An alternative group without names is a construction error."""
+        with pytest.raises(ValueError, match="empty"):
+            expected_tools_metric([[]])
+
     def test_extra_tools_do_not_matter(self) -> None:
         """Calls beyond the expected names still pass."""
         metric = expected_tools_metric(["task"])
@@ -164,6 +211,38 @@ class TestExpectedTools:
         score = metric.measure(_case(_task("verifier", 10, 50), _answer(60, 70)))
 
         assert score == 1.0
+
+    def test_any_of_group_passes_when_one_member_called(self) -> None:
+        """A nested alternative group is satisfied by any one of its names."""
+        metric = expected_tools_metric([["task", "look_up_entity"]])
+
+        score = metric.measure(
+            _case(_research_tool("look_up_entity", 20, 30), _answer(60, 70))
+        )
+
+        assert score == 1.0
+
+    def test_any_of_group_fails_when_no_member_called(self) -> None:
+        """A nested alternative group with no called member fails and names it."""
+        metric = expected_tools_metric([["task", "look_up_entity"]])
+
+        score = metric.measure(
+            _case(_research_tool("search_source_text", 20, 30), _answer(60, 70))
+        )
+
+        assert score == 0.0
+        assert "look_up_entity" in _reason(metric)
+
+    def test_required_name_and_any_of_group_together(self) -> None:
+        """A mix of required names and alternative groups needs both."""
+        metric = expected_tools_metric([["task", "look_up_entity"], "answer_question"])
+
+        score = metric.measure(
+            _case(_research_tool("look_up_entity", 20, 30), _answer(60, 70))
+        )
+
+        assert score == 0.0
+        assert "answer_question" in _reason(metric)
 
     def test_no_tool_steps_fail_and_list_what_was_called(self) -> None:
         """A trajectory without the required name fails and shows the calls."""

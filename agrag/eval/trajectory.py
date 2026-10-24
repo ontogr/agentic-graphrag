@@ -9,10 +9,7 @@ import json
 from collections.abc import Sequence
 from typing import Any, Literal, TypedDict
 
-from agentevals.trajectory import (
-    create_trajectory_llm_as_judge,
-    create_trajectory_match_evaluator,
-)
+from agentevals.trajectory import create_trajectory_llm_as_judge
 from deepeval.metrics import BaseMetric, TaskCompletionMetric
 from deepeval.models import DeepEvalBaseLLM
 from deepeval.test_case import LLMTestCase, ToolCall
@@ -360,25 +357,6 @@ class _ToolResultMessage(TypedDict):
     content: str
 
 
-def _tool_calls_message(tool_steps: list[Step]) -> _ToolCallsMessage:
-    """Build one assistant message with a tool call per step, in order."""
-    return {
-        "role": "assistant",
-        "content": "",
-        "tool_calls": [
-            {
-                "id": f"call-{index}",
-                "type": "function",
-                "function": {
-                    "name": step.name,
-                    "arguments": json.dumps(step.args),
-                },
-            }
-            for index, step in enumerate(tool_steps)
-        ],
-    }
-
-
 def _tool_call_pair(
     index: int, step: Step
 ) -> tuple[_ToolCallsMessage, _ToolResultMessage]:
@@ -511,59 +489,61 @@ class _ScoreRepairModel(BaseChatModel):
 
 
 def expected_tools_metric(
-    names: Sequence[str], *, threshold: float = 0.5
+    names: Sequence[str | Sequence[str]], *, threshold: float = 0.5
 ) -> ScoreMetric:
-    """Build the metric that the run called every expected tool.
+    """Build the metric that the run made every expected tool call, in order.
 
-    Compares the trajectory's tool calls with the expected names as a
-    superset, ignoring arguments: extra tools do not matter, a missing name
-    fails. Scores 1.0 or 0.0.
+    Matches the expected entries against the trajectory's tool call names,
+    ignoring arguments: every entry must be satisfied, in order, as a
+    subsequence of the calls, and extra calls do not matter. A name is
+    satisfied by a call to that name; a nested sequence by a call to any
+    one of its names. A repeated entry needs a separate call per
+    occurrence, so discovery before fetch and repeated searches are both
+    enforced. Scores 1.0 or 0.0.
 
     Args:
-        names: The tool names the run must include.
+        names: The tool calls the run must make, in order. Each item is one
+            required name, or a non-empty set of alternative names of which
+            the run must have called at least one.
         threshold: The minimum score that counts as success.
 
     Returns:
-        A ``ScoreMetric`` that scores tool presence.
+        A ``ScoreMetric`` that scores tool presence and order.
+
+    Raises:
+        ValueError: An alternative group holds no names.
     """
-    reference: list[_ToolCallsMessage] = [
-        {
-            "role": "assistant",
-            "content": "",
-            "tool_calls": [
-                {
-                    "id": f"expected-{index}",
-                    "type": "function",
-                    "function": {"name": name, "arguments": "{}"},
-                }
-                for index, name in enumerate(names)
-            ],
-        }
-    ]
-    evaluator = create_trajectory_match_evaluator(
-        trajectory_match_mode="superset", tool_args_match_mode="ignore"
+    expected = tuple(
+        (entry,) if isinstance(entry, str) else tuple(entry) for entry in names
     )
+    if any(len(entry) == 0 for entry in expected):
+        raise ValueError("An alternative tool group cannot be empty.")
 
     def scorer(test_case: LLMTestCase) -> ScoreResult:
         trajectory = _case_trajectory(test_case)
-        tool_steps = [step for step in trajectory.steps if step.kind == "tool"]
-        outputs = [_tool_calls_message(tool_steps)]
-        result = evaluator(outputs=outputs, reference_outputs=reference)
-        if isinstance(result, list):
-            result = result[0]
-        called = [step.name for step in tool_steps]
-        if bool(result["score"]):
+        called = [step.name for step in trajectory.steps if step.kind == "tool"]
+        missing: list[str] = []
+        position = 0
+        for entry in expected:
+            while position < len(called) and called[position] not in entry:
+                position += 1
+            if position == len(called):
+                missing.append(
+                    entry[0] if len(entry) == 1 else f"one of {', '.join(entry)}"
+                )
+            else:
+                position += 1
+        if missing:
             return ScoreResult(
-                1.0,
-                f"All {len(names)} expected tools were called.",
-                {"called": called},
+                0.0,
+                f"Missing tools: {', '.join(missing)}. "
+                f"Called: {', '.join(called) or 'none'}.",
+                {"called": called, "missing": missing},
             )
-        missing = [name for name in names if name not in called]
         return ScoreResult(
-            0.0,
-            f"Missing tools: {', '.join(missing)}. "
-            f"Called: {', '.join(called) or 'none'}.",
-            {"called": called, "missing": missing},
+            1.0,
+            f"All {len(expected)} expected tool calls were made in order.",
+            {"called": called},
         )
 
     return ScoreMetric("Expected tools", scorer, threshold)
