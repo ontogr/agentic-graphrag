@@ -49,7 +49,7 @@ async def _record_document_decision(
         "use harbor",
         "document support",
         supports=[DocumentSupportInput(evidence_id=evidence_id)],
-        fetched_evidence=fetched,
+        fetched_evidence=fetched.outcomes,
     )
     assert result.recorded and result.decision is not None
     return history, result.decision
@@ -239,7 +239,7 @@ async def test_superseding_parent_queues_dependent_without_migrating_support(
         "replacement rationale",
         explanation="The decision changed.",
         supports=[DocumentSupportInput(evidence_id=evidence_id)],
-        fetched_evidence=fetched,
+        fetched_evidence=fetched.outcomes,
     )
 
     assert replacement.recorded and replacement.decision is not None
@@ -450,7 +450,7 @@ async def test_reaffirm_with_current_fetch_clears_flag_and_records_reviewer(
     result = await reviewer.reaffirm_decision(
         decision.id,
         [DocumentSupportInput(evidence_id=evidence_id)],
-        fetched_evidence=fetched,
+        fetched_evidence=fetched.outcomes,
         request_id="reaffirm-clear-1",
     )
     assert result.recorded
@@ -473,7 +473,7 @@ async def test_reaffirm_with_current_fetch_clears_flag_and_records_reviewer(
     retry = await reviewer.reaffirm_decision(
         decision.id,
         [DocumentSupportInput(evidence_id=evidence_id)],
-        fetched_evidence=fetched,
+        fetched_evidence=fetched.outcomes,
         request_id="reaffirm-clear-1",
     )
     assert retry == result
@@ -517,7 +517,7 @@ async def test_reaffirming_parent_leaves_dependent_child_flagged(
     result = await history.reaffirm_decision(
         parent.id,
         [DocumentSupportInput(evidence_id=evidence_id)],
-        fetched_evidence=fetched,
+        fetched_evidence=fetched.outcomes,
     )
     assert result.decision.review_state is ReviewState.CLEAR
     await history.continue_decision_review(limit=10)
@@ -565,7 +565,7 @@ async def test_reaffirm_is_refused_while_a_dependency_needs_review(
     parent_result = await history.reaffirm_decision(
         parent.id,
         [DocumentSupportInput(evidence_id=evidence_id)],
-        fetched_evidence=fetched,
+        fetched_evidence=fetched.outcomes,
     )
     assert parent_result.recorded
     child_result = await history.reaffirm_decision(

@@ -322,7 +322,11 @@ async def _gather_legs(
         if isinstance(result, asyncio.CancelledError):
             raise result
         if isinstance(result, BaseException):
-            _LOGGER.error("Evidence search leg %s failed: %r", leg.value, result)
+            _LOGGER.error(
+                "Evidence search leg %s failed",
+                leg.value,
+                exc_info=(type(result), result, result.__traceback__),
+            )
             leg_failures.append(LegFailure(leg=leg, message=_LEG_FAILED_MESSAGE))
             continue
         visible, leg_truncated = result

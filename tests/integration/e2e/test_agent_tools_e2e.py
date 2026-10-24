@@ -13,7 +13,6 @@ the way the agent does (``tool.ainvoke``) and checks what the agent would read:
 
 import hashlib
 import importlib.util
-import json
 import re
 from collections.abc import AsyncGenerator, Sequence
 from contextlib import asynccontextmanager
@@ -35,7 +34,7 @@ from agrag.common.data_models.document import (
 from agrag.common.data_models.entity_search import EntityResult, ExplorationResult
 from agrag.common.data_models.evidence import (
     EvidenceSearchResult,
-    FetchOutcome,
+    FetchResult,
     FetchStatus,
 )
 from agrag.common.data_models.extraction import (
@@ -391,13 +390,11 @@ async def test_core_tools_read_and_scope_the_seeded_graph(seeded: dict) -> None:
     alice = EvidenceSearchResult.model_validate_json(
         await _tool(main, "search_evidence").ainvoke({"query": "Alice"})
     )
-    fetched = FetchOutcome.model_validate(
-        json.loads(
-            await _tool(main, "fetch_evidence").ainvoke(
-                {"evidence_ids": [alice.hits[0].evidence_id]}
-            )
-        )[0]
-    )
+    fetched = FetchResult.model_validate_json(
+        await _tool(main, "fetch_evidence").ainvoke(
+            {"evidence_ids": [alice.hits[0].evidence_id]}
+        )
+    ).outcomes[0]
     assert fetched.status is FetchStatus.OK
     assert "Alice founded Acme" in (fetched.text or "")
 
@@ -405,13 +402,11 @@ async def test_core_tools_read_and_scope_the_seeded_graph(seeded: dict) -> None:
         await _tool(full, "search_evidence").ainvoke({"query": "Zed"})
     )
     zed_hit = next(hit for hit in zed_in_full.hits if "Zed" in hit.snippet)
-    zed_from_main = FetchOutcome.model_validate(
-        json.loads(
-            await _tool(main, "fetch_evidence").ainvoke(
-                {"evidence_ids": [zed_hit.evidence_id]}
-            )
-        )[0]
-    )
+    zed_from_main = FetchResult.model_validate_json(
+        await _tool(main, "fetch_evidence").ainvoke(
+            {"evidence_ids": [zed_hit.evidence_id]}
+        )
+    ).outcomes[0]
     assert zed_from_main.status is not FetchStatus.OK
     assert zed_from_main.text is None
 

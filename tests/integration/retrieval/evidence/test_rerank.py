@@ -63,7 +63,7 @@ class _SlowReranker:
         return [1.0 for _ in texts]
 
 
-async def _evidence_ids(result_hits: list) -> list[str]:
+def _evidence_ids(result_hits: list) -> list[str]:
     """Return the evidence ids of hits, best first."""
     return [hit.evidence_id for hit in result_hits]
 
@@ -189,6 +189,7 @@ class TestRerankFailure:
             limit=5,
             scope=_full_scope(evidence_env),
             reranker=_ExplodingReranker(),
+            settings=RetrievalSettings(rerank_candidates=5),
         )
 
         assert failed.status is EvidenceSearchStatus.OK
@@ -211,7 +212,7 @@ class TestRerankFailure:
             limit=5,
             scope=_full_scope(evidence_env),
         )
-        settings = RetrievalSettings(rerank_timeout_seconds=0.05)
+        settings = RetrievalSettings(rerank_candidates=5, rerank_timeout_seconds=0.05)
         slow = await search_evidence(
             evidence_env.store,
             BagOfWordsEmbedder(),
@@ -242,6 +243,7 @@ class TestRerankFailure:
             limit=1,
             scope=_full_scope(evidence_env),
             reranker=_WordOverlapReranker("viber messaging app calls"),
+            settings=RetrievalSettings(rerank_candidates=1),
         )
 
         assert result.status is EvidenceSearchStatus.OK

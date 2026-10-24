@@ -20,14 +20,14 @@ from agrag.common.data_models.extraction import (
 from agrag.common.data_models.graph_record import RelationRecord
 from agrag.common.data_models.graph_schema import EntityType, GraphSchema, RelationType
 from agrag.common.data_models.vector_record import Distance
-from agrag.cypher.entities import validate_identifier
+from agrag.cypher.entities import upsert_merge_alias_query, validate_identifier
 from agrag.embedding.base import Embedder
 from agrag.evidence import entity_search, search_themes
 from agrag.graphdb.base import GraphStore
 from agrag.ingestion.community import required_member_ids
 from agrag.ingestion.extract import Extractor
 from agrag.ingestion.graph import Graph
-from tests.integration._backend import build_test_store
+from tests.integration._backend import await_indexes, build_test_store
 from tests.integration._schema_cleanup import delete_resolved_entities, drop_schema_for
 from tests.integration.e2e._artifact import write_artifact
 from tests.integration.retrieval.evidence._corpus import make_document
@@ -179,6 +179,11 @@ async def _cleanup_community_test_data(
 ) -> None:
     """Remove only entities and dependent data created by one E2E test."""
     await delete_resolved_entities(store, person_label, org_label)
+    await store.execute_write(
+        "MATCH (a:_MergeAlias) WHERE any(label IN $labels "
+        "WHERE a.merge_key STARTS WITH label + ':') DETACH DELETE a",
+        {"labels": [person_label, org_label]},
+    )
     rows = await store.execute_read(
         "MATCH (n) WHERE $person_label IN labels(n) "
         "OR $org_label IN labels(n) RETURN collect(n.id) AS ids",
@@ -257,6 +262,10 @@ async def test_community_via_store_e2e() -> None:  # noqa: PLR0915
             dimensions=dim,
             distance=Distance.COSINE,
         )
+    for lbl in (person_label, org_label):
+        await store.ensure_fulltext_index(label=lbl, properties=["name"])
+    await store.ensure_fulltext_index(label=CHUNK_LABEL, properties=["text"])
+    await await_indexes(store)
     # Seed two 3-node stars (2 persons + 1 org each), 4 relations.
     p1 = Entity(id=uuid4(), label=person_label, name="Alice")
     p2 = Entity(id=uuid4(), label=person_label, name="Bob")
@@ -271,6 +280,15 @@ async def test_community_via_store_e2e() -> None:  # noqa: PLR0915
             person_label, [e.to_node_record() for e in (p1, p2, p3, p4)]
         )
         await store.upsert_nodes(org_label, [e.to_node_record() for e in (o1, o2)])
+        for entity in (p1, p2, p3, p4, o1, o2):
+            await store.execute_write(
+                upsert_merge_alias_query(),
+                {
+                    "merge_keys": [entity.merge_key],
+                    "entity_id": str(entity.id),
+                    "pending_job_id": None,
+                },
+            )
         # Heavy clique (Acme star) gets weight 3 per edge, light gets 1.
         c1 = uuid4()
         c2 = uuid4()

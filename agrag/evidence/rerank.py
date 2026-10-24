@@ -6,6 +6,7 @@ import logging
 from collections.abc import Awaitable, Callable, Sequence
 from typing import Any, cast
 
+from agrag.embedding.errors import EmbeddingMissingExtraError
 from agrag.retrieval.settings import RetrievalSettings
 
 
@@ -26,7 +27,10 @@ _MODEL_LOAD_LOCKS: dict[str, asyncio.Lock] = {}
 
 def _build_cross_encoder(model: str) -> Any:
     """Construct a new CrossEncoder instance for the given model name."""
-    from sentence_transformers import CrossEncoder  # noqa: PLC0415
+    try:
+        from sentence_transformers import CrossEncoder  # noqa: PLC0415
+    except ImportError as exc:
+        raise EmbeddingMissingExtraError("embed-local") from exc
 
     return CrossEncoder(model)
 
@@ -76,7 +80,12 @@ class CrossEncoderReranker:
 
         Args:
             model: The sentence-transformers CrossEncoder model name/path.
+
+        Raises:
+            EmbeddingMissingExtraError: The ``embed-local`` extra is not installed.
         """
+        if importlib.util.find_spec("sentence_transformers") is None:
+            raise EmbeddingMissingExtraError("embed-local")
         self._model_name = model
         self._predict_semaphore = asyncio.Semaphore(1)
 
@@ -129,10 +138,11 @@ def reranker_from_settings(settings: RetrievalSettings) -> CrossEncoderReranker 
     """
     if not settings.rerank_enabled:
         return None
-    if importlib.util.find_spec("sentence_transformers") is None:
+    try:
+        return CrossEncoderReranker(settings.cross_encoder_model)
+    except EmbeddingMissingExtraError:
         _LOGGER.warning(
             "rerank is enabled but the embed-local extra is not installed; "
             "hybrid search runs without rerank"
         )
         return None
-    return CrossEncoderReranker(settings.cross_encoder_model)

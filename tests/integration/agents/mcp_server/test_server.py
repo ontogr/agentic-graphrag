@@ -484,21 +484,29 @@ class TestSharedEvidenceTools:
 class TestOutputLimits:
     """Server caps apply whatever the caller asks for, and results say so."""
 
-    async def test_limit_above_the_maximum_is_capped_and_marked_truncated(
-        self, evidence_env: EvidenceEnv
+    @pytest.mark.parametrize(
+        ("limit", "expected_truncated"), [(None, False), (50, True)]
+    )
+    async def test_limit_cap_does_not_mark_default_requests_truncated(
+        self,
+        evidence_env: EvidenceEnv,
+        limit: int | None,
+        expected_truncated: bool,
     ) -> None:
-        """Cap a search limit above the maximum and mark the result truncated."""
+        """Only explicit over-limit requests are marked truncated by the cap."""
         env = evidence_env
+        arguments: dict[str, str | int] = {
+            "query": GOLD_SENTENCE,
+            "mode": "lexical",
+        }
+        if limit is not None:
+            arguments["limit"] = limit
         async with Client(_server(env.store, env, max_hits=2)) as client:
-            structured = await _structured(
-                client,
-                "search_evidence",
-                {"query": "privacy notice data", "mode": "lexical", "limit": 50},
-            )
+            structured = await _structured(client, "search_evidence", arguments)
 
         result = EvidenceSearchResult.model_validate(structured)
         assert len(result.hits) == 2
-        assert result.truncated is True
+        assert result.truncated is expected_truncated
 
     async def test_fetched_text_above_the_maximum_is_cut_and_marked(
         self, evidence_env: EvidenceEnv

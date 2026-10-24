@@ -102,7 +102,7 @@ async def test_decisions_require_fetched_documents_and_support_events(
             DocumentSupportInput(evidence_id=evidence_id),
             EventSupportInput(task_name="analysis", seq=event.event.seq),
         ],
-        fetched_evidence=fetched,
+        fetched_evidence=fetched.outcomes,
         assumptions=["The log is current"],
         open_questions=["Is access still open?"],
     )
@@ -325,7 +325,7 @@ async def test_changed_document_support_records_full_old_hash_and_current_activa
         "use log",
         "fetched before update",
         supports=[DocumentSupportInput(evidence_id=evidence_id)],
-        fetched_evidence=fetched,
+        fetched_evidence=fetched.outcomes,
     )
 
     assert recorded.recorded

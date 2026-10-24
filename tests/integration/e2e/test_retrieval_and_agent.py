@@ -344,7 +344,9 @@ class TestRetrievalE2E:
         """Full pipeline: Graph.add() -> evidence search."""
         text = f"Aspirin is commonly used to treat headaches. ref {self.token}"
 
-        result = await self._graph().add(text=text, error_policy="skip")
+        result = await self._graph().add(
+            documents=[make_document(self.support_key, text)], error_policy="skip"
+        )
 
         assert result.extraction.entities_extracted == 2
         await self._ensure_retrieval_indexes()
@@ -431,11 +433,21 @@ class TestRetrievalE2E:
             ),
         )
         await graph.add(
-            documents=[make_document(self.support_key, "Aspirin treats headaches.")]
+            documents=[
+                make_document(
+                    self.support_key,
+                    f"Aspirin treats headaches. ref {self.token}",
+                )
+            ]
         )
         second_key = f"e2e-ra://{self.token}/doc2"
         await graph.add(
-            documents=[make_document(second_key, "Ibuprofen reduces inflammation.")]
+            documents=[
+                make_document(
+                    second_key,
+                    f"Ibuprofen reduces inflammation. ref {self.token}",
+                )
+            ]
         )
         await self._ensure_retrieval_indexes()
 

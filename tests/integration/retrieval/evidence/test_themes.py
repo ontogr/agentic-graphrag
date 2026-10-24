@@ -24,13 +24,12 @@ from agrag.common.data_models.extraction import (
     ExtractedRelation,
     ExtractionResult,
 )
-from agrag.common.data_models.graph_schema import EntityType, GraphSchema
+from agrag.common.data_models.graph_schema import EntityType, GraphSchema, RelationType
 from agrag.common.data_models.theme_search import ThemeHit, ThemeResult
 from agrag.cypher.entities import validate_identifier
 from agrag.cypher.schema import vector_index_name
 from agrag.embedding.base import Embedder
 from agrag.evidence import fetch_evidence, search_themes
-from agrag.graphdb.neo4j import Neo4jGraphStore
 from agrag.ingestion.extract import Extractor
 from agrag.ingestion.graph import Graph
 from tests.integration._backend import await_indexes, build_test_store
@@ -197,7 +196,13 @@ async def themes_env() -> AsyncGenerator[ThemesEnv, None]:
             EntityType(label=person_label, description="A person."),
             EntityType(label=org_label, description="An organization."),
         ],
-        relations=[],
+        relations=[
+            RelationType(
+                label="WORKS_AT",
+                description="A person works at an organization.",
+                patterns=[(person_label, org_label)],
+            )
+        ],
     )
     store = build_test_store()
     graph = await Graph.open(
@@ -229,6 +234,36 @@ async def _detect(env: ThemesEnv) -> None:
         side_effect=_fake_reports,
     ):
         await env.graph.detect_communities(apply=True)
+
+
+class TestThemeIndexReadiness:
+    """Theme search reports whether its Community index can be read."""
+
+    async def test_hidden_community_index_reports_not_ready(
+        self,
+        themes_env: ThemesEnv,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A Community vector index that is not ONLINE gives index_not_ready."""
+        store = themes_env.store
+        name = vector_index_name(COMMUNITY_LABEL, "embedding")
+        original = store.list_indexes
+
+        async def list_indexes(*, timeout=None):
+            indexes = await original(timeout=timeout)
+            return [index for index in indexes if index.name != name]
+
+        monkeypatch.setattr(store, "list_indexes", list_indexes)
+
+        result = await search_themes(
+            store,
+            _TeamEmbedder(),
+            "acme team",
+            scope=themes_env.scope,
+        )
+
+        assert result.status is EvidenceSearchStatus.INDEX_NOT_READY
+        assert result.themes == []
 
 
 @pytest.mark.skipif(graspologic_missing, reason="graspologic-native missing")
@@ -342,36 +377,6 @@ class TestSearchThemes:
 
         passages = [passage for theme in result.themes for passage in theme.passages]
         assert all(passage.document_key != themes_env.team_key for passage in passages)
-
-    async def test_hidden_community_index_reports_not_ready(
-        self,
-        themes_env: ThemesEnv,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        """A Community vector index that is not ONLINE gives index_not_ready."""
-        await _detect(themes_env)
-        store = themes_env.store
-        assert isinstance(store, Neo4jGraphStore)
-        name = vector_index_name(COMMUNITY_LABEL, "embedding")
-        original = store.execute_read
-
-        async def execute_read(query, parameters=None, *, timeout=None):
-            rows = await original(query, parameters, timeout=timeout)
-            if "SHOW INDEXES" not in query:
-                return rows
-            return [row for row in rows if row["name"] != name]
-
-        monkeypatch.setattr(store, "execute_read", execute_read)
-
-        result = await search_themes(
-            store,
-            _TeamEmbedder(),
-            "acme team",
-            scope=themes_env.scope,
-        )
-
-        assert result.status is EvidenceSearchStatus.INDEX_NOT_READY
-        assert result.themes == []
 
 
 @pytest.mark.skipif(graspologic_missing, reason="graspologic-native missing")
