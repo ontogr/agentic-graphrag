@@ -46,27 +46,27 @@ QUESTIONS = (
     {
         "id": "founder",
         "question": "Who founded Zephyra Robotics in Halvorn?",
-        "expected_tools": ["search_evidence", "fetch_evidence"],
+        "expected_tools": [["search_evidence", "entity_search"], "fetch_evidence"],
     },
     {
         "id": "joined",
         "question": "When did Tobias Renn join Zephyra Robotics as chief engineer?",
-        "expected_tools": ["search_evidence", "fetch_evidence"],
+        "expected_tools": [["search_evidence", "entity_search"], "fetch_evidence"],
     },
     {
         "id": "designer",
         "question": "Who designed the Lumen-9 lifting arm?",
-        "expected_tools": ["search_evidence", "fetch_evidence"],
+        "expected_tools": [["search_evidence", "entity_search"], "fetch_evidence"],
     },
     {
         "id": "lift",
         "question": "How much weight can the Lumen-9 warehouse robot lift?",
-        "expected_tools": ["search_evidence", "fetch_evidence"],
+        "expected_tools": [["search_evidence", "entity_search"], "fetch_evidence"],
     },
     {
         "id": "released",
         "question": "When did Zephyra Robotics release the Lumen-9?",
-        "expected_tools": ["search_evidence", "fetch_evidence"],
+        "expected_tools": [["search_evidence", "entity_search"], "fetch_evidence"],
     },
 )
 

@@ -165,6 +165,38 @@ class TestExpectedTools:
 
         assert score == 1.0
 
+    def test_any_of_group_passes_when_one_member_called(self) -> None:
+        """A nested alternative group is satisfied by any one of its names."""
+        metric = expected_tools_metric([["task", "look_up_entity"]])
+
+        score = metric.measure(
+            _case(_research_tool("look_up_entity", 20, 30), _answer(60, 70))
+        )
+
+        assert score == 1.0
+
+    def test_any_of_group_fails_when_no_member_called(self) -> None:
+        """A nested alternative group with no called member fails and names it."""
+        metric = expected_tools_metric([["task", "look_up_entity"]])
+
+        score = metric.measure(
+            _case(_research_tool("search_source_text", 20, 30), _answer(60, 70))
+        )
+
+        assert score == 0.0
+        assert "look_up_entity" in _reason(metric)
+
+    def test_required_name_and_any_of_group_together(self) -> None:
+        """A mix of required names and alternative groups needs both."""
+        metric = expected_tools_metric([["task", "look_up_entity"], "answer_question"])
+
+        score = metric.measure(
+            _case(_research_tool("look_up_entity", 20, 30), _answer(60, 70))
+        )
+
+        assert score == 0.0
+        assert "answer_question" in _reason(metric)
+
     def test_no_tool_steps_fail_and_list_what_was_called(self) -> None:
         """A trajectory without the required name fails and shows the calls."""
         metric = expected_tools_metric(["task"])
