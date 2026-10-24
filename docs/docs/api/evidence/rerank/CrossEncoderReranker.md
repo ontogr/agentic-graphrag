@@ -31,6 +31,10 @@ on the semaphore instead of stacking a second prediction.
 
 - **model** (<code>str</code>) – The sentence-transformers CrossEncoder model name/path.
 
+**Raises:**
+
+- <code>[EmbeddingMissingExtraError](../../embedding/errors/EmbeddingMissingExtraError.md)</code> – The `embed-local` extra is not installed.
+
 ## `warm_up` \{#agrag-evidence-rerank-CrossEncoderReranker-warm_up}
 
 ```python
