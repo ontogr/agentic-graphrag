@@ -33,9 +33,42 @@ from agrag.evidence import (
     fetch_evidence,
     navigate_document_tree,
     search_evidence,
+    search_themes,
 )
+from agrag.evidence.contract import (
+    CHECK_CITATIONS,
+    DEFAULT_MAX_EDGES,
+    DEFAULT_MAX_NODES,
+    DEFAULT_NAV_LIMIT,
+    DEFAULT_NAV_MAX_CHARS,
+    DEFAULT_SEARCH_LIMIT,
+    DEFAULT_SUPPORT_LIMIT,
+    DEFAULT_THEME_LIMIT,
+    ENTITY_SEARCH,
+    EXPLORE_RELATIONSHIPS,
+    FETCH_EVIDENCE,
+    NAVIGATE_DOCUMENT_TREE,
+    SEARCH_EVIDENCE,
+    SEARCH_THEMES,
+    EntityId,
+    EvidenceId,
+    EvidenceIds,
+    ExploreBound,
+    ExploreDepth,
+    FetchMaxChars,
+    Labels,
+    NavMaxChars,
+    Query,
+    RelationTypes,
+    SearchLimit,
+    SupportLimit,
+    ThemeLimit,
+    validation_message,
+)
+from agrag.evidence.rerank import Reranker
 from agrag.graphdb.base import GraphStore
 from agrag.history import ConversationHistory
+from agrag.retrieval import RetrievalSettings
 from agrag.vectordb.base import VectorStore
 
 
@@ -51,6 +84,9 @@ def make_core_tools(  # noqa: PLR0915
     fetched_outcomes: Sequence[FetchOutcome],
     max_chars: int,
     max_tool_calls: int,
+    retrieval_settings: RetrievalSettings,
+    reranker: Reranker | None = None,
+    timeout: float | None = None,
     vector_store: VectorStore | None = None,
 ) -> tuple[list[Any], RunState]:
     """Bind evidence, history, and decision tools to one trusted task scope."""
@@ -62,50 +98,58 @@ def make_core_tools(  # noqa: PLR0915
         fetches={item.evidence_id: item for item in fetched_outcomes},
     )
 
-    @tool("search_evidence")
+    @tool("search_evidence", description=SEARCH_EVIDENCE)
     async def search_evidence_tool(
-        query: str,
-        mode: str = "hybrid",
-        limit: int = 8,
+        query: Query,
+        mode: EvidenceSearchMode = EvidenceSearchMode.HYBRID,
+        limit: SearchLimit = DEFAULT_SEARCH_LIMIT,
         callbacks: Any = None,
     ) -> str:
         """Find in-scope source passages and return their evidence ids."""
         with tool_span_context(callbacks):
-            if not 1 <= limit <= 50:
-                return "Limit must be between 1 and 50."
-            try:
-                found = await search_evidence(
-                    graph_store,
-                    embedder,
-                    query,
-                    mode=EvidenceSearchMode(mode),
-                    limit=limit,
-                    scope=scope,
-                    vector_store=vector_store,
-                )
-            except (ValueError, KeyError) as exc:
-                result = f"Invalid discovery request: {exc}"
-            else:
-                run_state.retrieval_failed |= (
-                    found.status.value not in {"ok", "no_match", "empty_scope"}
-                    or found.truncated
-                )
-                result = found.model_dump_json()
-            return result
+            found = await search_evidence(
+                graph_store,
+                embedder,
+                query,
+                mode=mode,
+                limit=limit,
+                scope=scope,
+                vector_store=vector_store,
+                reranker=reranker,
+                settings=retrieval_settings,
+                timeout=timeout,
+            )
+            run_state.retrieval_failed |= (
+                found.status.value not in {"ok", "no_match", "empty_scope"}
+                or found.truncated
+            )
+            return found.model_dump_json()
 
-    @tool("fetch_evidence")
+    search_evidence_tool.handle_validation_error = validation_message
+
+    fetch_char_cap = max_chars
+
+    @tool("fetch_evidence", description=FETCH_EVIDENCE)
     async def fetch_evidence_tool(
-        evidence_ids: list[str],
+        evidence_ids: EvidenceIds,
+        max_chars: FetchMaxChars = None,
         callbacks: Any = None,
     ) -> str:
         """Fetch exact passage text for evidence ids returned by discovery."""
         with tool_span_context(callbacks):
-            if len(evidence_ids) > 20:
-                return "Fetch at most 20 evidence ids per call."
-            outcomes = await fetch_evidence(
-                graph_store, evidence_ids, scope=scope, max_chars=max_chars
+            effective_chars = (
+                min(max_chars, fetch_char_cap)
+                if max_chars is not None
+                else fetch_char_cap
             )
-            for outcome in outcomes:
+            result = await fetch_evidence(
+                graph_store,
+                evidence_ids,
+                scope=scope,
+                max_chars=effective_chars,
+                timeout=timeout,
+            )
+            for outcome in result.outcomes:
                 run_state.fetches[outcome.evidence_id] = outcome
                 if outcome.status is FetchStatus.OK:
                     run_state.fetched_ids.append(outcome.evidence_id)
@@ -115,7 +159,9 @@ def make_core_tools(  # noqa: PLR0915
                     FetchStatus.PARTIAL,
                 }:
                     run_state.retrieval_failed = True
-            valid_ids = [o.evidence_id for o in outcomes if o.status is FetchStatus.OK]
+            valid_ids = [
+                o.evidence_id for o in result.outcomes if o.status is FetchStatus.OK
+            ]
             if valid_ids:
                 await record_event_or_flag(
                     history,
@@ -125,111 +171,139 @@ def make_core_tools(  # noqa: PLR0915
                     name="fetched_evidence",
                     payload=json.dumps(valid_ids),
                 )
-            return json.dumps([o.model_dump(mode="json") for o in outcomes])
+            return result.model_dump_json()
 
-    @tool("navigate_document_tree")
+    fetch_evidence_tool.handle_validation_error = validation_message
+
+    @tool("navigate_document_tree", description=NAVIGATE_DOCUMENT_TREE)
     async def navigate_evidence(
-        evidence_id: str,
+        evidence_id: EvidenceId,
         relation: NavigationRelation,
-        limit: int = 10,
-        max_chars: int = 12_000,
+        limit: SearchLimit = DEFAULT_NAV_LIMIT,
+        max_chars: NavMaxChars = DEFAULT_NAV_MAX_CHARS,
         callbacks: Any = None,
     ) -> str:
         """Read nearby passages in the same document version."""
         with tool_span_context(callbacks):
-            try:
-                result = await navigate_document_tree(
-                    graph_store,
-                    evidence_id,
-                    relation,
-                    scope=scope,
-                    limit=min(limit, 50),
-                    max_chars=min(max_chars, 20_000),
-                )
-            except ValueError as exc:
-                output = f"Invalid navigation request: {exc}"
-            else:
-                run_state.retrieval_failed |= (
-                    result.status.value == "failed" or result.truncated
-                )
-                output = result.model_dump_json()
-            return output
+            result = await navigate_document_tree(
+                graph_store,
+                evidence_id,
+                relation,
+                scope=scope,
+                limit=limit,
+                max_chars=max_chars,
+                timeout=timeout,
+            )
+            run_state.retrieval_failed |= (
+                result.status.value == "failed" or result.truncated
+            )
+            return result.model_dump_json()
 
-    @tool("entity_search")
+    navigate_evidence.handle_validation_error = validation_message
+
+    @tool("entity_search", description=ENTITY_SEARCH)
     async def search_entities(
-        query: str,
-        labels: list[str] | None = None,
-        mode: str = "hybrid",
-        limit: int = 10,
+        query: Query,
+        labels: Labels = None,
+        mode: EvidenceSearchMode = EvidenceSearchMode.HYBRID,
+        limit: SearchLimit = DEFAULT_SEARCH_LIMIT,
+        support_limit: SupportLimit = DEFAULT_SUPPORT_LIMIT,
+        *,
         callbacks: Any = None,
     ) -> str:
         """Find entities whose names match the query and show source support."""
         with tool_span_context(callbacks):
-            if not 1 <= limit <= 50:
-                return "Limit must be between 1 and 50."
-            try:
-                result = await entity_search(
-                    graph_store,
-                    embedder,
-                    query,
-                    scope=scope,
-                    labels=labels,
-                    mode=EvidenceSearchMode(mode),
-                    limit=limit,
-                    vector_store=vector_store,
-                )
-            except ValueError as exc:
-                output = f"Invalid entity search request: {exc}"
-            else:
-                run_state.retrieval_failed |= (
-                    result.status.value not in {"ok", "no_match", "empty_scope"}
-                    or result.truncated
-                )
-                output = result.model_dump_json()
-            return output
+            result = await entity_search(
+                graph_store,
+                embedder,
+                query,
+                scope=scope,
+                labels=labels,
+                mode=mode,
+                limit=limit,
+                support_limit=support_limit,
+                vector_store=vector_store,
+                settings=retrieval_settings,
+                timeout=timeout,
+            )
+            run_state.retrieval_failed |= (
+                result.status.value not in {"ok", "no_match", "empty_scope"}
+                or result.truncated
+            )
+            return result.model_dump_json()
 
-    @tool("explore_relationships")
+    search_entities.handle_validation_error = validation_message
+
+    @tool("explore_relationships", description=EXPLORE_RELATIONSHIPS)
     async def explore_relationships_tool(
-        entity_id: str,
-        depth: int = 1,
-        relation_types: list[str] | None = None,
-        max_nodes: int = 25,
-        max_edges: int = 50,
+        entity_id: EntityId,
+        depth: ExploreDepth = 1,
+        relation_types: RelationTypes = None,
+        max_nodes: ExploreBound = DEFAULT_MAX_NODES,
+        max_edges: ExploreBound = DEFAULT_MAX_EDGES,
         *,
         callbacks: Any = None,
     ) -> str:
         """Explore supported relations around an entity within fixed bounds."""
         with tool_span_context(callbacks):
-            try:
-                result = await explore_relationships(
-                    graph_store,
-                    entity_id,
-                    scope=scope,
-                    relation_types=relation_types,
-                    depth=min(depth, 2),
-                    max_nodes=min(max_nodes, 200),
-                    max_edges=min(max_edges, 200),
-                )
-            except ValueError as exc:
-                output = f"Invalid exploration request: {exc}"
-            else:
-                run_state.retrieval_failed |= result.status.value == "failed" or bool(
-                    result.truncated_by
-                )
-                output = result.model_dump_json()
-            return output
+            result = await explore_relationships(
+                graph_store,
+                entity_id,
+                scope=scope,
+                relation_types=relation_types,
+                depth=depth,
+                max_nodes=max_nodes,
+                max_edges=max_edges,
+                timeout=timeout,
+            )
+            run_state.retrieval_failed |= result.status.value == "failed" or bool(
+                result.truncated_by
+            )
+            return result.model_dump_json()
 
-    @tool("check_citations")
+    explore_relationships_tool.handle_validation_error = validation_message
+
+    @tool("search_themes", description=SEARCH_THEMES)
+    async def search_themes_tool(
+        query: Query,
+        limit: ThemeLimit = DEFAULT_THEME_LIMIT,
+        support_limit: SupportLimit = DEFAULT_SUPPORT_LIMIT,
+        callbacks: Any = None,
+    ) -> str:
+        """Find themes that span many documents, with their supporting passages."""
+        with tool_span_context(callbacks):
+            found = await search_themes(
+                graph_store,
+                embedder,
+                query,
+                scope=scope,
+                limit=limit,
+                support_limit=support_limit,
+                vector_store=vector_store,
+                settings=retrieval_settings,
+                timeout=timeout,
+            )
+            run_state.retrieval_failed |= (
+                found.status.value not in {"ok", "no_match", "empty_scope"}
+                or found.truncated
+            )
+            return found.model_dump_json()
+
+    search_themes_tool.handle_validation_error = validation_message
+
+    @tool("check_citations", description=CHECK_CITATIONS)
     async def check_citations_tool(
-        evidence_ids: list[str],
+        evidence_ids: EvidenceIds,
         callbacks: Any = None,
     ) -> str:
         """Check that evidence ids were fetched in the permitted scope."""
         with tool_span_context(callbacks):
-            checked = await check_citations(
+            result = await check_citations(
                 evidence_ids, run_state.fetched_ids, scope=scope
             )
-            return json.dumps([c.model_dump(mode="json") for c in checked])
+            return result.model_dump_json()
+
+    check_citations_tool.handle_validation_error = validation_message
 
     @tool
     async def get_task() -> str:
@@ -479,6 +553,7 @@ def make_core_tools(  # noqa: PLR0915
         navigate_evidence,
         search_entities,
         explore_relationships_tool,
+        search_themes_tool,
         check_citations_tool,
         get_task,
         set_step,

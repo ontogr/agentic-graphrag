@@ -70,7 +70,7 @@ Running the same patch again does not convert candidates a second time. Already 
 
 ## Lexical search
 
-`SearchEngine.search_candidates(query, *, kind=None, limit=10)` performs lexical search over pending and approved candidates. Rejected candidates are excluded. The search does not use embeddings. The task agent does not call this method.
+`search_candidates(graph_store, query, *, kind=None, limit=10)` in `agrag.candidates` performs lexical search over pending and approved candidates. Rejected candidates are excluded. The search does not use embeddings. The task agent does not call this function.
 
 ## Related
 

@@ -234,6 +234,7 @@ class TestToolListing:
             "entity_search",
             "navigate_document_tree",
             "search_evidence",
+            "search_themes",
         } <= set(names)
         for tool in listing.tools:
             assert tool.input_schema is not None
@@ -271,6 +272,7 @@ class TestToolListing:
             "navigate_document_tree",
             "search_decisions",
             "search_evidence",
+            "search_themes",
         ]
 
 
@@ -385,7 +387,7 @@ class TestEquivalenceWithDirectCalls:
             )
 
         outcomes = FetchResult.model_validate(structured).outcomes
-        assert outcomes == direct
+        assert outcomes == direct.outcomes
         assert outcomes[0].status is FetchStatus.OK
         assert outcomes[0].text == GOLD_SENTENCE
         assert outcomes[1].status is FetchStatus.UNAVAILABLE
@@ -415,7 +417,7 @@ class TestEquivalenceWithDirectCalls:
 
         direct = await check_citations(cited, [gold], scope=scope)
         verdicts = CitationResult.model_validate(structured).checks
-        assert verdicts == direct
+        assert verdicts == direct.checks
         assert [check.verdict for check in verdicts] == [
             CitationVerdict.VALID,
             CitationVerdict.VALID,
@@ -482,21 +484,30 @@ class TestSharedEvidenceTools:
 class TestOutputLimits:
     """Server caps apply whatever the caller asks for, and results say so."""
 
-    async def test_limit_above_the_maximum_is_capped_and_marked_truncated(
-        self, evidence_env: EvidenceEnv
+    @pytest.mark.parametrize(
+        ("limit", "expected_truncated"),
+        [(None, False), (10, True), (50, True)],
+    )
+    async def test_only_explicitly_capped_requests_are_marked_truncated(
+        self,
+        evidence_env: EvidenceEnv,
+        limit: int | None,
+        expected_truncated: bool,
     ) -> None:
-        """Cap a search limit above the maximum and mark the result truncated."""
+        """Only explicit over-limit requests are marked truncated by the cap."""
         env = evidence_env
+        arguments: dict[str, str | int] = {
+            "query": GOLD_SENTENCE,
+            "mode": "lexical",
+        }
+        if limit is not None:
+            arguments["limit"] = limit
         async with Client(_server(env.store, env, max_hits=2)) as client:
-            structured = await _structured(
-                client,
-                "search_evidence",
-                {"query": "privacy notice data", "mode": "lexical", "limit": 50},
-            )
+            structured = await _structured(client, "search_evidence", arguments)
 
         result = EvidenceSearchResult.model_validate(structured)
         assert len(result.hits) == 2
-        assert result.truncated is True
+        assert result.truncated is expected_truncated
 
     async def test_fetched_text_above_the_maximum_is_cut_and_marked(
         self, evidence_env: EvidenceEnv

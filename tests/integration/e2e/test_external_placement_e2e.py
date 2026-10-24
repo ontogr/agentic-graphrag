@@ -34,7 +34,6 @@ from agrag.evidence import search_evidence
 from agrag.ingestion.extract import Extractor
 from agrag.ingestion.graph import Graph
 from agrag.loaders.common import text_sections
-from agrag.retrieval import CHUNK, SearchEngine
 from agrag.vectordb.qdrant import QdrantSettings, QdrantVectorStore
 from tests.integration._backend import build_test_store
 from tests.integration._vector_backend import build_vector_store, selected_vector_stores
@@ -313,16 +312,16 @@ class TestExternalPlacementE2E:
                 "RETURN count(node) AS count"
             )
             assert rows == [{"count": 0}]
-            engine = SearchEngine(
-                graph_store=store,
-                embedder=embedder,
-                graph_schema=schema,
+            evidence = await search_evidence(
+                store,
+                embedder,
+                "orbit",
+                scope=scope,
                 vector_store=vectors,
             )
-            retrieved = await engine.search("orbit", CHUNK)
-            assert retrieved
-            assert isinstance(retrieved[0].item, Chunk)
-            assert "Orbit mechanics" in retrieved[0].item.text
+            assert evidence.hits
+            assert evidence.hits[0].document_key == keys[0]
+            assert "Orbit mechanics" in evidence.hits[0].snippet
             modes = (EvidenceSearchMode.SEMANTIC, EvidenceSearchMode.HYBRID)
             for mode in modes:
                 evidence = await search_evidence(

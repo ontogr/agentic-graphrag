@@ -581,8 +581,12 @@ class TestNavigate:
         )
 
         assert items
-        assert [outcome.status for outcome in fetched] == [FetchStatus.OK] * len(items)
-        assert [outcome.text for outcome in fetched] == [item.text for item in items]
+        assert [outcome.status for outcome in fetched.outcomes] == (
+            [FetchStatus.OK] * len(items)
+        )
+        assert [outcome.text for outcome in fetched.outcomes] == [
+            item.text for item in items
+        ]
 
     async def test_malformed_id_is_reported_as_malformed(self, nav_env: NavEnv) -> None:
         """An id that does not decode gives the malformed status."""

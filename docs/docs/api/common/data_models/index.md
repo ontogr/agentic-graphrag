@@ -38,6 +38,7 @@ Shared data models used by agrag components.
 - [**stage_failure**](stage_failure/index.md) – Per-stage failure record and its per-call cap.
 - [**structure**](structure/index.md) – Stable keys, node ids, reading order and ancestry for the sections of a Document.
 - [**task**](task/index.md) – Models for durable task state: tasks, raw events, steps and resume views.
+- [**theme_search**](theme_search/index.md) – Models for theme search over detected communities.
 - [**update_decision**](update_decision/index.md) – Outcomes for updating a stored document.
 - [**vector_record**](vector_record/index.md) – Vector index types shared by the graph store and retrieval.
 - [**write_result**](write_result/index.md) – Error codes and the base result of task and decision trace writes.

@@ -70,7 +70,6 @@ const sidebars = {
         'tools/navigate-document-tree',
         'tools/fetch-evidence',
         'tools/check-citations',
-        'tools/recipe-search',
       ]),
       section('How search works', [
         'concepts/how-passage-search-works',

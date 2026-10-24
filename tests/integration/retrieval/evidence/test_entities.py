@@ -361,7 +361,7 @@ class TestFindEntities:
                 scope=scope,
                 max_chars=10_000,
             )
-            for outcome in fetched:
+            for outcome in fetched.outcomes:
                 assert outcome.status is FetchStatus.OK
                 assert hit.name.lower() in (outcome.text or "").lower()
 
@@ -508,7 +508,9 @@ class TestExplore:
             scope=scope,
             max_chars=10_000,
         )
-        assert all("headache" in (outcome.text or "").lower() for outcome in fetched)
+        assert all(
+            "headache" in (outcome.text or "").lower() for outcome in fetched.outcomes
+        )
 
     async def test_relation_without_evidence_is_a_path(
         self, entity_env: EntityEnv

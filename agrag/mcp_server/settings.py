@@ -30,7 +30,8 @@ class McpServerSettings(BaseSettings):
         max_fetch_chars: The most characters returned for each fetched id. Env:
             ``MCP_MAX_FETCH_CHARS``.
         max_fetch_ids: The most evidence ids one fetch or citation check takes.
-            Env: ``MCP_MAX_FETCH_IDS``.
+            It can only lower the shared cap of 20. Env:
+            ``MCP_MAX_FETCH_IDS``.
         max_response_chars: The most characters of one result as sent. Most
             tools send JSON once beside a short text block. Search, fetch, and
             citation-check tools send JSON twice. Env:
@@ -64,7 +65,7 @@ class McpServerSettings(BaseSettings):
     max_hits: int = Field(default=10, ge=1)
     max_snippet_chars: int = Field(default=240, ge=1)
     max_fetch_chars: int = Field(default=4000, ge=1)
-    max_fetch_ids: int = Field(default=20, ge=1)
+    max_fetch_ids: int = Field(default=20, ge=1, le=20)
     max_response_chars: int = Field(default=60000, ge=1)
     request_deadline_seconds: float = Field(default=30.0, gt=0)
     project_id: str = ""

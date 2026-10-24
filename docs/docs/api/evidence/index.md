@@ -14,13 +14,20 @@ their queries. Evidence ids name passage text of one version of a document.
 **Modules:**
 
 - [**citation**](citation/index.md) – Check that cited evidence ids trace to evidence the caller fetched.
+- [**contract**](contract/index.md) – Shared tool contract for the evidence functions, MCP tools and agent tools.
 - [**entities**](entities/index.md) – Find entities by name or meaning, and explore typed relations around one entity.
 - [**fetch**](fetch/index.md) – Fetch the exact text behind evidence ids, limited to the caller's scope.
 - [**ids**](ids/index.md) – Encode and decode evidence ids.
 - [**navigate**](navigate/index.md) – Navigate from one evidence passage to its neighbors, within scope and bounds.
 - [**render**](render/index.md) – Render validated evidence citations without changing their fetched provenance.
+- [**rerank**](rerank/index.md) – Cross-encoder reranker for fused evidence hits.
 - [**search**](search/index.md) – Find visible passages by full-text search, vector search, or both.
 - [**source_status**](source_status/index.md) – Read the committed lifecycle and index state of a document source.
+- [**themes**](themes/index.md) – Find themes: entity communities with the passages that mention their members.
+
+**Classes:**
+
+- [**CrossEncoderReranker**](rerank/CrossEncoderReranker.md) – A reranker backed by a sentence-transformers CrossEncoder.
 
 **Functions:**
 
@@ -31,3 +38,8 @@ their queries. Evidence ids name passage text of one version of a document.
 - [**navigate_document_tree**](navigate/navigate_document_tree.md) – Return the passages that one relation reaches from an evidence id.
 - [**render_citations**](render/render_citations.md) – Replace validated inline IDs with numbered citations and a source list.
 - [**search_evidence**](search/search_evidence.md) – Find up to `limit` visible passages that match a query.
+- [**search_themes**](themes/search_themes.md) – Find up to `limit` themes whose member passages match a query.
+
+**Attributes:**
+
+- [**Reranker**](rerank/Reranker.md) –

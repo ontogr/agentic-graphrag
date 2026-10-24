@@ -1,43 +1,35 @@
 """End-to-end tests for the full ingest-retrieve-ask pipeline.
 
-Seeds a fixture graph, then verifies SearchEngine.search() returns the
-correct results, citation keys resolve to live entities,
-and the agent build/invoke path works.
+Ingests a fixture document, then verifies the evidence tools return the
+seeded entity and chunk, and that the agent build/invoke path works.
 """
 
-import hashlib
 import importlib.util
 import os
 from collections.abc import AsyncGenerator, Sequence
-from datetime import UTC, datetime
 from uuid import uuid4
 
 import pytest
 from dotenv import load_dotenv
 
 from agrag.common.data_models.chunk import CHUNK_LABEL, Chunk
-from agrag.common.data_models.entity import Entity
+from agrag.common.data_models.evidence import EvidenceSearchMode
 from agrag.common.data_models.extraction import (
     ExtractedEntity,
     ExtractionResult,
 )
-from agrag.common.data_models.graph_record import NodeRecord, RelationRecord
 from agrag.common.data_models.graph_schema import EntityType, GraphSchema
-from agrag.common.data_models.provenance import TextProvenance
 from agrag.common.data_models.vector_record import Distance
 from agrag.cypher.entities import validate_identifier
 from agrag.embedding.base import Embedder
+from agrag.evidence import entity_search, search_evidence
 from agrag.ingestion.extract import Extractor
 from agrag.ingestion.graph import Graph
-from agrag.ingestion.merge import mentioned_in_id
-from agrag.retrieval.filters import SearchFilters
-from agrag.retrieval.recipes import CHUNK, ENTITY, HYBRID
-from agrag.retrieval.search_engine import SearchEngine
-from agrag.retrieval.settings import RetrievalSettings
 from tests.conftest import FAKE_EMBEDDING_DIMENSIONS
 from tests.integration._backend import await_indexes, build_test_store
 from tests.integration._schema_cleanup import delete_resolved_entities, drop_schema_for
 from tests.integration.e2e._artifact import write_artifact
+from tests.integration.retrieval.evidence._corpus import make_document
 
 
 neo4j_missing = importlib.util.find_spec("neo4j") is None
@@ -156,10 +148,7 @@ class TestRetrievalE2E:
         self.drug_label = validate_identifier(f"Drug_{uuid4().hex[:8]}")
         self.condition_label = validate_identifier(f"Condition_{uuid4().hex[:8]}")
         self.embedder = _FixedEmbedder(self.token)
-        self.settings = RetrievalSettings(
-            entity_top_k=100,
-            chunk_top_k=100,
-        )
+        self.support_key = f"e2e-ra://{self.token}/doc"
         self.schema = GraphSchema(
             name="e2e",
             version="1",
@@ -206,15 +195,6 @@ class TestRetrievalE2E:
             finally:
                 await self.store.close()
 
-    def _engine(self) -> SearchEngine:
-        """Build a search engine over the test store."""
-        return SearchEngine(
-            graph_store=self.store,
-            embedder=self.embedder,
-            settings=self.settings,
-            graph_schema=self.schema,
-        )
-
     def _graph(self) -> Graph:
         """Build a graph that ingests through the fake extractor."""
         return Graph(
@@ -253,7 +233,7 @@ class TestRetrievalE2E:
 
         ``Graph.open`` provisions these while opening a graph; the
         tests here construct stores directly, so each test creates the
-        indexes ``SearchEngine.search`` searches itself.
+        indexes the evidence tools search.
         """
         for label in (self.drug_label, self.condition_label, CHUNK_LABEL):
             await self.store.ensure_vector_index(
@@ -269,115 +249,33 @@ class TestRetrievalE2E:
         # INDEX_NOT_READY until they are ONLINE.
         await await_indexes(self.store)
 
-    async def _seed_graph(
-        self,
-    ) -> tuple[Entity, Chunk]:
-        """Seed a graph with one drug entity and a chunk that mentions it.
+    async def _seed_graph(self) -> None:
+        """Ingest one document that names Aspirin and headache.
 
-        Creates:
-        - Entity "Aspirin"
-        - Chunk mentioning Aspirin
-        - MENTIONED_IN edge from Chunk to Aspirin
+        The fake extractor writes the Aspirin and Headache entities under this
+        run's labels, and the ingested chunk mentions them.
         """
-        survivor = Entity(id=uuid4(), label="Drug", name="Aspirin")
-
-        await self.store.upsert_nodes(
-            self.drug_label,
-            [
-                NodeRecord(
-                    id=survivor.id,
-                    labels=[self.drug_label],
-                    properties={
-                        "name": survivor.name,
-                        "merge_key": survivor.merge_key,
-                        "merge_count": 1,
-                        "source_chunk_ids": [],
-                        "created_at": survivor.created_at.isoformat(),
-                    },
-                ),
-            ],
-        )
-
-        chunk = Chunk(
-            id=uuid4(),
-            document_id=uuid4(),
-            index=0,
-            text="Aspirin is effective for treating headaches.",
-            content_hash=hashlib.sha256(
-                "Aspirin is effective for treating headaches.".encode("utf-8")
-            ).hexdigest(),
-            provenance=TextProvenance(char_start=0, char_end=44),
-        )
-        chunk.embedding = await self.embedder.embed_one(chunk.text)
-        self.chunk_ids.append(str(chunk.id))
-        await self.store.upsert_nodes(
-            CHUNK_LABEL,
-            [
-                NodeRecord(
-                    id=chunk.id,
-                    labels=[CHUNK_LABEL],
-                    properties={
-                        "document_id": str(chunk.document_id),
-                        "index": chunk.index,
-                        "text": chunk.text,
-                        "content_hash": hashlib.sha256(
-                            chunk.text.encode("utf-8")
-                        ).hexdigest(),
-                        "provenance": ('{"kind":"text","char_start":0,"char_end":44}'),
-                        "heading_path": [],
-                        "content_kind": "text",
-                        "embedding": chunk.embedding,
-                        "created_at": chunk.created_at.isoformat(),
-                    },
-                )
-            ],
-        )
-
-        await self.store.upsert_relations(
-            [
-                RelationRecord(
-                    id=mentioned_in_id(chunk.id, survivor.id),
-                    type="MENTIONED_IN",
-                    start_id=chunk.id,
-                    end_id=survivor.id,
-                    properties={
-                        "created_at": datetime.now(UTC).isoformat(),
-                    },
-                ),
-            ]
-        )
-
+        text = "Aspirin is effective for treating headaches."
+        await self._graph().add(documents=[make_document(self.support_key, text)])
         await self._ensure_retrieval_indexes()
 
-        survivor.embedding = await self.embedder.embed_one(survivor.name)
-        await self.store.execute_write(
-            "UNWIND $records AS record "
-            f"MATCH (n:{self.drug_label} {{id: record.id}}) "
-            f"SET n.embedding = {self.store.vector_value('record.vector')}",
-            {
-                "records": [
-                    {
-                        "id": str(survivor.id),
-                        "vector": survivor.embedding,
-                    }
-                ]
-            },
-        )
-
-        return survivor, chunk
-
-    # ---- Entity search tests ----
+    # ---- Evidence search tests ----
 
     async def test_entity_search_finds_survivor(self) -> None:
         """Entity search returns the seeded entity."""
-        survivor, _ = await self._seed_graph()
+        await self._seed_graph()
 
-        results = await self._engine().search("Aspirin", ENTITY)
+        found = await entity_search(
+            self.store,
+            self.embedder,
+            "Aspirin",
+            scope=frozenset({self.support_key}),
+            labels=[self.drug_label, self.condition_label],
+            mode=EvidenceSearchMode.LEXICAL,
+        )
 
-        result_ids = {r.item.id for r in results}
-        assert survivor.id in result_ids
         own = await self._own_entities()
-        names = sorted(own[str(r.item.id)] for r in results if str(r.item.id) in own)
+        names = sorted(hit.name for hit in found.hits if hit.entity_id in own)
         assert names == ["Aspirin"]
         artifact = write_artifact(
             "retrieval_and_agent_merge_entity_search",
@@ -385,151 +283,101 @@ class TestRetrievalE2E:
         )
         assert artifact["entity_names"] == ["Aspirin"]
 
-    # ---- Chunk search tests ----
-
     async def test_chunk_search_finds_related_chunk(self) -> None:
-        """Chunk search finds the seeded chunk."""
-        _, chunk = await self._seed_graph()
+        """Chunk search finds the seeded chunk text."""
+        await self._seed_graph()
 
-        results = await self._engine().search(chunk.text, CHUNK)
+        found = await search_evidence(
+            self.store,
+            self.embedder,
+            "Aspirin headaches",
+            mode=EvidenceSearchMode.LEXICAL,
+            limit=10,
+            scope=frozenset({self.support_key}),
+        )
 
-        matching = [r for r in results if r.item.id == chunk.id]
-        assert len(matching) == 1
-        assert "aspirin" in matching[0].item.text.lower()
-
-    async def test_chunk_result_has_embedding(self) -> None:
-        """The chunk result carries its embedding."""
-        _, chunk = await self._seed_graph()
-
-        results = await self._engine().search(chunk.text, CHUNK)
-
-        matching = [r for r in results if r.item.id == chunk.id]
-        assert len(matching) == 1
-        assert matching[0].item.embedding is not None
-        assert len(matching[0].item.embedding) == 4
-
-    # ---- Hybrid search tests ----
+        assert found.hits
+        assert any("aspirin" in hit.snippet.lower() for hit in found.hits)
 
     async def test_hybrid_returns_both_types(self) -> None:
-        """HYBRID returns the survivor entity and the seeded chunk."""
-        survivor, chunk = await self._seed_graph()
+        """Hybrid search finds the chunk, and entity search finds the entity."""
+        await self._seed_graph()
 
-        results = await self._engine().search(chunk.text, HYBRID)
-
-        ids = {r.item.id for r in results}
-        assert survivor.id in ids
-        assert chunk.id in ids
-
-    async def test_hybrid_fusion_deduplicates(self) -> None:
-        """HYBRID fusion deduplicates results by identity_key."""
-        survivor, chunk = await self._seed_graph()
-
-        results = await self._engine().search(chunk.text, HYBRID)
-
-        keys = [r.identity_key for r in results]
-        assert len(keys) == len(set(keys))
-        assert {survivor.id, chunk.id} <= {r.item.id for r in results}
-
-    # ---- Citation key tests ----
-
-    async def test_citation_keys_resolve_to_live_entities(
-        self,
-    ) -> None:
-        """Every citation key resolves to a seeded result."""
-        from agrag.agents.ledger import Ledger  # noqa: PLC0415
-
-        survivor, chunk = await self._seed_graph()
-
-        results = await self._engine().search(chunk.text, HYBRID)
-
-        ledger = Ledger()
-        keys = [ledger.cite(result) for result in results]
-        for key in keys:
-            resolved = ledger.resolve(key)
-            assert resolved is not None
-        resolved_ids = {ledger.resolve(k).item.id for k in keys}  # type: ignore[union-attr]
-        assert {survivor.id, chunk.id} <= resolved_ids
-        assert len(set(keys)) == len(keys)
-        artifact = write_artifact(
-            "retrieval_and_agent_hybrid_citations",
-            {
-                "survivor_cited": True,
-                "chunk_cited": True,
-                "unique_keys": len(set(keys)) == len(keys),
-                "own_entities_cited": len(resolved_ids & {survivor.id}),
-            },
+        scope = frozenset({self.support_key})
+        evidence = await search_evidence(
+            self.store,
+            self.embedder,
+            "Aspirin headaches",
+            limit=10,
+            scope=scope,
         )
-        assert artifact["own_entities_cited"] == 1
+        entities = await entity_search(
+            self.store,
+            self.embedder,
+            "Aspirin",
+            scope=scope,
+            labels=[self.drug_label, self.condition_label],
+        )
 
-    async def test_citation_keys_are_stable(self) -> None:
-        """Citation keys are stable across multiple cite() calls."""
-        from agrag.agents.ledger import Ledger  # noqa: PLC0415
-
-        survivor, _ = await self._seed_graph()
-
-        results = await self._engine().search("Aspirin", ENTITY)
-        assert results
-
-        ledger = Ledger()
-        key1 = ledger.cite(results[0])
-        key2 = ledger.cite(results[0])
-        assert key1 == key2
-        resolved = ledger.resolve(key1)
-        assert resolved is not None
-        assert resolved.item.id == survivor.id
-
-    # ---- SearchEngine direct usage tests ----
-
-    async def test_search_engine_entity_direct(self) -> None:
-        """SearchEngine entity search returns the survivor entity."""
-        survivor, _ = await self._seed_graph()
-
-        results = await self._engine().search("Aspirin", ENTITY)
-
-        own = await self._own_entities()
-        assert [r.item.id for r in results if str(r.item.id) in own] == [survivor.id]
-
-    async def test_search_engine_chunk_direct(self) -> None:
-        """SearchEngine chunk search returns the seeded chunk."""
-        _, chunk = await self._seed_graph()
-
-        results = await self._engine().search(chunk.text, CHUNK)
-
-        assert chunk.id in {r.item.id for r in results}
+        assert evidence.hits
+        assert any("aspirin" in hit.snippet.lower() for hit in evidence.hits)
+        assert any(hit.name == "Aspirin" for hit in entities.hits)
 
     async def test_search_respects_limit(self) -> None:
-        """Search respects the recipe's limit."""
-        survivor, _ = await self._seed_graph()
+        """Search returns at most the requested number of hits."""
+        await self._seed_graph()
 
-        from agrag.retrieval.recipes import Recipe  # noqa: PLC0415
+        found = await search_evidence(
+            self.store,
+            self.embedder,
+            "Aspirin headaches",
+            mode=EvidenceSearchMode.LEXICAL,
+            limit=1,
+            scope=frozenset({self.support_key}),
+        )
 
-        recipe = Recipe(methods=["entity"], limit=1)
-        results = await self._engine().search("Aspirin", recipe)
-        assert len(results) == 1
+        assert len(found.hits) == 1
 
     # ---- Graph.add() pipeline tests ----
 
     async def test_full_pipeline_with_graph_add(self) -> None:
-        """Full pipeline: Graph.add() -> SearchEngine.search()."""
+        """Full pipeline: Graph.add() -> evidence search."""
         text = f"Aspirin is commonly used to treat headaches. ref {self.token}"
 
-        result = await self._graph().add(text=text, error_policy="skip")
+        result = await self._graph().add(
+            documents=[make_document(self.support_key, text)], error_policy="skip"
+        )
 
         assert result.extraction.entities_extracted == 2
         await self._ensure_retrieval_indexes()
-        engine = self._engine()
+        scope = frozenset({self.support_key})
         chunks = await self._token_chunks()
         assert len(chunks) == 1
-        chunk_text = str(chunks[0]["text"])
 
-        entity_results = await engine.search("Aspirin", ENTITY)
+        entity_results = await entity_search(
+            self.store,
+            self.embedder,
+            "Aspirin",
+            scope=scope,
+            labels=[self.drug_label, self.condition_label],
+            mode=EvidenceSearchMode.LEXICAL,
+        )
         own = await self._own_entities()
-        found = {own[str(r.item.id)] for r in entity_results if str(r.item.id) in own}
+        found = {
+            own[hit.entity_id] for hit in entity_results.hits if hit.entity_id in own
+        }
         assert "Aspirin" in found
         entity_names = sorted(own.values())
 
-        chunk_results = await engine.search(chunk_text, CHUNK)
-        assert str(chunks[0]["id"]) in {str(r.item.id) for r in chunk_results}
+        chunk_results = await search_evidence(
+            self.store,
+            self.embedder,
+            "Aspirin headaches",
+            mode=EvidenceSearchMode.LEXICAL,
+            limit=10,
+            scope=scope,
+        )
+        assert chunk_results.hits
         artifact = write_artifact(
             "retrieval_and_agent_graph_add_pipeline",
             {
@@ -585,23 +433,36 @@ class TestRetrievalE2E:
             ),
         )
         await graph.add(
-            text=f"Aspirin treats headaches. ref {self.token}", error_policy="skip"
+            documents=[
+                make_document(
+                    self.support_key,
+                    f"Aspirin treats headaches. ref {self.token}",
+                )
+            ]
         )
+        second_key = f"e2e-ra://{self.token}/doc2"
         await graph.add(
-            text=f"Ibuprofen reduces inflammation. ref {self.token}",
-            error_policy="skip",
+            documents=[
+                make_document(
+                    second_key,
+                    f"Ibuprofen reduces inflammation. ref {self.token}",
+                )
+            ]
         )
         await self._ensure_retrieval_indexes()
 
         # The text-tilted vectors score below 1 against the run vector, so entities
         # in other labels of the shared database can outrank them. Searching only
         # this test's labels keeps those entities out of the comparison.
-        own_labels = SearchFilters(labels=[self.drug_label, self.condition_label])
-        results = await self._engine().search(
-            "drug treatment", ENTITY, filters=own_labels
+        results = await entity_search(
+            self.store,
+            self.embedder,
+            "drug treatment",
+            scope=frozenset({self.support_key, second_key}),
+            labels=[self.drug_label, self.condition_label],
         )
         own = await self._own_entities()
-        names = sorted(own[str(r.item.id)] for r in results if str(r.item.id) in own)
+        names = sorted(hit.name for hit in results.hits if hit.entity_id in own)
         chunks = await self._token_chunks()
 
         assert {"Aspirin", "Ibuprofen"} <= set(names)
@@ -620,8 +481,6 @@ class TestRetrievalE2E:
     async def test_agent_answer_contains_evidence(self) -> None:
         """The agent's answer contains evidence from the graph."""
         await self._seed_graph()
-        text = "Aspirin is effective for treating headaches."
-        await self._graph().add(text=text)
 
         from agrag.agents.build import build_agent  # noqa: PLC0415
         from agrag.agents.settings import (  # noqa: PLC0415
@@ -632,9 +491,7 @@ class TestRetrievalE2E:
         agent = build_agent(
             graph_store=self.store,
             embedder=self.embedder,
-            scope=frozenset(
-                {f"inline://{hashlib.sha256(text.encode()).hexdigest()[:16]}"}
-            ),
+            scope=frozenset({self.support_key}),
             project_id="retrieval-e2e",
             agent_id="e2e-agent",
             llm_settings=settings,

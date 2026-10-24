@@ -18,6 +18,8 @@ Configuration for the agent loop itself.
   Env: `AGENT_MAX_TOOL_CALLS`.
 - [**max_result_characters**](#agrag-agents-settings-AgentSettings-max_result_characters) (<code>int</code>) – Maximum text returned by one evidence fetch.
   Env: `AGENT_MAX_RESULT_CHARACTERS`.
+- [**request_deadline_seconds**](#agrag-agents-settings-AgentSettings-request_deadline_seconds) (<code>float</code>) – Timeout in seconds for one evidence tool
+  call. Env: `AGENT_REQUEST_DEADLINE_SECONDS`.
 
 Env prefix: `AGENT_`.
 
@@ -43,4 +45,10 @@ model_config = SettingsConfigDict(env_prefix='AGENT_', env_file='.env', extra='i
 
 ```python
 recursion_limit: int = Field(default=50, ge=1)
+```
+
+## `request_deadline_seconds` \{#agrag-agents-settings-AgentSettings-request_deadline_seconds}
+
+```python
+request_deadline_seconds: float = Field(default=30.0, gt=0)
 ```

@@ -8,7 +8,7 @@ import Diagram from '@site/src/components/Diagram';
 # Trace Spans
 
 This page is the reference for the spans Agentic GraphRAG records when you pass it a
-`tracer`. It lists the span names, attributes, and provider values that ingestion, extraction, resolution, retrieval, the agent, and the judge record.
+`tracer`. It lists the span names, attributes, and provider values that ingestion, extraction, resolution, the agent, and the judge record.
 
 Tracing is opt-in per object. A `tracer` of `None` opens no recorded span.
 Agentic GraphRAG never installs a global provider. You inject
@@ -17,7 +17,7 @@ how to build and pass one.
 
 ## How the span families nest
 
-<Diagram folder="docs" name="trace-families" alt="A graph call root holds extraction spans, a cutover job, and community spans. The cutover job holds resolution, merge, and storage spans. LLM spans nest below extraction, resolution, and community spans. An agent tool call holds the search root, which holds the retriever spans. Store and embedding spans nest below storage and retriever spans." />
+<Diagram folder="docs" name="trace-families" alt="A graph call root holds extraction spans, a cutover job, and community spans. The cutover job holds resolution, merge, and storage spans. LLM spans nest below extraction, resolution, and community spans. An agent tool call holds the spans of the evidence tool that made it. Store and embedding spans nest below storage spans." />
 
 *Each box is a span family. An arrow points from a parent span to the spans that nest below it.*
 
@@ -30,7 +30,6 @@ how to build and pass one.
 | Community spans | `agrag.community.*` |
 | LLM spans | `agrag.llm.call`, `agrag.llm.attempt`, `agrag.llm.request` |
 | Agent tool call | The OpenInference `TOOL` span of an agent run |
-| Search root and retriever spans | `agrag.retrieval.search` and the spans in "The retrieval span tree" |
 | Store and embedding spans | `agrag.graphdb.*`, `agrag.embedding.*`, only when you pass the same tracer to the stores and the embedder |
 
 ## The LLM span tree
@@ -220,14 +219,6 @@ Operations that send a request open a `CLIENT` span. `agrag.vectordb.upsert` and
 | `agrag.embedding.embed` | `agrag.text_count`, `agrag.cache_hit_count`, `agrag.model` (dense embedder, every call) |
 | `agrag.embedding.encode` | `agrag.text_count`, `agrag.cache_hit_count` (dense embedder, cache misses only) |
 
-## Retrieval loading spans
-
-| Span | Attributes |
-|---|---|
-| `agrag.retrieval.load_communities` | `agrag.requested_count`, `agrag.loaded_count` |
-| `agrag.retrieval.load_resolved_entities` | `agrag.requested_count`, `agrag.loaded_count` |
-| `agrag.retrieval.community_context` | `agrag.seed_count`, `agrag.top_k` |
-
 ## Domain spans by path
 
 Each LLM path also opens one small domain span carrying its own ids and counts.
@@ -253,77 +244,6 @@ One of these is conditional:
 call leaves its pairs undecided, not rejected, and is not an error. The span
 stays `UNSET` and sets `agrag.request_failed` instead. When no LLM settings are
 available, it sets `agrag.llm_unavailable` instead.
-
-## The retrieval span tree
-
-One `search` call fans out to the recipe's retrievers concurrently. Their
-spans are siblings under the root. The `agrag.graphdb.*`
-and `agrag.embedding.*` spans nest below these whenever the caller passed the
-same tracer to the stores and the embedder.
-
-```text
-agrag.retrieval.search                     RETRIEVER
-  agrag.retrieval.entity                   RETRIEVER, one per retriever
-    agrag.retrieval.allowed_entity_ids     only with a document scope
-    agrag.retrieval.entity_search
-      agrag.retrieval.vector_search        one per adaptive pass
-    agrag.retrieval.active_member_ids
-    agrag.graphdb.load_entities
-    agrag.retrieval.resolved_entity_search
-  agrag.retrieval.chunk                    RETRIEVER
-    agrag.retrieval.vector_search
-    agrag.retrieval.load_chunks
-  agrag.retrieval.community                RETRIEVER
-  agrag.retrieval.fuse
-  agrag.retrieval.bfs                      RETRIEVER, when recipe.bfs
-  agrag.retrieval.community_expand         when recipe.community_expand
-  agrag.retrieval.rerank.cross_encoder     or rerank.node_distance
-    agrag.retrieval.rerank.model_load      only on a cache miss
-```
-
-`agrag.retrieval.find_entity` and `agrag.retrieval.traverse` are `RETRIEVER`
-roots for direct calls that bypass `search`.
-`agrag.retrieval.list_relationship_types` returns strings and carries no kind.
-Inside an agent run, the whole tree nests under the OpenInference `TOOL` span
-of the tool call that made it.
-
-### Attributes
-
-| Span | Attributes |
-|---|---|
-| `agrag.retrieval.search` | `agrag.recipe.methods`, `agrag.recipe.limit`, `agrag.recipe.bfs`, `agrag.recipe.community_expand`, `agrag.recipe.reranker`, `agrag.failed_methods` (when a method failed) |
-| retrievers (`entity`, `chunk`, `community`, `bfs`) | `agrag.limit`. `chunk` also `agrag.requested_count`, `agrag.loaded_count`, `agrag.invalid_count`. `entity` also `agrag.passes`, `agrag.hit_count`. `bfs` also `agrag.seed_count`, `agrag.depth`, `agrag.direction`. |
-| `agrag.retrieval.find_entity` / `traverse` | `agrag.seed_ids`, `agrag.relation_type`, `agrag.direction`, `agrag.depth`, `agrag.limit`, `agrag.filters`, `agrag.community_expand` on `traverse` |
-| `agrag.retrieval.list_relationship_types` | `agrag.seed_ids`, `agrag.relation_type_filter`, `agrag.direction`, `agrag.result_count`, `agrag.result_types` |
-| `agrag.retrieval.vector_search` | `agrag.labels`, `agrag.limit`, `agrag.hit_count`, `agrag.hit_ids`, `agrag.hit_scores` |
-| `agrag.retrieval.entity_search` / `resolved_entity_search` | `agrag.limit`, `agrag.passes`, `agrag.hit_count` |
-| `agrag.retrieval.load_*` | `agrag.requested_count`, `agrag.loaded_count` |
-| `agrag.retrieval.allowed_entity_ids` | `agrag.document_count`, `agrag.entity_count` |
-| `agrag.retrieval.active_member_ids` | `agrag.requested_count`, `agrag.superseded_count` |
-| `agrag.retrieval.fuse` | `agrag.rrf_k`, `agrag.fuse.methods`, `agrag.fuse.method_counts` |
-| `agrag.retrieval.community_expand` / `community_context` | `agrag.seed_count`, `agrag.top_k`, `agrag.added_count` on `community_expand` |
-| `agrag.retrieval.rerank.cross_encoder` | `agrag.model`, `agrag.input_count`, `agrag.min_score` (when set), `agrag.skipped` (when the extra is missing) |
-| `agrag.retrieval.rerank.model_load` | `agrag.model` |
-| `agrag.retrieval.rerank.node_distance` | `agrag.seed_count`, `agrag.input_count`, `agrag.path_query_count` |
-
-### Result attributes
-
-Every retrieval span that returns a list of `SearchResult` records its results in full:
-
-- `agrag.result_count`, and arrays `agrag.result_ids`, `agrag.result_scores`,
-  `agrag.result_kinds` and `agrag.result_texts` holding every result, with
-  no text cap. Array attributes are not subject to the SDK's per-span
-  attribute limit.
-- For the first 20 results, the span also carries the OpenInference flattened names
-  `retrieval.documents.N.document.id`, `.document.content`, `.document.score`
-  and `.document.metadata` (a JSON object with `kind` and `method`). Trace
-  viewers draw these names as a retrieval panel.
-
-The span records the query and the scope. `input.value` and `agrag.query`
-carry the query text. `agrag.filters` carries the scope as JSON, and an empty
-scope counts. A step that falls back to empty (a failed load, a
-reranker without its extra) records the exception as an event on the
-narrowest span. That span's status stays `UNSET`.
 
 ## The `agrag.llm.request` span
 

@@ -4,9 +4,11 @@ The spans are real SDK spans made through the harness's own provider.
 """
 
 import gzip
+import json
 import threading
 
 import pytest
+from openinference.semconv.trace import SpanAttributes
 from opentelemetry.trace import Status, StatusCode
 
 from benchmarks.harness.record import PathUsage, read_trace
@@ -26,13 +28,20 @@ def _spans(tracing):
     return tracing.memory.get_finished_spans()
 
 
+_DOC1 = "019c0000-0000-7000-8000-000000000001"
+_DOC2 = "019c0000-0000-7000-8000-000000000002"
+_DOC3 = "019c0000-0000-7000-8000-000000000003"
+_CHUNK = "019c0000-0000-7000-8000-0000000000ff"
+_HASH = "0123456789abcdef"
+
+
 class TestSummarize:
     """Usage read from finished spans."""
 
     def test_counts_only_llm_kind_spans_and_sums_their_tokens(self, tmp_path):
         """Counts only llm kind spans and sums their tokens."""
         tracing = start_tracing(tmp_path / "t.jsonl.gz")
-        with tracing.tracer.start_as_current_span("agrag.retrieval.search"):
+        with tracing.tracer.start_as_current_span("agrag.extraction.baml"):
             pass
         llm_span(tracing.tracer, prompt=10, completion=5)
         llm_span(tracing.tracer, prompt=1, completion=2)
@@ -125,28 +134,42 @@ class TestSummarize:
 
         assert summarize(_spans(tracing)).by_corpus["c"].empty_extractions == 2
 
-    def test_retrieved_chunk_ids_keep_order_and_skip_other_kinds(self, tmp_path):
-        """Retrieved chunk ids keep order and skip other kinds."""
+    def test_retrieved_chunk_ids_keep_order_and_skip_other_tools(self, tmp_path):
+        """Evidence ids from search_evidence outputs keep order and dedupe."""
         tracing = start_tracing(tmp_path / "t.jsonl.gz")
         tracer = tracing.tracer
+        span_keep = f"ev1:s:{_DOC1}:{_HASH}:0-44"
+        chunk_again = f"ev1:c:{_DOC2}:{_HASH}:{_CHUNK}"
+        span_other = f"ev1:s:{_DOC3}:{_HASH}:0-10"
         with tracer.start_as_current_span(
             QUESTION_SPAN, attributes={QUESTION_ATTRIBUTE: "q"}
         ):
-            for ids, kinds in (
-                (["a", "e1", "b"], ["Chunk", "Entity", "Chunk"]),
-                (["b", "c"], ["Chunk", "Chunk"]),
+            for outputs in (
+                json.dumps(
+                    {"hits": [{"evidence_id": span_keep}, {"evidence_id": span_other}]}
+                ),
+                json.dumps(
+                    {"hits": [{"evidence_id": chunk_again}, {"evidence_id": span_keep}]}
+                ),
             ):
                 with tracer.start_as_current_span(
-                    "agrag.retrieval.search",
-                    attributes={"agrag.result_ids": ids, "agrag.result_kinds": kinds},
+                    "search_evidence",
+                    attributes={SpanAttributes.OUTPUT_VALUE: outputs},
                 ):
                     pass
+            with tracer.start_as_current_span(
+                "fetch_evidence",
+                attributes={
+                    SpanAttributes.OUTPUT_VALUE: json.dumps({"evidence_id": span_keep})
+                },
+            ):
+                pass
         tracing.close()
 
         assert summarize(_spans(tracing)).by_question["q"].retrieved_chunk_ids == [
-            "a",
-            "b",
-            "c",
+            span_keep,
+            span_other,
+            chunk_again,
         ]
 
     def test_provider_keeps_attributes_beyond_the_sdk_default_of_128(self, tmp_path):

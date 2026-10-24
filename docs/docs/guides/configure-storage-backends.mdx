@@ -280,10 +280,6 @@ A failed multi-statement history or decision write can leave partial effects. Re
 
 A query matches text containing any query word, ranked by FalkorDB's native TF-IDF score. We add `1.0` so matches with a native score of zero remain positive, without changing their order. Neo4j uses its native full-text scores, so keyword and hybrid rankings can differ. We index internal copies of FalkorDB text properties with line breaks replaced by spaces to work around tokenization at line breaks. Those copies are hidden from returned properties.
 
-### Path distance in ranking
-
-Node-distance reranking measures paths of up to five relationships on FalkorDB. An entity farther from the seeds ranks as unreachable. This limit applies to that reranker, not to every graph traversal.
-
 ## Configure Milvus vectors
 
 Milvus 3.0.1 or later stores external dense vectors and generates BM25 sparse vectors from text. A Neo4j or FalkorDB graph remains required for graph records, visibility checks, and property filters. Install `agentic-graphrag[milvus]` alongside the graph driver extra.

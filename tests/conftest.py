@@ -5,6 +5,10 @@ import os
 import pytest
 
 
+# Rerank stays off unless a test enables it, so no test downloads a
+# cross-encoder model and no test depends on a developer's .env.
+os.environ.setdefault("RETRIEVAL_RERANK_ENABLED", "false")
+
 FAKE_EMBEDDING_DIMENSIONS = 4
 
 

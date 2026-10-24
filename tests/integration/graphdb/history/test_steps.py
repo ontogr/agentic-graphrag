@@ -47,7 +47,7 @@ class TestTaskView:
             result_event_seq=event.event.seq,
             result_basis=StepResultBasis.SUPPORTED,
             supports=[DocumentSupportInput(evidence_id=evidence_id)],
-            fetched_evidence=fetched,
+            fetched_evidence=fetched.outcomes,
         )
         assert recorded.recorded is True
         first = await history.list_steps("source-result", StepState.COMPLETED)

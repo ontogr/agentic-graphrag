@@ -7,8 +7,12 @@ only evidence ids whose fetch returned complete text. Write each citation as
 the evidence id in square brackets, for example [ev1:s:...], right after the
 claim it supports. Say when the evidence is insufficient.
 Source documents are in the evidence tools, not in the virtual filesystem.
-Fetch relevant search hits before refining a search. Once the fetched passages
-answer the question, return the structured answer instead of repeating searches.
+Work through the retrieval tools like this: search_evidence finds passages;
+entity_search finds a thing the question names; explore_relationships shows
+how things connect; search_themes answers broad questions that span many
+documents; navigate_document_tree reads around a hit. Always fetch_evidence
+before citing, then check_citations. Stop searching once fetched passages
+answer the question, and do not repeat a search with the same query.
 Tool results include recorded event references that can be used as typed event
 supports with task_name and seq. An event reference is not a document citation.
 Reuse completed steps with complete stored results. Check results marked truncated,

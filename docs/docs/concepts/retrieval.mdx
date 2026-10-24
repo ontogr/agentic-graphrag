@@ -8,7 +8,7 @@ import Diagram from '@site/src/components/Diagram';
 
 # Retrieval
 
-Retrieval finds the parts of your documents that answer a question, and it lets an answer point back to the exact text it came from. Agentic GraphRAG has two ways to do this. The evidence tools in `agrag.evidence` search your documents, return the exact text of a passage, and check the citations in an answer. The built-in agent and the MCP server use them. `SearchEngine` runs recipes that return ranked results as data, without citations.
+Retrieval finds the parts of your documents that answer a question, and it lets an answer point back to the exact text it came from. The evidence tools in `agrag.evidence` search your documents, return the exact text of a passage, and check the citations in an answer. The built-in agent and the MCP server use them.
 
 No single search finds everything. A name lookup finds "Ada Lovelace" and misses "the main themes in this corpus". A keyword search finds an exact contract term and misses a paraphrase of it. A vector search finds the paraphrase and can rank a similar but wrong passage first. The tools below cover these cases one at a time.
 
@@ -105,6 +105,8 @@ Main features:
 - Ranks a chunk higher when both searches rank it well.
 - Reports `partial` when one of the two searches fails.
 
+When a reranker is configured, hybrid search also reorders its top hits with a cross-encoder model and marks the result `reranked`. With an external vector store, the store itself performs the hybrid fusion of dense and keyword results, and the graph full-text index is not searched in this mode. The `lexical` mode always searches the graph full-text index, on every backend.
+
 ### Entity search
 
 [Entity search](../tools/entity-search.mdx) finds the things your schema names, such as people, contracts, or products, by name or by meaning. Each entity comes with up to three passages that mention it.
@@ -135,15 +137,16 @@ Main features:
 - Reads only the document version of the passage you start from.
 - Starts from an evidence id, so it cannot search.
 
-### Recipe search
+### Theme search
 
-[Recipe search](../tools/recipe-search.mdx) runs entity, chunk, and community search at the same time and returns ranked results as data.
+`search_themes` finds the community themes whose member passages match a query, and returns each theme with the passages that support it.
 
 Main features:
 
-- Fuses the lists, and can walk the graph and re-rank.
-- Returns entities, passages, and community reports.
-- Has no document scope and no citation support.
+- Matches the query against the community report embeddings of the last `detect_communities` run, so a theme matches by meaning.
+- Returns up to five member entity names and up to `support_limit` visible in-scope passages per theme, each passage with its evidence id.
+- Never returns community report text, because community nodes carry no document scope.
+- Returns no theme before the first `detect_communities` run, and leaves documents added after that run out until the next run.
 
 ## Which tool to call for a question
 
@@ -154,7 +157,7 @@ Main features:
 | Fits neither case, or you are unsure | `search_evidence` in `hybrid` mode, the default | Read the hits you will quote with `fetch_evidence`. |
 | Names a thing and asks about its relations ("who worked with Babbage") | `entity_search` | `explore_relationships` from the best entity, then read the passages on its assertion edges with `fetch_evidence`. |
 | Needs the section, the table, or the text around a passage you already have | `navigate_document_tree` from that passage's id | Read the neighbors you cite with `fetch_evidence`. |
-| Asks for the main themes of a corpus | `SearchEngine` with the `THEMATIC` recipe | Read the community reports. |
+| Asks for the main themes of a corpus | `search_themes` | Read and cite the supporting passages with `fetch_evidence`. |
 
 The table uses the tool names of the built-in agent and the MCP server. The Python functions in `agrag.evidence` have the same names.
 

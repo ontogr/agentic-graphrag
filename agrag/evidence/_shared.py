@@ -1,10 +1,11 @@
 """Helpers shared by search, fetch, navigation and citation checks."""
 
+import asyncio
 import re
 from collections import defaultdict
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Callable, Coroutine, Iterable, Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, TypeVar
 
 from agrag.common.data_models.chunk import Chunk
 from agrag.common.data_models.document import Document
@@ -15,11 +16,95 @@ from agrag.common.data_models.evidence import (
     EvidenceReference,
     IndexState,
 )
-from agrag.common.data_models.index_record import INDEX_STATE_ONLINE
+from agrag.common.data_models.index_record import INDEX_STATE_ONLINE, IndexInfo
 from agrag.common.data_models.provenance import PageProvenance, TextProvenance
 from agrag.common.data_models.vector_record import VectorKind
+from agrag.embedding.base import Embedder
 from agrag.graphdb.base import GraphStore
 from agrag.vectordb.base import VectorStore
+
+
+EMBEDDING_MISMATCH_MESSAGE = (
+    "the query embedding model does not match the stored vectors; set the same "
+    "EMBEDDING_* settings that ingestion used or use lexical mode"
+)
+
+_T = TypeVar("_T")
+
+
+async def run_with_timeout(
+    factory: Callable[[], Coroutine[Any, Any, _T]], timeout: float | None
+) -> _T:
+    """Run one external store call, cutting the wait off at the timeout.
+
+    External vector stores have no server-side timeout, so the wait itself is
+    bounded here. A timeout raises ``TimeoutError``, which the caller treats as
+    a failure of the leg that made the call.
+
+    Args:
+        factory: Builds the call to run. It is invoked inside the timeout, so a
+            timed-out call is never started twice.
+        timeout: The most seconds the call may take. None runs without a
+            wrapper timeout.
+
+    Returns:
+        Whatever the call returns.
+    """
+    if timeout is None:
+        return await factory()
+    async with asyncio.timeout(timeout):
+        return await factory()
+
+
+async def embedding_matches(
+    embedder: Embedder,
+    *,
+    indexes: Sequence[IndexInfo],
+    index_name: str,
+    vector_store: VectorStore | None,
+    kind: VectorKind,
+    timeout: float | None = None,
+) -> bool:
+    """Return whether the query embedder matches the dimension of stored vectors.
+
+    Equal dimensions do not establish that the embedding models are the same;
+    they only catch the common mismatch of changed ``EMBEDDING_*`` settings. A
+    missing index or collection reports a match, so readiness reporting still
+    names it.
+
+    Args:
+        embedder: Embeds queries for the semantic leg.
+        indexes: The graph indexes, as returned by one ``store.list_indexes``
+            call shared with ``indexes_ready``.
+        index_name: The name of the graph vector index to compare against. Only
+            read when ``vector_store`` is None.
+        vector_store: The external vector store, or None for graph-native
+            search.
+        kind: The external collection to compare against.
+        timeout: The most seconds a collection read may take. None runs
+            without a wrapper timeout.
+
+    Returns:
+        True when the dimensions match, or when no stored vectors were found.
+
+    Raises:
+        Exception: The embedder could not report its dimensions, or the
+            external collection could not be read. The caller treats this as a
+            failed leg.
+    """
+    if vector_store is not None:
+        info = await run_with_timeout(
+            lambda: vector_store.collection_info(kind, exact_count=False), timeout
+        )
+        if info is None:
+            return True
+        stored_dimensions = info.dimensions
+    else:
+        current = next((index for index in indexes if index.name == index_name), None)
+        if current is None:
+            return True
+        stored_dimensions = current.dimensions
+    return stored_dimensions == await embedder.dimensions()
 
 
 def scope_node_ids(scope: Iterable[str]) -> frozenset[str]:
@@ -246,7 +331,11 @@ class IndexSpec:
 
 
 async def indexes_ready(
-    store: GraphStore, specs: Sequence[IndexSpec], *, timeout: float | None = None
+    store: GraphStore,
+    specs: Sequence[IndexSpec],
+    *,
+    timeout: float | None = None,
+    indexes: Sequence[IndexInfo] | None = None,
 ) -> IndexState:
     """Return READY when every spec is covered by an ONLINE index.
 
@@ -258,11 +347,14 @@ async def indexes_ready(
         specs: The indexes that a call needs.
         timeout: Server-side transaction timeout in seconds. None uses the
             server's default.
+        indexes: The graph indexes, as returned by one ``store.list_indexes``
+            call. None reads them from the store.
 
     Returns:
         ``IndexState.READY`` or ``IndexState.NOT_READY``.
     """
-    indexes = await store.list_indexes(timeout=timeout)
+    if indexes is None:
+        indexes = await store.list_indexes(timeout=timeout)
     for spec in specs:
         search_call = (
             await store.fulltext_search_call(label=spec.label, properties=[spec.prop])
@@ -289,7 +381,10 @@ async def indexes_ready(
 
 
 async def stores_ready(
-    vector_store: VectorStore | None, kinds: Sequence[VectorKind]
+    vector_store: VectorStore | None,
+    kinds: Sequence[VectorKind],
+    *,
+    timeout: float | None = None,
 ) -> IndexState:
     """Return READY when each external vector collection exists.
 
@@ -297,6 +392,8 @@ async def stores_ready(
         vector_store: External store for semantic search, or None when vector
             readiness is covered by graph indexes.
         kinds: Collections required by the requested search legs.
+        timeout: The most seconds a collection read may take. None runs
+            without a wrapper timeout.
 
     Returns:
         ``IndexState.READY`` or ``IndexState.NOT_READY``.
@@ -304,6 +401,10 @@ async def stores_ready(
     if vector_store is None:
         return IndexState.READY
     for kind in kinds:
-        if await vector_store.collection_info(kind, exact_count=False) is None:
+        info = await run_with_timeout(
+            lambda kind=kind: vector_store.collection_info(kind, exact_count=False),
+            timeout,
+        )
+        if info is None:
             return IndexState.NOT_READY
     return IndexState.READY

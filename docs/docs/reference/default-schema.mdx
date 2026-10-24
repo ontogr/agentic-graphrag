@@ -13,9 +13,7 @@ from agrag.common.data_models import DEFAULT_SCHEMA
 print(DEFAULT_SCHEMA.name, DEFAULT_SCHEMA.version)
 ```
 
-`SearchEngine` uses `DEFAULT_SCHEMA` when `graph_schema` is omitted. Pass the same schema used for ingestion when searching a graph with custom types.
-
-The exported schema and presets contain mutable models and lists. Do not edit their contents directly. Use `DEFAULT_SCHEMA.model_copy(deep=True)` to customize a schema, or call `Preset.apply` to obtain an independent schema. `SearchEngine` takes a deep copy of its input schema.
+The exported schema and presets contain mutable models and lists. Do not edit their contents directly. Use `DEFAULT_SCHEMA.model_copy(deep=True)` to customize a schema, or call `Preset.apply` to obtain an independent schema.
 
 The schema is closed. The extractor reports only declared types. It has no catch-all type, catch-all relation, or wildcard pattern.
 

@@ -358,7 +358,7 @@ class TestDocumentPurge:
             out_of_scope = await fetch_evidence(
                 store, first_ids + second_ids, scope=frozenset(), max_chars=500
             )
-            assert {outcome.status for outcome in out_of_scope} == {
+            assert {outcome.status for outcome in out_of_scope.outcomes} == {
                 FetchStatus.UNAVAILABLE
             }
 
@@ -374,7 +374,7 @@ class TestDocumentPurge:
                 scope=frozenset({key}),
                 max_chars=500,
             )
-            assert {outcome.status for outcome in outcomes} == {FetchStatus.UNAVAILABLE}
+            assert {o.status for o in outcomes.outcomes} == {FetchStatus.UNAVAILABLE}
             assert await _searched_ids(store, key, probe) == []
             assert await _purge_activations(store, key) == 1
         finally:
@@ -398,7 +398,7 @@ class TestDocumentPurge:
             after_delete = await fetch_evidence(
                 store, evidence_ids, scope=frozenset({key}), max_chars=500
             )
-            assert {outcome.status for outcome in after_delete} == {
+            assert {outcome.status for outcome in after_delete.outcomes} == {
                 FetchStatus.UNAVAILABLE
             }
             assert await _structure_count(store, key) > 0
@@ -461,7 +461,7 @@ class TestDocumentPurge:
             outcomes = await fetch_evidence(
                 store, other_ids, scope=frozenset({other_key}), max_chars=500
             )
-            assert {outcome.status for outcome in outcomes} == {FetchStatus.OK}
+            assert {o.status for o in outcomes.outcomes} == {FetchStatus.OK}
             assert await _searched_ids(store, other_key, other_probe) == other_ids
             assert await _text_hits(store, other_probe) > 0
             assert await _works_for_sources(store, probe) == [other_chunks]

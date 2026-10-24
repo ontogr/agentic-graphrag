@@ -2,7 +2,7 @@
 
 One user story runs against a real Neo4j: add two documents, add one again,
 update it, then delete the other. After each step the tests read the graph
-and search it with SearchEngine, and check that closed versions no longer
+and search it with the evidence tools, and check that closed versions no longer
 appear in retrieval and that shared entities survive. Another group of tests
 interrupts an add with an extractor error or an embedder error, then runs the
 add again and checks that the graph ends complete with no duplicates.
@@ -25,7 +25,6 @@ import pytest
 
 from agrag.common.data_models.chunk import Chunk
 from agrag.common.data_models.document import Document, DocumentFamily, SourceFormat
-from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.evidence import (
     EvidenceSearchMode,
     EvidenceSearchStatus,
@@ -35,18 +34,14 @@ from agrag.common.data_models.evidence import (
 )
 from agrag.common.data_models.extraction import ExtractedEntity, ExtractionResult
 from agrag.common.data_models.graph_schema import EntityType, GraphSchema
-from agrag.common.data_models.resolved_entity import ResolvedEntity
 from agrag.cypher.entities import validate_identifier
 from agrag.embedding.base import Embedder
-from agrag.evidence import fetch_evidence, search_evidence
+from agrag.evidence import entity_search, fetch_evidence, search_evidence
 from agrag.graphdb.base import GraphStore
 from agrag.ingestion.extract import Extractor
 from agrag.ingestion.graph import Graph
 from agrag.loaders.common import text_sections
 from agrag.loaders.types import ErrorPolicy
-from agrag.retrieval.recipes import ENTITY, Recipe
-from agrag.retrieval.search_engine import SearchEngine
-from agrag.retrieval.settings import RetrievalSettings
 from tests.conftest import FAKE_EMBEDDING_DIMENSIONS
 from tests.integration._backend import build_test_store
 from tests.integration._schema_cleanup import drop_schema_for
@@ -54,8 +49,6 @@ from tests.integration.e2e._artifact import write_artifact
 
 
 neo4j_missing = importlib.util.find_spec("neo4j") is None
-
-_CHUNK_RECIPE = Recipe(methods=["chunk"], limit=200)
 
 # Every keyword the fake embedder and extractor know, with its entity kind.
 _KEYWORDS: dict[str, tuple[str, str]] = {
@@ -175,7 +168,6 @@ class _Env:
     run: str
     store: GraphStore
     graph: Graph
-    engine: SearchEngine
     embedder: _KeywordEmbedder
     extractor: _KeywordExtractor
     drug_label: str
@@ -244,24 +236,41 @@ class _Env:
             "Document", "n.document_key STARTS WITH $prefix", {"prefix": self.key("")}
         )
 
+    async def scope_keys(self) -> frozenset[str]:
+        """Return the document keys of this run's documents."""
+        rows = await self.store.execute_read(
+            "MATCH (d:Document) WHERE d.document_key STARTS WITH $prefix "
+            "RETURN d.document_key AS key",
+            {"prefix": self.key("")},
+        )
+        return frozenset(str(row["key"]) for row in rows)
+
     async def chunk_hits(self, query: str) -> list[str]:
-        """Return topics of this run's chunks in search rank order."""
-        results = await self.engine.search(query, _CHUNK_RECIPE)
-        return [
-            _topics(result.item.text)
-            for result in results
-            if isinstance(result.item, Chunk) and self.run in result.item.text
-        ]
+        """Return topics of this run's chunks in search rank order.
+
+        Hybrid keeps the old recipe behavior: a query word that a chunk does
+        not contain can still find the chunk through its embedding.
+        """
+        found = await search_evidence(
+            self.store,
+            self.embedder,
+            query,
+            limit=200,
+            scope=await self.scope_keys(),
+        )
+        return [_topics(hit.snippet) for hit in found.hits if self.run in hit.snippet]
 
     async def entity_hits(self, query: str) -> list[str]:
         """Return entity names of this run's labels in search rank order."""
-        results = await self.engine.search(query, ENTITY)
-        return [
-            str(result.item.name)
-            for result in results
-            if isinstance(result.item, (Entity, ResolvedEntity))
-            and result.item.label in (self.drug_label, self.condition_label)
-        ]
+        found = await entity_search(
+            self.store,
+            self.embedder,
+            query,
+            scope=await self.scope_keys(),
+            labels=[self.drug_label, self.condition_label],
+            mode=EvidenceSearchMode.LEXICAL,
+        )
+        return [hit.name for hit in found.hits]
 
     async def snapshot(self) -> dict[str, Any]:
         """Capture the graph state that add, update, and delete change."""
@@ -303,7 +312,7 @@ async def _cleanup(env: _Env) -> None:
 
 @pytest.mark.skipif(neo4j_missing, reason="neo4j extra not installed")
 class TestDocumentLifecycleE2E:
-    """Add, update, delete, and interrupted add through Graph and SearchEngine."""
+    """Add, update, delete, and interrupted add through Graph and evidence search."""
 
     @pytest.fixture
     async def env(self) -> AsyncGenerator[_Env, None]:
@@ -326,17 +335,10 @@ class TestDocumentLifecycleE2E:
         graph = await Graph.open(
             schema=schema, graph_store=store, embedder=embedder, extractor=extractor
         )
-        engine = SearchEngine(
-            graph_store=store,
-            embedder=embedder,
-            settings=RetrievalSettings(entity_top_k=50, chunk_top_k=200),
-            graph_schema=schema,
-        )
         env = _Env(
             run=run,
             store=store,
             graph=graph,
-            engine=engine,
             embedder=embedder,
             extractor=extractor,
             drug_label=drug_label,
@@ -453,10 +455,10 @@ class TestDocumentLifecycleE2E:
             scope=frozenset({key_b}),
             max_chars=1000,
         )
-        assert before_delete[0].status is FetchStatus.OK
-        assert before_delete[0].status_of_version is VersionStatus.CURRENT
-        assert before_delete[0].text is not None
-        assert "Ibuprofen" in before_delete[0].text
+        assert before_delete.outcomes[0].status is FetchStatus.OK
+        assert before_delete.outcomes[0].status_of_version is VersionStatus.CURRENT
+        assert before_delete.outcomes[0].text is not None
+        assert "Ibuprofen" in before_delete.outcomes[0].text
         deleted = await env.graph.delete_document(key_b)
         assert deleted.no_op is False
         assert deleted.parts_closed == 2
@@ -486,9 +488,9 @@ class TestDocumentLifecycleE2E:
             scope=frozenset({key_b}),
             max_chars=1000,
         )
-        assert historical_fetch[0].status is FetchStatus.UNAVAILABLE
-        assert historical_fetch[0].status_of_version is None
-        assert historical_fetch[0].text is None
+        assert historical_fetch.outcomes[0].status is FetchStatus.UNAVAILABLE
+        assert historical_fetch.outcomes[0].status_of_version is None
+        assert historical_fetch.outcomes[0].text is None
         assert (await env.graph.source_status(key_b)).state is SourceState.DELETED
         assert "Ibuprofen" not in await env.entity_hits("Ibuprofen")
         assert (await env.chunk_hits("headache"))[0] == "headache+inflammation+naproxen"

@@ -24,6 +24,7 @@ import pytest
 
 from agrag.common.data_models.chunk import Chunk
 from agrag.common.data_models.document import Document, DocumentFamily, SourceFormat
+from agrag.common.data_models.evidence import EvidenceSearchMode
 from agrag.common.data_models.extraction import (
     ExtractedEntity,
     ExtractedRelation,
@@ -37,15 +38,13 @@ from agrag.common.data_models.graph_schema import (
 from agrag.common.schema_fingerprint import schema_fingerprint
 from agrag.cypher.entities import validate_identifier
 from agrag.embedding.base import Embedder
+from agrag.evidence import search_evidence
 from agrag.graphdb.base import GraphStore
 from agrag.ingestion.extract import Extractor
 from agrag.ingestion.graph import Graph
 from agrag.ingestion.settings import ExtractionSettings
 from agrag.loaders.common import text_sections
 from agrag.loaders.types import ErrorPolicy
-from agrag.retrieval.recipes import Recipe
-from agrag.retrieval.search_engine import SearchEngine
-from agrag.retrieval.settings import RetrievalSettings
 from tests.conftest import FAKE_EMBEDDING_DIMENSIONS
 from tests.integration._backend import build_test_store
 from tests.integration._schema_cleanup import drop_schema_for
@@ -55,8 +54,6 @@ from tests.integration.e2e._artifact import write_artifact
 neo4j_missing = importlib.util.find_spec("neo4j") is None
 
 _BODY = "Ada met Bob in Paris."
-_CHUNK_RECIPE = Recipe(methods=["chunk"], limit=200)
-
 # Four dimensions match the shared Chunk vector index other tests create.
 _AXES: dict[str, tuple[float, float, float, float]] = {
     "ada": (1.0, 0.0, 0.0, 0.0),
@@ -337,17 +334,25 @@ async def _search_chunks(
     env: _Env, embedder: _RecordingEmbedder, schema: GraphSchema, query: str
 ) -> list[str]:
     """Return the texts of this run's open chunks that a search finds."""
-    engine = SearchEngine(
-        graph_store=env.store,
-        embedder=embedder,
-        settings=RetrievalSettings(entity_top_k=50, chunk_top_k=200),
-        graph_schema=schema,
+    del schema
+    rows = await env.store.execute_read(
+        "MATCH (d:Document) WHERE d.document_key STARTS WITH $prefix "
+        "RETURN d.document_key AS key",
+        {"prefix": env.key("")},
     )
-    results = await engine.search(query, _CHUNK_RECIPE)
+    scope = frozenset(str(row["key"]) for row in rows)
+    found = await search_evidence(
+        env.store,
+        embedder,
+        query,
+        mode=EvidenceSearchMode.LEXICAL,
+        limit=50,
+        scope=scope,
+    )
     return [
-        result.item.text
-        for result in results
-        if isinstance(result.item, Chunk) and env.run in result.item.text
+        hit.snippet
+        for hit in found.hits
+        if isinstance(hit.snippet, str) and env.run in hit.snippet
     ]
 
 

@@ -12,6 +12,7 @@ from uuid import UUID
 
 from agrag.common.data_models.evidence import (
     CitationCheck,
+    CitationResult,
     CitationVerdict,
     EvidenceKind,
     EvidenceReference,
@@ -64,11 +65,11 @@ def parse_citations(text: str) -> ParsedCitations:
 
 
 async def check_citations(
-    cited_ids: Sequence[str],
+    evidence_ids: Sequence[str],
     fetched_ids: Iterable[str],
     *,
     scope: frozenset[str],
-) -> list[CitationCheck]:
+) -> CitationResult:
     """Return one verdict for each cited evidence id, in the order given.
 
     A citation is ``valid`` when its document is in scope and it was fetched. A
@@ -82,7 +83,7 @@ async def check_citations(
     ``partial`` outcome names more text than the caller received.
 
     Args:
-        cited_ids: Evidence ids the answer cites.
+        evidence_ids: Evidence ids the answer cites.
         fetched_ids: Evidence ids the caller fetched. A malformed entry is
             ignored.
         scope: Keys of the documents the caller may read.
@@ -104,13 +105,14 @@ async def check_citations(
                 (reference.document_node_id, reference.content_hash_prefix)
             ].append(_span_bounds(reference))
 
-    return [
+    checks = [
         CitationCheck(
             cited_id=cited_id,
             verdict=_verdict(cited_id, allowed, fetched_exact, fetched_spans),
         )
-        for cited_id in cited_ids
+        for cited_id in evidence_ids
     ]
+    return CitationResult(checks=checks, truncated=False)
 
 
 def _span_bounds(reference: EvidenceReference) -> tuple[int, int]:

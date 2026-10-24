@@ -9,7 +9,6 @@ from uuid import uuid4
 import pytest
 from dotenv import load_dotenv
 
-from agrag.agents.ledger import Ledger
 from agrag.common.data_models.chunk import CHUNK_LABEL, Chunk
 from agrag.common.data_models.community import COMMUNITY_LABEL, Community
 from agrag.common.data_models.entity import Entity
@@ -20,20 +19,18 @@ from agrag.common.data_models.extraction import (
 )
 from agrag.common.data_models.graph_record import RelationRecord
 from agrag.common.data_models.graph_schema import EntityType, GraphSchema, RelationType
-from agrag.common.data_models.resolved_entity import ResolvedEntity
 from agrag.common.data_models.vector_record import Distance
-from agrag.cypher.entities import validate_identifier
+from agrag.cypher.entities import upsert_merge_alias_query, validate_identifier
 from agrag.embedding.base import Embedder
+from agrag.evidence import entity_search, search_themes
 from agrag.graphdb.base import GraphStore
 from agrag.ingestion.community import required_member_ids
 from agrag.ingestion.extract import Extractor
 from agrag.ingestion.graph import Graph
-from agrag.retrieval.recipes import HYBRID_RERANKED, THEMATIC
-from agrag.retrieval.search_engine import SearchEngine
-from agrag.retrieval.settings import RetrievalSettings
-from tests.integration._backend import build_test_store
+from tests.integration._backend import await_indexes, build_test_store
 from tests.integration._schema_cleanup import delete_resolved_entities, drop_schema_for
 from tests.integration.e2e._artifact import write_artifact
+from tests.integration.retrieval.evidence._corpus import make_document
 
 
 neo4j_missing = importlib.util.find_spec("neo4j") is None
@@ -182,6 +179,11 @@ async def _cleanup_community_test_data(
 ) -> None:
     """Remove only entities and dependent data created by one E2E test."""
     await delete_resolved_entities(store, person_label, org_label)
+    await store.execute_write(
+        "MATCH (a:_MergeAlias) WHERE any(label IN $labels "
+        "WHERE a.merge_key STARTS WITH label + ':') DETACH DELETE a",
+        {"labels": [person_label, org_label]},
+    )
     rows = await store.execute_read(
         "MATCH (n) WHERE $person_label IN labels(n) "
         "OR $org_label IN labels(n) RETURN collect(n.id) AS ids",
@@ -206,17 +208,31 @@ async def _cleanup_community_test_data(
     )
 
 
+async def _cleanup_support_document(store: GraphStore, document_key: str) -> None:
+    """Delete the support document and its chunks of one e2e test."""
+    await store.execute_write(
+        "MATCH (d:Document) WHERE d.document_key = $key "
+        "MATCH (d)-[:HAS_PART]->(c:Chunk) DETACH DELETE c",
+        {"key": document_key},
+    )
+    await store.execute_write(
+        "MATCH (d:Document) WHERE d.document_key = $key DETACH DELETE d",
+        {"key": document_key},
+    )
+
+
 @pytest.mark.enable_socket
 @pytest.mark.xdist_group(name="community_label")
 @pytest.mark.skipif(neo4j_missing, reason="neo4j extra not installed")
 @pytest.mark.skipif(graspologic_missing, reason="graspologic-native missing")
 async def test_community_via_store_e2e() -> None:  # noqa: PLR0915
-    """Store-seeded seam: upsert -> detect -> HYBRID_RERANKED + THEMATIC."""
+    """Store-seeded seam: upsert -> detect -> entity search + themes."""
     store = build_test_store()
     await store.connect()
     suffix = uuid4().hex[:8]
     person_label = validate_identifier(f"Person_{suffix}")
     org_label = validate_identifier(f"Org_{suffix}")
+    support_key = f"e2e-comm://{suffix}/support"
     dim = 4
     embedder = _FixedEmbedder(dim=dim, vector=_run_vector(suffix, dim))
     schema = GraphSchema(
@@ -246,6 +262,10 @@ async def test_community_via_store_e2e() -> None:  # noqa: PLR0915
             dimensions=dim,
             distance=Distance.COSINE,
         )
+    for lbl in (person_label, org_label):
+        await store.ensure_fulltext_index(label=lbl, properties=["name"])
+    await store.ensure_fulltext_index(label=CHUNK_LABEL, properties=["text"])
+    await await_indexes(store)
     # Seed two 3-node stars (2 persons + 1 org each), 4 relations.
     p1 = Entity(id=uuid4(), label=person_label, name="Alice")
     p2 = Entity(id=uuid4(), label=person_label, name="Bob")
@@ -260,6 +280,15 @@ async def test_community_via_store_e2e() -> None:  # noqa: PLR0915
             person_label, [e.to_node_record() for e in (p1, p2, p3, p4)]
         )
         await store.upsert_nodes(org_label, [e.to_node_record() for e in (o1, o2)])
+        for entity in (p1, p2, p3, p4, o1, o2):
+            await store.execute_write(
+                upsert_merge_alias_query(),
+                {
+                    "merge_keys": [entity.merge_key],
+                    "entity_id": str(entity.id),
+                    "pending_job_id": None,
+                },
+            )
         # Heavy clique (Acme star) gets weight 3 per edge, light gets 1.
         c1 = uuid4()
         c2 = uuid4()
@@ -314,17 +343,10 @@ async def test_community_via_store_e2e() -> None:  # noqa: PLR0915
             embedder=embedder,
             extractor=_FakeWorksAtExtractor(person_label, org_label),
         )
-        with (
-            patch(
-                "agrag.llm.baml_client.b.SummarizeCommunities",
-                new_callable=AsyncMock,
-                side_effect=_fake_reports,
-            ),
-            patch(
-                "agrag.retrieval.search_engine.cross_encoder_rerank",
-                new_callable=AsyncMock,
-                side_effect=lambda q, results, **kw: results,
-            ),
+        with patch(
+            "agrag.llm.baml_client.b.SummarizeCommunities",
+            new_callable=AsyncMock,
+            side_effect=_fake_reports,
         ):
             report = await graph.detect_communities(apply=True)
             names_by_id = await _entity_names(store, [person_label, org_label])
@@ -343,41 +365,35 @@ async def test_community_via_store_e2e() -> None:  # noqa: PLR0915
                 assert comm.embedding is not None
                 assert len(comm.embedding) == dim
             own_ids = {c.id for c in own}
-            engine = SearchEngine(
-                graph_store=store,
-                embedder=embedder,
-                settings=RetrievalSettings(),
-                graph_schema=GraphSchema(
-                    name="community_e2e",
-                    version="1",
-                    entities=[
-                        EntityType(label=person_label, description="A person."),
-                        EntityType(label=org_label, description="An organization."),
-                    ],
-                    relations=[],
-                ),
+            # A committed document whose passages mention the seeded entities
+            # gives the evidence tools an in-scope passage to return.
+            await graph.add(
+                documents=[
+                    make_document(
+                        support_key,
+                        "Alice works at Acme. Bob works at Acme. "
+                        "Carol works at Globex. Dave works at Globex.",
+                    )
+                ]
             )
-            hybrid = await engine.search("Acme works", HYBRID_RERANKED)
-            assert any(isinstance(r.item, Entity) for r in hybrid)
-            hybrid_own = [
-                r
-                for r in hybrid
-                if isinstance(r.item, Community) and r.item.id in own_ids
-            ]
-            assert hybrid_own
-            thematic = await engine.search("Acme community", THEMATIC)
-            thematic_own = [
-                r
-                for r in thematic
-                if isinstance(r.item, Community) and r.item.id in own_ids
-            ]
+            scope = frozenset({support_key})
+            found_entities = await entity_search(
+                store,
+                embedder,
+                "Acme works",
+                scope=scope,
+                labels=[person_label, org_label],
+            )
+            assert any(
+                hit.name in set(names_by_id.values()) for hit in found_entities.hits
+            )
+            thematic = await search_themes(
+                store, embedder, "Acme community", scope=scope
+            )
+            thematic_own = {theme.theme_id for theme in thematic.themes} & {
+                str(community_id) for community_id in own_ids
+            }
             assert thematic_own
-            ledger = Ledger()
-            for result in hybrid:
-                ledger.cite(result)
-            g1 = ledger.resolve("G1")
-            assert g1 is not None
-            assert isinstance(g1.item, Community)
             artifact = write_artifact(
                 "community_store_seeded",
                 {
@@ -386,8 +402,7 @@ async def test_community_via_store_e2e() -> None:  # noqa: PLR0915
                         m for k, t in titles.items() if t == "LLM Title" for m in k
                     ),
                     "embedding_dim": dim,
-                    "hybrid_has_entity": True,
-                    "hybrid_finds_own_community": True,
+                    "entity_search_finds_entity": True,
                     "thematic_finds_own_community": True,
                 },
             )
@@ -397,6 +412,7 @@ async def test_community_via_store_e2e() -> None:  # noqa: PLR0915
         ]
         assert artifact["thematic_finds_own_community"] is True
     finally:
+        await _cleanup_support_document(store, support_key)
         await _cleanup_community_test_data(store, person_label, org_label)
         await drop_schema_for(store, person_label, org_label)
         await store.close()
@@ -420,6 +436,7 @@ async def test_community_via_graph_add_e2e() -> None:  # noqa: PLR0915
     org_label = validate_identifier(f"Org_{suffix}")
     other_person = validate_identifier(f"Person_{uuid4().hex[:8]}")
     other_org = validate_identifier(f"Org_{uuid4().hex[:8]}")
+    support_key = f"e2e-comm://{suffix}/support"
     schema = GraphSchema(
         name="e2e",
         version="1",
@@ -473,7 +490,7 @@ async def test_community_via_graph_add_e2e() -> None:  # noqa: PLR0915
             "Carol works at Globex. Dave works at Globex. "
             "Eve works at Acme. Frank is isolated."
         )
-        await graph.add(text=text, error_policy="skip")
+        await graph.add(documents=[make_document(support_key, text)])
         # An entity with no edge must not be loaded.
         isolated = Entity(id=uuid4(), label=person_label, name="Isolated")
         isolated.embedding = [0.1] * dim
@@ -490,17 +507,10 @@ async def test_community_via_graph_add_e2e() -> None:  # noqa: PLR0915
                 captured_ids.update(parameters["ids"])
             return await orig_read(query, parameters, **kw)
 
-        with (
-            patch(
-                "agrag.llm.baml_client.b.SummarizeCommunities",
-                new_callable=AsyncMock,
-                side_effect=_fake_reports,
-            ),
-            patch(
-                "agrag.retrieval.search_engine.cross_encoder_rerank",
-                new_callable=AsyncMock,
-                side_effect=lambda q, results, **kw: results,
-            ),
+        with patch(
+            "agrag.llm.baml_client.b.SummarizeCommunities",
+            new_callable=AsyncMock,
+            side_effect=_fake_reports,
         ):
             store.execute_read = spy_read  # type: ignore[method-assign]
             try:
@@ -523,37 +533,22 @@ async def test_community_via_graph_add_e2e() -> None:  # noqa: PLR0915
             assert captured_ids & set(names_by_id) == own_needed
             assert str(isolated.id) not in captured_ids
             own_ids = {c.id for c in own}
-            engine = SearchEngine(
-                graph_store=store,
-                embedder=embedder,
-                settings=RetrievalSettings(),
-                graph_schema=GraphSchema(
-                    name="community_e2e",
-                    version="1",
-                    entities=[
-                        EntityType(label=person_label, description="A person."),
-                        EntityType(label=org_label, description="An organization."),
-                    ],
-                    relations=[],
-                ),
-            )
-            hybrid = await engine.search("Acme works", HYBRID_RERANKED)
-            assert any(
-                isinstance(r.item, ResolvedEntity)
-                and r.item.name in names_by_id.values()
-                for r in hybrid
+            scope = frozenset({support_key})
+            found_entities = await entity_search(
+                store,
+                embedder,
+                "Acme works",
+                scope=scope,
+                labels=[person_label, org_label],
             )
             assert any(
-                isinstance(r.item, Community) and r.item.id in own_ids for r in hybrid
+                hit.name in set(names_by_id.values()) for hit in found_entities.hits
             )
-            thematic = await engine.search("community", THEMATIC)
-            assert any(
-                isinstance(r.item, Community) and r.item.id in own_ids for r in thematic
-            )
-            ledger = Ledger()
-            for result in hybrid:
-                ledger.cite(result)
-            assert ledger.resolve("G1") is not None
+            thematic = await search_themes(store, embedder, "community", scope=scope)
+            thematic_own = {theme.theme_id for theme in thematic.themes} & {
+                str(community_id) for community_id in own_ids
+            }
+            assert thematic_own
             artifact = write_artifact(
                 "community_graph_add_with_residue",
                 {
@@ -561,11 +556,13 @@ async def test_community_via_graph_add_e2e() -> None:  # noqa: PLR0915
                     "loaded_count": len(captured_ids & set(names_by_id)),
                     "isolated_loaded": False,
                     "unrelated_community_found": True,
+                    "entity_search_finds_entity": True,
                     "thematic_finds_own_community": True,
                 },
             )
         assert artifact["loaded_count"] == len(own_needed)
     finally:
+        await _cleanup_support_document(store, support_key)
         await _cleanup_community_test_data(store, person_label, org_label)
         await _cleanup_community_test_data(store, other_person, other_org)
         await drop_schema_for(store, person_label, org_label, other_person, other_org)

@@ -6,7 +6,7 @@ sidebar_label: explore_relationships
 # `agrag.evidence.entities.explore_relationships` \{#agrag-evidence-entities-explore_relationships}
 
 ```python
-explore_relationships(store:GraphStore, entity_id:str, *, scope:frozenset[str], relation_types:Sequence[str] | None = None, depth:int = 1, max_nodes:int = 25, max_edges:int = 50) -> ExplorationResult
+explore_relationships(store:GraphStore, entity_id:str, *, scope:frozenset[str], relation_types:Sequence[str] | None = None, depth:int = 1, max_nodes:int = DEFAULT_MAX_NODES, max_edges:int = DEFAULT_MAX_EDGES, timeout:float | None = None) -> ExplorationResult
 ```
 
 Explore the entity relations around one entity, within bounds.
@@ -36,6 +36,8 @@ entity at the last depth has a connection to an entity that was not reached.
 - **max_nodes** (<code>int</code>) – The most entities to return, not counting the start. Between 1
   and 200.
 - **max_edges** (<code>int</code>) – The most edges to return. Between 1 and 200.
+- **timeout** (<code>float | None</code>) – Server-side transaction timeout in seconds for each store read.
+  None uses the server's default.
 
 **Returns:**
 

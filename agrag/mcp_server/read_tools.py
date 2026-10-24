@@ -25,6 +25,7 @@ from agrag.common.data_models.task import (
     StepState,
     TaskLookup,
 )
+from agrag.common.data_models.theme_search import ThemeResult
 from agrag.decisions import DecisionTraces
 from agrag.embedding.base import Embedder
 from agrag.evidence import (
@@ -36,10 +37,38 @@ from agrag.evidence import (
 from agrag.evidence import (
     navigate_document_tree as navigate_document_tree_evidence,
 )
+from agrag.evidence import (
+    search_themes as search_themes_evidence,
+)
+from agrag.evidence.contract import (
+    DEFAULT_MAX_EDGES,
+    DEFAULT_MAX_NODES,
+    DEFAULT_NAV_LIMIT,
+    DEFAULT_NAV_MAX_CHARS,
+    DEFAULT_SEARCH_LIMIT,
+    DEFAULT_SUPPORT_LIMIT,
+    DEFAULT_THEME_LIMIT,
+    ENTITY_SEARCH,
+    EXPLORE_RELATIONSHIPS,
+    NAVIGATE_DOCUMENT_TREE,
+    SEARCH_THEMES,
+    EntityId,
+    EvidenceId,
+    ExploreBound,
+    ExploreDepth,
+    Labels,
+    NavMaxChars,
+    Query,
+    RelationTypes,
+    SearchLimit,
+    SupportLimit,
+    ThemeLimit,
+)
 from agrag.graphdb.base import GraphStore
 from agrag.history import ConversationHistory
 from agrag.mcp_server.results import bounded_result
 from agrag.mcp_server.settings import McpServerSettings
+from agrag.retrieval.settings import RetrievalSettings
 from agrag.vectordb.base import VectorStore
 
 
@@ -57,30 +86,32 @@ def register_evidence_read_tools(
     embedder: Embedder,
     settings: McpServerSettings,
     vector_store: VectorStore | None = None,
+    *,
+    retrieval_settings: RetrievalSettings,
+    timeout: float,
 ) -> None:
-    """Register scoped entity search, exploration and navigation tools.
+    """Register scoped evidence search, exploration and navigation tools.
 
     Args:
         server: MCP server that receives the read tools.
         store: Graph store used by the evidence services.
         settings: Trusted source scope and output limits.
-        embedder: Query embedder for entity search.
+        embedder: Query embedder for entity and theme search.
         vector_store: Optional external vector store for semantic legs.
+        retrieval_settings: Fusion and rerank configuration for the searches.
+        timeout: Store-read timeout in seconds for each evidence operation.
     """
 
     @server.tool(
         annotations=_READ_ONLY,
-        description=(
-            "Find entities with support in configured documents. External-store "
-            "hybrid search fuses dense and lexical signals internally and reports "
-            "the semantic leg."
-        ),
+        description=ENTITY_SEARCH,
     )
     async def entity_search(
-        query: Annotated[str, Field(min_length=1, max_length=1000)],
-        labels: Annotated[list[str] | None, Field(max_length=20)] = None,
+        query: Query,
+        labels: Labels = None,
         mode: EvidenceSearchMode = EvidenceSearchMode.HYBRID,
-        limit: Annotated[int, Field(ge=1, le=50)] = 10,
+        limit: SearchLimit = DEFAULT_SEARCH_LIMIT,
+        support_limit: SupportLimit = DEFAULT_SUPPORT_LIMIT,
     ) -> Annotated[CallToolResult, EntityResult]:
         """Find entities using only the configured document scope."""
         return await _bounded(
@@ -93,20 +124,23 @@ def register_evidence_read_tools(
                 labels=labels,
                 mode=mode,
                 limit=min(limit, settings.max_hits),
+                support_limit=support_limit,
                 vector_store=vector_store,
+                settings=retrieval_settings,
+                timeout=timeout,
             ),
         )
 
     @server.tool(
         annotations=_READ_ONLY,
-        description="Explore supported entity relations in configured documents.",
+        description=EXPLORE_RELATIONSHIPS,
     )
     async def explore_relationships(
-        entity_id: Annotated[str, Field(min_length=1, max_length=100)],
-        depth: Annotated[int, Field(ge=1, le=2)] = 1,
-        relation_types: Annotated[list[str] | None, Field(max_length=20)] = None,
-        max_nodes: Annotated[int, Field(ge=1, le=200)] = 25,
-        max_edges: Annotated[int, Field(ge=1, le=200)] = 50,
+        entity_id: EntityId,
+        depth: ExploreDepth = 1,
+        relation_types: RelationTypes = None,
+        max_nodes: ExploreBound = DEFAULT_MAX_NODES,
+        max_edges: ExploreBound = DEFAULT_MAX_EDGES,
     ) -> Annotated[CallToolResult, ExplorationResult]:
         """Explore relations without allowing the caller to widen source scope."""
         return await _bounded(
@@ -119,18 +153,19 @@ def register_evidence_read_tools(
                 relation_types=relation_types,
                 max_nodes=max_nodes,
                 max_edges=max_edges,
+                timeout=timeout,
             ),
         )
 
     @server.tool(
         annotations=_READ_ONLY,
-        description="Navigate to nearby passages in configured documents.",
+        description=NAVIGATE_DOCUMENT_TREE,
     )
     async def navigate_document_tree(
-        evidence_id: Annotated[str, Field(min_length=1, max_length=500)],
+        evidence_id: EvidenceId,
         relation: NavigationRelation,
-        limit: Annotated[int, Field(ge=1, le=50)] = 10,
-        max_chars: Annotated[int, Field(ge=1, le=20000)] = 12000,
+        limit: SearchLimit = DEFAULT_NAV_LIMIT,
+        max_chars: NavMaxChars = DEFAULT_NAV_MAX_CHARS,
     ) -> Annotated[CallToolResult, NavigationResult]:
         """Read neighboring passages within the trusted document scope."""
         return await _bounded(
@@ -142,6 +177,32 @@ def register_evidence_read_tools(
                 scope=settings.scope,
                 limit=limit,
                 max_chars=max_chars,
+                timeout=timeout,
+            ),
+        )
+
+    @server.tool(
+        annotations=_READ_ONLY,
+        description=SEARCH_THEMES,
+    )
+    async def search_themes(
+        query: Query,
+        limit: ThemeLimit = DEFAULT_THEME_LIMIT,
+        support_limit: SupportLimit = DEFAULT_SUPPORT_LIMIT,
+    ) -> Annotated[CallToolResult, ThemeResult]:
+        """Find themes using only the configured document scope."""
+        return await _bounded(
+            settings,
+            search_themes_evidence(
+                store,
+                embedder,
+                query,
+                scope=settings.scope,
+                limit=min(limit, settings.max_hits),
+                support_limit=support_limit,
+                vector_store=vector_store,
+                settings=retrieval_settings,
+                timeout=timeout,
             ),
         )
 

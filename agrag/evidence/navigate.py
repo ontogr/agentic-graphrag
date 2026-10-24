@@ -41,6 +41,11 @@ from agrag.evidence._shared import (
     stored_chunk,
     text_range,
 )
+from agrag.evidence.contract import (
+    DEFAULT_NAV_LIMIT,
+    DEFAULT_NAV_MAX_CHARS,
+    MAX_NAV_MAX_CHARS,
+)
 from agrag.evidence.ids import (
     MalformedEvidenceIdError,
     decode_evidence_id,
@@ -51,8 +56,7 @@ from agrag.graphdb.base import GraphStore
 
 _LOGGER = logging.getLogger(__name__)
 _STORE_ERROR_MESSAGE = "navigation store error"
-MAX_LIMIT = 50
-MAX_CHARS = 20_000
+_MAX_NAV_LIMIT = 50
 
 
 @dataclass(frozen=True)
@@ -69,8 +73,9 @@ async def navigate_document_tree(
     relation: NavigationRelation,
     *,
     scope: frozenset[str],
-    limit: int,
-    max_chars: int,
+    limit: int = DEFAULT_NAV_LIMIT,
+    max_chars: int = DEFAULT_NAV_MAX_CHARS,
+    timeout: float | None = None,
 ) -> NavigationResult:
     """Return the passages that one relation reaches from an evidence id.
 
@@ -100,6 +105,8 @@ async def navigate_document_tree(
         limit: The most items to return. Must be between 1 and 50.
         max_chars: The most characters of item text to return. Must be between 1
             and 20000.
+        timeout: Server-side transaction timeout in seconds for each store read.
+            None uses the server's default.
 
     Returns:
         The items, the status and the truncation information.
@@ -107,11 +114,11 @@ async def navigate_document_tree(
     Raises:
         ValueError: ``limit`` or ``max_chars`` is outside its range.
     """
-    if not 1 <= limit <= MAX_LIMIT:
-        raise ValueError(f"limit must be between 1 and {MAX_LIMIT}, got {limit}")
-    if not 1 <= max_chars <= MAX_CHARS:
+    if not 1 <= limit <= _MAX_NAV_LIMIT:
+        raise ValueError(f"limit must be between 1 and {_MAX_NAV_LIMIT}, got {limit}")
+    if not 1 <= max_chars <= MAX_NAV_MAX_CHARS:
         raise ValueError(
-            f"max_chars must be between 1 and {MAX_CHARS}, got {max_chars}"
+            f"max_chars must be between 1 and {MAX_NAV_MAX_CHARS}, got {max_chars}"
         )
     try:
         reference = decode_evidence_id(evidence_id)
@@ -128,6 +135,7 @@ async def navigate_document_tree(
         else evidence_chunk_at_offset_query(),
         _anchor_parameters(reference),
         reference.document_node_id,
+        timeout=timeout,
     )
     if rows is None:
         return NavigationResult(
@@ -143,7 +151,7 @@ async def navigate_document_tree(
     if anchor is None:
         return _unavailable()
 
-    passages = await _passages(store, relation, anchor, limit)
+    passages = await _passages(store, relation, anchor, limit, timeout=timeout)
     if passages is None:
         return NavigationResult(
             status=NavigationStatus.FAILED, detail=_STORE_ERROR_MESSAGE
@@ -191,10 +199,12 @@ async def _read_rows(
     statement: str,
     parameters: dict[str, Any],
     document_node_id: UUID,
+    *,
+    timeout: float | None = None,
 ) -> list[dict[str, Any]] | None:
     """Run one read, or return None and log the failure."""
     try:
-        return await store.execute_read(statement, parameters)
+        return await store.execute_read(statement, parameters, timeout=timeout)
     except Exception:
         _LOGGER.exception(
             "Navigation read failed for an id of document %s", document_node_id
@@ -245,20 +255,23 @@ async def _passages(
     relation: NavigationRelation,
     anchor: StoredChunk,
     limit: int,
+    *,
+    timeout: float | None = None,
 ) -> list[_Passage] | None:
     """Return the neighbor passages of a relation, one more than limit at most.
 
     A query that fails gives None.
     """
     if relation is NavigationRelation.TABLE_CONTEXT:
-        return await _table_context(store, anchor, limit)
+        return await _table_context(store, anchor, limit, timeout=timeout)
     if relation in (NavigationRelation.PARENT, NavigationRelation.SIBLINGS):
-        return await _sections(store, relation, anchor, limit)
+        return await _sections(store, relation, anchor, limit, timeout=timeout)
     rows = await _read_rows(
         store,
         navigation_chunks_query(relation),
         _neighbor_parameters(anchor, limit),
         anchor.chunk.document_id,
+        timeout=timeout,
     )
     if rows is None:
         return None
@@ -270,7 +283,11 @@ async def _passages(
 
 
 async def _table_context(
-    store: GraphStore, anchor: StoredChunk, limit: int
+    store: GraphStore,
+    anchor: StoredChunk,
+    limit: int,
+    *,
+    timeout: float | None = None,
 ) -> list[_Passage] | None:
     """Return the row passages before and after a table passage, with itself.
 
@@ -285,12 +302,14 @@ async def _table_context(
         table_neighbor_query(previous=True),
         parameters,
         anchor.chunk.document_id,
+        timeout=timeout,
     )
     after_rows = await _read_rows(
         store,
         table_neighbor_query(previous=False),
         parameters,
         anchor.chunk.document_id,
+        timeout=timeout,
     )
     if before_rows is None or after_rows is None:
         return None
@@ -307,6 +326,8 @@ async def _sections(
     relation: NavigationRelation,
     anchor: StoredChunk,
     limit: int,
+    *,
+    timeout: float | None = None,
 ) -> list[_Passage] | None:
     """Return the sections of a parent or sibling relation with their first passage."""
     parameters = {
@@ -320,6 +341,7 @@ async def _sections(
         navigation_sections_query(relation),
         parameters,
         anchor.chunk.document_id,
+        timeout=timeout,
     )
     if rows is None:
         return None

@@ -98,7 +98,7 @@ See [Graph storage](../concepts/graph-storage.mdx).
 - **Follow relations.** Walk outward from an entity a few steps, with relations that a passage supports kept apart from bare connections.
 - **Move around a passage.** Go from a passage to its parent section, its children, its siblings, the previous or next chunk, or the rows around a table cell.
 - **Incomplete results say so.** Failed search legs and cut-off results are reported, so an incomplete result is never mistaken for an empty one.
-- **Ranked results over the graph.** Named recipes combine entity, passage, and community search, with an optional walk through the graph and a reranker.
+- **Reranked hybrid search.** Hybrid search reorders its top hits with a cross-encoder model when a reranker is configured.
 
 [Retrieval](../concepts/retrieval.mdx) compares the strategies by mechanism and limit, the [tools reference](../reference/tools.mdx) lists every tool, and [Find and cite evidence](../guides/find-and-cite-evidence.mdx) calls them from Python.
 
@@ -114,7 +114,7 @@ See [Graph storage](../concepts/graph-storage.mdx).
 - **Groups of related entities.** The entity graph is grouped into communities. You can preview the groups before writing them.
 - **Relations count by their evidence.** Each relation is weighted by the number of passages that support it.
 - **Reports for every community.** An LLM writes a title, summary, rating, and findings for the larger communities, and a simple template covers the rest.
-- **Searchable summaries.** Each report is embedded, so broad questions can be answered from the summaries, and the summaries can be added to entity and graph results.
+- **Searchable summaries.** Each report is embedded, so `search_themes` can answer broad questions from the summaries and return the passages that support each theme.
 - **Safe to rerun.** Writing communities replaces the earlier groups in one step.
 
 See [Communities](../concepts/communities.mdx).

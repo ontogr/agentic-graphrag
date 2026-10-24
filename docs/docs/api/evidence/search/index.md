@@ -16,7 +16,3 @@ out-of-scope and superseded chunks never take a result slot.
 
 - [**reciprocal_rank_fusion**](reciprocal_rank_fusion.md) – Fuse ranked id lists into one score per id.
 - [**search_evidence**](search_evidence.md) – Find up to `limit` visible passages that match a query.
-
-**Attributes:**
-
-- [**RRF_CONSTANT**](RRF_CONSTANT.md) –

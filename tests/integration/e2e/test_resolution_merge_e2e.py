@@ -33,15 +33,14 @@ from uuid import UUID, uuid4
 
 import pytest
 
-from agrag.agents.ledger import Ledger
 from agrag.common.data_models.chunk import Chunk
 from agrag.common.data_models.document import Document, DocumentFamily, SourceFormat
 from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.extraction import ExtractedEntity, ExtractionResult
 from agrag.common.data_models.graph_schema import EntityType, GraphSchema, PropertySpec
-from agrag.common.data_models.resolved_entity import ResolvedEntity
 from agrag.cypher.entities import validate_identifier
 from agrag.embedding.base import Embedder
+from agrag.evidence import entity_search
 from agrag.graphdb.base import GraphStore
 from agrag.ingestion.extract import Extractor
 from agrag.ingestion.graph import Graph
@@ -50,8 +49,6 @@ from agrag.ingestion.merge import (
     PropertyStrategy,
     compute_merge,
 )
-from agrag.retrieval.recipes import ENTITY
-from agrag.retrieval.search_engine import SearchEngine
 from agrag.retrieval.settings import RetrievalSettings
 from tests.conftest import FAKE_EMBEDDING_DIMENSIONS
 from tests.integration._backend import build_test_store
@@ -164,7 +161,7 @@ class _World:
 
     store: GraphStore
     graph: Graph
-    engine: SearchEngine
+    scope: frozenset[str]
     settings: RetrievalSettings
     embedder: _ConceptEmbedder
     schema: GraphSchema
@@ -264,22 +261,22 @@ async def _snapshot(w: _World) -> dict[str, Any]:
 
 
 async def _search_names(w: _World, query: str) -> list[dict[str, Any]]:
-    """Search this run's entities and describe each result by kind and name.
+    """Search this run's raw entities and describe each hit by name and id.
 
-    Results of other labels come from other runs sharing the database and are
-    left out.
+    The evidence tools search the raw entity layer; the resolved clusters are
+    observed through the cluster and vector reads, not through search. Hits of
+    other labels come from other runs sharing the database and are left out.
     """
-    results = await w.engine.search(query, ENTITY)
+    found = await entity_search(
+        w.store,
+        w.embedder,
+        query,
+        scope=w.scope,
+        labels=[w.org_label, w.person_label],
+    )
     return [
-        {
-            "kind": type(result.item).__name__,
-            "name": result.item.name,
-            "id": str(result.item.id),
-            "result": result,
-        }
-        for result in results
-        if isinstance(result.item, (Entity, ResolvedEntity))
-        and result.item.label in (w.org_label, w.person_label)
+        {"kind": "Entity", "name": hit.name, "id": hit.entity_id, "result": hit}
+        for hit in found.hits
     ]
 
 
@@ -422,16 +419,10 @@ async def world() -> AsyncGenerator[_World, None]:
             embedder=embedder,
             extractor=_DocumentExtractor(org_mentions),
         )
-        engine = SearchEngine(
-            graph_store=store,
-            embedder=embedder,
-            settings=settings,
-            graph_schema=schema,
-        )
         partial = _World(
             store=store,
             graph=graph,
-            engine=engine,
+            scope=frozenset(keys),
             settings=settings,
             embedder=embedder,
             schema=schema,
@@ -552,32 +543,16 @@ class TestResolutionMerge:
         )
         assert stale_rows == [{"n": 0}]
 
-        # Search by an alias returns the survivor and none of its raw members.
+        # Search by a surface name returns a member of the cluster. Full-text
+        # terms match by any word, so an alias like "Northwind Ltd" can also
+        # surface the unmerged Northwind names of this run.
         member_ids = {org_ids[name] for name in ORG_SURFACES}
-        alias_hits = {}
         for alias in ("NWT Holdings", "Northwind Ltd"):
             hits = await _search_names(w, alias)
-            assert hits, alias
-            assert hits[0]["kind"] == "ResolvedEntity"
-            assert hits[0]["id"] == org_cluster["id"]
-            assert not member_ids & {
-                hit["id"] for hit in hits if hit["kind"] == "Entity"
-            }
-            alias_hits[alias] = hits
+            assert member_ids & {hit["id"] for hit in hits}, alias
         union_hits = await _search_names(w, ORG_OTHER)
-        assert (union_hits[0]["kind"], union_hits[0]["name"]) == ("Entity", ORG_OTHER)
+        assert union_hits[0]["name"] == ORG_OTHER
         assert union_hits[0]["id"] == org_ids[ORG_OTHER]
-
-        # Both alias searches cite the survivor under one key.
-        ledger = Ledger()
-        keys = {
-            alias: ledger.cite(hits[0]["result"]) for alias, hits in alias_hits.items()
-        }
-        assert len(set(keys.values())) == 1
-        cited = ledger.resolve(next(iter(keys.values())))
-        assert cited is not None
-        assert str(cited.item.id) == org_cluster["id"]
-        assert ledger.cite(union_hits[0]["result"]) != next(iter(keys.values()))
 
         # Nothing changed since add(): a no-op apply keeps ids, so a key still
         # resolves to the same survivor in a fresh run.
@@ -642,11 +617,6 @@ class TestResolutionMerge:
         grown_description = final_vectors[grown["id"]]["description"]
         assert seeded.properties["description"] in grown_description
 
-        # The grown cluster answers alias searches; the old survivor is gone.
-        after_hits = await _search_names(w, "NWT Holdings")
-        assert grown["id"] in {hit["id"] for hit in after_hits}
-        assert org_cluster["id"] not in {hit["id"] for hit in after_hits}
-
         artifact = write_artifact(
             "resolution_merge",
             {
@@ -660,8 +630,7 @@ class TestResolutionMerge:
                 "conflict_winners_are_member_values": True,
                 "stale_cluster_vector_removed": True,
                 "vector_ids_after_add": 2,
-                "alias_search_top_kind": "ResolvedEntity",
-                "alias_citation_keys_equal": True,
+                "alias_search_returns_raw_surfaces": True,
                 "noop_apply_changes": False,
                 "dry_run_changes": False,
                 "dry_run_predicted_pairs": sorted(
@@ -819,7 +788,6 @@ class TestResolutionMerge:
         assert cluster["id"] not in vectors
         assert old_cluster["id"] not in vectors
         hidden = await _search_names(w, "NWT Holdings")
-        assert "ResolvedEntity" not in {hit["kind"] for hit in hidden}
         assert "NWT Holdings" in {hit["name"] for hit in hidden}
 
         w.embedder.fail_containing = None
@@ -830,11 +798,6 @@ class TestResolutionMerge:
         assert recovered["status"] == "synced"
         assert recovered["has_embedding"] is True
         assert cluster["id"] in await _resolved_vectors(w)
-        shown = await _search_names(w, "NWT Holdings")
-        assert shown[0]["kind"] == "ResolvedEntity"
-        assert recovered["id"] in {
-            hit["id"] for hit in shown if hit["kind"] == "ResolvedEntity"
-        }
         assert seeded.name in recovered["members"]
 
         artifact = write_artifact(
@@ -843,12 +806,10 @@ class TestResolutionMerge:
                 "failed_pass_failures": [f.item_id for f in failed.failures],
                 "status_after_failure": cluster["status"],
                 "embedding_kept_after_failure": cluster["has_embedding"],
-                "search_after_failure": sorted(
-                    {(hit["kind"], hit["name"]) for hit in hidden}
-                ),
+                "search_after_failure": sorted({hit["name"] for hit in hidden}),
                 "retry_failures": len(retried.failures),
                 "status_after_retry": recovered["status"],
-                "search_after_retry_top_kind": shown[0]["kind"],
+                "retry_restores_cluster": recovered["has_embedding"],
                 "cluster_members": sorted(full_set),
             },
         )

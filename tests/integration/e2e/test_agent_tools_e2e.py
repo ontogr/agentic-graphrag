@@ -13,7 +13,6 @@ the way the agent does (``tool.ainvoke``) and checks what the agent would read:
 
 import hashlib
 import importlib.util
-import json
 import re
 from collections.abc import AsyncGenerator, Sequence
 from contextlib import asynccontextmanager
@@ -35,7 +34,7 @@ from agrag.common.data_models.document import (
 from agrag.common.data_models.entity_search import EntityResult, ExplorationResult
 from agrag.common.data_models.evidence import (
     EvidenceSearchResult,
-    FetchOutcome,
+    FetchResult,
     FetchStatus,
 )
 from agrag.common.data_models.extraction import (
@@ -51,10 +50,7 @@ from agrag.graphdb.base import GraphStore
 from agrag.history import ConversationHistory
 from agrag.ingestion.extract import Extractor
 from agrag.ingestion.graph import Graph
-from agrag.retrieval.methods.traversal import extract_entity_ids
-from agrag.retrieval.rerank.node_distance import node_distance_rerank
-from agrag.retrieval.search_engine import SearchEngine
-from agrag.retrieval.settings import RetrievalSettings
+from agrag.retrieval import RetrievalSettings
 from tests.conftest import FAKE_EMBEDDING_DIMENSIONS
 from tests.integration._backend import build_test_store
 from tests.integration._schema_cleanup import delete_resolved_entities, drop_schema_for
@@ -216,6 +212,7 @@ async def _core_tools(
         fetched_outcomes=[],
         max_chars=12_000,
         max_tool_calls=max_tool_calls,
+        retrieval_settings=RetrievalSettings(),
     )
     return tools
 
@@ -381,16 +378,6 @@ async def seeded() -> AsyncGenerator[dict, None]:
         yield env
 
 
-def _engine(env: dict, **settings: object) -> SearchEngine:
-    """Build a SearchEngine over the seeded graph."""
-    return SearchEngine(
-        graph_store=env["store"],
-        embedder=env["embedder"],
-        settings=RetrievalSettings(**settings),
-        graph_schema=env["schema"],
-    )
-
-
 @pytest.mark.skipif(neo4j_missing, reason="neo4j extra not installed")
 async def test_core_tools_read_and_scope_the_seeded_graph(seeded: dict) -> None:
     """Search, fetch and explore honour the document scope and the tool budget."""
@@ -403,13 +390,11 @@ async def test_core_tools_read_and_scope_the_seeded_graph(seeded: dict) -> None:
     alice = EvidenceSearchResult.model_validate_json(
         await _tool(main, "search_evidence").ainvoke({"query": "Alice"})
     )
-    fetched = FetchOutcome.model_validate(
-        json.loads(
-            await _tool(main, "fetch_evidence").ainvoke(
-                {"evidence_ids": [alice.hits[0].evidence_id]}
-            )
-        )[0]
-    )
+    fetched = FetchResult.model_validate_json(
+        await _tool(main, "fetch_evidence").ainvoke(
+            {"evidence_ids": [alice.hits[0].evidence_id]}
+        )
+    ).outcomes[0]
     assert fetched.status is FetchStatus.OK
     assert "Alice founded Acme" in (fetched.text or "")
 
@@ -417,13 +402,11 @@ async def test_core_tools_read_and_scope_the_seeded_graph(seeded: dict) -> None:
         await _tool(full, "search_evidence").ainvoke({"query": "Zed"})
     )
     zed_hit = next(hit for hit in zed_in_full.hits if "Zed" in hit.snippet)
-    zed_from_main = FetchOutcome.model_validate(
-        json.loads(
-            await _tool(main, "fetch_evidence").ainvoke(
-                {"evidence_ids": [zed_hit.evidence_id]}
-            )
-        )[0]
-    )
+    zed_from_main = FetchResult.model_validate_json(
+        await _tool(main, "fetch_evidence").ainvoke(
+            {"evidence_ids": [zed_hit.evidence_id]}
+        )
+    ).outcomes[0]
     assert zed_from_main.status is not FetchStatus.OK
     assert zed_from_main.text is None
 
@@ -491,24 +474,6 @@ async def test_core_tools_read_and_scope_the_seeded_graph(seeded: dict) -> None:
     assert isinstance(rejected, ToolMessage)
     assert rejected.status == "error"
     assert rejected.content == "Tool budget exhausted."
-
-
-@pytest.mark.skipif(neo4j_missing, reason="neo4j extra not installed")
-async def test_node_distance_rerank_puts_the_seed_entity_first(
-    seeded: dict,
-) -> None:
-    """A candidate that is its own seed has distance zero and ranks first."""
-    env = seeded
-    engine = _engine(env)
-    seed = await engine.find_entity("Alice")
-    acme = await engine.find_entity("Acme")
-    assert seed and acme
-    reranked = await node_distance_rerank(
-        [acme, seed],
-        graph_store=env["store"],
-        seed_ids=extract_entity_ids([seed]),
-    )
-    assert [r.item.name for r in reranked] == ["Alice", "Acme"]  # type: ignore[union-attr]
 
 
 @pytest.mark.skipif(neo4j_missing, reason="neo4j extra not installed")

@@ -3,6 +3,7 @@
 from opentelemetry.trace import Tracer
 
 from agrag.embedding.base import Embedder
+from agrag.embedding.cached import CachedEmbedder
 from agrag.embedding.fastembed_dense import FastEmbedEmbedder
 from agrag.embedding.sentence_transformers import SentenceTransformerEmbedder
 from agrag.embedding.settings import EmbeddingSettings
@@ -40,6 +41,7 @@ def build_embedder(value: str | Embedder, *, tracer: Tracer | None = None) -> Em
 
 
 __all__ = [
+    "CachedEmbedder",
     "Embedder",
     "EmbeddingSettings",
     "FastEmbedEmbedder",

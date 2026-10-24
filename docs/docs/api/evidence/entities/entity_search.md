@@ -6,7 +6,7 @@ sidebar_label: entity_search
 # `agrag.evidence.entities.entity_search` \{#agrag-evidence-entities-entity_search}
 
 ```python
-entity_search(store:GraphStore, embedder:Embedder, query:str, *, scope:frozenset[str], labels:Sequence[str] | None = None, limit:int, mode:EvidenceSearchMode = EvidenceSearchMode.HYBRID, support_limit:int = 3, vector_store:VectorStore | None = None) -> EntityResult
+entity_search(store:GraphStore, embedder:Embedder, query:str, *, scope:frozenset[str], labels:Sequence[str] | None = None, mode:EvidenceSearchMode = EvidenceSearchMode.HYBRID, limit:int = DEFAULT_SEARCH_LIMIT, support_limit:int = DEFAULT_SUPPORT_LIMIT, vector_store:VectorStore | None = None, settings:RetrievalSettings | None = None, timeout:float | None = None) -> EntityResult
 ```
 
 Find up to `limit` entities that match a query by name or by meaning.
@@ -32,12 +32,15 @@ An entity with passages in scope and no visible passage is returned with kind
 - **scope** (<code>frozenset\[str\]</code>) – Keys of the documents whose passages may be used.
 - **labels** (<code>Sequence\[str\] | None</code>) – The entity labels to search. None discovers labels from graph
   indexes for native search, or entity name indexes for external search.
-- **limit** (<code>int</code>) – The most entities to return. Must be positive.
 - **mode** (<code>[EvidenceSearchMode](../../common/data_models/evidence/EvidenceSearchMode.md)</code>) – Which legs to run.
+- **limit** (<code>int</code>) – The most entities to return. Must be positive.
 - **support_limit** (<code>int</code>) – The most supporting passages listed for each entity. Must
   be positive.
 - **vector_store** (<code>[VectorStore](../../vectordb/base/VectorStore.md) | None</code>) – Optional external vector store. Placement is not validated
   by this function.
+- **settings** (<code>[RetrievalSettings](../../retrieval/settings/RetrievalSettings.md) | None</code>) – Fusion configuration. None uses the defaults.
+- **timeout** (<code>float | None</code>) – Server-side transaction timeout in seconds for each store read.
+  None uses the server's default.
 
 **Returns:**
 

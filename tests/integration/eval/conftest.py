@@ -39,8 +39,6 @@ from agrag.eval.settings import EvalJudgeSettings
 from agrag.graphdb.base import GraphStore
 from agrag.ingestion.extract import Extractor
 from agrag.ingestion.graph import Graph
-from agrag.retrieval.search_engine import SearchEngine
-from agrag.retrieval.settings import RetrievalSettings
 from tests.integration._backend import build_test_store
 from tests.integration._schema_cleanup import drop_schema_for
 from tests.integration.eval._answer_quality import FIXTURE_DIR
@@ -124,13 +122,11 @@ class TinyCorpus:
     """The ingested corpus and the handles tests use to query it.
 
     Attributes:
-        engine: Retrieval over the corpus graph.
         store: The connected graph store.
         labels: The entity labels created for this run.
         token: Text unique to this run, present in every chunk.
     """
 
-    engine: SearchEngine
     store: GraphStore
     embedder: Embedder
     scope: frozenset[str]
@@ -140,13 +136,8 @@ class TinyCorpus:
 
 @dataclass
 class AnswerQualityGraph:
-    """The ingested answer-quality corpus.
+    """The ingested answer-quality corpus."""
 
-    Attributes:
-        engine: Retrieval over the corpus graph.
-    """
-
-    engine: SearchEngine
     store: GraphStore
     embedder: Embedder
     scope: frozenset[str]
@@ -237,18 +228,11 @@ async def tiny_corpus() -> AsyncGenerator[TinyCorpus, None]:
         texts = [template.format(token=token) for template in DOCUMENTS]
         for text in texts:
             await graph.add(text=text)
-        engine = SearchEngine(
-            graph_store=store,
-            embedder=embedder,
-            settings=RetrievalSettings(entity_top_k=10, chunk_top_k=10),
-            graph_schema=schema,
-        )
         scope = frozenset(
             f"inline://{hashlib.sha256(text.encode()).hexdigest()[:16]}"
             for text in texts
         )
         yield TinyCorpus(
-            engine=engine,
             store=store,
             embedder=embedder,
             scope=scope,
@@ -351,14 +335,7 @@ async def answer_quality_graph(
             extractor=_FactExtractor(names),
         )
         await graph.add(source=documents)
-        engine = SearchEngine(
-            graph_store=store,
-            embedder=embedder,
-            settings=RetrievalSettings(entity_top_k=10, chunk_top_k=10),
-            graph_schema=schema,
-        )
         yield AnswerQualityGraph(
-            engine=engine,
             store=store,
             embedder=embedder,
             scope=frozenset(

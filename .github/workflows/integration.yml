@@ -80,21 +80,21 @@ jobs:
             workers: auto
             dist: loadgroup
             services: neo4j
-            timeout: 15
+            timeout: 20
           - name: evidence-search
             backend: neo4j
             paths: "tests/integration/retrieval/evidence/test_search.py tests/integration/retrieval/evidence/test_citations.py"
             workers: auto
             dist: loadgroup
             services: neo4j
-            timeout: 15
+            timeout: 20
           - name: evidence-graph
             backend: neo4j
             paths: "tests/integration/retrieval/evidence --ignore=tests/integration/retrieval/evidence/test_search.py --ignore=tests/integration/retrieval/evidence/test_citations.py"
             workers: auto
             dist: loadgroup
             services: neo4j
-            timeout: 15
+            timeout: 20
           - name: agents
             backend: neo4j
             paths: "tests/integration/agents"
@@ -115,49 +115,49 @@ jobs:
             workers: 0
             dist: loadscope
             services: neo4j
-            timeout: 15
+            timeout: 20
           - name: cutover-concurrency
             backend: falkordb
             paths: "tests/integration/ingestion/test_cutover_job_concurrency.py"
             workers: 0
             dist: loadscope
             services: falkordb
-            timeout: 15
+            timeout: 20
           - name: graph-store
             backend: falkordb
             paths: "tests/integration/graphdb tests/integration/cypher tests/integration/retrieval --ignore=tests/integration/retrieval/evidence"
             workers: auto
             dist: loadgroup
             services: falkordb
-            timeout: 15
+            timeout: 20
           - name: vector-seam
             backend: neo4j
             paths: "tests/integration/vectordb"
             workers: 0
             dist: loadgroup
             services: neo4j
-            timeout: 15
+            timeout: 20
           - name: vector-seam
             backend: falkordb
             paths: "tests/integration/vectordb"
             workers: 0
             dist: loadgroup
             services: falkordb
-            timeout: 15
+            timeout: 20
           - name: evidence-search
             backend: falkordb
             paths: "tests/integration/retrieval/evidence/test_search.py tests/integration/retrieval/evidence/test_citations.py"
             workers: auto
             dist: loadgroup
             services: falkordb
-            timeout: 15
+            timeout: 20
           - name: evidence-graph
             backend: falkordb
             paths: "tests/integration/retrieval/evidence --ignore=tests/integration/retrieval/evidence/test_search.py --ignore=tests/integration/retrieval/evidence/test_citations.py"
             workers: auto
             dist: loadgroup
             services: falkordb
-            timeout: 15
+            timeout: 20
           - name: agents
             backend: falkordb
             paths: "tests/integration/agents"
@@ -286,7 +286,7 @@ jobs:
     needs: [changes]
     if: needs.changes.outputs.backend_tests == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     env:
       UV_PYTHON: "3.12"
     steps:

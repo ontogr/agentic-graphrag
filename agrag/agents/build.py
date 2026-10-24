@@ -27,10 +27,13 @@ from agrag.common.data_models.task import (
 )
 from agrag.decisions import DecisionTraces
 from agrag.embedding.base import Embedder
+from agrag.embedding.cached import CachedEmbedder
 from agrag.evidence import check_citations, render_citations
 from agrag.evidence.citation import parse_citations
+from agrag.evidence.rerank import reranker_from_settings
 from agrag.graphdb.base import GraphStore
 from agrag.history import ConversationHistory
+from agrag.retrieval import RetrievalSettings
 from agrag.vectordb.base import VectorStore
 
 
@@ -110,7 +113,9 @@ class _TaskAgent:
         tracer: Tracer | None,
     ) -> None:
         self._graph_store = graph_store
-        self._embedder = embedder
+        self._retrieval_settings = RetrievalSettings()
+        self._embedder = CachedEmbedder(embedder)
+        self._reranker = reranker_from_settings(self._retrieval_settings)
         self._scope = scope
         self._history = history
         self._decisions = decisions
@@ -148,6 +153,9 @@ class _TaskAgent:
             fetched_outcomes=[],
             max_chars=self._settings.max_result_characters,
             max_tool_calls=self._settings.max_tool_calls,
+            retrieval_settings=self._retrieval_settings,
+            reranker=self._reranker,
+            timeout=self._settings.request_deadline_seconds,
             vector_store=self._vector_store,
         )
         if lookup.view is not None and lookup.view.step_counts[StepState.IN_PROGRESS]:
@@ -225,12 +233,18 @@ class _TaskAgent:
             invalid = []
         valid_citations = []
         if citations or malformed:
-            checks = await check_citations(citations, fetched_ids, scope=self._scope)
+            citation_result = await check_citations(
+                citations, fetched_ids, scope=self._scope
+            )
             invalid = [
-                check.cited_id for check in checks if check.verdict.value != "valid"
+                check.cited_id
+                for check in citation_result.checks
+                if check.verdict.value != "valid"
             ]
             valid_citations = [
-                check.cited_id for check in checks if check.verdict.value == "valid"
+                check.cited_id
+                for check in citation_result.checks
+                if check.verdict.value == "valid"
             ]
             invalid.extend(malformed)
             if invalid and run_state.tool_calls < self._settings.max_tool_calls:
@@ -274,17 +288,17 @@ class _TaskAgent:
                             answer, final.citations
                         )
                         support_status = final.support_status
-                        checks = await check_citations(
+                        citation_result = await check_citations(
                             citations, fetched_ids, scope=self._scope
                         )
                         invalid = [
                             check.cited_id
-                            for check in checks
+                            for check in citation_result.checks
                             if check.verdict.value != "valid"
                         ] + malformed
                         valid_citations = [
                             check.cited_id
-                            for check in checks
+                            for check in citation_result.checks
                             if check.verdict.value == "valid"
                         ]
         status = "answered"

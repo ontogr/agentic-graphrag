@@ -6,7 +6,7 @@ sidebar_label: check_citations
 # `agrag.evidence.citation.check_citations` \{#agrag-evidence-citation-check_citations}
 
 ```python
-check_citations(cited_ids:Sequence[str], fetched_ids:Iterable[str], *, scope:frozenset[str]) -> list[CitationCheck]
+check_citations(evidence_ids:Sequence[str], fetched_ids:Iterable[str], *, scope:frozenset[str]) -> CitationResult
 ```
 
 Return one verdict for each cited evidence id, in the order given.
@@ -23,11 +23,11 @@ Pass only the ids whose fetch returned `ok`. An id from a `truncated` or
 
 **Parameters:**
 
-- **cited_ids** (<code>Sequence\[str\]</code>) – Evidence ids the answer cites.
+- **evidence_ids** (<code>Sequence\[str\]</code>) – Evidence ids the answer cites.
 - **fetched_ids** (<code>Iterable\[str\]</code>) – Evidence ids the caller fetched. A malformed entry is
   ignored.
 - **scope** (<code>frozenset\[str\]</code>) – Keys of the documents the caller may read.
 
 **Returns:**
 
-- <code>list\[[CitationCheck](../../common/data_models/evidence/CitationCheck.md)\]</code> – One check for each cited id, in the same order.
+- <code>[CitationResult](../../common/data_models/evidence/CitationResult.md)</code> – One check for each cited id, in the same order.

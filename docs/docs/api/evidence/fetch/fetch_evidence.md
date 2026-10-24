@@ -6,7 +6,7 @@ sidebar_label: fetch_evidence
 # `agrag.evidence.fetch.fetch_evidence` \{#agrag-evidence-fetch-fetch_evidence}
 
 ```python
-fetch_evidence(store:GraphStore, evidence_ids:Sequence[str], *, scope:frozenset[str], max_chars:int, timeout:float | None = None) -> list[FetchOutcome]
+fetch_evidence(store:GraphStore, evidence_ids:Sequence[str], *, scope:frozenset[str], max_chars:int | None = None, timeout:float | None = None) -> FetchResult
 ```
 
 Return the text of each evidence id, in the order given.
@@ -29,14 +29,16 @@ all text for the source; purge removes it.
 - **evidence_ids** (<code>Sequence\[str\]</code>) – Evidence ids to fetch.
 - **scope** (<code>frozenset\[str\]</code>) – Keys of the documents the caller may read. An empty scope makes
   every id unavailable.
-- **max_chars** (<code>int</code>) – The most characters returned for each id. Must be positive.
-  Longer text is cut and marked `truncated`.
+- **max_chars** (<code>int | None</code>) – The most characters returned for each id. None uses the
+  default cap. Must be positive when given. Longer text is cut and
+  marked `truncated`.
 - **timeout** (<code>float | None</code>) – Server-side transaction timeout in seconds for each store read.
   None uses the server's default.
 
 **Returns:**
 
-- <code>list\[[FetchOutcome](../../common/data_models/evidence/FetchOutcome.md)\]</code> – One outcome for each id, in the same order.
+- <code>[FetchResult](../../common/data_models/evidence/FetchResult.md)</code> – One outcome for each id, in the same order. A serving layer may drop
+- <code>[FetchResult](../../common/data_models/evidence/FetchResult.md)</code> – trailing outcomes to stay within a size limit.
 
 **Raises:**
 

@@ -8,9 +8,11 @@ import anyio
 from pydantic import ValidationError
 
 from agrag.embedding import EmbeddingSettings, FastEmbedEmbedder
+from agrag.evidence.rerank import reranker_from_settings
 from agrag.graphdb import build_graph_store
 from agrag.mcp_server.errors import McpServerMissingExtraError
 from agrag.mcp_server.settings import McpServerSettings
+from agrag.retrieval.settings import RetrievalSettings
 from agrag.vectordb import build_vector_store
 
 
@@ -21,9 +23,11 @@ def main() -> None:
     """Serve the evidence tools over stdio until the client disconnects.
 
     The embedding model loads on the first semantic or hybrid search, not at
-    startup. This command uses FastEmbed with ``EMBEDDING_*`` settings. For other
-    backends, construct the embedder and pass it to ``build_server``. The graph
-    store is closed when the server stops.
+    startup. The reranker model, when the ``RETRIEVAL_RERANK_*`` settings enable
+    it, loads when the server starts. This command uses FastEmbed with
+    ``EMBEDDING_*`` settings. For other backends, construct the embedder and
+    pass it to ``build_server``. The graph store is closed when the server
+    stops.
 
     Raises:
         McpServerMissingExtraError: The ``mcp`` extra is not installed.
@@ -47,8 +51,16 @@ def main() -> None:
 
     store = build_graph_store(settings.graph_store)
     embedder = FastEmbedEmbedder(settings=EmbeddingSettings())
+    retrieval_settings = RetrievalSettings()
+    reranker = reranker_from_settings(retrieval_settings)
     if settings.vector_store is None:
-        server = build_server(store, embedder, settings)
+        server = build_server(
+            store,
+            embedder,
+            settings,
+            retrieval_settings=retrieval_settings,
+            reranker=reranker,
+        )
         anyio.run(serve_stdio, server, store)
         return
 
@@ -58,7 +70,14 @@ def main() -> None:
         """Keep vector client initialization and shutdown in the server loop."""
         try:
             await vectors.initialize()
-            server = build_server(store, embedder, settings, vector_store=vectors)
+            server = build_server(
+                store,
+                embedder,
+                settings,
+                vector_store=vectors,
+                retrieval_settings=retrieval_settings,
+                reranker=reranker,
+            )
             await serve_stdio(server, store)
         finally:
             await vectors.close()

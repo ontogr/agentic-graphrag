@@ -84,6 +84,7 @@ class TestStdioSession:
             "fetch_evidence",
             "navigate_document_tree",
             "search_evidence",
+            "search_themes",
         ]
         assert hits[0].document_key == env.keep
         assert outcome.status is FetchStatus.OK

@@ -1,16 +1,11 @@
 """Tests for the retrieval helper spans.
 
-Pins the span names, attributes and swallow-site behavior of the shared
-helpers: ``vector_search``, ``fuse``, the cross-encoder reranker and the
-node-distance reranker. Runs real spans through an in-memory exporter; stores
-are mocks at the driver boundary.
+Pins the span names and attributes of ``vector_search``. Runs real spans
+through an in-memory exporter; stores are mocks at the driver boundary.
 """
 
-import asyncio
 import json
-import sys
-from types import ModuleType
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock
 from uuid import uuid4
 
 from opentelemetry.sdk.trace import ReadableSpan, TracerProvider
@@ -19,13 +14,8 @@ from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
     InMemorySpanExporter,
 )
 
-from agrag.common.data_models.entity import Entity
-from agrag.common.data_models.search_result import SearchResult
 from agrag.common.data_models.vector_record import VectorHit
-from agrag.retrieval.fusion import fuse
 from agrag.retrieval.methods.vector import vector_search
-from agrag.retrieval.rerank.cross_encoder import cross_encoder_rerank
-from agrag.retrieval.rerank.node_distance import node_distance_rerank
 
 
 def _provider() -> tuple[TracerProvider, InMemorySpanExporter]:
@@ -36,23 +26,9 @@ def _provider() -> tuple[TracerProvider, InMemorySpanExporter]:
     return provider, exporter
 
 
-def _by_name(spans: tuple[ReadableSpan, ...]) -> list[ReadableSpan]:
-    """Return the exported spans in export order."""
-    return list(spans)
-
-
 def _named(spans: tuple[ReadableSpan, ...], name: str) -> list[ReadableSpan]:
     """Return the exported spans whose name matches."""
     return [span for span in spans if span.name == name]
-
-
-def _entity_result(score: float = 1.0) -> SearchResult:
-    """Return one entity result."""
-    return SearchResult(
-        item=Entity(id=uuid4(), label="Person", name="Alice"),
-        score=score,
-        method="entity",
-    )
 
 
 class _MockEmbedder:
@@ -100,152 +76,3 @@ class TestVectorSearchSpan:
         assert attributes["agrag.hit_count"] == 2
         assert list(attributes["agrag.hit_ids"]) == [str(hits[0].id), str(hits[1].id)]
         assert list(attributes["agrag.hit_scores"]) == [0.9, 0.4]
-
-
-class TestFuseSpan:
-    """Fuse records per-method counts and results."""
-
-    def test_records_method_counts_in_dict_order(self) -> None:
-        """The method arrays follow the dict's order."""
-        provider, exporter = _provider()
-        tracer = provider.get_tracer("t")
-        results = [_entity_result(), _entity_result()]
-
-        fused = fuse({"entity": results, "chunk": []}, rrf_k=60, tracer=tracer)
-
-        span = _named(exporter.get_finished_spans(), "agrag.retrieval.fuse")[0]
-        attributes = span.attributes
-        assert attributes is not None
-        assert list(attributes["agrag.fuse.methods"]) == ["entity", "chunk"]
-        assert list(attributes["agrag.fuse.method_counts"]) == [2, 0]
-        assert attributes["agrag.rrf_k"] == 60
-        assert attributes["agrag.result_count"] == len(fused)
-        assert list(attributes["agrag.result_ids"]) == [str(r.item.id) for r in fused]
-
-
-class TestCrossEncoderSpan:
-    """The cross-encoder reranker's spans."""
-
-    async def test_import_error_fallback_records_and_skips(self) -> None:
-        """Without the extra: event recorded, skipped set, status UNSET.
-
-        A unique model name keeps this clear of the module-level model
-        cache other test modules populate with fakes under the default
-        name.
-        """
-        provider, exporter = _provider()
-        tracer = provider.get_tracer("t")
-        results = [_entity_result()]
-        with patch.dict(sys.modules, {"sentence_transformers": ModuleType("fake")}):
-            reranked = await cross_encoder_rerank(
-                "query", results, model=f"missing-extra-{uuid4().hex}", tracer=tracer
-            )
-
-        assert reranked == results
-        span = _named(
-            exporter.get_finished_spans(), "agrag.retrieval.rerank.cross_encoder"
-        )[0]
-        assert span.status.status_code.name != "ERROR"
-        assert [e for e in span.events if e.name == "exception"]
-        assert span.attributes is not None
-        assert span.attributes["agrag.skipped"] is True
-        assert span.attributes["agrag.result_count"] == 1
-
-    async def test_concurrent_first_loads_export_one_model_load(self) -> None:
-        """Two concurrent first calls export exactly one model_load span."""
-        provider, exporter = _provider()
-        tracer = provider.get_tracer("t")
-        results = [_entity_result()]
-
-        class _FakeCrossEncoder:
-            def __init__(self, *args: object, **kwargs: object) -> None:
-                pass
-
-            def predict(self, pairs: list[tuple[str, str]]) -> list[float]:
-                return [0.5 for _ in pairs]
-
-        module = ModuleType("fake")
-        module.CrossEncoder = _FakeCrossEncoder
-        model_name = f"span-model-{uuid4().hex}"
-
-        with patch.dict(sys.modules, {"sentence_transformers": module}):
-            await asyncio.gather(
-                cross_encoder_rerank("q", results, model=model_name, tracer=tracer),
-                cross_encoder_rerank("q", results, model=model_name, tracer=tracer),
-            )
-
-        loads = _named(
-            exporter.get_finished_spans(), "agrag.retrieval.rerank.model_load"
-        )
-        assert len(loads) == 1
-        assert loads[0].attributes is not None
-        assert loads[0].attributes["agrag.model"] == model_name
-
-    async def test_rerank_span_records_results(self) -> None:
-        """A successful rerank records the model and the reranked results."""
-        provider, exporter = _provider()
-        tracer = provider.get_tracer("t")
-        results = [_entity_result()]
-
-        class _FakeCrossEncoder:
-            def __init__(self, *args: object, **kwargs: object) -> None:
-                pass
-
-            def predict(self, pairs: list[tuple[str, str]]) -> list[float]:
-                return [0.75]
-
-        module = ModuleType("fake")
-        module.CrossEncoder = _FakeCrossEncoder
-
-        with patch.dict(sys.modules, {"sentence_transformers": module}):
-            await cross_encoder_rerank(
-                "query",
-                results,
-                model=f"span-rerank-{uuid4().hex}",
-                min_score=0.5,
-                tracer=tracer,
-            )
-
-        span = _named(
-            exporter.get_finished_spans(), "agrag.retrieval.rerank.cross_encoder"
-        )[0]
-        attributes = span.attributes
-        assert attributes is not None
-        assert attributes["agrag.input_count"] == 1
-        assert attributes["agrag.min_score"] == 0.5
-        assert attributes["agrag.result_count"] == 1
-        assert "agrag.skipped" not in attributes
-
-
-class TestNodeDistanceSpan:
-    """The node-distance reranker's span counts its path queries."""
-
-    async def test_path_query_count_equals_non_seed_candidates(self) -> None:
-        """Every non-seed entity candidate runs exactly one path query."""
-        provider, exporter = _provider()
-        tracer = provider.get_tracer("t")
-        seed_id = uuid4()
-        candidates = [_entity_result() for _ in range(3)]
-        candidates.append(
-            SearchResult(item=_seed_entity(seed_id), score=1.0, method="bfs")
-        )
-        gs = AsyncMock()
-        gs.execute_read.return_value = [{"dist": 2}]
-
-        await node_distance_rerank(
-            candidates, graph_store=gs, seed_ids=[seed_id], tracer=tracer
-        )
-
-        span = _named(
-            exporter.get_finished_spans(), "agrag.retrieval.rerank.node_distance"
-        )[0]
-        attributes = span.attributes
-        assert attributes is not None
-        assert attributes["agrag.seed_count"] == 1
-        assert attributes["agrag.input_count"] == 4
-        assert attributes["agrag.path_query_count"] == 3
-
-
-def _seed_entity(seed_id):
-    """Return the entity the seed id names."""
-    return Entity(id=seed_id, label="Person", name="Seed")
