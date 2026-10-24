@@ -47,7 +47,7 @@ Needs the `eval` extra: `pip install 'agentic-graphrag[eval]'`.
 - [**context_recall**](answer/context_recall.md) – Build the metric for reference facts that the evidence covers.
 - [**correctness**](answer/correctness.md) – Build the answer correctness metric against the reference.
 - [**entity_quality_metric**](extraction/entity_quality_metric.md) – Build a metric for entity F1 on one test case.
-- [**expected_tools_metric**](trajectory/expected_tools_metric.md) – Build the metric that the run called every expected tool.
+- [**expected_tools_metric**](trajectory/expected_tools_metric.md) – Build the metric that the run made every expected tool call.
 - [**extraction_case**](extraction/extraction_case.md) – Build a test case that holds a predicted and a gold extraction.
 - [**faithfulness**](answer/faithfulness.md) – Build the metric for claims that the evidence the agent saw does not contradict.
 - [**micro_scores**](extraction/micro_scores.md) – Pool measured entity and relation metrics into dataset scores.
