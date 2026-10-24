@@ -491,37 +491,48 @@ class _ScoreRepairModel(BaseChatModel):
 def expected_tools_metric(
     names: Sequence[str | Sequence[str]], *, threshold: float = 0.5
 ) -> ScoreMetric:
-    """Build the metric that the run made every expected tool call.
+    """Build the metric that the run made every expected tool call, in order.
 
-    Compares the trajectory's tool call names with the expected entries,
-    ignoring arguments: extra calls do not matter, and every entry must be
-    satisfied. A name is satisfied when it was called; a nested sequence is
-    satisfied when any one of its names was called. Scores 1.0 or 0.0.
+    Matches the expected entries against the trajectory's tool call names,
+    ignoring arguments: every entry must be satisfied, in order, as a
+    subsequence of the calls, and extra calls do not matter. A name is
+    satisfied by a call to that name; a nested sequence by a call to any
+    one of its names. A repeated entry needs a separate call per
+    occurrence, so discovery before fetch and repeated searches are both
+    enforced. Scores 1.0 or 0.0.
 
     Args:
-        names: The tool calls the run must include. Each item is one
-            required name, or a set of alternative names of which the run
-            must have called at least one.
+        names: The tool calls the run must make, in order. Each item is one
+            required name, or a non-empty set of alternative names of which
+            the run must have called at least one.
         threshold: The minimum score that counts as success.
 
     Returns:
-        A ``ScoreMetric`` that scores tool presence.
-    """
+        A ``ScoreMetric`` that scores tool presence and order.
 
-    def satisfied(entry: str | Sequence[str], called: list[str]) -> bool:
-        if isinstance(entry, str):
-            return entry in called
-        return any(name in called for name in entry)
+    Raises:
+        ValueError: An alternative group holds no names.
+    """
+    expected = tuple(
+        (entry,) if isinstance(entry, str) else tuple(entry) for entry in names
+    )
+    if any(len(entry) == 0 for entry in expected):
+        raise ValueError("An alternative tool group cannot be empty.")
 
     def scorer(test_case: LLMTestCase) -> ScoreResult:
         trajectory = _case_trajectory(test_case)
-        tool_steps = [step for step in trajectory.steps if step.kind == "tool"]
-        called = [step.name for step in tool_steps]
-        missing = [
-            entry if isinstance(entry, str) else f"one of {', '.join(entry)}"
-            for entry in names
-            if not satisfied(entry, called)
-        ]
+        called = [step.name for step in trajectory.steps if step.kind == "tool"]
+        missing: list[str] = []
+        position = 0
+        for entry in expected:
+            while position < len(called) and called[position] not in entry:
+                position += 1
+            if position == len(called):
+                missing.append(
+                    entry[0] if len(entry) == 1 else f"one of {', '.join(entry)}"
+                )
+            else:
+                position += 1
         if missing:
             return ScoreResult(
                 0.0,
@@ -531,7 +542,7 @@ def expected_tools_metric(
             )
         return ScoreResult(
             1.0,
-            f"All {len(names)} expected tool calls were made.",
+            f"All {len(expected)} expected tool calls were made in order.",
             {"called": called},
         )
 

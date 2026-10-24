@@ -23,7 +23,7 @@ import asyncio
 import os
 import statistics
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -82,7 +82,9 @@ _JUDGED = ("task_completion", "trajectory_quality")
 
 
 async def _score(
-    judge: ChatModelJudge, case: LLMTestCase, expected_tools: list[str]
+    judge: ChatModelJudge,
+    case: LLMTestCase,
+    expected_tools: Sequence[str | Sequence[str]],
 ) -> dict[str, dict[str, Any]]:
     """Score one run with every trajectory metric, at once."""
     metrics: dict[str, BaseMetric] = {
@@ -135,7 +137,7 @@ async def test_agent_trajectory_meets_thresholds(
                 "tool_calls": [
                     step.name for step in trajectory.steps if step.kind == "tool"
                 ],
-                "scores": await _score(judge, case, list(item["expected_tools"])),
+                "scores": await _score(judge, case, item["expected_tools"]),
             }
         )
         with capsys.disabled():
