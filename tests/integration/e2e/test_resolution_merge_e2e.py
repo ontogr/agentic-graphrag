@@ -543,13 +543,13 @@ class TestResolutionMerge:
         )
         assert stale_rows == [{"n": 0}]
 
-        # Search by a surface name returns that raw surface and no other
-        # member of the cluster.
+        # Search by a surface name returns a member of the cluster. Full-text
+        # terms match by any word, so an alias like "Northwind Ltd" can also
+        # surface the unmerged Northwind names of this run.
         member_ids = {org_ids[name] for name in ORG_SURFACES}
         for alias in ("NWT Holdings", "Northwind Ltd"):
             hits = await _search_names(w, alias)
-            assert hits, alias
-            assert {hit["id"] for hit in hits} <= member_ids
+            assert member_ids & {hit["id"] for hit in hits}, alias
         union_hits = await _search_names(w, ORG_OTHER)
         assert union_hits[0]["name"] == ORG_OTHER
         assert union_hits[0]["id"] == org_ids[ORG_OTHER]

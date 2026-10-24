@@ -246,12 +246,15 @@ class _Env:
         return frozenset(str(row["key"]) for row in rows)
 
     async def chunk_hits(self, query: str) -> list[str]:
-        """Return topics of this run's chunks in search rank order."""
+        """Return topics of this run's chunks in search rank order.
+
+        Hybrid keeps the old recipe behavior: a query word that a chunk does
+        not contain can still find the chunk through its embedding.
+        """
         found = await search_evidence(
             self.store,
             self.embedder,
             query,
-            mode=EvidenceSearchMode.LEXICAL,
             limit=200,
             scope=await self.scope_keys(),
         )

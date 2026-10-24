@@ -126,7 +126,7 @@ async def test_core_history_tools_read_write_and_review_persisted_data() -> None
                 {"evidence_ids": [evidence_id]}
             )
         )
-        assert fetched[0]["status"] == "ok"
+        assert fetched["outcomes"][0]["status"] == "ok"
         neighboring_passages = [
             json.loads(
                 await tool_by_name["navigate_document_tree"].ainvoke(

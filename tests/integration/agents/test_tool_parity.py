@@ -98,7 +98,7 @@ _PYTHON_CONTRACT: dict[str, tuple[dict[str, Any], set[str]]] = {
     ),
     "check_citations": (
         {"evidence_ids": inspect.Parameter.empty},
-        {"store", "fetched_ids", "scope"},
+        {"fetched_ids", "scope"},
     ),
 }
 

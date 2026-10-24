@@ -40,7 +40,7 @@ from agrag.ingestion.extract import Extractor
 from agrag.ingestion.graph import Graph
 from agrag.loaders.errors import IngestionError, UnsupportedFormatError
 from tests.conftest import FAKE_EMBEDDING_DIMENSIONS
-from tests.integration._backend import build_test_store
+from tests.integration._backend import await_indexes, build_test_store
 from tests.integration._schema_cleanup import drop_schema_for
 from tests.integration.e2e._artifact import write_artifact
 
@@ -247,6 +247,10 @@ async def env(tmp_path: Path) -> AsyncGenerator[_Env, None]:
             dimensions=4,
             distance=Distance.COSINE,
         )
+    # The store is built directly, so the Chunk full-text index the lexical
+    # leg needs is created here rather than by Graph.open.
+    await store.ensure_fulltext_index(label=CHUNK_LABEL, properties=["text"])
+    await await_indexes(store)
     graph = Graph(
         schema=schema,
         graph_store=store,

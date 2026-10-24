@@ -550,7 +550,11 @@ async def _bounded_read(
         return visible, True
     rows = await read(ceiling)
     visible = _visible_rows(rows)
-    return visible[:wanted], len(visible) < wanted
+    if len(visible) >= wanted:
+        return visible[:wanted], False
+    # Truncated only when the ceiling was reached: a smaller candidate set
+    # means the index ran out, not that the bound cut the search.
+    return visible[:wanted], _candidate_count(rows) >= ceiling
 
 
 async def _run_external_semantic_leg(
@@ -607,9 +611,13 @@ async def _run_external_semantic_leg(
         return visible, False
     if first >= ceiling:
         return visible, True
-    _store_hits, rows = await read(ceiling)
+    store_hits, rows = await read(ceiling)
     visible = _visible_rows(rows)
-    return visible[:wanted], len(visible) < wanted
+    if len(visible) >= wanted:
+        return visible[:wanted], False
+    # Truncated only when the store returned a full ceiling of hits; a
+    # smaller set means the collection ran out of candidates.
+    return visible[:wanted], len(store_hits) >= ceiling
 
 
 def _candidate_count(rows: Sequence[Mapping[str, Any]]) -> int:
