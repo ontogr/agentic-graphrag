@@ -485,9 +485,10 @@ class TestOutputLimits:
     """Server caps apply whatever the caller asks for, and results say so."""
 
     @pytest.mark.parametrize(
-        ("limit", "expected_truncated"), [(None, False), (50, True)]
+        ("limit", "expected_truncated"),
+        [(None, False), (10, True), (50, True)],
     )
-    async def test_limit_cap_does_not_mark_default_requests_truncated(
+    async def test_only_explicitly_capped_requests_are_marked_truncated(
         self,
         evidence_env: EvidenceEnv,
         limit: int | None,

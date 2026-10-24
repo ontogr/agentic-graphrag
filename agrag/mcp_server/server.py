@@ -32,6 +32,7 @@ from agrag.evidence import check_citations as verify_citations
 from agrag.evidence import fetch_evidence, search_evidence
 from agrag.evidence.contract import (
     CHECK_CITATIONS,
+    DEFAULT_SEARCH_LIMIT,
     FETCH_EVIDENCE,
     SEARCH_EVIDENCE,
     EvidenceIds,
@@ -237,7 +238,7 @@ def build_server(  # noqa: PLR0915
         ctx: Context[_Session, Any],
         query: Query,
         mode: EvidenceSearchMode = EvidenceSearchMode.HYBRID,
-        limit: SearchLimit | None = None,
+        limit: SearchLimit = DEFAULT_SEARCH_LIMIT,
     ) -> EvidenceSearchResult:
         """Find passages that match a query, best first.
 
@@ -245,9 +246,8 @@ def build_server(  # noqa: PLR0915
             ctx: The request context.
             query: The words to search for.
             mode: Which search legs run. The default runs both.
-            limit: The most hits to return. It defaults to the configured
-                maximum. Explicit values above that maximum are capped, and
-                the result is marked truncated.
+            limit: The most hits to return. Values above the configured maximum
+                are capped, and an explicitly capped request is marked truncated.
 
         Returns:
             The hits and the status of the search. In hybrid mode, mismatched
@@ -258,8 +258,10 @@ def build_server(  # noqa: PLR0915
                 query embedder does not match the stored vectors in semantic
                 mode.
         """
-        requested = settings.max_hits if limit is None else limit
-        effective = min(requested, settings.max_hits)
+        effective = min(limit, settings.max_hits)
+        request_params = ctx.request_context.params or {}
+        arguments = request_params.get("arguments") or {}
+        limit_was_explicit = "limit" in arguments
         try:
             result = await search_evidence(
                 store,
@@ -302,7 +304,7 @@ def build_server(  # noqa: PLR0915
             update={
                 "hits": kept,
                 "truncated": result.truncated
-                or (limit is not None and limit > settings.max_hits)
+                or (limit_was_explicit and limit > settings.max_hits)
                 or snippets_cut
                 or dropped,
             }
