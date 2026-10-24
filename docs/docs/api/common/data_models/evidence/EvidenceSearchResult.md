@@ -18,7 +18,11 @@ The result of one search call.
   found `limit` visible passages, so more passages may exist.
 - [**index_state**](#agrag-common-data_models-evidence-EvidenceSearchResult-index_state) (<code>[IndexState](IndexState.md) | None</code>) – Whether the needed indexes were ready. None when no index
   was checked, which happens for an empty scope.
-- [**failures**](#agrag-common-data_models-evidence-EvidenceSearchResult-failures) (<code>list\[[LegFailure](LegFailure.md)\]</code>) – The legs that failed. Empty when every leg ran.
+- [**failures**](#agrag-common-data_models-evidence-EvidenceSearchResult-failures) (<code>list\[[LegFailure](LegFailure.md)\]</code>) – Failed legs, and a failed rerank stage. A failed rerank does
+  not change the status.
+- [**reranked**](#agrag-common-data_models-evidence-EvidenceSearchResult-reranked) (<code>bool</code>) – True when a reranker reordered the hits. Each hit's score is
+  then the cross-encoder score, whose scale differs from the fused
+  score.
 
 ## `failures` \{#agrag-common-data_models-evidence-EvidenceSearchResult-failures}
 
@@ -36,6 +40,12 @@ hits: list[EvidenceSearchHit] = Field(default_factory=list)
 
 ```python
 index_state: IndexState | None = None
+```
+
+## `reranked` \{#agrag-common-data_models-evidence-EvidenceSearchResult-reranked}
+
+```python
+reranked: bool = False
 ```
 
 ## `status` \{#agrag-common-data_models-evidence-EvidenceSearchResult-status}

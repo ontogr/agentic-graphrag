@@ -6,7 +6,7 @@ sidebar_label: search_evidence
 # `agrag.evidence.search.search_evidence` \{#agrag-evidence-search-search_evidence}
 
 ```python
-search_evidence(store:GraphStore, embedder:Embedder, query:str, *, mode:EvidenceSearchMode, limit:int, scope:frozenset[str], vector_store:VectorStore | None = None, timeout:float | None = None) -> EvidenceSearchResult
+search_evidence(store:GraphStore, embedder:Embedder, query:str, *, mode:EvidenceSearchMode = EvidenceSearchMode.HYBRID, limit:int = DEFAULT_SEARCH_LIMIT, scope:frozenset[str], vector_store:VectorStore | None = None, reranker:Reranker | None = None, settings:RetrievalSettings | None = None, timeout:float | None = None) -> EvidenceSearchResult
 ```
 
 Find up to `limit` visible passages that match a query.
@@ -14,9 +14,11 @@ Find up to `limit` visible passages that match a query.
 The lexical leg matches the words of the query against chunk text. The
 semantic leg embeds the query and searches the chunk embeddings. The hybrid
 mode runs both and fuses them, or delegates fusion to an external store.
-Search returns status `index_not_ready` when a needed index or external
-collection is missing. It returns `empty_scope` without searching when
-`scope` is empty.
+Hybrid mode with a reranker reorders the top fused hits with the
+cross-encoder, and lexical and semantic modes never rerank. Search returns
+status `index_not_ready` when a needed index or external collection is
+missing. It returns `empty_scope` without searching when `scope` is
+empty.
 
 **Parameters:**
 
@@ -30,13 +32,17 @@ collection is missing. It returns `empty_scope` without searching when
 - **scope** (<code>frozenset\[str\]</code>) – Keys of the documents that may be searched.
 - **vector_store** (<code>[VectorStore](../../vectordb/base/VectorStore.md) | None</code>) – Optional external vector store. Placement is not validated
   by this function.
+- **reranker** (<code>[Reranker](../rerank/Reranker.md) | None</code>) – Scores passage texts against the query to reorder the top
+  fused hits of hybrid mode. None runs hybrid search without rerank.
+- **settings** (<code>[RetrievalSettings](../../retrieval/settings/RetrievalSettings.md) | None</code>) – Fusion and rerank configuration. None uses the defaults.
 - **timeout** (<code>float | None</code>) – Server-side transaction timeout in seconds for each store read.
   None uses the server's default.
 
 **Returns:**
 
 - <code>[EvidenceSearchResult](../../common/data_models/evidence/EvidenceSearchResult.md)</code> – The hits, best first, with the status, truncation flag, index state and
-- <code>[EvidenceSearchResult](../../common/data_models/evidence/EvidenceSearchResult.md)</code> – any failed legs.
+- <code>[EvidenceSearchResult](../../common/data_models/evidence/EvidenceSearchResult.md)</code> – any failed legs. A failed rerank stage is recorded in the failures and
+- <code>[EvidenceSearchResult](../../common/data_models/evidence/EvidenceSearchResult.md)</code> – leaves the status and the fused order unchanged.
 
 **Raises:**
 

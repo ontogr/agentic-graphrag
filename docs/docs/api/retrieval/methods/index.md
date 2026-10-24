@@ -5,9 +5,8 @@ sidebar_label: methods
 
 # `agrag.retrieval.methods` \{#agrag-retrieval-methods}
 
-Low-level search method helpers shared by retrievers.
+Low-level search method helpers shared by evidence search and ingestion.
 
 **Modules:**
 
-- [**traversal**](traversal/index.md) – Entity resolution and seeded traversal, callable without a SearchEngine.
 - [**vector**](vector/index.md) – Shared vector search helper over the GraphStore native vector indexes.

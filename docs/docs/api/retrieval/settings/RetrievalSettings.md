@@ -7,68 +7,31 @@ sidebar_label: RetrievalSettings
 
 Bases: <code>BaseSettings</code>
 
-Configuration for retrieval methods and fusion.
+Configuration for evidence search fusion and rerank.
 
 **Attributes:**
 
-- [**entity_labels**](#agrag-retrieval-settings-RetrievalSettings-entity_labels) (<code>list\[str\]</code>) – The graph labels native entity search runs
-  against, one vector index each. These are the schema's
-  entity labels. Only read when the caller passes no label
-  filter.
-- [**node_distance_seed_top_k**](#agrag-retrieval-settings-RetrievalSettings-node_distance_seed_top_k) (<code>int</code>) – How many of the highest-ranked
-  entity hits seed the node-distance reranker. Candidates
-  are ordered by graph distance to those seeds.
-- [**entity_top_k**](#agrag-retrieval-settings-RetrievalSettings-entity_top_k) (<code>int</code>) – Results requested per entity search call.
-- [**resolved_entity_top_k**](#agrag-retrieval-settings-RetrievalSettings-resolved_entity_top_k) (<code>int</code>) – Results requested per resolved-entity search
-  call.
-- [**chunk_top_k**](#agrag-retrieval-settings-RetrievalSettings-chunk_top_k) (<code>int</code>) – Results requested per chunk search call.
-- [**traversal_depth**](#agrag-retrieval-settings-RetrievalSettings-traversal_depth) (<code>int</code>) – Maximum BFS hops from a seed entity.
-- [**traversal_limit**](#agrag-retrieval-settings-RetrievalSettings-traversal_limit) (<code>int</code>) – Maximum nodes a BFS expansion can return.
 - [**rrf_k**](#agrag-retrieval-settings-RetrievalSettings-rrf_k) (<code>int</code>) – The RRF constant controlling how much rank position
   matters.
-- [**reranker_min_score**](#agrag-retrieval-settings-RetrievalSettings-reranker_min_score) (<code>float | None</code>) – Results scoring below this after rerank
-  are dropped. None disables the threshold.
 - [**cross_encoder_model**](#agrag-retrieval-settings-RetrievalSettings-cross_encoder_model) (<code>str</code>) – The sentence-transformers CrossEncoder model
-  used for cross_encoder reranking. Env:
+  used for hybrid rerank. Env:
   RETRIEVAL_CROSS_ENCODER_MODEL.
-- [**community_top_k**](#agrag-retrieval-settings-RetrievalSettings-community_top_k) (<code>int</code>) – Results requested per community search call when
-  the caller passes no explicit limit. It plays the same role
-  entity_top_k and chunk_top_k play for their retrievers. It is
-  distinct from Recipe.community_top_k (enrichment budget and
-  reserved slice size). Same name, different class, different job.
+- [**rerank_enabled**](#agrag-retrieval-settings-RetrievalSettings-rerank_enabled) (<code>bool</code>) – Whether hybrid search reorders its top hits with the
+  cross-encoder. Env: `RETRIEVAL_RERANK_ENABLED`.
+- [**rerank_candidates**](#agrag-retrieval-settings-RetrievalSettings-rerank_candidates) (<code>int</code>) – How many of the top fused hits the cross-encoder
+  scores. Env: `RETRIEVAL_RERANK_CANDIDATES`.
+- [**rerank_timeout_seconds**](#agrag-retrieval-settings-RetrievalSettings-rerank_timeout_seconds) (<code>float</code>) – The most seconds one rerank call may take. A
+  timed-out rerank keeps the fused order. Env:
+  `RETRIEVAL_RERANK_TIMEOUT_SECONDS`.
 - [**hybrid_alpha**](#agrag-retrieval-settings-RetrievalSettings-hybrid_alpha) (<code>float</code>) – Dense weight for hybrid searches on an external vector
   store. Env: `RETRIEVAL_HYBRID_ALPHA`.
 
 Env prefix: `RETRIEVAL_`.
 
-## `chunk_top_k` \{#agrag-retrieval-settings-RetrievalSettings-chunk_top_k}
-
-```python
-chunk_top_k: int = 10
-```
-
-## `community_top_k` \{#agrag-retrieval-settings-RetrievalSettings-community_top_k}
-
-```python
-community_top_k: int = 5
-```
-
 ## `cross_encoder_model` \{#agrag-retrieval-settings-RetrievalSettings-cross_encoder_model}
 
 ```python
 cross_encoder_model: str = 'cross-encoder/ms-marco-MiniLM-L-6-v2'
-```
-
-## `entity_labels` \{#agrag-retrieval-settings-RetrievalSettings-entity_labels}
-
-```python
-entity_labels: list[str] = []
-```
-
-## `entity_top_k` \{#agrag-retrieval-settings-RetrievalSettings-entity_top_k}
-
-```python
-entity_top_k: int = 10
 ```
 
 ## `hybrid_alpha` \{#agrag-retrieval-settings-RetrievalSettings-hybrid_alpha}
@@ -83,38 +46,26 @@ hybrid_alpha: float = Field(default=0.5, ge=0, le=1)
 model_config = SettingsConfigDict(env_prefix='RETRIEVAL_', env_file='.env', extra='ignore', hide_input_in_errors=True)
 ```
 
-## `node_distance_seed_top_k` \{#agrag-retrieval-settings-RetrievalSettings-node_distance_seed_top_k}
+## `rerank_candidates` \{#agrag-retrieval-settings-RetrievalSettings-rerank_candidates}
 
 ```python
-node_distance_seed_top_k: int = 3
+rerank_candidates: int = Field(default=30, ge=1)
 ```
 
-## `reranker_min_score` \{#agrag-retrieval-settings-RetrievalSettings-reranker_min_score}
+## `rerank_enabled` \{#agrag-retrieval-settings-RetrievalSettings-rerank_enabled}
 
 ```python
-reranker_min_score: float | None = None
+rerank_enabled: bool = True
 ```
 
-## `resolved_entity_top_k` \{#agrag-retrieval-settings-RetrievalSettings-resolved_entity_top_k}
+## `rerank_timeout_seconds` \{#agrag-retrieval-settings-RetrievalSettings-rerank_timeout_seconds}
 
 ```python
-resolved_entity_top_k: int = 10
+rerank_timeout_seconds: float = Field(default=5.0, gt=0)
 ```
 
 ## `rrf_k` \{#agrag-retrieval-settings-RetrievalSettings-rrf_k}
 
 ```python
 rrf_k: int = 60
-```
-
-## `traversal_depth` \{#agrag-retrieval-settings-RetrievalSettings-traversal_depth}
-
-```python
-traversal_depth: int = 2
-```
-
-## `traversal_limit` \{#agrag-retrieval-settings-RetrievalSettings-traversal_limit}
-
-```python
-traversal_limit: int = 50
 ```

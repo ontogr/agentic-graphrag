@@ -6,7 +6,7 @@ sidebar_label: navigate_document_tree
 # `agrag.evidence.navigate.navigate_document_tree` \{#agrag-evidence-navigate-navigate_document_tree}
 
 ```python
-navigate_document_tree(store:GraphStore, evidence_id:str, relation:NavigationRelation, *, scope:frozenset[str], limit:int, max_chars:int) -> NavigationResult
+navigate_document_tree(store:GraphStore, evidence_id:str, relation:NavigationRelation, *, scope:frozenset[str], limit:int = DEFAULT_NAV_LIMIT, max_chars:int = DEFAULT_NAV_MAX_CHARS, timeout:float | None = None) -> NavigationResult
 ```
 
 Return the passages that one relation reaches from an evidence id.
@@ -38,6 +38,8 @@ items. An item cut by the budget is marked `text_truncated`. An item beyond
 - **limit** (<code>int</code>) – The most items to return. Must be between 1 and 50.
 - **max_chars** (<code>int</code>) – The most characters of item text to return. Must be between 1
   and 20000.
+- **timeout** (<code>float | None</code>) – Server-side transaction timeout in seconds for each store read.
+  None uses the server's default.
 
 **Returns:**
 

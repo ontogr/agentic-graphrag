@@ -16,8 +16,3 @@ keeps its own neighbors.
 **Functions:**
 
 - [**navigate_document_tree**](navigate_document_tree.md) – Return the passages that one relation reaches from an evidence id.
-
-**Attributes:**
-
-- [**MAX_CHARS**](MAX_CHARS.md) –
-- [**MAX_LIMIT**](MAX_LIMIT.md) –
