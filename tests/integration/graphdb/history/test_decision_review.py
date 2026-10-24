@@ -414,7 +414,7 @@ async def test_reaffirm_of_removed_document_fails_even_with_ok_fetch(
         scope=frozenset({documents.harbor}),
         max_chars=500,
     )
-    assert earlier[0].status is FetchStatus.OK
+    assert earlier.outcomes[0].status is FetchStatus.OK
     await documents.graph.delete_document(documents.harbor)
     later = await fetch_evidence(
         store,
@@ -424,7 +424,7 @@ async def test_reaffirm_of_removed_document_fails_even_with_ok_fetch(
     )
     for fetched in (earlier, later):
         result = await history.reaffirm_decision(
-            decision.id, [decision.supports[0]], fetched_evidence=fetched
+            decision.id, [decision.supports[0]], fetched_evidence=fetched.outcomes
         )
         assert result.error is WriteErrorCode.CANNOT_REVALIDATE
     current = await history.get_decision(decision.id)

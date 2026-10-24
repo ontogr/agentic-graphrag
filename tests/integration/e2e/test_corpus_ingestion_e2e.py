@@ -12,7 +12,7 @@ extension. It shows that:
 - ``error_policy="skip"`` and ``"quarantine"`` report the bad sources in the
   result, and a source that fails part way adds no documents,
 - an extractor failure on one chunk is reported and does not drop the chunk,
-- ``SearchEngine`` finds the text of each supported format.
+- ``search_evidence`` finds the text of each supported format.
 
 The extractor and embedder are fake and deterministic. All labels are unique
 per run and cleanup removes only the nodes this test created. The test writes
@@ -34,13 +34,11 @@ from agrag.common.data_models.graph_schema import EntityType, GraphSchema
 from agrag.common.data_models.vector_record import Distance
 from agrag.cypher.entities import validate_identifier
 from agrag.embedding.base import Embedder
+from agrag.evidence import search_evidence
 from agrag.graphdb.base import GraphStore
 from agrag.ingestion.extract import Extractor
 from agrag.ingestion.graph import Graph
 from agrag.loaders.errors import IngestionError, UnsupportedFormatError
-from agrag.retrieval.recipes import CHUNK
-from agrag.retrieval.search_engine import SearchEngine
-from agrag.retrieval.settings import RetrievalSettings
 from tests.conftest import FAKE_EMBEDDING_DIMENSIONS
 from tests.integration._backend import build_test_store
 from tests.integration._schema_cleanup import drop_schema_for
@@ -146,10 +144,21 @@ class _Env:
 
     store: GraphStore
     graph: Graph
-    engine: SearchEngine
+    embedder: Embedder
     person_label: str
     org_label: str
     root: Path
+
+    async def chunk_texts(self, query: str) -> list[str]:
+        """Return matching chunk texts of this run's documents, best first."""
+        rows = await self.store.execute_read(
+            "MATCH (d:Document) WHERE d.uri STARTS WITH $prefix "
+            "RETURN d.document_key AS key",
+            {"prefix": str(self.root)},
+        )
+        scope = frozenset(str(row["key"]) for row in rows)
+        found = await search_evidence(self.store, self.embedder, query, scope=scope)
+        return [hit.snippet for hit in found.hits]
 
 
 def _write_supported_files(directory: Path) -> None:
@@ -244,13 +253,7 @@ async def env(tmp_path: Path) -> AsyncGenerator[_Env, None]:
         embedder=embedder,
         extractor=_NameExtractor(person_label, org_label),
     )
-    engine = SearchEngine(
-        graph_store=store,
-        embedder=embedder,
-        settings=RetrievalSettings(entity_top_k=10, chunk_top_k=10),
-        graph_schema=schema,
-    )
-    current = _Env(store, graph, engine, person_label, org_label, tmp_path)
+    current = _Env(store, graph, embedder, person_label, org_label, tmp_path)
     try:
         yield current
     finally:
@@ -336,13 +339,11 @@ async def test_mixed_corpus_ingests_and_reports_bad_sources(env: _Env) -> None: 
 
     found: dict[str, str | None] = {}
     for format_name, marker in _FORMAT_MARKERS.items():
-        hits = await env.engine.search(marker, CHUNK)
-        texts = [hit.item.text for hit in hits if isinstance(hit.item, Chunk)]
+        texts = await env.chunk_texts(marker)
         assert texts, f"no chunk hits for {format_name}"
         assert marker in texts[0], f"top hit for {format_name} lacks {marker}"
         found[format_name] = marker
-    unwanted = await env.engine.search("brokenmark partialmark", CHUNK)
-    unwanted_texts = [hit.item.text for hit in unwanted if isinstance(hit.item, Chunk)]
+    unwanted_texts = await env.chunk_texts("brokenmark partialmark")
     assert not any(
         "brokenmark" in text or "partialmark" in text for text in unwanted_texts
     )
