@@ -1,7 +1,7 @@
 <h1 align="center"><a href="https://github.com/ontogr/agentic-graphrag">Agentic GraphRAG</a></h1>
 
 <h3 align="center">Context graphs that connect enterprise knowledge, conversation history, and decision traces.</h3>
-<h4 align="center"><a href="https://ontogr.github.io/agentic-graphrag/">Documentation</a> · <a href="https://ontogr.github.io/agentic-graphrag/latest/get-started/quickstart">Quickstart</a> · <a href="https://ontogr.github.io/agentic-graphrag/latest/concepts/architecture">Concepts</a> · <a href="https://ontogr.github.io/agentic-graphrag/latest/guides/ingest-documents">Guides</a> · <a href="https://ontogr.github.io/agentic-graphrag/latest/api/">API reference</a></h4>
+<h4 align="center"><a href="https://ontogr.github.io/agentic-graphrag/">Documentation</a> | <a href="https://ontogr.github.io/agentic-graphrag/stable/get-started/quickstart">Quickstart</a> | <a href="https://ontogr.github.io/agentic-graphrag/stable/concepts/architecture">Concepts</a> | <a href="https://ontogr.github.io/agentic-graphrag/stable/guides/ingest-documents">Guides</a> | <a href="https://ontogr.github.io/agentic-graphrag/stable/api/">API reference</a></h4>
 
 
 <div align="center">
@@ -23,123 +23,244 @@
 
 </div>
 
-Agentic GraphRAG is an open source Python framework that connects enterprise knowledge, conversation history, and decision traces in one graph. Agents can find evidence, resume work across sessions, and review decisions when their sources change.
+Agentic GraphRAG is an open source framework that connects enterprise knowledge, conversation history, and decision traces in one graph. Agents can find evidence, resume work across sessions, and review decisions when their sources change.
 
-Turn documents into searchable knowledge shaped by your own schema. Give agents tools to follow relationships, read source passages, and cite what they use. Keep decisions linked to the evidence behind them. Use the Python library, connect your agent through MCP, or start with the built-in agent.
+You add documents and the framework builds a knowledge graph shaped by your schema. Agents search the graph, read the exact passage behind each result, and cite it. They record decisions with supports that point to the evidence they rely on. Use the Python library, run the built-in agent, or connect your own agent through MCP.
 
-The company-briefing workflow uses an annual report as source material. It records task events and steps, then saves decisions with explicit document supports. A correction to a local working copy flags affected decisions for review. See the [company-briefing example](examples/company_briefing/README.md) for the full workflow.
-
-The Boeing FY2022 segment table reports $25,867 million for Commercial Airplanes, $23,162 million for Defense, Space & Security, and $17,611 million for Global Services. It also reports $199 million for Boeing Capital and -$231 million for unallocated items, eliminations, and other, reconciling to total revenue of $66,608 million. The example keeps the full table context and links the commercial-airline risk discussion to the passages that support it.
-
-## Graph backends
-
-Use Neo4j or FalkorDB for the graph, embeddings, full-text indexes, and vector indexes. Both support document ingestion, entity resolution, hybrid search, evidence and citations, community summaries, conversation history, and decision traces. No separate vector database is required.
-
-| Backend | Install | Select in Python | Choose it when |
-| --- | --- | --- | --- |
-| Neo4j 5.23+ | `uv pip install "agentic-graphrag[neo4j]"` | `build_graph_store("neo4j")` | You use Neo4j or Aura, or need rollback across multi-statement writes. |
-| FalkorDB 4.22.2+ | `uv pip install "agentic-graphrag[falkordb]"` | `build_graph_store("falkordb")` | You want a Redis-protocol graph server and can account for partial writes without multi-statement rollback. |
-
-Vectors can instead live exclusively in Weaviate. Install `agentic-graphrag[weaviate]` alongside the graph driver and pass a `WeaviateVectorStore` to ingestion and search. The graph still stores nodes, edges, and full-text indexes. [Configure Weaviate](https://ontogr.github.io/agentic-graphrag/latest/guides/configure-storage-backends#set-up-weaviate-for-vectors) with a separate collection prefix for each graph. Changing placement requires a new graph and re-ingestion.
-
-Pass the selected store to `Graph.open`, retrieval, or `build_agent`. For MCP, set `MCP_GRAPH_STORE=neo4j` or `MCP_GRAPH_STORE=falkordb`. The [backend setup guide](https://ontogr.github.io/agentic-graphrag/latest/guides/configure-storage-backends) includes server commands and connection settings. The [backend comparison](https://ontogr.github.io/agentic-graphrag/latest/concepts/graph-storage) explains search and transaction differences. Selecting another backend does not migrate existing data.
-
-To keep vectors exclusively in Qdrant instead of on graph nodes, install the `qdrant` extra and pass a `QdrantVectorStore` to ingestion and retrieval. The graph database still holds documents, relations, and full-text indexes. [Choose where vectors live](https://ontogr.github.io/agentic-graphrag/latest/guides/choose-where-vectors-live) to configure a unique collection prefix, use the same placement in MCP, and repair missing vectors.
+> **[IMAGE: context-graph]**
+> Alt text: Three connected graph layers. Enterprise knowledge contains documents, sections, chunks, entities, and relations. Conversation history contains tasks, events, and steps. Decision traces link conclusions to document passages, task events, and other decisions.
+> Prompt: A clean technical diagram of three stacked, connected layers on a light background. The bottom layer, labeled "Enterprise knowledge", shows small nodes for documents, sections, chunks, entities, and relations joined by thin edges. The middle layer, labeled "Conversation history", shows a task node with a horizontal row of event nodes and a few step nodes. The top layer, labeled "Decision traces", shows decision nodes with arrows that reach down to a chunk, to an event, and to another decision. Flat vector style, one accent color per layer, no gradients, no people, wide 16:9 format.
 
 ## Features
 
-### One graph for enterprise knowledge, conversation history, and decision traces
+### Build a knowledge graph from your documents
 
-Source documents, agent activity, and decisions live in one graph, so readers can trace each decision to its evidence.
+- Add a file, a folder, a glob pattern, a list of paths, plain text, or documents you built yourself.
+- Plain text, logs, XML, Markdown, HTML, AsciiDoc, Word, PowerPoint, and Excel files are read directly. PDF and image support is an optional part of the install.
+- Each row of a CSV or TSV file, and each record of a JSON or JSON Lines file, becomes its own document. A chat export is read with one section for each message.
+- Headings, sections, tables, and figures stay in the graph, and PDF pages keep their page numbers and positions.
+- Chunks follow the document structure. A table that fits stays whole, and a larger table is split into groups of rows that each repeat the header row.
+- Write your schema in code, in a YAML or JSON file, with Pydantic classes, or by importing an OWL or RDFS ontology. Start from the default schema or a preset for operations or legal documents, then override or extend it.
+- A local model reads every chunk and extracts entities and relations, so you can build a graph without an LLM key. You can add an LLM for the passages the local model is least sure about and set how much of each batch it may read.
+- Items the models find that your schema does not allow are saved as candidates with links to their source passages. You can list, approve, or reject them, and an approval writes a schema patch for you to review.
+- Entity resolution merges duplicates in steps. Same-label, same-text mentions share one entity. Similar spellings and close embeddings become links between entities, and an LLM reviews only the pairs that remain unclear, up to a limit you set for each label.
+- A match is a link, so the original entities and their relations stay in the graph. You can preview a graph-wide cleanup before you apply it, re-check named entities, and turn off a single match.
+- Adding the same folder again skips unchanged documents and replaces changed ones. Each document is written as one job, and nothing from a running job appears in search until it finishes.
+- Soft delete removes a document from search and keeps its history. Purge removes every version.
+- Community detection groups related entities and writes a report for each group, which `search_themes` uses to answer broad questions.
 
-<p align="center">
-  <img src="https://raw.githubusercontent.com/ontogr/agentic-graphrag/main/docs/static/img/readme/context-graph.png" alt="Three connected graph layers. Enterprise knowledge contains documents, sections, chunks, entities, and relations. Conversation history contains tasks, events, and steps. Decision traces link conclusions to document passages, task events, and other decisions." width="860">
-</p>
+### Search, read, and cite evidence
 
-- **Enterprise knowledge.** The graph stores documents, sections, tables, passages, entities, and relations. Each passage retains its source and location.
-- **Conversation history.** Each task has a goal, an ordered event log, and named steps. The event log includes agent messages, tool calls, and tool results, so it is more than a chat transcript.
-- **Decision traces.** Each decision stores its conclusion, rationale, assumptions, and explicit supports. Supports can point to document passages, task events, or earlier decisions. They are structured records, not hidden model reasoning.
-- **Every passage knows where it came from.** A passage records its document, its place in the document's structure, and the exact version it came from, with page positions for PDFs.
-- **Relations can point to their evidence.** A relation links to the passages that support it when evidence exists, and a decision links to the text it was based on.
-- **Old citations keep working.** The graph keeps the history of each document, so a citation to an older version still leads to the text that was cited.
+Retrieval finds the parts of your documents that answer a question, and it lets an answer point back to the exact text it came from. No single search finds everything. A name lookup finds "Ada Lovelace" and misses "the main themes in this corpus". A keyword search finds an exact contract term and misses a paraphrase of it. A vector search finds the paraphrase and can rank a similar but wrong passage first. The evidence tools cover these cases one at a time, and the same tools run in Python, in the built-in agent, and on the MCP server.
 
-### Build the graph around your own schema
+> **[IMAGE: retrieval-flow]**
+> Alt text: A query goes to passage search, or to entity search and then relationship exploration. Both return evidence ids. Fetch turns an id into its exact text. Document tree navigation moves from a passage to neighboring passages and returns more ids. The citation check compares cited ids with the ids that were fetched.
+> Prompt: A left-to-right flow diagram on a light background. A "Query" box on the left splits into two paths. The top path goes to "Passage search" with three small chips for keyword, semantic, and hybrid. The bottom path goes to "Entity search" and then to "Explore relationships". Both paths output a stack of small "evidence id" tags. A "Fetch evidence" box turns an id into a block of exact passage text with a title and a "current" version label. A "Navigate document tree" box loops from a passage back to neighboring ids. On the far right, a "Check citations" box compares cited ids with fetched ids and outputs a numbered answer with a Sources list. Flat vector style, thin lines, two accent colors, 16:9 format.
 
-You decide which things matter, and the graph is built around them.
+#### From a question to a cited answer
 
-<p align="center">
-  <img src="https://raw.githubusercontent.com/ontogr/agentic-graphrag/main/docs/static/img/readme/schema-pipeline.png" alt="Extraction reads each chunk with a local model, sends uncertain chunks to an LLM, and checks the result against your schema. Entities and relationships outside the schema are saved for review. Resolution then compares entities in steps, from cheap checks to an LLM, and stores each match as a link." width="860">
-</p>
+The example question is "How soon is customer data erased?" over a short set of engineering notes. The output below comes from a real run of the [evidence tools](https://ontogr.github.io/agentic-graphrag/stable/guides/find-and-cite-evidence), and your ids will differ.
 
-- **Describe your own entities and relations.** Name the kinds of things that matter to you, such as people, contracts, or products, and the relations between them. Write the schema in code or in a configuration file, or start from a ready-made preset and extend it.
-- **Extraction runs on your machine first.** You can build a graph without an LLM. When the local model is unsure about a passage, an LLM can read it, and you decide how much of each batch the LLM may read.
-- **Nothing outside your schema is lost.** Anything the models find that your schema does not cover is saved for review. Approved items become part of your schema and your graph.
-- **Duplicates are merged with care.** Agentic GraphRAG recognizes that "Acme Corp" and "Acme Corporation" are the same company. It starts with cheap checks and asks an LLM only about the pairs that remain unclear.
-- **Every match can be undone.** A match is stored as a link between two entities, so the originals stay in the graph. You can preview a cleanup of the whole graph before you apply it.
+First, search returns the best matches as short previews. Each match has a score, an evidence id, the searches that found it, and the first characters of the passage.
 
-### Search your documents and read the evidence
+```text
+ok
+0.0328  ev1:c:f24b301d...d7c4d6ef  ['lexical', 'semantic']
+    Data retention  Robot logs are kept for 30 days and then deleted. A cu
+0.0320  ev1:c:f24b301d...3e66aa77  ['lexical', 'semantic']
+    Acme Robotics engineering notes  Route planning  Maria Chen works for
+0.0161  ev1:c:f24b301d...12cd16fb  ['semantic']
+    | Component | Owner | Purpose | | --- | --- | --- | | Orion Planner |
+```
 
-Agents find passages, read the exact text, and move around a document the way a person would.
+An evidence id names one passage in one version of one document, so it keeps pointing to the same text after the document changes. A preview can stop before the sentence you need, so the next step reads the whole passage.
 
-<p align="center">
-  <img src="https://raw.githubusercontent.com/ontogr/agentic-graphrag/main/docs/static/img/readme/search-evidence.png" alt="A query runs full-text, semantic, or hybrid search over the chunks of the documents you allow. Hits carry evidence ids, and a fetch returns the exact passage text with a citation. Optional steps navigate the document tree, search entities, and explore relationships." width="860">
-</p>
+Second, fetch returns the exact stored text for an id. The first line reports the fetch status (`ok` means the text is complete), the document version (`current` means the document has not changed since the id was made), and the title.
 
-- **Full-text, semantic, and hybrid search.** Full-text search matches keywords, semantic search compares embeddings, and hybrid search fuses both rankings with reciprocal rank fusion. A search returns short previews, each with an evidence id for its passage, and a separate step fetches the exact text.
-- **You set the boundary outside the model.** You decide which documents an agent may read, and the model can only work inside that choice.
-- **Source text stays findable.** Search reads the passages directly, so a passage is still found when extraction missed the fact it contains.
-- **Move around a passage.** From any passage, an agent can reach the surrounding section, the neighboring passages, or the rows around a table cell, which keep their column headers.
-- **Follow entities back to text.** An agent can look up an entity, see the passages that mention it, and follow its relations a few steps out. Each relation is marked as backed by a passage or as a connection without direct text.
-- **Incomplete results say so.** Every result states when something was cut off or part of the search failed, so an incomplete result is never mistaken for an empty one.
+```text
+ok current Acme Robotics engineering notes
+Data retention
 
-### Record conversation history and decisions
+Robot logs are kept for 30 days and then deleted. A customer can ask Acme Robotics to erase their delivery data. After the request is verified, the data is deleted within 10 business days.
+```
 
-Conversation history records task events and steps. Decision traces link conclusions to the evidence they use and flag decisions for review when sources change.
+Third, the answer cites ids, and the citation check compares each cited id with the ids that were fetched. Here the answer cites three ids and only the first was read.
 
-<p align="center">
-  <img src="https://raw.githubusercontent.com/ontogr/agentic-graphrag/main/docs/static/img/readme/conversation-history.png" alt="The agent records messages, tool calls, tool results, and named steps under a task. Decision traces cite document passages, task events, and earlier decisions. A source change flags affected decisions for review, and a later run can resume the task and search earlier decisions." width="860">
-</p>
+```text
+ev1:c:f24b301d...d7c4d6ef    valid
+ev1:c:f24b301d...12cd16fb    not_fetched
+ev1:c:oops                   malformed
+```
 
-- **The agent records its work.** The built-in agent saves each message, tool call, and tool result as a task event, and it tracks progress as steps. Request IDs identify repeated writes, but a failed multi-statement write on FalkorDB can leave partial effects. See the [retry limits](https://ontogr.github.io/agentic-graphrag/latest/guides/configure-storage-backends#retried-history-and-decision-writes).
-- **Decisions have explicit supports.** A decision records a conclusion, a concise rationale, assumptions, and open questions. Its supports point to passages, task events, or earlier decisions.
-- **Source changes flag decisions.** When a document behind a decision is updated or removed, the decision is flagged for review, and so are the decisions that depend on it.
-- **Reviews end in a clear action.** A reviewer can reaffirm a decision after reading the current text, or replace it with a new one that explains the change. The earlier version stays in the history.
-- **Tasks resume from recorded state.** When a task resumes, the agent sees its goal, events, steps, and decisions, including any that need review. It reuses finished work that is still valid, and marks an interrupted step as unknown so it can run it again.
-- **Past decisions inform new ones.** Agents can search earlier decisions in the same project. The built-in agent's search leaves out decisions that need review, and the agent cannot cite one as support.
+A `valid` verdict shows that the passage was read in scope. It does not show that the passage supports the claim. Valid ids become numbered references with a Sources list.
 
-Use the Python APIs directly when you need to manage this state outside the built-in agent:
+```text
+Customer data is deleted within 10 business days. [1]
+
+### Sources
+
+[1] Acme Robotics engineering notes
+```
+
+#### Passage search
+
+`search_evidence` runs over the chunks of the documents in scope. It sees only the current version of each document, and it skips chunks that an ingestion job is still writing.
+
+| Mode | How it matches | Finds | Limit |
+| --- | --- | --- | --- |
+| `lexical` | Full-text index on chunk text. The query is reduced to plain lowercase words, and any word can match. | Exact words, identifiers, defined terms, and names. | Misses synonyms and paraphrases. Quotes, `AND`, and `-` have no effect. |
+| `semantic` | Embeds the query and finds the chunks with the nearest embeddings. A chunk is embedded with its heading path in front, so a query can match a section title. | A passage that says the same thing in different words. | Always returns the nearest chunks, even when none answers the question. Needs the embedding model that ingestion used. |
+| `hybrid` (default) | Runs both searches and fuses the two ranked lists with reciprocal rank fusion. | Everything either search finds, ranked higher when both rank it well. | Reports `partial` when one of the two searches fails. |
+
+Reciprocal rank fusion scores a chunk from its rank in each list and ignores raw scores. A chunk at rank `r` in a list adds `1 / (60 + r)`, so a chunk that both searches rank well beats a chunk that only one ranks well. When a cross-encoder reranker is available, hybrid search also reorders its top hits with it and marks the result `reranked`. A reranker that times out or fails leaves the fused order in place. With an external vector store, the store performs the dense and keyword fusion for hybrid mode, and `lexical` mode always searches the graph full-text index.
+
+> **[IMAGE: hybrid-fusion]**
+> Alt text: A keyword ranking and a semantic ranking of the same chunks are combined by reciprocal rank fusion into one ranking. A chunk that ranks well in both lists moves to the top.
+> Prompt: A simple diagram of two short ranked lists side by side, one titled "Keyword" and one titled "Semantic", each with four chunk cards numbered by rank. Colored lines connect the same chunk across the two lists. On the right, a third list titled "Hybrid" shows the combined order, with the chunk that ranks well in both lists at the top and a small formula "1 / (60 + rank)" under the title. Flat vector style on a light background, 4:3 format.
+
+#### Entity search and relationship exploration
+
+`entity_search` finds the things your schema names, such as people, contracts, or products, by name or by meaning. It runs a keyword search over entity names and a semantic search over entity embeddings for each schema label, then fuses them. It returns an entity only when a visible passage in scope mentions it, and each hit lists up to three of those passages as evidence ids. An entity whose passages are all out of date comes back as `unsupported`.
+
+`explore_relationships` follows the stored relations around one entity for up to two steps. It marks each edge as an `assertion`, when one or more visible passages state it, or as a `path`, when the graph connects two entities and no passage states the link. Assertion edges list the passages that state them, so you can fetch and cite them. The walk is bounded by node, edge, and depth limits, and `truncated_by` names the bound that cut it.
+
+Entity search depends on extraction, so a fact that extraction missed has no entity. Passage search still finds that fact, because it reads the stored text.
+
+#### Document tree navigation
+
+A search hit is one chunk. The chunk can start mid-section, end inside a table, or hold an answer whose condition sits in the paragraph before it. `navigate_document_tree` follows the structure that ingestion recorded, starting from an evidence id.
+
+| Relation | Returns |
+| --- | --- |
+| `parent` | The section that holds the passage, with its heading path. |
+| `siblings` | The other sections under the same parent section. |
+| `children` | The other passages under the same section or table, in reading order. |
+| `previous`, `next` | The adjacent passage in reading order. |
+| `table_context` | The table passage with the row passages before and after it. Every table passage repeats the header rows. |
+
+Navigation reads only the document version of the starting passage, and it cannot search. Text it returns is not citable until `fetch_evidence` returns it in full.
+
+#### Theme search
+
+`search_themes` answers broad questions such as "what are the main themes in this corpus". It matches the query against the community reports from the last community detection run, and it returns each matching theme with its main entity names and the supporting passages as evidence ids. A theme returns no passages outside your scope, and documents added after the last run are left out until the next run.
+
+#### Fetch evidence and check citations
+
+`fetch_evidence` returns the exact stored text for evidence ids, with the title, the source, and the version status. Only a complete fetch makes an id citable, and a result reports when the text was truncated or covers only part of the range requested. An id from an earlier version of an updated document still returns its text, labeled `superseded`, so an old citation stays checkable.
+
+`check_citations` returns one verdict for each cited id: `valid`, `not_fetched`, `unavailable` (the id names a document outside the scope), or `malformed`. The built-in agent runs it as a tool and again after its answer, and it gives the agent one repair pass when some ids fail. Numbered references replace the valid ids in the final answer.
+
+#### Choose a tool
+
+| The question | Start with | Then |
+| --- | --- | --- |
+| Contains an exact word, a code, a defined term, or a quoted phrase | `search_evidence` in `lexical` mode | Read the best hits with `fetch_evidence`. |
+| Describes an idea in words the document may not use | `search_evidence` in `semantic` mode | Read the passages you will use with `fetch_evidence`. |
+| Fits neither case, or you are unsure | `search_evidence` in `hybrid` mode | Read the hits you will quote with `fetch_evidence`. |
+| Names a person, product, or clause and asks how it connects to other things | `entity_search` | `explore_relationships` from the best entity, then fetch the passages on its assertion edges. |
+| Needs the section, the table, or the text around a passage you already have | `navigate_document_tree` from that passage's id | Fetch the neighbors you cite. |
+| Asks for the main themes of a corpus | `search_themes` | Fetch and cite the supporting passages. |
+| Has an answer that cites evidence | `check_citations` | Remove or fetch any id that fails. |
+
+The [tools reference](https://ontogr.github.io/agentic-graphrag/latest/reference/tools) lists every parameter and limit, and [Retrieval](https://ontogr.github.io/agentic-graphrag/stable/concepts/retrieval) compares the strategies by mechanism and limit.
+
+#### Rules that every evidence tool follows
+
+- You choose which documents a caller may read. The scope sits outside the model, the tools apply it inside each query, and an id from a document outside the scope behaves as if the document does not exist.
+- Every tool limits how many results and how much text it returns, and a result sets `truncated` when a limit cut it short.
+- A failed search says so. If one half of a hybrid search fails, the status is `partial` and the result names the failed half. An empty list means that the search ran and found nothing.
+- A score orders the matches of one call. Scores from different modes or different tools do not compare.
+- An empty result means that no current passage matched the query. It does not prove that the answer is missing.
+
+### Record conversation history and decision traces
+
+> **[IMAGE: conversation-history]**
+> Alt text: The agent records messages, tool calls, tool results, and named steps under a task. Decision traces cite document passages, task events, and earlier decisions. A source change flags affected decisions for review, and a later run can resume the task and search earlier decisions.
+> Prompt: A diagram with a task card on the left that holds an ordered row of event chips (message, tool call, tool result) and a short list of named steps with state icons. On the right, three decision cards each show a conclusion and a rationale, with arrows to a document passage, to an event chip, and to another decision. A document card at the bottom shows a "new version" badge, and an arrow from it turns the cited decision cards amber with a "needs review" label. A second, fainter task card on the far left shows a later run resuming from the stored steps. Flat vector style on a light background, 16:9 format.
+
+Conversation history
+
+- A task has a goal, an ordered event log, and named steps. The event log holds messages, tool calls, tool results, and notes, so it is more than a chat transcript.
+- A step is not started, in progress, completed, failed, or unknown.
+- A resumed task starts from its goal, step counts, active decisions, and decisions that need review. The agent reuses completed steps and marks steps that were still running as unknown so it can run them again.
+- A repeated request ID returns the saved result for a completed write. A failed multi-statement write on FalkorDB can leave partial effects. See the [retry limits](https://ontogr.github.io/agentic-graphrag/latest/guides/configure-storage-backends#retried-history-and-decision-writes).
+- You can redact the body of one event or delete a whole task with its events and steps.
+
+Decision traces
+
+- A decision stores a conclusion, a concise rationale, assumptions, and open questions. It is a structured record and not hidden model reasoning.
+- Supports point to document passages, task events, or earlier decisions. A decision can cite only evidence that the same run or server session fetched in full.
+- When a cited document gets a new version or is removed, the decision is flagged for review with the reason. Decisions that depend on a flagged decision are flagged too, in small batches, so an interrupted review can continue.
+- A reviewer can reaffirm a decision after reading the current text, replace it with a new decision, or reject it. The earlier record and its support history stay.
+- Agents can search earlier decisions in the same project and list choices that different tasks decided differently. The built-in agent's search leaves out decisions that need review, and the agent cannot cite one as support.
+
+You can manage this state from Python without the built-in agent. `ConversationHistory` creates tasks, records events, and sets steps, and `DecisionTraces` records supported decisions and manages review.
 
 ```python
 from agrag.history import ConversationHistory
 from agrag.decisions import DecisionTraces
 ```
 
-`ConversationHistory` creates tasks, records events, and sets steps. `DecisionTraces` records supported decisions and manages review. See the [Python API reference](https://ontogr.github.io/agentic-graphrag/latest/api/) for the complete contracts.
+The [decision traces guide](https://ontogr.github.io/agentic-graphrag/latest/guides/decision-traces) records and reviews decisions end to end, and the [Python API reference](https://ontogr.github.io/agentic-graphrag/stable/api/) lists the complete contracts.
 
 ### Use the built-in agent or any MCP client
 
-Use the agent that ships with the library, or connect your own through MCP.
+> **[IMAGE: full-flow]**
+> Alt text: Documents are loaded, chunked, extracted, and resolved into a graph with enterprise knowledge, conversation history, and decision traces. A changed document flags the decisions that cite it. An agent searches and reads the graph, records its events and steps, and returns an answer with checked numbered sources.
+> Prompt: A wide left-to-right pipeline diagram. On the left, document icons flow through four labeled stages: Load, Chunk, Extract, Resolve. The stages feed a central graph block drawn as three thin layers: knowledge, history, decisions. On the right, an agent box and an "MCP client" box both read from the graph through a small row of tool icons. The agent box outputs an answer card with numbered references [1] [2] and a Sources list. A small arrow from the document stage to the decisions layer is labeled "changed document flags decisions". Flat vector style on a light background, two accent colors, 16:9 format.
 
-<p align="center">
-  <img src="https://raw.githubusercontent.com/ontogr/agentic-graphrag/main/docs/static/img/readme/full-flow.png" alt="Documents are loaded, chunked, extracted, and resolved into a graph with enterprise knowledge, conversation history, and decision traces. A changed document flags the decisions that cite it. An agent searches and reads the graph, records its events and steps, and returns an answer with checked numbered sources." width="860">
-</p>
+Built-in agent
 
-- **Answers cite numbered sources.** The built-in agent searches your documents, reads passages, and answers with numbered sources.
-- **Every citation is checked.** The passage must have been read during that run, it must belong to the documents the agent may use, and it must match the version cited. If a citation fails the check, the agent gets one chance to fix it.
-- **Every run ends with a status.** The status tells you whether the agent answered, found too little evidence, or reached a limit. You set how many steps and tool calls a run may use.
-- **Choose your model.** Use Anthropic, OpenAI, Google, or any OpenAI-compatible model, with fallback between them.
-- **The same tools work through MCP.** A local MCP server gives other agents the same tools. It starts read-only and shows only the documents you choose. You control whether a client may record conversation history and decisions.
-- **Trace and evaluate your runs.** Runs can be traced with OpenTelemetry, and the evaluation tools score answers, citations, and agent runs on your own questions.
+- The agent is built for a fixed set of documents, a project, and an author, and it reads nothing else.
+- It discovers passages, finds entities, explores relations, moves between passages, fetches exact text, and answers with numbered sources.
+- Citations are checked against passages read in the same run, and the agent gets one repair pass when some fail.
+- Every run ends with a status: `answered`, `insufficient_evidence`, `partial`, or `budget_exhausted`, among others. You set how many steps and tool calls a run may use.
+- Messages, tool calls, and tool results are saved to the task log as the run goes.
+- Use one model, a fallback chain, or a rotation across Anthropic, OpenAI, OpenAI-compatible, and Google models.
 
-See the [features page](https://ontogr.github.io/agentic-graphrag/latest/get-started/features) for supported file formats, chunking, document updates, and community summaries.
+MCP server
+
+- `agrag-mcp` is a local server that talks to your MCP client over standard input and output.
+- It offers the evidence tools and the conversation history and decision tools under the same names as the agent.
+- It starts read-only and shows only the documents you list. Writing is switched on by the operator, and rejecting a decision has its own switch.
+- Each result has a size limit and a deadline, and the server reports what it left out.
+- A client can reuse a request identifier when it retries a write.
+
+Operating the system
+
+- Pass an OpenTelemetry tracer to the graph, the agent, the stores, the embedders, and the extractors. Spans cover loading, chunking, extraction, resolution, storage, search, and LLM calls. Without a tracer, nothing is recorded.
+- Evaluation tools score answer correctness, faithfulness, context precision, context recall, and citation accuracy with a judge model that you choose. They also score extraction, duplicate groups, and agent runs on your own questions.
+- Settings come from environment variables or a file, with a prefix for each area. Optional extras cover storage, local extraction, LLM calls, the agent, the MCP server, PDF reading, communities, tracing, and evaluation.
+
+The [features page](https://ontogr.github.io/agentic-graphrag/stable/get-started/features) lists every capability with links to the guide for each.
+
+### Choose where the graph and vectors live
+
+Neo4j or FalkorDB stores the graph, the full-text indexes, and by default the vector indexes. Both support ingestion, entity resolution, hybrid search, community summaries, conversation history, and decision traces.
+
+| Option | Install | Select in Python | Use it when |
+| --- | --- | --- | --- |
+| Neo4j 5.23+ | `uv pip install "agentic-graphrag[neo4j]"` | `build_graph_store("neo4j")` | You use Neo4j or Aura, or need rollback across multi-statement writes. |
+| FalkorDB 4.22.2+ | `uv pip install "agentic-graphrag[falkordb]"` | `build_graph_store("falkordb")` | You want a Redis-protocol graph server and can account for partial writes without multi-statement rollback. |
+
+Vectors can instead live exclusively in Qdrant, Milvus, or Weaviate. Install the `qdrant`, `milvus`, or `weaviate` extra beside the graph driver, and pass the matching `QdrantVectorStore`, `MilvusVectorStore`, or `WeaviateVectorStore` to ingestion and retrieval. The graph database still holds documents, relations, provenance, and the full-text indexes. One placement covers chunks, entities, resolved entities, and communities for the life of a graph, so changing it needs a new graph and a new ingestion. Use a separate collection prefix for each graph. For MCP, set `MCP_GRAPH_STORE` to `neo4j` or `falkordb` and `MCP_VECTOR_STORE` to `qdrant`, `milvus`, or `weaviate`.
+
+[Configure storage backends](https://ontogr.github.io/agentic-graphrag/stable/guides/configure-storage-backends) has server commands and connection settings, [Choose where vectors live](https://ontogr.github.io/agentic-graphrag/latest/guides/choose-where-vectors-live) covers the external stores, and [Graph storage](https://ontogr.github.io/agentic-graphrag/stable/concepts/graph-storage) compares search and transaction behavior.
 
 ## Quickstart
 
-In this example you add one document, ask a question about it, and get an answer with numbered sources. You need Python 3.11 or newer, a running Neo4j database, and an OpenAI-compatible LLM endpoint. See the [quickstart guide](https://ontogr.github.io/agentic-graphrag/latest/get-started/quickstart) for starting Neo4j with Docker or Neo4j Aura.
+In this example you add one document, ask a question about it, and get an answer with numbered sources. You need Python 3.11 or newer, a running Neo4j database, and an OpenAI-compatible LLM endpoint.
 
-To run the example on FalkorDB, follow the [FalkorDB setup](https://ontogr.github.io/agentic-graphrag/latest/guides/configure-storage-backends#set-up-a-falkordb-graph-store), replace the `neo4j` install extra with `falkordb`, use `FALKORDB_*` connection settings, and change the store selection to `build_graph_store("falkordb")`.
+### 1. Start Neo4j
 
-### 1. Install
+Start a local database with Docker, or use [Neo4j Aura](https://neo4j.com/cloud/platform/aura-graph-database/). The password in the command must match the one you set in step 3.
+
+```bash
+docker run -d --name agrag-neo4j -p 7687:7687 \
+  -e NEO4J_AUTH=neo4j/your-neo4j-password neo4j:5.26.0-community
+```
+
+### 2. Install
 
 Install the package from PyPI into a fresh virtual environment:
 
@@ -151,7 +272,7 @@ uv pip install "agentic-graphrag[neo4j,extract,agents]" --torch-backend=auto
 
 See [Installation](https://ontogr.github.io/agentic-graphrag/stable/get-started/installation) for other package managers and the optional parts you can add.
 
-### 2. Add your settings
+### 3. Add your settings
 
 Create a file named `.env` in the folder where you will run the example. Replace the values with your own, and keep the file out of version control.
 
@@ -164,11 +285,11 @@ AGENT_LLM_API_KEY=your-api-key
 AGENT_LLM_MODEL_ID=your-model-id
 ```
 
-The last three lines are the address, key, and model of your OpenAI-compatible LLM endpoint. For a Neo4j database on another machine, see [Configuration](https://ontogr.github.io/agentic-graphrag/latest/reference/configuration).
+The last three lines are the address, key, and model of your OpenAI-compatible LLM endpoint. For a Neo4j database on another machine, see [Configuration](https://ontogr.github.io/agentic-graphrag/stable/reference/configuration).
 
-### 3. Run the example
+### 4. Run the example
 
-Put any Markdown or text file in the same folder and name it `your-document.md`. Save the following as `example.py` and run `python example.py`.
+Put any Markdown or text file in the same folder and name it `your-document.md`. Save the following as `example.py` and run `python example.py`. The first run downloads the embedding and extraction models, so it takes longer than later runs.
 
 ```python
 import asyncio
@@ -189,6 +310,8 @@ async def main() -> None:
     embedder = build_embedder("ibm-granite/granite-embedding-small-english-r2")
     try:
         # Read the document into the graph. This step runs on your machine.
+        # "operations" is a preset schema, and max_llm_pairs=0 sends no
+        # duplicate-matching pairs to an LLM.
         graph = await Graph.open(
             schema="operations",
             graph_store=store,
@@ -223,11 +346,17 @@ asyncio.run(main())
 
 The script prints an answer that ends with a numbered list of sources. Run it again with the same task name and the agent continues where it stopped.
 
+> **[IMAGE: quickstart-output]**
+> Alt text: A terminal showing the answer from the quickstart script, with numbered references in the text and a Sources list at the end.
+> Prompt: A realistic dark terminal window showing the printed output of a Python script. Three short paragraphs of answer text contain bracketed references [1], [2], and [3]. Under a "Sources" heading, a numbered list shows the same document title three times with different section names. Monospace font, subtle window chrome, no logos, 16:9 format.
+
+To run the example on FalkorDB, follow the [FalkorDB setup](https://ontogr.github.io/agentic-graphrag/latest/guides/configure-storage-backends#set-up-a-falkordb-graph-store), replace the `neo4j` install extra with `falkordb`, use `FALKORDB_*` connection settings, and change the store selection to `build_graph_store("falkordb")`.
+
 ### Next steps
 
-- See [Decision traces](https://ontogr.github.io/agentic-graphrag/latest/guides/decision-traces) to record supported decisions and review them when sources change.
-- See [Find and cite evidence](https://ontogr.github.io/agentic-graphrag/latest/guides/find-and-cite-evidence) to search passages and check citations from Python.
-- See the [features page](https://ontogr.github.io/agentic-graphrag/latest/get-started/features) for other supported features.
+- [Find and cite evidence](https://ontogr.github.io/agentic-graphrag/stable/guides/find-and-cite-evidence) searches passages and checks citations from Python.
+- [Decision traces](https://ontogr.github.io/agentic-graphrag/latest/guides/decision-traces) records supported decisions and reviews them when sources change.
+- [Define a graph schema](https://ontogr.github.io/agentic-graphrag/stable/guides/define-a-graph-schema) describes your own entities and relations.
 
 ## Use MCP
 
@@ -239,7 +368,7 @@ Install the server in the same virtual environment as before:
 uv pip install "agentic-graphrag[neo4j,mcp]"
 ```
 
-Then add the server to your MCP client. Replace the document path with the full path of a file you added to the graph.
+The server must read the graph that you built with ingestion, with the same embedding model. Set `EMBEDDING_MODEL` to the model you used for ingestion if you changed the default. Then add the server to your MCP client. Replace the document path with the full path of a file you added to the graph. It must equal the path that ingestion stored, which is the value of `str(DOCUMENT)` in the quickstart.
 
 ```json
 {
@@ -259,28 +388,14 @@ Then add the server to your MCP client. Replace the document path with the full 
 }
 ```
 
-If your client cannot find `agrag-mcp`, use its full path inside the virtual environment, for example `/full/path/to/.venv/bin/agrag-mcp`. The server starts read-only and reads only the documents you list. The project and agent IDs enable history and decision tools, but writes remain disabled until you change the server settings. See the [MCP server guide](https://ontogr.github.io/agentic-graphrag/latest/guides/run-the-mcp-server) for the other settings.
+If your client cannot find `agrag-mcp`, use its full path inside the virtual environment, for example `/full/path/to/.venv/bin/agrag-mcp`. The server starts read-only and reads only the documents you list. The project and agent IDs enable history and decision tools, but writes remain disabled until you change the server settings. See the [MCP server guide](https://ontogr.github.io/agentic-graphrag/stable/guides/run-the-mcp-server) for the other settings.
 
-For FalkorDB, install `agentic-graphrag[falkordb,mcp]` instead. In the client configuration, replace the `NEO4J_*` entries with `"MCP_GRAPH_STORE": "falkordb"`, `"FALKORDB_URL": "redis://localhost:6379"`, and `"FALKORDB_GRAPH": "agrag"`. Use the same graph and embedding model as ingestion.
+For FalkorDB, install `agentic-graphrag[falkordb,mcp]` instead. In the client configuration, replace the `NEO4J_*` entries with `"MCP_GRAPH_STORE": "falkordb"`, `"FALKORDB_URL": "redis://localhost:6379"`, and `"FALKORDB_GRAPH": "agrag"`.
 
-## Tools
+## Examples
 
-The built-in agent and the MCP server offer the same evidence tools. Every tool reads only the documents you allow.
-
-<p align="center">
-  <img src="https://raw.githubusercontent.com/ontogr/agentic-graphrag/main/docs/static/img/readme/tools.png" alt="A query goes to search_evidence, or to entity search and relationship exploration. Both return evidence ids. fetch_evidence turns an id into exact text, and document tree navigation returns neighboring ids. The citation check compares cited ids with fetched ids." width="860">
-</p>
-
-| Tool | What it does | Use it when |
-| --- | --- | --- |
-| `search_evidence` | Finds passages by keyword, by meaning, or both. Each hit has an evidence id and a short preview. | You have a question and no passage yet. |
-| `fetch_evidence` | Returns the exact text of an evidence id, with its title, source, and version status. | You are about to quote or cite a passage. |
-| `navigate_document_tree` | Moves from a passage to its section, its neighbors, or the rows around a table cell. | A hit is cut off, or you need its surroundings. |
-| `entity_search` | Finds entities by name or meaning, with the passages that mention them. | The question names a person, product, or clause. |
-| `explore_relationships` | Follows the relations around an entity up to two steps. Each relation is marked as stated by a passage or as only a connection. | The question asks how things connect. |
-| `check_citations` | Checks that each cited id was fetched in scope. | Your answer cites evidence. |
-
-The agent and the MCP server also have tools that record and read tasks and decisions. The [tools reference](https://ontogr.github.io/agentic-graphrag/latest/reference/tools) lists every tool with its parameters and limits, and [Retrieval](https://ontogr.github.io/agentic-graphrag/latest/concepts/retrieval) compares the search strategies by mechanism and limit.
+- [Company briefing](examples/company_briefing/README.md) uses an annual report as source material. It records task events and steps, saves decisions with explicit document supports, and flags a decision for review when a correction changes the text it cites.
+- [Connected context](examples/connected_context/workflow.py) connects knowledge, conversation history, and decision traces in one workflow.
 
 ## Contributing
 
@@ -288,7 +403,7 @@ We welcome bug fixes, new features, documentation improvements, and other contri
 
 ## Acknowledgements
 
-Agentic GraphRAG builds on the work behind these papers and projects.
+Agentic GraphRAG builds on the work behind these projects and papers.
 
 - [Graphiti](https://github.com/getzep/graphiti) for layered graph search and entity-aware retrieval
 - [Cognee](https://github.com/topoteretes/cognee) for data pipelines, graph memory, and consolidation

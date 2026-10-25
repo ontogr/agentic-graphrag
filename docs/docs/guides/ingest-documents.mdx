@@ -136,7 +136,7 @@ asyncio.run(main())
 
 ## Add prebuilt documents
 
-Pass `Document` objects you already built (for example, documents returned by a loader or reconstructed from storage) to `documents`. A `Document` carries its source metadata, so every field is required:
+Pass `Document` objects you already built (for example, documents returned by a loader or reconstructed from storage) to `documents`. A `Document` needs these fields: `text`, `title`, `uri`, `source_format`, `family`, `content_hash`, `loader_name`, and `char_count`. The other fields, such as `id`, `published_at`, and `sections`, are optional:
 
 ```python
 import asyncio
@@ -190,7 +190,7 @@ For most callers, `source=` or `text=` is simpler. Use `documents=` when you alr
 
 ## Choose how documents are chunked
 
-`Graph.open` takes a `chunker` argument that decides how each document is split. Loaders also normalize the text of each file. They remove the byte-order mark, change line endings to LF, and apply NFKC. Pass `read_options=ReadOptions(normalization=...)` to `Graph.add` to change this. PDF and Office documents chunk at up to 1024 tokens by default. See [Configure chunking](./configure-chunking.mdx) for both.
+`Graph.open` takes a `chunker` argument that decides how each document is split. Loaders also normalize the text of each file. They remove the byte-order mark, change line endings to LF, and apply NFKC. Pass `read_options=ReadOptions(normalization=...)` to `Graph.add` to change this. Chunks hold up to 600 tokens by default. See [Configure chunking](./configure-chunking.mdx) for both.
 
 ## Add a chat file
 

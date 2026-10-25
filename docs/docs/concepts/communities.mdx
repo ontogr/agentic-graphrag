@@ -30,6 +30,8 @@ For each group, the graph sums its internal relation weights. Groups with a tota
 
 The graph embeds each report title and summary for retrieval. Applying the result replaces the previous communities rather than merging two partitions.
 
+[Search themes](../tools/search-themes.mdx) uses these embeddings. It matches the query against the report titles and summaries, then returns the passages that mention each community's members. It never returns the report text, because a community has no document scope and its report can describe documents outside the scope you searched.
+
 A dry run is the default. It returns the groups without reports.
 
 ## Example
@@ -64,6 +66,7 @@ Community detection reads the whole graph and replaces the previous partition. R
 ## Related
 
 - Guide: [Detect communities and read reports](../guides/detect-communities.mdx)
+- Tool: [Search themes](../tools/search-themes.mdx)
 - Previous: [Matching and resolved entities](./resolved-entities.mdx)
 - Concept: [Knowledge graph](./knowledge-graph.mdx)
 - Reference: [Ingestion API](../api/ingestion/index.md)

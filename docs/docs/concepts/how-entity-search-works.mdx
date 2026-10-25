@@ -16,8 +16,8 @@ import Diagram from '@site/src/components/Diagram';
 
 1. The call checks the scope and finds the labels to search. Without `labels`, it searches every entity label that has a vector index, which are the labels of your graph schema. Chunk, community, and resolved-entity nodes are not entity labels.
 2. The call checks that each label has a full-text index on `name` and a vector index on `embedding`. A missing or offline index returns `index_not_ready`.
-3. The keyword search matches the words of the query against the entity name. The semantic search embeds the query and searches the entity embeddings. Each reads up to four times `limit` candidates for each label, up to 1000.
-4. In `hybrid` mode the call fuses the two ranked lists with reciprocal rank fusion and the constant 60. The other modes use the order of their own search.
+3. The keyword search matches the words of the query against the entity name. The semantic search embeds the query and searches the entity embeddings. Each reads up to twice `limit` candidates for each label, up to 1000. With an external vector store, the semantic read is also capped at the store's `max_results`. When the first semantic read fills up and fewer than `limit` of its entities are visible, the search reads again at that cap.
+4. In `hybrid` mode the call fuses the two ranked lists with reciprocal rank fusion and the constant 60 (`RETRIEVAL_RRF_K`). The other modes use the order of their own search.
 5. The call reads the passages that mention each candidate entity and keeps the visible ones. A passage is visible when its document is in scope, its version is current, and no job is still writing it. An entity is returned only when a passage in scope mentions it.
 6. Each returned entity lists up to `support_limit` passages as evidence ids. The default is 3, and the agent and the MCP server use the default.
 

@@ -65,7 +65,7 @@ Each `add` prints a resolution summary. `ambiguous_count` counts uncertain, miss
 
 ## 2. Preview and apply the matches
 
-`Graph.consolidate()` is a dry run. It writes nothing. `Graph.consolidate(apply=True)` writes the matches. The LLM reviews the most similar pairs first for each label. Entity indices break ties, so the order is repeatable. Pairs over the cap stay undecided. This script previews, applies, and then reads the groups back.
+`Graph.consolidate()` is a dry run. It writes nothing. `Graph.consolidate(apply=True)` writes the matches. The exact, fuzzy, embedding, and cluster tiers run first. The LLM then gets the most similar remaining pairs of each label, up to the cap. Entity indices break ties, so the order is repeatable. Pairs over the cap stay undecided. This script previews, applies, and then reads the groups back.
 
 ```python
 import asyncio

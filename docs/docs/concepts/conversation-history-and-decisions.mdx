@@ -1,0 +1,105 @@
+---
+title: Conversation history and decisions
+description: How tasks, events, steps, and decision traces are stored, how they link to document passages, and how a decision is reviewed after its source changes.
+---
+
+# Conversation history and decisions
+
+Agentic GraphRAG stores three layers in the graph database. Enterprise knowledge holds the documents and the entities extracted from them. Conversation history holds tasks, their ordered events, and their steps. Decision traces hold recorded conclusions and the evidence each conclusion cites. The history and decision layers link to the knowledge layer through evidence ids.
+
+## The three layers
+
+| Layer | What it stores | Written by |
+| --- | --- | --- |
+| Enterprise knowledge | Documents, versions, chunks, entities, and relations | `Graph.add`, `Graph.update`, and the ingestion pipeline |
+| Conversation history | Tasks, events, and steps | `ConversationHistory`, and the built-in agent through its middleware |
+| Decision traces | Decisions, their supports, and their review state | `DecisionTraces`, and the built-in agent through its tools |
+
+Neo4j and FalkorDB both store all three layers. The history and decision APIs take a graph store, so they use the same backend as the knowledge graph.
+
+## Projects and authors
+
+`ConversationHistory` and `DecisionTraces` each bind to one `project_id` and one `agent_id` when you create them. Every read and write stays inside that project. The agent id is recorded as the author of each task, event, and decision.
+
+## Tasks
+
+A task is a named unit of work with a goal. A task name is unique within its project. Creating a task that already exists returns the existing task when the goal matches. When the goal differs, the write is refused with `task_exists`.
+
+A new task has the status `open`. The model also defines `done`, but no method in this version sets it.
+
+## Events
+
+An event is one entry in a task's log. The kinds are `message`, `tool_call`, `tool_result`, and `note`. Each task numbers its events from 1 with no gaps, so the sequence number shows the order of the log and whether any event is missing from a read.
+
+Recording an event does not call a model. When a payload is longer than 32,000 characters, the stored text is cut to that length. The event also keeps the SHA-256 hash of the full text, so a reader can see that the stored text was cut and can compare it with the original.
+
+A redacted event keeps its sequence number and its hash. Its body is replaced by a fixed marker, and it gets a `redacted_at` time. Decisions that cite the event are flagged for review.
+
+## Steps
+
+A step is a named piece of work inside a task. Its state is one of `not_started`, `in_progress`, `completed`, `failed`, or `unknown`. A step can point to the event that holds its result. A step result that depends on documents or other records also carries supports, so the result can be checked again later.
+
+Resume reruns every step that is not completed. When the built-in agent resumes a task that still has steps in progress, it first marks those steps as `unknown`. The earlier run ended before it recorded their outcome, so the next run treats them as work to do again.
+
+When a task view or a step list is read, the supports of a completed step result are checked again. The read reports whether the result is `reusable`, `needs_review`, `unavailable`, or `unknown`.
+
+## Task views
+
+`get_task` returns a bounded view of one task. The view holds the goal, the status, the last event sequence number, the steps grouped by state, the counts for each state, the active decisions, the decisions that need review, and the conflicts that involve the task. The view never includes event bodies. Use `list_events` to read the bodies in order.
+
+## Decisions
+
+A decision records a conclusion for one choice inside one task. It stores the conclusion, a rationale, assumptions, and open questions. The rationale is a concise statement of the reasoning. It is a structured record and not the model's hidden reasoning.
+
+Each decision belongs to a choice key. A choice key has one active decision at a time. To change that decision, call `supersede_decision` with a non-blank explanation. The new decision gets the next revision number, and the old decision becomes `superseded`. The conclusion of a recorded decision never changes.
+
+To retire a decision without a replacement, call `reject_decision` with a reason. The decision keeps its record and its supports, and its status becomes `rejected`. Only active decisions are reused.
+
+`list_conflicts` lists choice keys whose active decisions in different tasks reach different conclusions.
+
+## Evidence links
+
+A decision cites its support explicitly. There are three kinds of support.
+
+- A document support names an evidence id. The caller fetches that passage in full with a status of `ok`, and passes the fetch outcome to the write. The record keeps the content hash and the activation sequence of the version that was read.
+- An event support names an event by task name and sequence number. The event must exist in the project and must not be redacted.
+- A decision support names an active decision in the project. A decision can depend on another decision only while that decision is active.
+
+A decision can have up to 20 supports. A write that has no supports is refused with `support_required`.
+
+## Review after a source change
+
+A decision with a document support depends on one version of that document. When the document gets a new version, the recorded version no longer matches the current text. The store then flags the decision with `needs_review` and the reason `source_changed`. If the document is removed, the reason is `source_removed`. A decision that depends on a flagged decision is flagged with `dependency_review`.
+
+Review spreads in batches. `continue_decision_review` moves queued decisions one dependency step at a time, so an interrupted review can continue later. While the review is incomplete, a decision that is otherwise clear reads as `unknown`.
+
+A flag means that someone should look again. It does not mean that the decision is false. A reviewer clears the flag in one of three ways.
+
+- `reaffirm_decision` confirms the decision with the current text of its documents. The write is refused with `cannot_revalidate` when the cited text has changed since the decision was recorded.
+- `supersede_decision` records a new revision that cites the current text.
+- `reject_decision` retires the decision. Its review state becomes `clear`.
+
+A source can also change while a decision is being recorded. In that case the decision is saved with `needs_review` and the reason `source_changed_during_recording`, and the result carries a warning.
+
+The built-in agent uses only decisions whose review state is `clear` in its precedent search. It cannot cite a flagged decision as support. The MCP search tool and `DecisionTraces.search_decisions` return active decisions with their review state, flagged or not, so the caller decides how to use them.
+
+## Retention
+
+Three operations change recorded history.
+
+- `HistoryRetention.redact_event` replaces one event body with the marker and keeps the event's identity and hash. Decisions that cite the event are flagged for review.
+- `HistoryRetention.delete_task` removes the task, its events, and its steps. With `include_decisions` set to `True`, which is the default, it also removes the task's decisions. With `False`, the decisions remain and lose their link to the deleted task. Decisions in other tasks that cite a deleted event or decision are flagged for review. The call does not flag the decisions that depend on those flagged decisions.
+- A write with a repeated request id does not repeat the operation. See the next section.
+
+## Request ids
+
+Each write accepts an optional `request_id` of 1 to 64 characters. A repeated write with the same id and the same arguments returns the stored result of the first call, so a retry does not create a second event or a second decision. The same id with different arguments is refused with `request_id_reused`.
+
+Writes return a result object with `recorded` and `error`. A refused write does not raise an exception. The reference lists the error codes.
+
+## Related
+
+- [Record and resume a task](../guides/record-conversation-history.mdx) walks through the Python calls for tasks, events, and steps.
+- [Record decisions and review them](../guides/decision-traces.mdx) walks through decision records, supports, and review.
+- [History and decisions data model](../reference/history-and-decisions-data-model.mdx) lists the fields, defaults, limits, and error codes.
+- [Evidence ids and citations](./evidence-and-citations.mdx) explains how evidence ids name passages and why a fetch must be complete before an id can be cited.

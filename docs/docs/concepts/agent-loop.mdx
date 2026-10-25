@@ -44,6 +44,7 @@ The agent has two groups of tools. The evidence tools read your documents and gr
 | `navigate_document_tree` | Reads the section, the neighbors, or the table rows around a passage, using one of [six relations](../tools/navigate-document-tree.mdx). |
 | `entity_search` | Finds [entities](../tools/entity-search.mdx) by name or meaning and lists the passages that mention them. |
 | `explore_relationships` | Follows the [relations](../tools/explore-relationships.mdx) around an entity, out to two steps. |
+| `search_themes` | Finds [themes](../tools/search-themes.mdx), groups of related entities from the last community detection run, with the passages that mention them. Use it for broad questions that span many documents. |
 | `check_citations` | Checks that cited ids were fetched in this run. |
 
 The system prompt tells the agent to read the task view first, to find and fetch evidence before it answers, to fetch relevant hits before it refines a search, and to stop searching once the fetched passages answer the question. It tells the agent to cite only ids whose fetch returned complete text, and to say when the evidence is insufficient.
@@ -71,12 +72,14 @@ The agent can also record progress with `set_step` and record decisions with `re
 
 | Status | Meaning |
 |---|---|
-| `answered` | The agent returned a structured answer with no invalid citations, and no limit was hit. |
-| `insufficient_evidence` | The answer says that the evidence is insufficient. |
-| `partial` | Some cited ids failed the citation check after the repair pass, or the agent returned no structured answer. |
-| `partial_retrieval` | A retrieval call failed during the run. |
-| `budget_exhausted` | The run hit the step limit or the tool-call limit. |
-| `recording_failed` | A task event or decision could not be recorded. |
+| `answered` | The agent returned a structured answer that the evidence supports. All cited ids passed the citation check. |
+| `insufficient_evidence` | The agent returned a structured answer that says the evidence is insufficient. All cited ids passed the citation check. |
+| `partial` | The agent returned no structured answer, or some cited ids were still invalid after the repair pass. The repair pass runs only when the tool budget has room. |
+| `partial_retrieval` | A search, graph, or fetch call failed, or returned partial or truncated results, during the run. |
+| `budget_exhausted` | The run used all of its `max_tool_calls` tool calls, or it reached `recursion_limit`. |
+| `recording_failed` | A task event or decision could not be saved. The result lists each one in `recording_failures`. |
+
+When more than one condition applies, the run returns the first status that applies in this order: `recording_failed`, `budget_exhausted`, `partial_retrieval`, `partial`, `insufficient_evidence`, and then `answered`.
 
 ## Citation ids
 

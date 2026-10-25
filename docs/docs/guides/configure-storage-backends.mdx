@@ -7,7 +7,7 @@ title: Configure storage backends
 
 Connect to Neo4j or FalkorDB to store the graph, embeddings, full-text indexes, and vector indexes. Both backends support ingestion, retrieval, conversation history, and decision traces. Choose by [transaction and search behavior](../concepts/graph-storage.mdx#choose-a-backend), then follow the setup for that server.
 
-Vectors stay in the graph database by default. To use an exclusive Qdrant index instead, [choose where vectors live](./choose-where-vectors-live.mdx). The graph database and its full-text indexes are required in either case.
+Vectors stay in the graph database by default. To store them exclusively in Qdrant, Milvus, or Weaviate instead, [choose where vectors live](./choose-where-vectors-live.mdx). The graph database and its full-text indexes are required in either case.
 
 ## Before you start
 
@@ -224,7 +224,7 @@ The example leaves the note and index in the database. It waits up to 60 seconds
 
 ## Select the backend for MCP
 
-Install `agentic-graphrag[neo4j,mcp]` or `agentic-graphrag[falkordb,mcp]`. Set `MCP_GRAPH_STORE` in the environment used by your MCP client. Python callers still select the store explicitly with `build_graph_store`.
+Install `agentic-graphrag[neo4j,mcp]` or `agentic-graphrag[falkordb,mcp]`. Set `MCP_GRAPH_STORE` in the environment used by your MCP client. Python callers still select the store explicitly with `build_graph_store`. If vectors live in an external store, also set `MCP_VECTOR_STORE` to `qdrant`, `milvus`, or `weaviate`, matching ingestion. [Choose where vectors live](./choose-where-vectors-live.mdx) covers the store setup.
 
 For a FalkorDB graph already populated by ingestion, add these values to the MCP server's environment. Replace the document key with the resolved path used at ingestion.
 

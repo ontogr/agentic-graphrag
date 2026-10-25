@@ -6,13 +6,13 @@ description: Where Agentic GraphRAG keeps the graph and the embeddings, and how 
 
 # Graph storage
 
-Agentic GraphRAG supports Neo4j and FalkorDB. By default, either backend holds the graph, embeddings, native vector indexes, and full-text indexes in one database. An optional Qdrant index holds vectors exclusively outside the graph database. A separate vector database is not required for graph-native placement.
+Agentic GraphRAG supports Neo4j and FalkorDB. By default, either backend holds the graph, embeddings, native vector indexes, and full-text indexes in one database. You can instead store vectors exclusively in one external vector store per graph: Qdrant, Milvus, or Weaviate. The graph database still holds all graph data, and the graph is the source of truth. A separate vector database is not required for graph-native placement.
 
 ## Vector placement
 
 One placement covers chunk, entity, resolved entity, and community vectors. `Graph.open` records the store, collection prefix, embedding dimensions, and distance metric in the graph and rejects a different placement on reopening. With external placement, graph nodes have no embedding property and the graph has no vector indexes. The graph still holds source data and full-text indexes. Searches join external ids back to graph nodes to enforce visibility and scope.
 
-Placement stays fixed for a graph. Changing stores means re-ingesting into a separate graph. [Choose where vectors live](../guides/choose-where-vectors-live.mdx) to configure Qdrant and repair missing vectors after a failed write.
+Placement stays fixed for a graph. Changing stores means re-ingesting into a separate graph. [Choose where vectors live](../guides/choose-where-vectors-live.mdx) to configure Qdrant, Milvus, or Weaviate and repair missing vectors after a failed write.
 
 ## Choose a backend
 
@@ -39,8 +39,8 @@ Keeping both in the selected graph store means graph records and vectors share o
 
 ## How it works
 
-1. Write. `Graph.add` writes documents with their sections, tables and figures, chunks, entities, and relations to the selected graph store. It writes embeddings onto graph nodes for graph-native placement, or to Qdrant for external placement.
-2. Search. Graph-native placement uses the graph store's full-text and vector indexes. External hybrid search uses Qdrant's dense and BM25 rankings.
+1. Write. `Graph.add` writes documents with their sections, tables and figures, chunks, entities, and relations to the selected graph store. It writes embeddings onto graph nodes for graph-native placement, or to the configured external vector store (Qdrant, Milvus, or Weaviate) for external placement.
+2. Search. Graph-native placement uses the graph store's full-text and vector indexes. External placement searches the vector store and joins its hits back to graph nodes. Hybrid search there combines dense and BM25 rankings inside that store.
 3. Read. Search reads the full items back from the store.
 
 ## The store

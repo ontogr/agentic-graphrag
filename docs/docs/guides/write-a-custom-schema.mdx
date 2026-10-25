@@ -6,7 +6,7 @@ description: Write a schema as a short list, as a small extension of the default
 
 # Write a custom schema
 
-A schema tells the extractor which entity types and relation types to look for. You can write one in three ways. Use a short list when you only need labels. Use `extends` when you want to keep the default schema and add to it. Write a full dict when you want to replace the default schema.
+A schema tells the extractor which entity types and relation types to look for. You can write one in three ways. Use a short list when you only need labels. Use `extends` when you want to keep the default schema and add to it. Write a full dict when you want to replace the default schema. The section [Every source you can pass](#every-source-you-can-pass) lists all the other forms that a schema can take.
 
 ## Before you start
 
@@ -118,7 +118,7 @@ Output:
 
 ## Keep the schema in a file
 
-A schema can live in a `.json`, `.yaml` or `.yml` file. The keys are the same as in the dict. This file holds the schema from step 3:
+A schema can live in a `.json`, `.yaml` or `.yml` file. A Turtle `.ttl` file also works, as described in [OWL import](../reference/owl-import.mdx). The keys in a JSON or YAML file are the same as in the dict. This file holds the schema from step 3:
 
 ```yaml
 name: supply-chain
@@ -170,6 +170,24 @@ invalid schema (1 error):
 ```
 
 Thresholds, the model name and the data type are extraction settings. Set them in `ExtractionSettings`. A schema key with one of these names is an error. The schema stays the same when you tune the extractor.
+
+## Every source you can pass
+
+`Graph.open` and `load_schema` accept the sources in this table. Each one produces a `GraphSchema`.
+
+| Source | Example | Where it is covered |
+| --- | --- | --- |
+| A `GraphSchema` object | `GraphSchema(name=..., entities=[...])` | Used as given. [Define a graph schema](./define-a-graph-schema.mdx) |
+| A dict | `{"name": "supply-chain", "entities": [...]}` | Steps 2 and 3 on this page |
+| A list of labels and relation strings | `["Person", "Person-DESIGNED->Machine"]` | Step 1 on this page |
+| JSON text | A string that starts with `{` or `[` | [Schema file format](../reference/schema-file-format.mdx) |
+| A `.json`, `.yaml` or `.yml` file | `"supply-chain.yaml"` | [Keep the schema in a file](#keep-the-schema-in-a-file) |
+| A `.ttl` file (OWL in Turtle) | `"ontology.ttl"` | [OWL import](../reference/owl-import.mdx). Needs the `schema-formats` extra. |
+| A Pydantic class, or a list of them | `[Organization, Person]` | [Pydantic models](../reference/schema-format-pydantic.mdx) |
+| A shipped name | `"default"`, `"operations"` or `"legal"` | [Use a preset](./use-a-preset.mdx) |
+| A `Preset` value | A preset applied to the default schema | [Use a preset](./use-a-preset.mdx) |
+
+YAML text passed as a string is not read. Save it to a file first. The `extends` argument of `load_schema` takes a shipped name, a `Preset`, a path, a dict, or a `GraphSchema` as the base schema.
 
 ## Next
 

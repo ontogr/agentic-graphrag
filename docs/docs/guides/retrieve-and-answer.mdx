@@ -144,7 +144,7 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
-The result has the `answer`, a `status` that says whether the agent answered or reached a limit, the `citations` it fetched, the `invalid_citations`, any `recording_failures`, the `task` name with its last event number, and the `messages`. See [Agent loop](../concepts/agent-loop.mdx#result-status) for the statuses. The agent stores task state under the supplied `project_id`, `agent_id`, and `task_name`.
+The result has the `answer`, a `status` such as `answered`, `insufficient_evidence`, `partial`, `budget_exhausted`, `recording_failed` or `partial_retrieval`, the `citations` it fetched, the `invalid_citations`, any `recording_failures`, the `task` name with its last event number, and the `messages`. See [Agent loop](../concepts/agent-loop.mdx#result-status) for the statuses. The agent stores task state under the supplied `project_id`, `agent_id`, and `task_name`.
 
 Render `result["answer"]` with your application's Markdown renderer to show clickable HTTP(S) source references. The example uses an inline source URI, so its references are readable text rather than links. Keep `result["citations"]` for canonical evidence IDs and fetched passage text.
 

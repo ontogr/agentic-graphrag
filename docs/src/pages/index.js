@@ -41,9 +41,9 @@ export default function Home() {
             <p>{intro}</p>
             <p>
               Store the graph, embeddings, and search indexes in Neo4j or FalkorDB.
-              Both support ingestion, hybrid search, conversation history, and decision traces, with no separate vector database.
-              {' '}<Link to="/latest/concepts/graph-storage">Compare backends</Link>
-              {' '}or <Link to="/latest/guides/configure-storage-backends">configure a connection</Link>.
+              Both support ingestion, hybrid search, conversation history, and decision traces. Vectors can stay in the graph or move to one external store: Qdrant, Milvus, or Weaviate.
+              {' '}<Link to="/stable/concepts/graph-storage">Compare backends</Link>
+              {' '}or <Link to="/stable/guides/configure-storage-backends">configure a connection</Link>.
             </p>
           </div>
         </section>
@@ -63,7 +63,7 @@ export default function Home() {
           <div className={`container ${styles.closing}`}>
             <div className={styles.actions}>
               <InstallCommand command="uv pip install agentic-graphrag" />
-              <Link className="button button--primary button--lg" to="/latest/get-started/introduction">
+              <Link className="button button--primary button--lg" to="/stable/get-started/introduction">
                 Get started
               </Link>
               <Link

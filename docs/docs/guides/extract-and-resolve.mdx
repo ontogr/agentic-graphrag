@@ -114,7 +114,7 @@ extractor = GlinerExtractor(settings=settings)
 
 `Graph` takes the settings from an injected, top-level `GlinerExtractor`. For a custom extractor, pass `extraction_settings=` to `Graph.open`. If you pass settings to both the graph and a top-level GLiNER extractor, their values must match.
 
-See the [configuration reference](../reference/configuration.mdx#local-extraction) for all extraction settings. Each extracted entity and relation has a `confidence` score from the model.
+See the [configuration reference](../reference/configuration.mdx#local-extraction) for all extraction settings. Each entity and relation that `GlinerExtractor` keeps has a `confidence` score from the model. LLM-only entities and relations have none.
 
 `EXTRACTION_MODE` accepts `gliner`, `hybrid` (the default), and `llm`. `Graph.effective_mode` reports the mode selected for the graph, not the class of the extractor. When `hybrid` has no LLM configured, the mode becomes `gliner` and Graph logs a warning. An injected custom local extractor still runs unchanged in that mode; Graph does not replace it with GLiNER. In `hybrid`, Graph sends the weak chunks to the LLM extractor. See [Control LLM cost during extraction](./control-llm-cost-during-extraction.mdx) for the modes, the budget and the run report.
 
@@ -230,7 +230,7 @@ Alternatively, use `ExtractionLLMSettings.from_openai_compatible_env()` to read 
 
 ## Resolution runs inside every write
 
-`Graph.add` runs resolution as part of ingestion. Exact, fuzzy, and embedding tiers handle candidate pairs before the capped LLM tier reviews remaining ambiguous pairs. The LLM considers pairs in similarity order, with entity indices breaking ties. Pairs outside the cap stay undecided. Resolution preserves the original entity nodes. Confirmed non-exact matches are stored as `MATCHES` edges and represented by a derived resolved entity.
+`Graph.add` runs resolution as part of ingestion. The exact, fuzzy, embedding, and cluster tiers decide the pairs they can first. The capped LLM tier then reviews the remaining ambiguous pairs. For each label, it gets the most similar pairs up to the cap, with entity indices breaking ties. Pairs outside the cap stay undecided. Resolution preserves the original entity nodes. Confirmed non-exact matches are stored as `MATCHES` edges and represented by a derived resolved entity.
 
 ```python
 import asyncio

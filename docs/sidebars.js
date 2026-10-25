@@ -66,6 +66,7 @@ const sidebars = {
         'tools/example-setup',
         'tools/passage-search',
         'tools/entity-search',
+        'tools/search-themes',
         'tools/explore-relationships',
         'tools/navigate-document-tree',
         'tools/fetch-evidence',
@@ -78,16 +79,20 @@ const sidebars = {
       ]),
       'guides/find-and-cite-evidence',
       'guides/retrieve-and-answer',
+      'guides/enable-reranking',
       'concepts/agent-loop',
     ]),
     section('Conversation history and decision traces', [
-      'guides/run-the-mcp-server',
+      'concepts/conversation-history-and-decisions',
+      'guides/record-conversation-history',
       'guides/decision-traces',
+      'guides/run-the-mcp-server',
     ]),
     section('Operate', [
       'concepts/observability',
       'guides/trace-an-agent-run',
       'guides/configure-storage-backends',
+      'guides/choose-where-vectors-live',
       'guides/troubleshoot-common-errors',
       'guides/score-agrag-on-your-questions',
     ]),
@@ -95,6 +100,7 @@ const sidebars = {
   referenceSidebar: [
     section('Reference', [
       'reference/tools',
+      'reference/history-and-decisions-data-model',
       'reference/configuration',
       'reference/schema-file-format',
       'reference/default-schema',

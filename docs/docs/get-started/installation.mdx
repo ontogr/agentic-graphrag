@@ -20,7 +20,7 @@ uv pip install agentic-graphrag
 
 To install uv, see the [installation docs](https://docs.astral.sh/uv/getting-started/installation/).
 
-Agentic GraphRAG needs Python 3.11 or newer and a Neo4j or FalkorDB server to store the graph and its indexes. Install the matching driver extra and [configure the backend](../guides/configure-storage-backends.mdx). The [Quickstart](./quickstart.mdx) uses Neo4j.
+Agentic GraphRAG needs Python 3.11 or newer and a graph server to store the graph and its indexes. Use Neo4j 5.23 or later, or FalkorDB 4.22.2 or later. Install the matching driver extra and [configure the backend](../guides/configure-storage-backends.mdx). The [Quickstart](./quickstart.mdx) uses Neo4j.
 
 The base install includes the loaders, the chunkers, the data models, and the default embedder. Storage, extraction, the agent, and the MCP server are extras.
 

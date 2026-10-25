@@ -27,6 +27,12 @@ uv pip install "agentic-graphrag[neo4j,mcp]"
 
 Set `MCP_SCOPE_DOCUMENT_KEYS` to a comma-separated list of document keys. The server reads only those documents, and a tool call cannot widen the list. A document you added from a file has the resolved absolute path as its key, for example `/home/you/notes/policy.md`. A document you added with `graph.add(text=...)` has a key of the form `inline://<16-hex-hash>`. A prebuilt `Document` uses its `uri` as the key unless you set `document_key` yourself. To choose a readable key, give the document a stable `uri` or set `document_key` explicitly.
 
+The server refuses to start when the list holds no key. Blank entries and entries that hold only spaces do not count. The server writes this line to stderr and exits with status 2:
+
+```text
+agrag-mcp: invalid settings: Value error, scope_document_keys must list at least one document key
+```
+
 ## Add the server to your client
 
 Add an entry like this one to the MCP configuration of your client:
@@ -80,7 +86,9 @@ Set `MCP_PROJECT_ID` and `MCP_AGENT_ID` to enable history and decision tools. Ta
 
 The built-in agent uses the same names. The [tools reference](../reference/tools.mdx#tool-names) lists them. The read tools are `get_task`, `list_events`, `fetch_event`, `list_steps`, `search_decisions`, `list_conflicts`, `get_decision`, `list_support_history`, `list_decisions`, and `list_decisions_for_review`.
 
-To let the client write, set `MCP_READ_ONLY=false`. The write tools are `create_task`, `record_event`, `set_step`, `record_decision`, `supersede_decision`, `reaffirm_decision`, and `continue_decision_review`. The request-based writes take a `request_id`, and a retry with the same id returns the saved result for a completed write. On FalkorDB, a failed multi-statement write can leave partial effects that repeat on retry. Account for the [retry limits](./configure-storage-backends.mdx#retried-history-and-decision-writes) before enabling writes. `continue_decision_review` takes a bounded `limit` instead. A decision lists the evidence it rests on, and the server accepts document evidence that the same session fetched. Set `MCP_ALLOW_REJECT=true` to add `reject_decision`.
+To let the client write, set `MCP_READ_ONLY=false`. The write tools are `create_task`, `record_event`, `set_step`, `record_decision`, `supersede_decision`, `reaffirm_decision`, and `continue_decision_review`. The request-based writes take a `request_id`, and a retry with the same id returns the saved result for a completed write. A `request_id` takes 1 to 64 characters. A `record_event` payload takes up to 1,000,000 characters.
+
+With `MCP_READ_ONLY=false`, the server also needs `MCP_PROJECT_ID` and `MCP_AGENT_ID`. If either is blank, the server exits with status 2 and writes `agrag-mcp: invalid settings: Value error, project_id and agent_id must not be blank` to stderr. On FalkorDB, a failed multi-statement write can leave partial effects that repeat on retry. Account for the [retry limits](./configure-storage-backends.mdx#retried-history-and-decision-writes) before enabling writes. `continue_decision_review` takes a bounded `limit` instead. A decision lists the evidence it rests on, and the server accepts document evidence that the same session fetched. Set `MCP_ALLOW_REJECT=true` to add `reject_decision`.
 
 Document scope applies to evidence reads. Task and decision tools act on the configured project.
 
@@ -94,9 +102,11 @@ The server caps what it returns. A result states when it left items out.
 | `MCP_MAX_HITS` | `10` | Hits per search. |
 | `MCP_MAX_SNIPPET_CHARS` | `240` | Characters in one snippet. |
 | `MCP_MAX_FETCH_CHARS` | `4000` | Characters for each fetched id. |
-| `MCP_MAX_FETCH_IDS` | `20` | Ids in one fetch or citation check. |
+| `MCP_MAX_FETCH_IDS` | `20` | Ids in one fetch or citation check, from 1 to 20. |
 | `MCP_MAX_RESPONSE_CHARS` | `60000` | Characters in one result. |
-| `MCP_REQUEST_DEADLINE_SECONDS` | `30.0` | Seconds for each store read. |
+| `MCP_REQUEST_DEADLINE_SECONDS` | `30.0` | Seconds one tool operation may run. |
+
+A result over `MCP_MAX_RESPONSE_CHARS` returns the error `tool result exceeds the configured response limit`. It is not cut short. A tool operation that runs past `MCP_REQUEST_DEADLINE_SECONDS` returns `tool operation deadline exceeded`.
 
 The [Configuration reference](../reference/configuration.mdx#mcp-server) lists every variable.
 

@@ -21,6 +21,7 @@ The Python functions, the built-in agent, and the MCP server use the same name f
 | Document tree navigation | `navigate_document_tree` | `navigate_document_tree` |
 | Entity search | `entity_search` | `entity_search` |
 | Relationship exploration | `explore_relationships` | `explore_relationships` |
+| Theme search | `search_themes` | `search_themes` |
 | Citation check | `check_citations` | `check_citations` |
 | Numbered references | `render_citations` | none. The agent formats its own answer, and `fetch_evidence` on the MCP server returns `citation_markdown`. |
 | Source status | `source_status` | none |
@@ -48,7 +49,7 @@ The Python functions, the built-in agent, and the MCP server use the same name f
 | Continue review propagation | `continue_decision_review` | Agent and MCP server |
 | Reject a decision | `reject_decision` | MCP server only. The agent cannot reject a human decision. |
 
-The agent works on one task in one project, and the caller fixes both. Its task tools therefore take no `task_name`, and its write tools take no `request_id`. On the MCP server, `fetch_evidence` takes `max_chars`, and `set_step` takes `result_event_seq`, the sequence number of an event that the client recorded. The agent passes `result`, the text of the result, to `set_step` and the run records the event.
+The agent works on one task in one project, and the caller fixes both. Its task tools therefore take no `task_name`, except `fetch_event` and `list_events`, and its write tools take no `request_id`. On the MCP server, `fetch_evidence` takes `max_chars`, and `set_step` takes `result_event_seq`, the sequence number of an event that the client recorded. The agent passes `result`, the text of the result, to `set_step` and the run records the event.
 
 ## Settings that turn tools on
 
@@ -60,6 +61,38 @@ The agent works on one task in one project, and the caller fixes both. Its task 
 | `reject_decision` | Not offered. | On when the write conditions hold and `MCP_ALLOW_REJECT` is `true`. |
 
 The MCP server starts read-only. It refuses to start when write access is on and the project or the agent is missing. A tool call cannot widen the document scope or change the project.
+
+## MCP server tools
+
+The MCP server registers the tools below. The last column shows whether the built-in agent offers the same tool. Four tools exist only on MCP: `list_conflicts`, `create_task`, `record_event`, and `reject_decision`.
+
+| Tool | Group | On the agent | Notes |
+|---|---|---|---|
+| `search_evidence` | Evidence | Yes | Passage search. |
+| `fetch_evidence` | Evidence | Yes | Takes `max_chars`. |
+| `check_citations` | Evidence | Yes | Compares against the ids this server session fetched. |
+| `entity_search` | Evidence | Yes | |
+| `explore_relationships` | Evidence | Yes | |
+| `navigate_document_tree` | Evidence | Yes | |
+| `search_themes` | Evidence | Yes | |
+| `get_task` | Task read | Yes | Takes `task_name` on MCP. |
+| `list_events` | Task read | Yes | |
+| `fetch_event` | Task read | Yes | |
+| `list_steps` | Task read | Yes | |
+| `search_decisions` | Decision read | Yes | The agent leaves out decisions that need review or have non-current supports. |
+| `list_conflicts` | Decision read | No, MCP only | |
+| `get_decision` | Decision read | Yes | |
+| `list_support_history` | Decision read | Yes | |
+| `list_decisions` | Decision read | Yes | Takes `task_name` on MCP. The agent takes `include_history` instead. |
+| `list_decisions_for_review` | Decision read | Yes | On MCP, `task_name` is optional. |
+| `create_task` | Task write | No, MCP only | |
+| `record_event` | Task write | No, MCP only | |
+| `set_step` | Task write | Yes | Takes `result_event_seq` on MCP. |
+| `record_decision` | Decision write | Yes | |
+| `supersede_decision` | Decision write | Yes | |
+| `reaffirm_decision` | Decision write | Yes | |
+| `continue_decision_review` | Decision write | Yes | |
+| `reject_decision` | Decision write | No, MCP only | Registered only when `MCP_ALLOW_REJECT` is `true`. |
 
 ## Evidence tools
 
@@ -73,7 +106,7 @@ Searches the text of current document versions in scope and returns ranked passa
 |---|---|---|---|
 | `query` | string | required | Plain words. Query syntax has no effect. |
 | `mode` | `lexical`, `semantic`, or `hybrid` | `hybrid` | `hybrid` runs both searches and fuses them. |
-| `limit` | integer | agent 8, MCP `MCP_MAX_HITS` | Agent 1 to 50. MCP at least 1, capped at `MCP_MAX_HITS`. Python any positive integer. |
+| `limit` | integer | 10 | Agent 1 to 50. MCP at least 1, capped at `MCP_MAX_HITS` (default 10). Python any positive integer. |
 
 Returns an `EvidenceSearchResult` with `status`, `hits`, `truncated`, `index_state`, and `failures`. A hit has `evidence_id`, `document_key`, `title`, `content_hash`, `location`, `snippet`, `score`, and `legs`.
 
@@ -96,8 +129,8 @@ Returns passages near a known passage, in the same document version. [Document t
 |---|---|---|---|
 | `evidence_id` | string | required | A chunk id or a span id. |
 | `relation` | `parent`, `children`, `siblings`, `previous`, `next`, or `table_context` | required | |
-| `limit` | integer | 10 | 1 to 50. The agent caps larger values at 50. |
-| `max_chars` | integer | 12000 | 1 to 20000. The agent caps larger values at 20000. |
+| `limit` | integer | 10 | 1 to 50. Larger values are rejected. |
+| `max_chars` | integer | 12000 | 1 to 20000. Larger values are rejected. |
 
 Returns a `NavigationResult` with `status`, `items`, `truncated`, `truncation_reason`, `version_status`, and `multi_section`.
 
@@ -128,6 +161,18 @@ Follows the relations around one entity. [Explore relationships](../tools/explor
 
 Returns an `ExplorationResult` with `status`, `nodes`, `edges`, `truncated`, `truncated_by`, and `detail`. An edge has `source_id`, `target_id`, `relation_type`, `kind`, and `evidence`.
 
+### Theme search
+
+Finds themes, which are clusters of related entities from the last community detection run, each with the passages that mention its members. [Theme search](../tools/search-themes.mdx) describes the search and the result.
+
+| Parameter | Type | Default | Range and notes |
+|---|---|---|---|
+| `query` | string | required | MCP accepts 1 to 1000 characters. Matches by meaning only. |
+| `limit` | integer | 5 | 1 to 10. MCP also caps it at `MCP_MAX_HITS`. Python any positive integer. |
+| `support_limit` | integer | 3 | 1 to 10. The most passages listed for each theme. Python any positive integer. |
+
+Python takes these as keyword arguments of `search_themes`, and raises `ValueError` when `limit` or `support_limit` is not positive. Returns a `ThemeResult` with `status`, `themes`, `truncated`, `index_state`, and `failures`. A theme has `theme_id`, `score`, `entities`, which holds up to five member names, and `passages`.
+
 ### Citation check
 
 Checks that cited evidence ids trace to text fetched in scope. [Check citations](../tools/check-citations.mdx) describes the verdicts.
@@ -137,6 +182,28 @@ Checks that cited evidence ids trace to text fetched in scope. [Check citations]
 | `evidence_ids` | list of strings | required | The MCP server accepts at most `MCP_MAX_FETCH_IDS` ids. |
 
 Python takes the cited ids, the fetched ids, and the scope. It returns one verdict for each cited id. On MCP the check compares against the ids this server session fetched.
+
+### Source status
+
+Source status is not a tool on either surface. The Python function `source_status` in `agrag.evidence` reads it, and `Graph.source_status(document_key)` in `agrag/ingestion/graph.py` calls the same function with the graph's stores.
+
+| Parameter | Type | Default | Range and notes |
+|---|---|---|---|
+| `document_key` | string | required | The stable key of the source. |
+| `vector_store` | `VectorStore` | None | External vector store. None reads the graph-native indexes. |
+| `dimensions` | integer | None | Expected embedding dimension, checked against an external store. |
+
+Returns a `SourceStatus` with `document_key`, `state`, `content_hash`, `activation_seq`, `version_id`, `job_id`, `job_status`, `lease_expires_at`, `job_age_seconds`, `job_error`, and `indexes`. Each entry in `indexes` has `name`, `state`, and `population_percent`.
+
+| `state` | Meaning |
+|---|---|
+| `current` | The committed version is complete and active. |
+| `pending` | An incomplete job holds a live lease. |
+| `failed` | The latest job's lease has expired, or the committed version is incomplete. |
+| `deleted` | The last committed change removed the source. `content_hash` is None. |
+| `unknown` | The store has no record of this key. |
+
+An index `state` is the database state, such as `ONLINE`. It is `MISSING` when the store does not list the index.
 
 ## Task and decision tools
 
@@ -170,7 +237,84 @@ The task and decision tools act on the configured project, and the document scop
 | `continue_decision_review` | Advances queued review propagation by a bounded amount. The MCP tool takes `limit` from 1 to 100, default 20. | Review flags are still reaching dependent decisions. |
 | `reject_decision` | Rejects a decision and keeps the history. The MCP server offers it only when `MCP_ALLOW_REJECT` is `true`. | A human reviewer overturns a decision. |
 
-The request-based MCP writes take a `request_id`, and a retry with the same id returns the saved result. The agent cannot rely on a decision marked `needs_review` or `unknown`.
+The request-based MCP writes take a `request_id` of 1 to 64 characters, and a retry with the same id returns the saved result. The agent cannot rely on a decision marked `needs_review` or `unknown`.
+
+### Parameters
+
+The parameters below apply to the MCP server unless a note says otherwise. The agent uses the same names. Its bounds are noted where they differ, and its text fields have no length bound.
+
+#### Read tools
+
+| Tool | Parameter | Type | Default | Range and notes |
+|---|---|---|---|---|
+| `get_task` | `task_name` | string | required | 1 to 200 characters. The agent takes no `task_name`. |
+| `list_events` | `task_name` | string | required | 1 to 200 characters. |
+| `list_events` | `after_seq` | integer | 0 | 0 or more. |
+| `list_events` | `limit` | integer | 50 | 1 to 200. The agent allows 1 to 50. |
+| `fetch_event` | `task_name` | string | required | 1 to 200 characters. |
+| `fetch_event` | `seq` | integer | required | 1 or more. |
+| `list_steps` | `task_name` | string | required | 1 to 200 characters. The agent takes no `task_name`. |
+| `list_steps` | `state` | string | required | `not_started`, `in_progress`, `completed`, `failed`, or `unknown`. |
+| `list_steps` | `after_name` | string | None | Continuation cursor, at most 200 characters. |
+| `list_steps` | `limit` | integer | 50 | 1 to 200. The agent allows 1 to 50. |
+| `search_decisions` | `query` | string | required | 1 to 1000 characters. |
+| `search_decisions` | `limit` | integer | 20 | 1 to 100, capped at `MCP_MAX_HITS`. The agent allows 1 to 20. |
+| `list_conflicts` | none | | | No parameters. |
+| `get_decision` | `decision_id` | UUID | required | |
+| `list_support_history` | `decision_id` | UUID | required | |
+| `list_support_history` | `after_ordinal` | integer | -1 | Starts after this ordinal. |
+| `list_support_history` | `limit` | integer | 20 | 1 to 100. The agent allows 1 to 50. |
+| `list_decisions` | `task_name` | string | required | 1 to 200 characters. The agent takes `include_history` instead. |
+| `list_decisions` | `include_history` | boolean | true | Agent only. Set false to leave out superseded history. |
+| `list_decisions_for_review` | `task_name` | string | None | 1 to 200 characters. Limits the list to one task. The agent takes no `task_name`. |
+| `list_decisions_for_review` | `limit` | integer | 20 | 1 to 100. The agent allows 1 to 50. |
+
+#### Write tools
+
+| Tool | Parameter | Type | Default | Range and notes |
+|---|---|---|---|---|
+| `create_task` | `task_name` | string | required | 1 to 200 characters. |
+| `create_task` | `goal` | string | required | 1 to 4000 characters. |
+| `create_task` | `request_id` | string | required | 1 to 64 characters. |
+| `record_event` | `task_name` | string | required | 1 to 200 characters. |
+| `record_event` | `kind` | string | required | `message`, `tool_call`, `tool_result`, or `note`. |
+| `record_event` | `payload` | string | required | Up to 1,000,000 characters as input. Stored text is cut to 32000 characters, and the event records the hash of the full text. |
+| `record_event` | `role` | string | None | 100 characters at most. |
+| `record_event` | `name` | string | None | 200 characters at most. |
+| `record_event` | `request_id` | string | required | 1 to 64 characters. |
+| `set_step` | `task_name` | string | required | 1 to 200 characters. The agent takes no `task_name`. |
+| `set_step` | `name` | string | required | 1 to 200 characters. |
+| `set_step` | `state` | string | required | The step states listed for `list_steps`. |
+| `set_step` | `kind` | string | `other` | `read`, `analysis`, or `other`. |
+| `set_step` | `result_event_seq` | integer | None | MCP only. 1 or more. The sequence number of the event that holds the result. |
+| `set_step` | `result_basis` | string | `unknown` | `independent`, `supported`, or `unknown`. |
+| `set_step` | `supports` | list | None | 20 items at most. |
+| `set_step` | `request_id` | string | required | MCP only. 1 to 64 characters. |
+| `set_step` | `result` | string | None | Agent only. Required when `state` is `completed`. It is recorded as a `note` event, and a result over 32000 characters leaves the step unresolved. |
+| `record_decision` | `task_name` | string | required | 1 to 200 characters. The agent takes no `task_name`. |
+| `record_decision` | `choice_key` | string | required | 1 to 200 characters. |
+| `record_decision` | `conclusion` | string | required | 1 to 4000 characters. |
+| `record_decision` | `rationale` | string | required | 1 to 8000 characters. |
+| `record_decision` | `supports` | list | required | 1 to 20 typed supports. |
+| `record_decision` | `assumptions` | list of strings | required on MCP, None on the agent | 20 items at most. Send an empty list for none on MCP. |
+| `record_decision` | `open_questions` | list of strings | required on MCP, None on the agent | 20 items at most. Send an empty list for none on MCP. |
+| `record_decision` | `request_id` | string | required | MCP only. 1 to 64 characters. |
+| `supersede_decision` | `decision_id` | UUID | required | |
+| `supersede_decision` | `conclusion` | string | required | 1 to 4000 characters. |
+| `supersede_decision` | `rationale` | string | required | 1 to 8000 characters. |
+| `supersede_decision` | `explanation` | string | required | 1 to 4000 characters. |
+| `supersede_decision` | `supports` | list | required | 1 to 20 typed supports. |
+| `supersede_decision` | `assumptions` | list of strings | required on MCP, None on the agent | 20 items at most. Send an empty list for none on MCP. |
+| `supersede_decision` | `open_questions` | list of strings | required on MCP, None on the agent | 20 items at most. Send an empty list for none on MCP. |
+| `supersede_decision` | `request_id` | string | required | MCP only. 1 to 64 characters. |
+| `reaffirm_decision` | `decision_id` | UUID | required | |
+| `reaffirm_decision` | `evidence_ids` | list of strings | required | 1 to 20 ids, fetched in this session. |
+| `reaffirm_decision` | `explanation` | string | required on MCP, default text on the agent | 1 to 4000 characters on MCP. The agent default is `Reaffirmed after current evidence review.` |
+| `reaffirm_decision` | `request_id` | string | required | MCP only. 1 to 64 characters. |
+| `continue_decision_review` | `limit` | integer | 20 | 1 to 100. The agent allows 0 to 50. |
+| `reject_decision` | `decision_id` | UUID | required | MCP only, and only when `MCP_ALLOW_REJECT` is `true`. |
+| `reject_decision` | `reason` | string | required | 1 to 4000 characters. |
+| `reject_decision` | `request_id` | string | required | 1 to 64 characters. |
 
 ## Other limits
 
@@ -179,7 +323,9 @@ The request-based MCP writes take a `request_id`, and a retry with the same id r
 | Preview length of a hit | 240 characters | `MCP_MAX_SNIPPET_CHARS`, default 240 |
 | Size of one result | none | `MCP_MAX_RESPONSE_CHARS`, default 60000 |
 | Time for each store read | none | `MCP_REQUEST_DEADLINE_SECONDS`, default 30 |
+| Stored text of one event | 32000 characters. A completed step result must fit. | 32000 characters. The event records the hash of the full text and a `truncated` flag. |
+| Request ID | Not used. | 1 to 64 characters. |
 | Tool calls in one run | `max_tool_calls`, default 20 | none |
 | Steps in one run | `recursion_limit`, default 50 | none |
 
-An MCP result sets `truncated` when it left items out. [Agent loop](../concepts/agent-loop.mdx#limits) describes the agent settings, and the [configuration reference](./configuration.mdx#mcp-server) lists the MCP variables.
+An MCP result sets `truncated` when it left items out. For search, fetch, and citation-check results, the server counts the JSON twice, once for each copy the SDK sends. [Agent loop](../concepts/agent-loop.mdx#limits) describes the agent settings, and the [configuration reference](./configuration.mdx#mcp-server) lists the MCP variables.

@@ -77,9 +77,9 @@ See [Ingestion](../concepts/ingestion.mdx) and [Update and delete documents](../
 
 ## Keep the graph and its indexes in one database
 
-- **One database.** The graph, its vector indexes, and its keyword indexes live in Neo4j or FalkorDB. Both support ingestion, retrieval, conversation history, and decision traces. Compare their [search and transaction behavior](../concepts/graph-storage.mdx#choose-a-backend) and [configure either backend](../guides/configure-storage-backends.mdx).
+- **One database.** By default, the graph, its vector indexes, and its keyword indexes live in Neo4j or FalkorDB. You can instead keep vectors in one external store per graph: Qdrant, Milvus, or Weaviate. The graph database is always the source of truth. Both backends support ingestion, retrieval, conversation history, and decision traces. Compare their [search and transaction behavior](../concepts/graph-storage.mdx#choose-a-backend) and [configure either backend](../guides/configure-storage-backends.mdx).
 - **Efficient writes.** Records are written in batches, and each failed record is reported by identifier.
-- **Indexes and constraints are created for you.** Uniqueness constraints and native vector and keyword indexes are set up when a graph opens.
+- **Indexes and constraints are created for you.** Uniqueness constraints are set up when a graph opens. Native vector indexes are created for graph-native placement, and keyword indexes always are.
 - **Mismatched embeddings are caught early.** The embedder is checked against the existing vector indexes before anything is written.
 - **Embeddings run on your machine.** A local embedding model is used by default, and an alternative is available as an optional part of the install.
 - **Stable identities.** A node keeps its identity when its labels change.
