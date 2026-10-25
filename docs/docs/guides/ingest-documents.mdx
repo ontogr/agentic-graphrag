@@ -5,13 +5,13 @@ title: Ingest documents
 
 # Ingest documents
 
-Add files, directories, raw text, or prebuilt `Document` objects to a `Graph` with `Graph.add`. This guide covers the ingestion entrypoint only. See the [API Reference](../api/index.md) for every parameter.
+Add files, directories, raw text, or prebuilt `Document` objects to a `Graph` with `Graph.add`. See the [API Reference](../api/index.md) for every parameter.
 
 For how the pipeline works, see [Ingestion pipeline](../concepts/ingestion.mdx).
 
 ## Before you start
 
-This guide assumes that you finished the [Quickstart](../get-started/quickstart.mdx): you have a Neo4j database, its `NEO4J_*` variables in a `.env` file, and the `neo4j` and `extract` extras installed. Each code block on this page is complete. It opens its own graph and closes it at the end.
+This guide assumes that you finished the [Quickstart](../get-started/quickstart.mdx): you have a Neo4j database, its `NEO4J_*` variables in a `.env` file, and the `neo4j` and `extract` extras installed. Each example is complete. It opens its own graph and closes it at the end.
 
 Markdown, HTML, AsciiDoc, Word, PowerPoint, and Excel files need no extra. For PDF and image support, install the docling extra:
 
@@ -58,7 +58,7 @@ asyncio.run(main())
 
 ## Add many files
 
-Add a directory, a glob, or a list of paths the same way. The error policy decides what happens to a file whose extension no loader reads. Pass `error_policy=ErrorPolicy.SKIP` to skip such files, as shown under [Handle errors per source](#handle-errors-per-source):
+Add a directory, a glob, or a list of paths the same way. The error policy decides what happens to a file whose extension no loader reads. Pass `error_policy=ErrorPolicy.SKIP` to skip such files. [Handle errors per source](#handle-errors-per-source) lists the other values:
 
 ```python
 import asyncio
@@ -190,7 +190,7 @@ For most callers, `source=` or `text=` is simpler. Use `documents=` when you alr
 
 ## Choose how documents are chunked
 
-`Graph.open` takes a `chunker` argument that decides how each document is split. Loaders also normalize the text of each file. They remove the byte-order mark, change line endings to LF, and apply NFKC. Pass `read_options=ReadOptions(normalization=...)` to `Graph.add` to change this. Chunks hold up to 600 tokens by default. See [Configure chunking](./configure-chunking.mdx) for both.
+`Graph.open` takes a `chunker` argument that decides how each document is split. Loaders also normalize the text of each file. They remove the byte-order mark, change line endings to LF, and apply NFKC. Pass `read_options=ReadOptions(normalization=...)` to `Graph.add` to change this. Chunks hold up to 600 tokens by default. [Configure chunking](./configure-chunking.mdx) covers the chunker and the read options.
 
 ## Add a chat file
 
@@ -240,7 +240,7 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
-A chat file has one section for each message. Short neighbouring messages share a chunk, and a long message is cut at sentence boundaries. Tune this with the chunker `size`, as [Configure chunking](./configure-chunking.mdx) shows.
+A chat file has one section for each message. Short neighboring messages share a chunk, and a long message is cut at sentence boundaries. The chunker `size` sets the chunk length. [Configure chunking](./configure-chunking.mdx) describes the setting.
 
 ## Handle errors per source
 

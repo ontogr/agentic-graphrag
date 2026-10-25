@@ -4,11 +4,11 @@ sidebar_position: 2
 
 # Extract and resolve entities
 
-Use an extractor directly when you need to inspect extraction results, or pass extractors to `Graph` to extract and resolve entities during ingestion. This guide covers both paths and explains which results are retained when a model cannot decide.
+Use an extractor directly when you need to inspect extraction results, or pass extractors to `Graph` to extract and resolve entities during ingestion.
 
 ## Before you start
 
-The extraction examples use a chunk of text. The resolution examples use a graph. This guide assumes that you finished the [Quickstart](../get-started/quickstart.mdx). Each code block is complete and opens its own connections. The LLM examples read `LLM_BASE_URL`, `LLM_MODEL_ID`, and optionally `LLM_API_KEY` from the environment or from `.env`.
+Extraction examples run on one chunk of text, and resolution examples run on a graph. The examples assume that you finished the [Quickstart](../get-started/quickstart.mdx). Each code block is complete and opens its own connections. The LLM examples read `LLM_BASE_URL`, `LLM_MODEL_ID`, and optionally `LLM_API_KEY` from the environment or from `.env`.
 
 ## Extract with the default schema
 
@@ -81,7 +81,7 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
-Only `BAMLExtractor` uses the heading path. The local extractor reads the chunk text only. See [Configure chunking](./configure-chunking.mdx) for the embedding side of this configuration.
+Only `BAMLExtractor` uses the heading path. The local extractor reads the chunk text only. See [Configure chunking](./configure-chunking.mdx) for how chunks record their heading paths.
 
 ## Configure extraction
 
@@ -213,7 +213,7 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
-The `escalation` report shows how many chunks were weak, how many the LLM read, and how many LLM calls failed. The [Control LLM cost during extraction](./control-llm-cost-during-extraction.mdx) guide explains the budget settings and each field of the report.
+The `escalation` report shows how many chunks were weak, how many the LLM read, and how many LLM calls failed. See [Control LLM cost during extraction](./control-llm-cost-during-extraction.mdx) for the budget settings and each field of the report.
 
 ## Configure the LLM provider
 
@@ -304,7 +304,7 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
-A dry run writes nothing. An apply run writes `MATCHES` edges and derived resolved nodes. It reports exactly the matches it wrote. LLM review calls stay bounded no matter how large the graph grows.
+A dry run writes nothing. An apply run writes `MATCHES` edges and derived resolved nodes. It reports exactly the matches it wrote. LLM review is capped at `max_llm_pairs` pairs for each label, which defaults to 500, however large the graph is.
 
 ## Re-evaluate specific entities
 
@@ -372,4 +372,4 @@ schema = GraphSchema(
 
 ## Next steps
 
-See the [API reference](../api/index.md) for every `Extractor`, `Comparator`, and schema field.
+The [API reference](../api/index.md) gives the signature of every `Extractor`, `Comparator`, and schema field.

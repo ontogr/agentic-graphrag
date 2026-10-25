@@ -8,15 +8,13 @@ import Diagram from '@site/src/components/Diagram';
 
 # Agent loop
 
-The agent loop turns one question into a cited answer. A single agent works on a named task. It discovers evidence in the graph, fetches the exact text it needs, and writes an answer that cites only the evidence it fetched. A citation check runs after the answer, and one repair pass asks the agent to remove or fetch citations that do not check out. The run also records messages, tool calls, and tool results as conversation history, so the record is more than a chat transcript.
+The agent loop turns one question into a cited answer. A single agent works on a named task. It discovers evidence in the graph, fetches the exact text it needs, and writes an answer that cites only the evidence it fetched. A citation check runs after the answer, and one repair pass asks the agent to remove or fetch citations that do not check out. The run also records messages, tool calls, and tool results as conversation history.
 
 ## Why it exists
 
 One search can miss part of a multi-part question. "Who worked with Charles Babbage, and where?" needs two facts that may sit in different passages. The agent runs several evidence calls for one task, and it keeps the task state between calls.
 
 The agent can also resume a task. Each task has a name. A run with the same task name reads the events recorded for that task and reuses its completed steps. The agent fetches again the passages it cites, so each citation comes from a fetch in the current run.
-
-Citations make claims traceable to the passages behind them.
 
 ## How it works
 
@@ -39,7 +37,7 @@ The agent has two groups of tools. The evidence tools read your documents and gr
 
 | Tool | What the agent uses it for |
 |---|---|
-| `search_evidence` | Finds passages for a question by [keyword, meaning, or both](../tools/passage-search.mdx) and returns evidence ids and previews. |
+| `search_evidence` | Finds passages for a question by [lexical, semantic, or both](../tools/passage-search.mdx) and returns evidence ids and previews. |
 | `fetch_evidence` | Reads the exact text for evidence ids. Only a complete fetch makes an id [citable](../tools/fetch-evidence.mdx). |
 | `navigate_document_tree` | Reads the section, the neighbors, or the table rows around a passage, using one of [six relations](../tools/navigate-document-tree.mdx). |
 | `entity_search` | Finds [entities](../tools/entity-search.mdx) by name or meaning and lists the passages that mention them. |
@@ -95,7 +93,7 @@ These settings bound one run. Set them with `AGENT_` variables or `AgentSettings
 | `max_tool_calls` | `20` | The maximum tool calls in one task run. |
 | `max_result_characters` | `12000` | The maximum text that one evidence fetch returns. |
 
-The result has two parts that matter most. `answer` holds Markdown with numbered references such as `[1]` and a Sources list. Numbers follow first appearance, and passages from the same document version share a number. `citations` lists the actual fetched evidence, including canonical IDs, stored titles, source URIs, and locations. A citation to a narrower span retains its fetched parent in that list. Invalid citation groups remain visible and keep the run's `partial` status.
+The result has two main parts. `answer` holds Markdown with numbered references such as `[1]` and a Sources list. Numbers follow first appearance, and passages from the same document version share a number. `citations` lists the actual fetched evidence, including canonical IDs, stored titles, source URIs, and locations. A citation to a narrower span retains its fetched parent in that list. Invalid citation groups remain visible and keep the run's `partial` status.
 
 For example, an answer can contain `Revenue increased. [[1]](https://example.org/report.pdf)` followed by `[1] [Annual report](https://example.org/report.pdf)` in its Sources list. Local files and inline documents use plain numbered references and document titles. URLs point to the stored source address; the fetched text and content hash identify the cited version. Superseded evidence is labeled in the source list.
 
@@ -122,9 +120,9 @@ Source passages, task events, and tool results are data. The system prompt tells
 
 ## Related
 
-- Guide: [Retrieve and answer](../guides/retrieve-and-answer.mdx)
-- Guide: [Trace an agent run](../guides/trace-an-agent-run.mdx)
+- Guide: [Retrieve and answer](../guides/retrieve-and-answer.mdx) shows how to call the agent and read its result.
+- Guide: [Trace an agent run](../guides/trace-an-agent-run.mdx) shows how to record spans for a run.
 - [Retrieval](./retrieval.mdx) compares the strategies behind the evidence tools, and [Evidence ids and citations](./evidence-and-citations.mdx) describes the citation check that follows the answer.
-- Concepts: [Observability](./observability.mdx)
+- Concepts: [Observability](./observability.mdx) describes the spans that an agent run records.
 - Reference: [Tools](../reference/tools.mdx) for tool parameters, [Agents API](../api/agents/index.md), [Configuration](../reference/configuration.mdx)
-- Reference: [Candidates](../reference/candidates.mdx)
+- Reference: [Candidates](../reference/candidates.mdx) explains the records that hold items the schema rejected.

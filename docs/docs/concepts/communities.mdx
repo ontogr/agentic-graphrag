@@ -49,24 +49,24 @@ An LLM writes the first report, and an LLM can make mistakes. In one test run, a
 <details>
 <summary>Design choices</summary>
 
-Why weight relations by chunk count? A relation that many chunks state counts more. A relation without a source chunk cannot inflate a community.
+Relations are weighted by chunk count, so a relation that many chunks state counts more. A relation without a source chunk cannot inflate a community.
 
-Why decide the report type by internal weight and not by size? A small group with many attested relations can matter more than a large sparse group.
+The report type depends on internal weight, not on group size. A small group with many attested relations can matter more than a large sparse group.
 
-Why keep a simple report? It costs no LLM call and it is the same on every run. Most groups in a large graph are small.
+Small groups get a simple report, which costs no LLM call and is the same on every run. Most groups in a large graph are small.
 
-Why keep only the first level? One level of groups is enough for retrieval. It also keeps the number of `Community` nodes small.
+Only level 0 is kept. One level of groups is enough for retrieval, and it keeps the number of `Community` nodes small.
 
-Why rebuild every time? A full rebuild gives one clean partition. There is no rule for merging an old partition with a new one.
+Every run rebuilds the full partition, because there is no rule for merging an old partition with a new one.
 
-Community detection reads the whole graph and replaces the previous partition. Running it on request keeps that cost out of ordinary ingestion and lets you decide when reports need a refresh.
+Running detection on request keeps that cost out of ordinary ingestion and lets you decide when reports need a refresh.
 
 </details>
 
 ## Related
 
-- Guide: [Detect communities and read reports](../guides/detect-communities.mdx)
-- Tool: [Search themes](../tools/search-themes.mdx)
-- Previous: [Matching and resolved entities](./resolved-entities.mdx)
-- Concept: [Knowledge graph](./knowledge-graph.mdx)
-- Reference: [Ingestion API](../api/ingestion/index.md)
+- Guide: [Detect communities and read reports](../guides/detect-communities.mdx) shows how to run detection and read each report.
+- Tool: [Search themes](../tools/search-themes.mdx) searches these reports and returns the passages that mention their members.
+- Previous: [Matching and resolved entities](./resolved-entities.mdx) explains how duplicate entities are matched before communities group them.
+- Concept: [Knowledge graph](./knowledge-graph.mdx) describes the entity and relation nodes that communities group.
+- Reference: [Ingestion API](../api/ingestion/index.md) lists the calls that run detection and apply the result.

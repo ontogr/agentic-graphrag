@@ -45,4 +45,4 @@ Relation limits appear twice: as `sh:maxCount` on the endpoint shapes, which val
 
 SHACL checks one graph. Cardinality limits are enforced per node through `sh:maxCount` on the endpoint shapes, with the same values repeated as annotations for pipelines. A symmetric relation is written once; the reverse direction is an annotation plus expanded endpoint shapes, not a second property. Endpoint shapes already include descendants and symmetric reversals, so validators should target exact types rather than re-applying parent shapes through subclass reasoning.
 
-This page covers export only. You cannot load a schema from SHACL.
+A schema cannot be loaded from SHACL.

@@ -30,7 +30,7 @@ A wrong match can mix facts from two entities, while a missed match can be recon
 6. Cluster tier. Ambiguous pairs are grouped by average similarity. A tight group is a match without an LLM call.
 7. LLM tier. An LLM reads each remaining pair with its context. For an entity that is already in the graph, the context is the entity name and its neighboring relations. It answers match, no match, or uncertain. Only a match merges. A failed request also leaves the pair undecided. The LLM sees at most 500 pairs for each label, most similar first; entity indices break ties. Pairs over the cap stay undecided and are counted in the resolution result.
 
-The tier thresholds trade speed and cost against judgment quality. Cheap exact and name-based checks handle clear cases first; only ambiguous pairs reach the LLM, and the per-label cap leaves some pairs undecided rather than allowing unbounded calls. If no LLM is configured, the remaining pairs stay undecided. A resolution call logs one warning, and `reevaluate` keeps existing match edges for those pairs.
+Without an LLM, the remaining pairs stay undecided too. A resolution call logs one warning, and `reevaluate` keeps existing match edges for those pairs.
 
 ## Two scopes
 
@@ -50,21 +50,21 @@ Entities that two documents create at the same time are resolved after both jobs
 <details>
 <summary>Design choices</summary>
 
-Why zones and not a chain of vetoes? A low fuzzy score never rejects a pair. "Ada King" and "Ada Lovelace" share few characters, but they name one person. The embedding and LLM tiers still get to see the pair. The name gate is the only hard block, and it covers only the two checks in step 3.
+The tiers use zones instead of a chain of vetoes, because a low fuzzy score never rejects a pair. "Ada King" and "Ada Lovelace" share few characters, but they name one person. The embedding and LLM tiers still get to see the pair. The name gate is the only hard block, and it covers only the two checks in step 3.
 
-Why cluster before the LLM? A tight group of similar names needs no judgment. Grouping first sends fewer pairs to the LLM.
+The cluster tier runs before the LLM because a tight group of similar names needs no judgment. Grouping first sends fewer pairs to the LLM.
 
-Why cap the LLM pairs for each label? The cap bounds the cost. One call makes at most ceil(L × 500 ÷ 10) LLM requests for L labels.
+The per-label cap bounds the cost. One call makes at most ceil(L × 500 ÷ 10) LLM requests for L labels.
 
-Why does "unsure" mean no merge? A missed match is recoverable with `Graph.consolidate`. An uncertain answer is not a rejection, so `Graph.reevaluate` does not remove a match because the model was unsure.
+A missed match is recoverable with `Graph.consolidate`. An uncertain answer is not a rejection, so `Graph.reevaluate` does not remove a match because the model was unsure.
 
-Why compare only equal labels? A city and a company can have the same name. Keeping labels apart stops a merge across types.
+A city and a company can have the same name. Keeping labels apart stops a merge across types.
 
 </details>
 
 ## Related
 
-- Guide: [Consolidate duplicates](../guides/consolidate-duplicates.mdx)
-- Guide: [Extract and resolve entities](../guides/extract-and-resolve.mdx)
+- Guide: [Consolidate duplicates](../guides/consolidate-duplicates.mdx) shows how to run these tiers over every entity in a graph.
+- Guide: [Extract and resolve entities](../guides/extract-and-resolve.mdx) shows how to extract and resolve entities in a graph.
 - Previous: [Extraction](./extraction.mdx). Next: [Matching and resolved entities](./resolved-entities.mdx)
-- Reference: [Ingestion API](../api/ingestion/index.md)
+- Reference: [Ingestion API](../api/ingestion/index.md) lists the ingestion classes and functions.

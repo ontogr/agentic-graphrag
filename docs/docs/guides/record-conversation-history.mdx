@@ -6,7 +6,7 @@ description: Create a task, record its events and steps from Python, and read th
 
 # Record and resume a task
 
-Create a task, append its events and steps, and read the state back in a later process. The calls in this guide use `ConversationHistory`. To record decisions that cite the task's events and steps, see [Record decisions and review them](./decision-traces.mdx).
+Create a task, append its events and steps, and read the state back in a later process. This guide uses `ConversationHistory`. [Record decisions and review them](./decision-traces.mdx) covers decisions that cite the task's events and steps.
 
 ## Prerequisites
 
@@ -189,7 +189,7 @@ New events continue the sequence. The next event after the last one gets the nex
 
 ## Open the store in a script
 
-Open the store once, run the functions, and close it. The example below runs the write path in one process and the resume path in another.
+Open the store once, run the functions, and close it. The script below runs the write path. Run `resume_task` from the previous section the same way in a later process.
 
 ```python notest
 async def record_run() -> None:

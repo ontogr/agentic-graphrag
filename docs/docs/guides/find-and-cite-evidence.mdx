@@ -62,7 +62,7 @@ asyncio.run(main())
 
 `search_evidence` returns an `EvidenceSearchResult`. Its `status` is `ok`, `partial`, `no_match`, `empty_scope`, `index_not_ready`, or `failed`. `partial` means that one search leg failed and the other returned hits, and `truncated` is `true` when the candidate list was cut. Each hit has an `evidence_id`, a `title`, a `location`, a `snippet` of up to 240 characters, and a `score`.
 
-`search_evidence` takes three modes. `EvidenceSearchMode.LEXICAL` runs a keyword search, `EvidenceSearchMode.SEMANTIC` runs a vector search, and `EvidenceSearchMode.HYBRID` runs both and combines them. Use the embedder that you used for ingestion.
+`search_evidence` takes three modes. `EvidenceSearchMode.LEXICAL` runs a lexical search, `EvidenceSearchMode.SEMANTIC` runs a semantic (vector) search, and `EvidenceSearchMode.HYBRID` runs both and combines them. Use the embedder that you used for ingestion.
 
 `fetch_evidence` returns a `FetchResult` whose `outcomes` list holds one `FetchOutcome` per id, in order. Its `text` is the exact stored text, cut to `max_chars`, which defaults to 4000 characters. The `status` is `ok`, `partial`, `truncated`, `unavailable`, `malformed`, `index_not_ready`, or `failed`, and `status_of_version` is `current` or `superseded`. An id from an earlier version of an updated document still returns its text and is labeled superseded.
 
@@ -70,7 +70,7 @@ asyncio.run(main())
 
 ## Move around a passage
 
-`navigate_document_tree` takes an evidence id and a relation, and returns the neighbouring text. Add the snippets in this and the next two sections inside the `try` block of the example above.
+`navigate_document_tree` takes an evidence id and a relation, and returns the neighboring text. Add the snippets in this and the next two sections inside the `try` block of the example above.
 
 ```python notest
 from agrag.common.data_models.navigation import NavigationRelation
@@ -95,7 +95,7 @@ The relations are `parent`, `children`, `siblings`, `previous`, `next`, and `tab
 
 ## Search entities and explore relations
 
-`entity_search` searches entity names by keyword and entity embeddings by similarity. Each hit carries up to `support_limit` passages that mention the entity. `explore_relationships` follows the relations of an entity outward.
+`entity_search` searches entity names lexically and entity embeddings semantically. Each hit carries up to `support_limit` passages that mention the entity. `explore_relationships` follows the relations of an entity outward.
 
 ```python notest
 from agrag.evidence import entity_search, explore_relationships
@@ -141,6 +141,6 @@ Pass only ids that `check_citations` marked valid, together with the fetch outco
 - [Retrieval](../concepts/retrieval.mdx) compares the strategies and shows which tool fits a question.
 - [Passage search](../tools/passage-search.mdx), [Entity search](../tools/entity-search.mdx), [Explore relationships](../tools/explore-relationships.mdx), [Document tree navigation](../tools/navigate-document-tree.mdx), [Fetch evidence](../tools/fetch-evidence.mdx), and [Check citations](../tools/check-citations.mdx) list the inputs, the result fields, and the statuses of each call.
 - [Evidence ids and citations](../concepts/evidence-and-citations.mdx) describes id formats, fetch statuses, and citation verdicts.
-- Explanation: [Agent loop](../concepts/agent-loop.mdx).
-- How-to: [Run the MCP server](./run-the-mcp-server.mdx).
+- Explanation: [Agent loop](../concepts/agent-loop.mdx) describes how one task-scoped agent turns a question into a cited answer with these functions.
+- How-to: [Run the MCP server](./run-the-mcp-server.mdx) gives an MCP client tools to search, read passages, and check citations.
 - Reference: [Tools](../reference/tools.mdx) for parameters and limits, [Evidence API](../api/evidence/index.md) for signatures.

@@ -16,7 +16,7 @@ A chunk is plain text. Extraction turns statements in that text into typed facts
 
 A schema keeps the facts consistent. It names the valid entity types and relation types. It also names the pairs of types that each relation can join. An extractor cannot add a type that the schema does not declare.
 
-The trade-off is coverage against cost. A local model can screen every chunk without API calls, while an LLM can add context-sensitive results at additional cost. Hybrid mode sends selected chunks to the LLM, subject to an escalation budget; GLiNER-only mode avoids those calls, while LLM-only mode sends chunks directly to the LLM.
+A local model reads every chunk without API calls. In `hybrid` mode, an LLM re-reads eligible chunks, such as those with a kept entity scoring under 0.75, up to the escalation budget. GLiNER-only mode avoids those LLM calls, while LLM-only mode sends chunks directly to the LLM.
 
 ## How it works
 
@@ -53,33 +53,33 @@ The two sentences give six mentions. After resolution, they are four entities, b
 <details>
 <summary>Design choices</summary>
 
-Why keep the local span and score for an entity that both results find? The local model reports a span and a score for every entity, so the graph uses them when the LLM returns the same entity.
+An entity that both results find keeps the local span and score, because the local model reports both for every entity.
 
-Why keep the local entities that the LLM did not return? The local model finds some entities that the LLM misses. Dropping them would lower recall, so the union keeps both.
+The local entities that the LLM did not return stay in the result. The local model finds some entities that the LLM misses, and dropping them would lower recall, so the union keeps both.
 
-Why use the lowest score and not the mean? One uncertain entity can be wrong while the others are right. The mean hides that entity. The lowest score finds it.
+The graph uses the lowest score and not the mean, because one uncertain entity can be wrong while the others are right. The mean hides that entity, and the lowest score finds it.
 
-Why a budget? An LLM call costs more than a local call, and most chunks have at least one entity below 0.75. The budget sets an upper bound on the LLM cost of a run. The run report shows how many eligible chunks the budget left out.
+The budget bounds the LLM cost of a run, because an LLM call costs more than a local call and most chunks have at least one entity below 0.75. The run report shows how many eligible chunks the budget left out.
 
-Why escalate an empty result only for chunks of eight words or more? A short chunk with no entities is often correct. A long chunk with no entities is usually a miss.
+An empty result escalates only for chunks of eight words or more. A short chunk with no entities is often correct, and a long chunk with no entities is usually a miss.
 
-Why validate after extraction? An LLM can invent a type or a property. The schema is the contract. Validation is the last step for every extractor, so the graph never receives an undeclared type.
+Validation runs after extraction because an LLM can invent a type or a property, and the schema is the contract. Validation is the last step for every extractor, so the graph never receives an undeclared type.
 
-Why one model call for entities and relations? The model scores both in one pass. A second pass for relations only costs time, and the relation endpoints would need a match to the entities anyway.
+The model scores entities and relations in one pass, so one model call covers both. A second pass for relations only costs time, and the relation endpoints would need a match to the entities anyway.
 
-Why keep one label for words that return under a parent and a child type? Two labels on one span make two mentions of one thing. The higher score is the model's better guess, and the parent labels are added when the node is written.
+When the model returns the same words under a parent type and a child type, the extractor keeps the label with the higher score, and keeps the child on a tie. Two labels on one span would make two mentions of one thing. The parent labels are added when the node is written.
 
-Why read the model a second time at a lower score? A lower score changes which overlapping spans the model keeps, so the entities you keep must come from the first read. The second read only looks for weak spans to report.
+The model reads each chunk a second time at a lower score to report weak spans as candidates. A lower score changes which overlapping spans the model keeps, so the kept entities come from the first read only.
 
 </details>
 
 ## Related
 
-- Guide: [Define a graph schema](../guides/define-a-graph-schema.mdx)
-- Guide: [Extract and resolve entities](../guides/extract-and-resolve.mdx)
-- How-to: [Control LLM cost during extraction](../guides/control-llm-cost-during-extraction.mdx)
-- How-to: [Turn candidates off](../guides/turn-off-candidates.mdx)
-- Explanation: [Candidates](./candidates.mdx)
+- Guide: [Define a graph schema](../guides/define-a-graph-schema.mdx) shows how to declare the entity types and relations that extraction can return.
+- Guide: [Extract and resolve entities](../guides/extract-and-resolve.mdx) shows how to extract and resolve entities in a graph.
+- How-to: [Control LLM cost during extraction](../guides/control-llm-cost-during-extraction.mdx) shows how to limit the LLM calls in a run.
+- How-to: [Turn candidates off](../guides/turn-off-candidates.mdx) shows how to stop writing discarded items as candidates.
+- Explanation: [Candidates](./candidates.mdx) describes the results that extraction keeps outside the graph.
 - Next: [Entity resolution](./resolution.mdx)
-- Reference: [Run statistics](../reference/run-stats.mdx)
-- Reference: [Ingestion API](../api/ingestion/index.md)
+- Reference: [Run statistics](../reference/run-stats.mdx) lists the counts a run reports.
+- Reference: [Ingestion API](../api/ingestion/index.md) lists the ingestion classes and functions.

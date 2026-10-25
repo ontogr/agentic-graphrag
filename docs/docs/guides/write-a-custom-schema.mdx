@@ -6,12 +6,12 @@ description: Write a schema as a short list, as a small extension of the default
 
 # Write a custom schema
 
-A schema tells the extractor which entity types and relation types to look for. You can write one in three ways. Use a short list when you only need labels. Use `extends` when you want to keep the default schema and add to it. Write a full dict when you want to replace the default schema. The section [Every source you can pass](#every-source-you-can-pass) lists all the other forms that a schema can take.
+A schema tells the extractor which entity types and relation types to look for. You can write one in three ways. Use a short list when you only need labels. Use `extends` when you want to keep the default schema and add to it. Write a full dict when you want to replace the default schema. [Every source you can pass](#every-source-you-can-pass) lists the other forms that a schema can take.
 
 ## Before you start
 
 - Install Agentic GraphRAG. These steps do not need a database.
-- To use the result in a graph, see [Define a graph schema](./define-a-graph-schema.mdx).
+- [Define a graph schema](./define-a-graph-schema.mdx) gives the schema to a graph.
 
 ## 1. Write a short list
 
@@ -138,7 +138,7 @@ relations:
   - "Organization-SUPPLIES->Product"
 ```
 
-Pass the path to `load_schema`. The example reads a file, so it does not run in the documentation tests.
+Pass the path to `load_schema`.
 
 ```python notest
 from agrag.schema import load_schema
@@ -173,7 +173,7 @@ Thresholds, the model name and the data type are extraction settings. Set them i
 
 ## Every source you can pass
 
-`Graph.open` and `load_schema` accept the sources in this table. Each one produces a `GraphSchema`.
+`Graph.open` and `load_schema` accept each source in this table. Each one produces a `GraphSchema`.
 
 | Source | Example | Where it is covered |
 | --- | --- | --- |

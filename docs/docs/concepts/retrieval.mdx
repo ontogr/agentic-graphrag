@@ -10,7 +10,7 @@ import Diagram from '@site/src/components/Diagram';
 
 Retrieval finds the parts of your documents that answer a question, and it lets an answer point back to the exact text it came from. The evidence tools in `agrag.evidence` search your documents, return the exact text of a passage, and check the citations in an answer. The built-in agent and the MCP server use them.
 
-No single search finds everything. A name lookup finds "Ada Lovelace" and misses "the main themes in this corpus". A keyword search finds an exact contract term and misses a paraphrase of it. A vector search finds the paraphrase and can rank a similar but wrong passage first. The tools below cover these cases one at a time.
+No single search finds everything. A name lookup finds "Ada Lovelace" and misses "the main themes in this corpus". A lexical search finds an exact contract term but not its paraphrase. A semantic search finds the paraphrase but can rank a similar wrong passage first.
 
 <Diagram folder="docs" name="evidence-tools-overview" alt="A query goes to passage search, or to entity search and then relationship exploration. Both return evidence ids. Fetch turns an id into its exact text. Document tree navigation moves from a passage to neighboring passages and returns more ids. The citation check compares cited ids with the ids that were fetched." />
 
@@ -59,7 +59,7 @@ ev1:c:f24b301d...12cd16fb    not_fetched
 ev1:c:oops                   malformed
 ```
 
-The second id points to a real passage that nobody read. The third is not an id at all. A `valid` verdict shows that the passage was read. It does not show that the passage supports the claim. A valid citation then becomes a numbered reference:
+The second id points to a real passage that nobody read. The third is not an id at all. A `valid` verdict shows that the passage was read. [Evidence ids and citations](./evidence-and-citations.mdx) explains what the verdict does not show. A valid citation then becomes a numbered reference:
 
 ```text
 Customer data is deleted within 10 business days. [1]
@@ -75,9 +75,9 @@ You give the tools a list of documents that they may read. The list is called th
 
 ## Retrieval strategies
 
-### Keyword search
+### Lexical search
 
-Keyword search matches the words of the query against chunk text with a full-text index. [Passage search](../tools/passage-search.mdx) runs it in `lexical` mode.
+Lexical search matches the words of the query against chunk text with the graph full-text index. [Passage search](../tools/passage-search.mdx) runs it in `lexical` mode.
 
 Main features:
 
@@ -97,7 +97,7 @@ Main features:
 
 ### Hybrid search
 
-Hybrid search runs keyword search and semantic search, then fuses the two ranked lists with reciprocal rank fusion. It is the default mode of [passage search](../tools/passage-search.mdx).
+Hybrid search runs lexical search and semantic search, then fuses the two ranked lists with reciprocal rank fusion. It is the default mode of [passage search](../tools/passage-search.mdx).
 
 Main features:
 
@@ -105,7 +105,7 @@ Main features:
 - Ranks a chunk higher when both searches rank it well.
 - Reports `partial` when one of the two searches fails.
 
-When a reranker is configured, hybrid search also reorders its top hits with a cross-encoder model and marks the result `reranked`. With an external vector store, the store itself performs the hybrid fusion of dense and keyword results, and the graph full-text index is not searched in this mode. The `lexical` mode always searches the graph full-text index, on every backend.
+When a reranker is configured, hybrid search also reorders its top hits with a cross-encoder model and marks the result `reranked`. With an external vector store, the store itself performs the hybrid fusion of dense and lexical results, and the graph full-text index is not searched in this mode. The `lexical` mode always searches the graph full-text index, on every backend.
 
 ### Entity search
 

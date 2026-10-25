@@ -5,7 +5,7 @@ description: Fields, types, defaults, limits, state values, error codes, and exc
 
 # History and decisions data model
 
-This page lists the models that `ConversationHistory`, `DecisionTraces`, and `HistoryRetention` return. The models are defined in `agrag/common/data_models/task.py`, `decision.py`, `write_result.py`, and `retention.py`. The classes are in `agrag/history/` and `agrag/decisions.py`. For the concepts behind these fields, see [Conversation history and decisions](../concepts/conversation-history-and-decisions.mdx).
+`ConversationHistory`, `DecisionTraces`, and `HistoryRetention` return the models below. The models are defined in `agrag/common/data_models/task.py`, `decision.py`, `write_result.py`, and `retention.py`. The classes are in `agrag/history/` and `agrag/decisions.py`. [Conversation history and decisions](../concepts/conversation-history-and-decisions.mdx) explains the concepts behind these fields.
 
 ## Tasks and events
 
@@ -240,7 +240,7 @@ Each method clamps its page size to the maximum shown.
 
 ## Enums and states
 
-Each table lists one enum or one state field. A value is the string stored and returned.
+Each value is the string that is stored and returned.
 
 ### Task and step states
 
@@ -330,7 +330,7 @@ Each table lists one enum or one state field. A value is the string stored and r
 
 ### Write error codes
 
-Each write returns one of these codes in its `error` field. The `WriteErrorCode` enum has two definitions. Conversation history writes use the first table. Decision writes use the second table.
+Each write returns one of these codes in its `error` field. The `WriteErrorCode` enum has two sets of values, one for conversation history writes and one for decision writes.
 
 #### Conversation history writes
 
@@ -385,9 +385,9 @@ Each write returns one of these codes in its `error` field. The `WriteErrorCode`
 
 ## Exceptions
 
-The history, decision, and retention writes do not raise for a refused write. They return the error codes above. The `_WriteRefusedError`, `_DecisionRefusedError`, and `_RetentionRefusedError` classes are internal, so they are not listed here.
+The history, decision, and retention writes return the error codes above for a refused write and do not raise. The `_WriteRefusedError`, `_DecisionRefusedError`, and `_RetentionRefusedError` classes are private and not part of the public API.
 
-The catalog lists the public exception classes. A class is public when its module name does not start with an underscore. `CutoverJobLeaseError` in `agrag/ingestion/_cutover.py` is not in the catalog for that reason. The base classes with no raise site in `agrag` are marked as bases. Catch a base class to handle every subclass.
+A class is public when its module name does not start with an underscore. `CutoverJobLeaseError` in `agrag/ingestion/_cutover.py` is therefore not listed. The base classes with no raise site in `agrag` are marked as bases. Catch a base class to handle every subclass.
 
 ### Graph store
 

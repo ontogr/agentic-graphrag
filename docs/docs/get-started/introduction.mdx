@@ -11,11 +11,9 @@ Agentic GraphRAG is an open source Python framework that connects enterprise kno
 
 ## What it keeps in the graph
 
-The graph has three connected layers. Enterprise knowledge holds documents with their sections, chunks, entities, relations, and community summaries. Conversation history holds named tasks, ordered events, and steps. Events include agent messages, tool calls, and tool results, so conversation history is more than a chat transcript. Decision traces hold conclusions, concise rationales, assumptions, and explicit supports to passages, task events, or other decisions. They are stored records, not hidden model reasoning.
+The graph has three connected layers. Enterprise knowledge holds documents with their sections, chunks, entities, relations, and community summaries. Conversation history holds named tasks, ordered events, and steps. Events include agent messages, tool calls, and tool results. Decision traces hold conclusions, concise rationales, assumptions, and explicit supports to passages, task events, or other decisions.
 
-Add documents to build a knowledge graph shaped by your schema. Agents search the graph, read the exact passage behind each result, and cite it. They record decisions with supports that identify the evidence they rely on. A later session resumes a task from its recorded events and steps, and source changes flag affected decisions for review.
-
-The company-briefing workflow uses annual-report passages to support decisions about a business risk. A later run can resume its task and inspect the saved decision. A correction to the working copy flags decisions that cite the changed text for review.
+You can define your own entity and relation types. The company-briefing workflow uses annual-report passages to support decisions about a business risk. A later run can resume its task and inspect the saved decision. A correction to the working copy flags decisions that cite the changed text for review.
 
 ## Three ways to use it
 
@@ -25,8 +23,6 @@ Use the Python library when you want direct control. `Graph` adds documents, the
 
 <Diagram folder="docs" name="introduction" alt="Ingestion stores enterprise knowledge in one graph. An agent or MCP client searches the graph, records conversation history, and saves decision traces with evidence supports. The agent returns a cited answer." />
 
-*Ingestion builds the graph. Agents and MCP clients read evidence, record task activity, and save supported decisions.*
-
 1. You add documents. Agentic GraphRAG loads them, splits them into chunks, and extracts entities and relations.
 2. Agentic GraphRAG resolves duplicate mentions and writes the graph and its indexes to the graph database.
 3. You ask a question. The agent discovers and fetches evidence from the graph.
@@ -35,7 +31,7 @@ Use the Python library when you want direct control. `Graph` adds documents, the
 
 ## Who it is for
 
-Use Agentic GraphRAG if you build agents that answer from documents that you own, need answers that cite their sources, and want agents that continue a task across sessions. You can define your own entity and relation types.
+Use it to build an agent that answers from documents you own and cites the passages it read. The company briefing example resumes the same task after a correction to its source.
 
 ## What you need
 

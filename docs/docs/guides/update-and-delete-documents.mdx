@@ -32,7 +32,7 @@ If you add text that will change, pass a `Document` with a key you choose.
 
 ## Add, update and delete a document
 
-This script adds a document with the key `apollo-notes`. It then updates the document with the same text, updates it with new text, and deletes it.
+The script adds a document with the key `apollo-notes`, updates it with the same text and then with new text, and deletes it.
 
 ```python
 import asyncio
@@ -174,7 +174,7 @@ Purge belongs to `Graph`, not `HistoryRetention`, because it removes ingested co
 
 ## See what stays in the graph
 
-After the script above, run this query. It lists the chunks of each document and whether the link to them is open.
+Run this query to list each document's chunks and whether their `HAS_PART` link is open.
 
 ```python
 import asyncio

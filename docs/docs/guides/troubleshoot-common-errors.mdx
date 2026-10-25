@@ -101,7 +101,7 @@ GraphStoreAliasConflictError: merge_key alias already claimed by another entity:
 
 Agentic GraphRAG keeps bookkeeping nodes beside the graph, such as merge aliases and document jobs. If you delete only the entity and chunk nodes, the bookkeeping points at entities that no longer exist.
 
-To start over, delete every node in the database and drop the vector indexes. This removes all data in the database, so use it only when the database holds nothing but Agentic GraphRAG data. See the last section for the commands.
+To start over, delete every node in the database and drop the vector indexes. This removes all data in the database, so use it only when the database holds nothing but Agentic GraphRAG data. [The embedding dimension does not match](#the-embedding-dimension-does-not-match) has the commands.
 
 ## An add call reports duplicate document keys
 
@@ -142,7 +142,7 @@ A source with a missing loader extra follows your error policy. With `SKIP`, Age
 3. The label is not in the schema. The parser removes the entity before the extractor sees it. Check the entity-type labels and descriptions.
 4. The chunk is long and the model stopped early. Use a smaller chunker `size` or a model with a larger context window.
 
-`UnparsableExtractionError`: the model answered in prose or in broken JSON. BAML cannot read the reply, and `BAMLExtractor` reports the chunk as failed. In `hybrid` mode the chunk keeps the local result. In `llm` mode the run follows its error policy for that chunk. Use a larger model, or lower the chunk size.
+`UnparsableExtractionError` means the model answered in prose or in broken JSON. BAML cannot read the reply, and `BAMLExtractor` reports the chunk as failed. In `hybrid` mode the chunk keeps the local result. In `llm` mode the run follows its error policy for that chunk. Use a larger model, or lower the chunk size.
 
 ## An LLM call takes a very long time or retries many times
 
@@ -215,9 +215,7 @@ The scope holds no readable documents. Search reads only the documents in `scope
 
 The vector index does not exist. A semantic or hybrid search finds no semantic hits when the chunk vector index is missing, and the result says `index_not_ready`. Before you search, open the graph once. `Graph.open` creates the indexes.
 
-The embedder differs from the one that ingestion used. A query vector of another size fails the semantic leg. A hybrid search then returns keyword hits only and reports `partial`, and a semantic search returns `failed` with a message that names the mismatch. Set the same `EMBEDDING_*` settings that ingestion used, or search in `lexical` mode. To change the model of the graph, see the next section.
-
-When a search returns nothing, the agent has no evidence to cite.
+The embedder differs from the one that ingestion used. A query vector of another size fails the semantic leg. A hybrid search then returns lexical hits only and reports `partial`, and a semantic search returns `failed` with a message that names the mismatch. Set the same `EMBEDDING_*` settings that ingestion used, or search in `lexical` mode. To change the model of the graph, see the next section.
 
 ## The embedding dimension does not match
 
@@ -227,7 +225,7 @@ When a search returns nothing, the agent has no evidence to cite.
 EmbeddingDimensionMismatchError: expected dimension 384, embedder produces 4
 ```
 
-The error comes from a Neo4j vector index. It means that the stored vectors come from a model that makes 384 values, and your embedder makes 4.
+The error comes from a Neo4j vector index. The stored vectors have 384 values each, and the embedder produces 4.
 
 1. To keep your data, open the graph with the original embedder.
 2. To change models, start with an empty database. This deletes all data in the database. Then open the graph with the new embedder and ingest your documents again.
@@ -263,6 +261,6 @@ A search limit above 10,000 raises `ValueError`. Reduce the requested limit. A s
 
 ## Related
 
-- Concepts: [Graph storage](../concepts/graph-storage.mdx), [Retrieval](../concepts/retrieval.mdx)
-- Guide: [Configure storage backends](./configure-storage-backends.mdx)
-- Reference: [Configuration](../reference/configuration.mdx)
+- Concepts: [Graph storage](../concepts/graph-storage.mdx) and [Retrieval](../concepts/retrieval.mdx) explain the storage layer and the search modes.
+- Guide: [Configure storage backends](./configure-storage-backends.mdx) sets up each graph store.
+- Reference: [Configuration](../reference/configuration.mdx) lists every setting and its default.

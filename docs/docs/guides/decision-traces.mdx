@@ -8,7 +8,7 @@ import Diagram from '@site/src/components/Diagram';
 
 # Record decisions and review them
 
-Decision traces are structured records of conclusions, rationale, assumptions, open questions, and explicit supports. When a supported document changes, Agentic GraphRAG flags the affected decision for review. A reviewer can reaffirm it with current evidence or replace it with a new revision.
+Decision traces are structured records of conclusions, rationale, assumptions, open questions, and explicit supports. When a supported document changes, the affected decision is flagged for review. A reviewer can reaffirm it with current evidence or replace it with a new revision.
 
 <Diagram folder="docs" name="decision-lifecycle" alt="A decision starts active and clear. When a document it cites changes or is removed, or a decision it depends on is flagged, it needs review. A reviewer can reaffirm it after fetching current text, replace it with a new revision, or reject it when rejection is enabled." />
 
@@ -71,7 +71,7 @@ The staged commands print structured results as JSON. Entity extraction and agen
 
 ## Understand the decision record
 
-`DecisionTraces.record_decision` stores a conclusion with one or more support references. For document supports, the caller must pass the fetched evidence outcomes as well as the evidence ids. This proves the supports refer to readable source versions. A rationale is a concise record attached to the decision; it is not hidden model reasoning.
+`DecisionTraces.record_decision` stores a conclusion with one or more support references. For document supports, the caller must pass the fetched evidence outcomes as well as the evidence ids. Those outcomes prove the supports refer to readable source versions. A rationale is a concise record attached to the decision.
 
 When the source changes, `list_decisions_for_review` returns affected decisions with a review state and reason. `get_decision` reads a decision in its project. `list_support_history` reads its current and superseded support records. `supersede_decision` preserves the old decision and records a new revision after the caller fetches current evidence.
 

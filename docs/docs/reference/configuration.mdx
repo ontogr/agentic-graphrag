@@ -4,7 +4,7 @@ title: Configuration
 
 # Configuration
 
-Agentic GraphRAG reads its configuration from environment variables. This page lists the variables of each settings class, with their defaults.
+Agentic GraphRAG reads its configuration from environment variables, grouped here by settings class.
 
 ## How configuration loads
 
@@ -116,7 +116,7 @@ EXTRACTION_MIN_ESCALATION_WORDS=8
 EXTRACTION_CANDIDATES_ENABLED=true
 ```
 
-The `EXTRACTION_LLM_` settings in [Extraction](#extraction) belong to `ExtractionLLMSettings`, not `ExtractionSettings`. `fp16` and `bf16` can reduce memory use, but speed and support depend on the device and PyTorch build. The extractor loads the model in `fp32` and then casts it. Test lower precision on your data before using it in production.
+The `EXTRACTION_LLM_` settings in [Extraction](#extraction) belong to `ExtractionLLMSettings`, not `ExtractionSettings`. `fp16` and `bf16` can reduce memory use, but speed and support depend on the device and PyTorch build. Test lower precision on your data before using it in production.
 
 ## LLM clients
 
@@ -278,6 +278,6 @@ One dense or hybrid search accepts at most 10,000 results. A larger limit raises
 
 ## Related
 
-- How-to: [Configure storage backends](../guides/configure-storage-backends.mdx).
-- How-to: [Control LLM cost during extraction](../guides/control-llm-cost-during-extraction.mdx).
-- Reference: [Core API](../api/index.md).
+- [Configure storage backends](../guides/configure-storage-backends.mdx) sets up the graph store and vector store that the `NEO4J_`, `FALKORDB_`, `QDRANT_`, `MILVUS_`, and `WEAVIATE_` variables configure.
+- [Control LLM cost during extraction](../guides/control-llm-cost-during-extraction.mdx) shows how to set the `EXTRACTION_` mode and budget values for a run.
+- [Core API](../api/index.md) lists the Python classes and functions that read these settings.

@@ -12,7 +12,7 @@ Agentic GraphRAG records operations as OpenTelemetry traces when you provide a t
 
 ## Why it exists
 
-A GraphRAG run has many steps: loading, chunking, extraction, model calls, resolution, storage, retrieval, and agent turns. When an answer is wrong or slow, you must see which step did what. A trace shows each step, how long it took, and what it received and returned.
+A GraphRAG run has many steps. When an answer is wrong or slow, the trace shows which of loading, chunking, extraction, resolution, storage, search, or the LLM call spent the time. Each span records the step's duration and the inputs and outputs it received and returned. `Graph.add` opens an `agrag.ingestion.add` span that holds `agrag.ingestion.chunk_document` and `agrag.extraction.extract_chunk`, plus `agrag.ingestion.load_document` for `source=` input. The [trace spans reference](../reference/trace-spans.mdx) lists every span name.
 
 OpenTelemetry is a vendor-neutral standard. Any tool that reads it can show an Agentic GraphRAG trace.
 
@@ -20,7 +20,7 @@ OpenTelemetry is a vendor-neutral standard. Any tool that reads it can show an A
 
 <Diagram folder="docs" name="observability" alt="The add span holds load document, chunk document, extract chunk, and cutover job. Extract chunk holds the GLiNER or BAML extraction. The cutover job holds ingest chunks and rebuild components. Ingest chunks holds resolve tiers, merge group, and storage writes." />
 
-*The main spans of one `add` call. `load document` appears only for file sources. Store and embedding spans nest below the step that calls them.*
+*The main spans of one `add` call. `load document` appears only for `source=` input. Store and embedding spans nest below the step that calls them.*
 
 1. You create a tracer with the OpenTelemetry SDK. You choose where the spans go: memory, a file, or an OTLP endpoint.
 2. You pass the tracer to `Graph.open`. You also pass it to the stores and embedders you want traced. Use one tracer for all of them so their spans nest.
@@ -31,7 +31,7 @@ OpenTelemetry is a vendor-neutral standard. Any tool that reads it can show an A
 
 A span is one timed step. Each span has a name, a start and end time, a status, and attributes. The attributes hold counts, ids, and the text of the step. The Trace spans reference lists every span and attribute.
 
-Spans can hold full text, including questions, evidence, model requests and responses, and graph queries with parameter values. They omit vectors, full-text search terms, and model request headers. Because traces can contain source text and query data, choose a destination and retention policy that fit your data controls.
+Spans can hold full text, including questions, evidence, model requests and responses, and graph queries with parameter values. They omit vectors, lexical search terms, and model request headers. Because traces can contain source text and query data, choose a destination and retention policy that fit your data controls.
 
 ## Failures
 
@@ -46,20 +46,20 @@ You add one short text with the local extractor. The trace shows one `add` span.
 <details>
 <summary>Design choices</summary>
 
-Why do you pass the tracer in? A global tracer ties every graph in a process to one destination, and it changes your own telemetry. A passed tracer lets two graphs send traces to two places. It also lets tests run in parallel.
+The tracer is passed in, not set globally. A global tracer ties every graph in a process to one destination and changes your own telemetry. A passed tracer lets two graphs send traces to two places, and lets tests run in parallel.
 
-Why does no tracer cost nothing? Without a tracer, Agentic GraphRAG uses a no-op tracer. Spans are created but never recorded.
+Without a tracer, Agentic GraphRAG uses a no-op tracer. Spans are created but never recorded.
 
-Why does an agent run use one callback per run? The callback holds state for one run. A new callback for each run keeps two runs apart. Agentic GraphRAG installs no global instrumentation.
+Each agent run gets its own callback, which holds state for that run. A new callback for each run keeps two runs apart. Agentic GraphRAG installs no global instrumentation.
 
-Why are tool spans made current? Spans that Agentic GraphRAG opens inside a tool then nest under the tool's span. Without this step they sit beside it.
+Tool spans are made current, so spans that Agentic GraphRAG opens inside a tool nest under the tool's span. Without this step they sit beside it.
 
-Why does a failure record hold a trace id? A failure in a batch of many documents is hard to find in a large trace. The id takes you straight to the span.
+A failure in a batch of many documents is hard to find in a large trace, so the failure record holds the trace id. The id takes you straight to the span.
 
 </details>
 
 ## Related
 
-- Guide: [Trace an agent run](../guides/trace-an-agent-run.mdx)
-- Concepts: [Ingestion pipeline](./ingestion.mdx), [Agent loop](./agent-loop.mdx), [Retrieval](./retrieval.mdx)
-- Reference: [Trace spans](../reference/trace-spans.mdx), [Observability API](../api/observability/index.md)
+- Guide: [Trace an agent run](../guides/trace-an-agent-run.mdx) shows how to record and read the spans of one agent run.
+- Concepts: [Ingestion pipeline](./ingestion.mdx) and [Agent loop](./agent-loop.mdx) describe the steps that these spans record, and [Retrieval](./retrieval.mdx) describes the search steps.
+- Reference: [Trace spans](../reference/trace-spans.mdx) lists each span name and attribute, and [Observability API](../api/observability/index.md) lists the Python interfaces for tracing.

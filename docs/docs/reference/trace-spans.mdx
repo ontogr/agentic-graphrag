@@ -7,8 +7,7 @@ import Diagram from '@site/src/components/Diagram';
 
 # Trace Spans
 
-This page is the reference for the spans Agentic GraphRAG records when you pass it a
-`tracer`. It lists the span names, attributes, and provider values that ingestion, extraction, resolution, the agent, and the judge record.
+Agentic GraphRAG records the spans below when you pass it a `tracer`. They cover ingestion, extraction, resolution, the agent, and the judge.
 
 Tracing is opt-in per object. A `tracer` of `None` opens no recorded span.
 Agentic GraphRAG never installs a global provider. You inject
@@ -66,7 +65,7 @@ attempt fails. The `call` span reports `ERROR` when the call as a whole fails.
 
 ## Ingestion root spans
 
-Every public `Graph` call opens one root span. The spans in the sections below nest under it.
+Every public `Graph` call opens one root span.
 
 | Span | Opens when | Attributes |
 |---|---|---|
@@ -155,7 +154,7 @@ agrag.ingestion.add
 
 ## Graph store spans
 
-The Neo4j store opens these spans. Reads and writes carry the query text and the value of every parameter except vectors and the full-text search terms. A trace shows what each query asked for.
+The Neo4j store opens these spans. Reads and writes carry the query text and the value of every parameter except vectors and the lexical search terms. A trace shows what each query asked for.
 
 | Span | Attributes |
 |---|---|
@@ -234,11 +233,9 @@ Each LLM path also opens one small domain span carrying its own ids and counts.
 | Community | `agrag.community.report_batch` | `agrag.batch_size` |
 | Judge | `agrag.eval.judge` | `agrag.eval.judge_model` |
 
-One of these is conditional:
-
-- `agrag.merge.resolve_description` opens only when the field
-  conflicted. The field conflicted when more than one distinct candidate exists. A field
-  every mention agrees on adds no span.
+`agrag.merge.resolve_description` opens only when the field
+conflicted. The field conflicted when more than one distinct candidate exists. A field
+every mention agrees on adds no span.
 
 `agrag.resolution.llm_verify` never carries an `ERROR` status. A failed LLM
 call leaves its pairs undecided, not rejected, and is not an error. The span
@@ -274,7 +271,6 @@ got no response at all.
 ### Provider mapping
 
 BAML's provider ids map to the same OpenInference values the agent path emits.
-The same configuration reports the same provider either way.
 
 | BAML provider id | `llm.provider` |
 |---|---|
@@ -303,8 +299,7 @@ def count_llm_calls(spans):
 
 Token counts live only on `agrag.llm.request` spans and on the agent and judge
 LLM spans. The parent spans never carry them. A sum of
-`llm.token_count.prompt` over every span with that kind is exact. Nothing
-counts twice.
+`llm.token_count.prompt` over every span with that kind is exact because no token is counted twice.
 
 ## What is recorded, and what is not
 
@@ -314,9 +309,9 @@ and evidence text. The OpenInference redaction environment variables no longer
 change any span, on any path. To record less, scrub attributes in a
 `SpanProcessor` you configure, or run without a tracer.
 
-No span records two things: the request headers, which carry the
-provider key, and the request URL. Graph store spans record the query text and the
-value of every parameter except vectors and full-text search terms. A parameter can hold source text or entity
+No span attribute records the request headers, which carry the
+provider key, or the request URL. Error text can still contain the URL; see Known limits. Graph store spans record the query text and the
+value of every parameter except vectors and lexical search terms. A parameter can hold source text or entity
 names.
 
 ## Known limits

@@ -14,7 +14,7 @@ Chunking divides a document into pieces that extraction and search can process. 
 
 Search and extraction work on short pieces of text. Where you cut decides what they can find. A cut in the wrong place can separate a name from the fact about it.
 
-A document already has structure: headings, paragraphs, and tables. The chunker uses that structure to avoid cutting facts apart where possible, while keeping chunks small enough for search and extraction. These goals compete: larger chunks preserve more context but make search less precise and increase work per chunk.
+A document already has structure: headings, paragraphs, and tables. The chunker uses that structure to avoid cutting facts apart where possible, while keeping chunks small enough for search and extraction. Larger chunks keep more context and make search less precise. The default `size` is 600 tokens, and the default `min_size` is 150 tokens.
 
 ## How it works
 

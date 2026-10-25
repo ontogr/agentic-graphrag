@@ -23,7 +23,7 @@ Search themes finds the themes that match a query. A theme is a community of rel
 
 Passage search finds one passage, and entity search finds one named thing. A broad question, such as "What are the main topics in these documents?", spans many passages, and no single passage answers it. Search themes returns groups of related entities, so one answer can draw on several documents.
 
-A theme comes from the last [community detection](../concepts/communities.mdx) run. The query is matched by meaning against the embedding of each community report. Keyword matching is not used. The returned passages come from the graph and its stored chunks, never from the report text.
+A theme comes from the last [community detection](../concepts/communities.mdx) run. The query is matched by meaning against the embedding of each community report. Lexical matching is not used. The returned passages come from the graph and its stored chunks, never from the report text.
 
 - Use search themes for a broad question that spans many documents.
 - Use [passage search](./passage-search.mdx) when the answer is a fact in one passage.
@@ -134,5 +134,5 @@ Passages in a theme rank by the number of distinct members that mention them, th
 - [Communities](../concepts/communities.mdx) describes how the themes are built and how their reports are written.
 - [Passage search](./passage-search.mdx) and [entity search](./entity-search.mdx) answer narrower questions.
 - [Fetch evidence](./fetch-evidence.mdx) returns the text behind each passage id.
-- Guide: [Detect communities and read reports](../guides/detect-communities.mdx)
+- [Detect communities and read reports](../guides/detect-communities.mdx) shows how to run the community detection that themes need.
 - [Agent loop](../concepts/agent-loop.mdx) lists the tools the agent uses.

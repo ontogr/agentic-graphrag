@@ -78,7 +78,7 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
-An empty result is not an error. See [Troubleshoot common errors](./troubleshoot-common-errors.mdx#a-search-returns-nothing) for its causes. [Find and cite evidence](./find-and-cite-evidence.mdx) adds the citation check and the other evidence tools.
+An empty result is not an error. [Troubleshoot common errors](./troubleshoot-common-errors.mdx#a-search-returns-nothing) lists its causes. [Find and cite evidence](./find-and-cite-evidence.mdx) covers the citation check and the other evidence tools.
 
 ## Answer with an agent
 
@@ -152,8 +152,6 @@ For a document copied from a remote source, set `Document.uri` to its actual use
 
 See [Citations in MCP clients](../concepts/agent-loop.mdx#citations-in-mcp-clients) for using readable source references in client answers.
 
-The agent uses the supplied document keys as its read scope. It does not search outside that scope.
-
 ### Set the document scope
 
 Pass the exact document keys the agent may read as a set of strings. The
@@ -217,8 +215,9 @@ asyncio.run(main())
 
 Set the scope when your application builds the agent. The tools enforce the
 scope. The model cannot see or change it. To call the evidence tools from your
-own code, see [Find and cite evidence](./find-and-cite-evidence.mdx). The
-agent's tools are listed in the [tools reference](../reference/tools.mdx).
+own code, use [Find and cite evidence](./find-and-cite-evidence.mdx). The
+[tools reference](../reference/tools.mdx) lists each agent tool and its
+parameters.
 
 ## Search themes
 
@@ -238,7 +237,7 @@ for theme in themes.themes:
         print("   ", passage.evidence_id)
 ```
 
-The result carries no community report text. Each passage is an evidence id that `fetch_evidence` reads, so a theme search feeds the same search, fetch, and citation check sequence as the other evidence tools.
+The result carries no community report text. Each passage is an evidence id that `fetch_evidence` reads, so its passages go through the same fetch and citation check steps as the other evidence tools.
 
 ## Configuration
 

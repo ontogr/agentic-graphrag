@@ -6,7 +6,7 @@ description: Declare the entity and relation types for your domain and give them
 
 # Define a graph schema
 
-Declare the entity types and relation types for your domain. A schema lists the types that extraction can find. Give the schema to a graph. The extractor then looks only for those types. This guide covers schemas built as Python objects. To build a schema from a list, a dict, a file, or a Pydantic class, see [Write a custom schema](./write-a-custom-schema.mdx#every-source-you-can-pass).
+Declare the entity types and relation types for your domain. A schema lists the types that extraction can find. Give the schema to a graph, and the extractor looks only for those types. The examples build the schema as a Python object. To build a schema from a list, a dict, a file, or a Pydantic class instead, use [Write a custom schema](./write-a-custom-schema.mdx#every-source-you-can-pass).
 
 ## Before you start
 
@@ -166,11 +166,11 @@ except ValueError as error:
     print(error)
 ```
 
-Each error names the fix. For example: `Relation 'OWNS' pattern target 'Product' is not a declared entity`.
+Each error names the failing item. For example: `Relation 'OWNS' pattern target 'Product' is not a declared entity`.
 
 ## 3. Open a graph with the schema and add text
 
-This script contains the whole flow. It opens a graph, adds two sentences, and prints what the graph stored. `Graph.open` uses a `GraphSchema` as given. It also accepts any other source that `load_schema` reads, such as a file path, a dict, or a shipped name. See [Every source you can pass](./write-a-custom-schema.mdx#every-source-you-can-pass). To print the entity types and relation patterns that the extractor works from, call `schema.resolve()`.
+`Graph` accepts a `GraphSchema`, and also the other sources in [Every source you can pass](./write-a-custom-schema.mdx#every-source-you-can-pass), such as a file path, a dict, a list of labels and relation strings, or a shipped schema name. To print the entity types and relation patterns that the extractor works from, call `schema.resolve()`.
 
 ```python fixture:clean_neo4j
 import asyncio
@@ -267,14 +267,14 @@ Six mentions give four entities, because mentions with the same label and text s
 
 ## Fill properties
 
-The local extractor leaves properties empty. The value of `born` stays unset. To fill properties, use the LLM extractor. The guide [Extract and resolve entities](./extract-and-resolve.mdx) shows how to add it as a fallback.
+The local extractor leaves properties empty. The value of `born` stays unset. To fill properties, use the LLM extractor. [Extract and resolve entities](./extract-and-resolve.mdx) shows how to add it as a fallback.
 
 ## Related
 
-- Concept: [Extraction](../concepts/extraction.mdx)
-- Guide: [Extract and resolve entities](./extract-and-resolve.mdx)
-- Reference: [Default schema](../reference/default-schema.mdx)
-- Guide: [Use a preset](./use-a-preset.mdx)
+- Concept: [Extraction](../concepts/extraction.mdx) describes how chunk text becomes typed entity and relation mentions.
+- Guide: [Extract and resolve entities](./extract-and-resolve.mdx) covers the extractors, the LLM settings, and resolution.
+- Reference: [Default schema](../reference/default-schema.mdx) lists the types and relations in `DEFAULT_SCHEMA`.
+- Guide: [Use a preset](./use-a-preset.mdx) adds operations or legal types to the default schema.
 - Guide: [Write a custom schema](./write-a-custom-schema.mdx): every source that `load_schema` reads
-- Reference: [JSON-LD schema export](../reference/schema-json-ld.mdx)
-- Reference: [Common API](../api/common/index.md)
+- Reference: [JSON-LD schema export](../reference/schema-json-ld.mdx) describes the JSON-LD form of a schema.
+- Reference: [Common API](../api/common/index.md) lists the signatures of the schema classes in `agrag.common`.

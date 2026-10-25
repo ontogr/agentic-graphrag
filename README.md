@@ -41,9 +41,9 @@ You add documents and the framework builds a knowledge graph shaped by your sche
 - Headings, sections, tables, and figures stay in the graph, and PDF pages keep their page numbers and positions.
 - Chunks follow the document structure. A table that fits stays whole, and a larger table is split into groups of rows that each repeat the header row.
 - Write your schema in code, in a YAML or JSON file, with Pydantic classes, or by importing an OWL or RDFS ontology. Start from the default schema or a preset for operations or legal documents, then override or extend it.
-- A local model reads every chunk and extracts entities and relations, so you can build a graph without an LLM key. You can add an LLM for the passages the local model is least sure about and set how much of each batch it may read.
+- GLiNER reads every chunk on your machine and extracts entities and relations, so you can build a graph without an LLM key. In hybrid mode, an LLM re-reads eligible chunks, such as those with a kept entity scoring under 0.75, up to an escalation budget (20% of a batch by default).
 - Items the models find that your schema does not allow are saved as candidates with links to their source passages. You can list, approve, or reject them, and an approval writes a schema patch for you to review.
-- Entity resolution merges duplicates in steps. Same-label, same-text mentions share one entity. Similar spellings and close embeddings become links between entities, and an LLM reviews only the pairs that remain unclear, up to a limit you set for each label.
+- Entity resolution merges duplicates in tiers. Mentions with the same label and the same text share one entity. A fuzzy name score of 0.97 or more, or an embedding cosine similarity of 0.95 or more, makes a match, and the match is stored as a link between entities. Pairs with a cosine similarity from 0.80 to 0.95 are ambiguous. Clustering decides the tight groups, and an LLM reviews the rest, up to a limit you set for each label.
 - A match is a link, so the original entities and their relations stay in the graph. You can preview a graph-wide cleanup before you apply it, re-check named entities, and turn off a single match.
 - Adding the same folder again skips unchanged documents and replaces changed ones. Each document is written as one job, and nothing from a running job appears in search until it finishes.
 - Soft delete removes a document from search and keeps its history. Purge removes every version.
@@ -51,11 +51,11 @@ You add documents and the framework builds a knowledge graph shaped by your sche
 
 ### Search, read, and cite evidence
 
-Retrieval finds the parts of your documents that answer a question, and it lets an answer point back to the exact text it came from. No single search finds everything. A name lookup finds "Ada Lovelace" and misses "the main themes in this corpus". A keyword search finds an exact contract term and misses a paraphrase of it. A vector search finds the paraphrase and can rank a similar but wrong passage first. The evidence tools cover these cases one at a time, and the same tools run in Python, in the built-in agent, and on the MCP server.
+Retrieval finds the parts of your documents that answer a question, and it lets an answer point back to the exact text it came from. No single search finds everything. A name lookup finds "Ada Lovelace" and misses "the main themes in this corpus". A lexical (full-text) search finds an exact contract term but not its paraphrase. A semantic (vector) search finds the paraphrase but can rank a similar wrong passage first. The same evidence tools run in Python, in the built-in agent, and on the MCP server.
 
 > **[IMAGE: retrieval-flow]**
 > Alt text: A query goes to passage search, or to entity search and then relationship exploration. Both return evidence ids. Fetch turns an id into its exact text. Document tree navigation moves from a passage to neighboring passages and returns more ids. The citation check compares cited ids with the ids that were fetched.
-> Prompt: A left-to-right flow diagram on a light background. A "Query" box on the left splits into two paths. The top path goes to "Passage search" with three small chips for keyword, semantic, and hybrid. The bottom path goes to "Entity search" and then to "Explore relationships". Both paths output a stack of small "evidence id" tags. A "Fetch evidence" box turns an id into a block of exact passage text with a title and a "current" version label. A "Navigate document tree" box loops from a passage back to neighboring ids. On the far right, a "Check citations" box compares cited ids with fetched ids and outputs a numbered answer with a Sources list. Flat vector style, thin lines, two accent colors, 16:9 format.
+> Prompt: A left-to-right flow diagram on a light background. A "Query" box on the left splits into two paths. The top path goes to "Passage search" with three small chips for lexical, semantic, and hybrid. The bottom path goes to "Entity search" and then to "Explore relationships". Both paths output a stack of small "evidence id" tags. A "Fetch evidence" box turns an id into a block of exact passage text with a title and a "current" version label. A "Navigate document tree" box loops from a passage back to neighboring ids. On the far right, a "Check citations" box compares cited ids with fetched ids and outputs a numbered answer with a Sources list. Flat vector style, thin lines, two accent colors, 16:9 format.
 
 #### From a question to a cited answer
 
@@ -92,7 +92,7 @@ ev1:c:f24b301d...12cd16fb    not_fetched
 ev1:c:oops                   malformed
 ```
 
-A `valid` verdict shows that the passage was read in scope. It does not show that the passage supports the claim. Valid ids become numbered references with a Sources list.
+Valid ids become numbered references with a Sources list.
 
 ```text
 Customer data is deleted within 10 business days. [1]
@@ -112,15 +112,15 @@ Customer data is deleted within 10 business days. [1]
 | `semantic` | Embeds the query and finds the chunks with the nearest embeddings. A chunk is embedded with its heading path in front, so a query can match a section title. | A passage that says the same thing in different words. | Always returns the nearest chunks, even when none answers the question. Needs the embedding model that ingestion used. |
 | `hybrid` (default) | Runs both searches and fuses the two ranked lists with reciprocal rank fusion. | Everything either search finds, ranked higher when both rank it well. | Reports `partial` when one of the two searches fails. |
 
-Reciprocal rank fusion scores a chunk from its rank in each list and ignores raw scores. A chunk at rank `r` in a list adds `1 / (60 + r)`, so a chunk that both searches rank well beats a chunk that only one ranks well. When a cross-encoder reranker is available, hybrid search also reorders its top hits with it and marks the result `reranked`. A reranker that times out or fails leaves the fused order in place. With an external vector store, the store performs the dense and keyword fusion for hybrid mode, and `lexical` mode always searches the graph full-text index.
+Reciprocal rank fusion adds `1 / (60 + r)` for a chunk at rank `r` in each list, and it ignores raw scores. When a cross-encoder reranker is available, hybrid search also reorders its top hits with it and marks the result `reranked`. A reranker that times out or fails leaves the fused order in place. With an external vector store, the store performs the dense and lexical fusion for hybrid mode, and `lexical` mode always searches the graph full-text index.
 
 > **[IMAGE: hybrid-fusion]**
-> Alt text: A keyword ranking and a semantic ranking of the same chunks are combined by reciprocal rank fusion into one ranking. A chunk that ranks well in both lists moves to the top.
-> Prompt: A simple diagram of two short ranked lists side by side, one titled "Keyword" and one titled "Semantic", each with four chunk cards numbered by rank. Colored lines connect the same chunk across the two lists. On the right, a third list titled "Hybrid" shows the combined order, with the chunk that ranks well in both lists at the top and a small formula "1 / (60 + rank)" under the title. Flat vector style on a light background, 4:3 format.
+> Alt text: A lexical ranking and a semantic ranking of the same chunks are combined by reciprocal rank fusion into one ranking. A chunk that ranks well in both lists moves to the top.
+> Prompt: A simple diagram of two short ranked lists side by side, one titled "Lexical" and one titled "Semantic", each with four chunk cards numbered by rank. Colored lines connect the same chunk across the two lists. On the right, a third list titled "Hybrid" shows the combined order, with the chunk that ranks well in both lists at the top and a small formula "1 / (60 + rank)" under the title. Flat vector style on a light background, 4:3 format.
 
 #### Entity search and relationship exploration
 
-`entity_search` finds the things your schema names, such as people, contracts, or products, by name or by meaning. It runs a keyword search over entity names and a semantic search over entity embeddings for each schema label, then fuses them. It returns an entity only when a visible passage in scope mentions it, and each hit lists up to three of those passages as evidence ids. An entity whose passages are all out of date comes back as `unsupported`.
+`entity_search` finds the things your schema names, such as people, contracts, or products, by name or by meaning. It runs a lexical search over entity names and a semantic search over entity embeddings for each schema label, then fuses them. It returns an entity only when a visible passage in scope mentions it, and each hit lists up to three of those passages as evidence ids. An entity whose passages are all out of date comes back as `unsupported`.
 
 `explore_relationships` follows the stored relations around one entity for up to two steps. It marks each edge as an `assertion`, when one or more visible passages state it, or as a `path`, when the graph connects two entities and no passage states the link. Assertion edges list the passages that state them, so you can fetch and cite them. The walk is bounded by node, edge, and depth limits, and `truncated_by` names the bound that cut it.
 
@@ -180,15 +180,15 @@ The [tools reference](https://ontogr.github.io/agentic-graphrag/latest/reference
 
 Conversation history
 
-- A task has a goal, an ordered event log, and named steps. The event log holds messages, tool calls, tool results, and notes, so it is more than a chat transcript.
-- A step is not started, in progress, completed, failed, or unknown.
+- A task has a goal, an ordered event log, and named steps. The event log holds messages, tool calls, tool results, and notes.
+- A step is marked not started, in progress, completed, failed, or unknown.
 - A resumed task starts from its goal, step counts, active decisions, and decisions that need review. The agent reuses completed steps and marks steps that were still running as unknown so it can run them again.
 - A repeated request ID returns the saved result for a completed write. A failed multi-statement write on FalkorDB can leave partial effects. See the [retry limits](https://ontogr.github.io/agentic-graphrag/latest/guides/configure-storage-backends#retried-history-and-decision-writes).
 - You can redact the body of one event or delete a whole task with its events and steps.
 
 Decision traces
 
-- A decision stores a conclusion, a concise rationale, assumptions, and open questions. It is a structured record and not hidden model reasoning.
+- A decision stores a conclusion, a concise rationale, assumptions, and open questions.
 - Supports point to document passages, task events, or earlier decisions. A decision can cite only evidence that the same run or server session fetched in full.
 - When a cited document gets a new version or is removed, the decision is flagged for review with the reason. Decisions that depend on a flagged decision are flagged too, in small batches, so an interrupted review can continue.
 - A reviewer can reaffirm a decision after reading the current text, replace it with a new decision, or reject it. The earlier record and its support history stay.
@@ -212,7 +212,7 @@ The [decision traces guide](https://ontogr.github.io/agentic-graphrag/latest/gui
 Built-in agent
 
 - The agent is built for a fixed set of documents, a project, and an author, and it reads nothing else.
-- It discovers passages, finds entities, explores relations, moves between passages, fetches exact text, and answers with numbered sources.
+- It uses the same evidence tools as the MCP server and cites only passages it fetched in full.
 - Citations are checked against passages read in the same run, and the agent gets one repair pass when some fail.
 - Every run ends with a status: `answered`, `insufficient_evidence`, `partial`, or `budget_exhausted`, among others. You set how many steps and tool calls a run may use.
 - Messages, tool calls, and tool results are saved to the task log as the run goes.
@@ -230,7 +230,7 @@ Operating the system
 
 - Pass an OpenTelemetry tracer to the graph, the agent, the stores, the embedders, and the extractors. Spans cover loading, chunking, extraction, resolution, storage, search, and LLM calls. Without a tracer, nothing is recorded.
 - Evaluation tools score answer correctness, faithfulness, context precision, context recall, and citation accuracy with a judge model that you choose. They also score extraction, duplicate groups, and agent runs on your own questions.
-- Settings come from environment variables or a file, with a prefix for each area. Optional extras cover storage, local extraction, LLM calls, the agent, the MCP server, PDF reading, communities, tracing, and evaluation.
+- Settings come from environment variables or a file, with a prefix for each area. The optional extras are `neo4j`, `falkordb`, `qdrant`, `milvus`, `weaviate`, `embed-local`, `extract`, `llm`, `agents`, `mcp`, `docling`, `observability`, `community`, `eval`, and `schema-formats`.
 
 The [features page](https://ontogr.github.io/agentic-graphrag/stable/get-started/features) lists every capability with links to the guide for each.
 

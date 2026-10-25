@@ -7,7 +7,7 @@ import Diagram from '@site/src/components/Diagram';
 
 # Quickstart
 
-In this tutorial, you build a knowledge graph from one document, look at what Agentic GraphRAG stored, and ask the built-in agent a question about the document. The agent answers with numbered sources.
+You build a knowledge graph from one document, inspect what Agentic GraphRAG stored, and ask the built-in agent a question about the document. The agent answers with numbered sources.
 
 The tutorial takes about 10 minutes on a typical connection. Most of the time goes to installing the libraries.
 
@@ -22,8 +22,6 @@ The tutorial takes about 10 minutes on a typical connection. Most of the time go
 Your script runs on your machine, together with the embedding and extraction models. The graph lives in Neo4j. Only the agent calls an LLM.
 
 <Diagram folder="docs" name="quickstart-where" alt="Your Python script and the local embedding and extraction models run on your machine. The script reads and writes the graph in Neo4j. Only step 4, the agent, calls your LLM endpoint." />
-
-*The script and the models run locally. The agent step calls your LLM endpoint.*
 
 This quickstart uses Neo4j. To use FalkorDB, follow the [FalkorDB setup](../guides/configure-storage-backends.mdx#set-up-a-falkordb-graph-store), replace the `neo4j` install extra with `falkordb`, configure `FALKORDB_*`, and use `build_graph_store("falkordb")` in each script. Both backends support the ingestion and agent workflow. Their [transaction and search behavior](../concepts/graph-storage.mdx#choose-a-backend) differs.
 
@@ -194,7 +192,7 @@ BAML_LOG=off python ask.py
 
 `BAML_LOG=off` stops BAML from printing every LLM call. On Windows PowerShell, set `$env:BAML_LOG = "off"` first.
 
-The script prints the run status and the answer. The status says whether the run answered or reached a limit. The answer ends with a Sources list, and each number in the text refers to a passage the agent read. The wording of the answer varies with your model.
+The script prints the run status, such as `answered` or `budget_exhausted`, then the answer. The answer ends with a Sources list, and each number in the text refers to a passage the agent read. The wording of the answer varies with your model.
 
 Run the script again with the same `task_name`. Agentic GraphRAG resumes the task from its recorded events and steps.
 
@@ -237,9 +235,7 @@ Entity nodes carry the label `_Node` and a `merge_key` property. The query keeps
 
 ## What you just built
 
-- One document with its sections and chunks. Each chunk keeps its heading path, its position in the file, and an embedding.
-- Entities from the schema that the extractor found in the chunks.
-- A task named `first-question` with the agent's messages, tool calls, and tool results stored as events, plus named steps.
+The graph holds the document with its sections and chunks, and the entities that your schema allowed. The `first-question` task is stored with its events, tool calls, results, and steps.
 
 ## Next steps
 

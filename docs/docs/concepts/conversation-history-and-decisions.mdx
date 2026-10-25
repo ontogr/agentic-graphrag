@@ -49,7 +49,7 @@ When a task view or a step list is read, the supports of a completed step result
 
 ## Decisions
 
-A decision records a conclusion for one choice inside one task. It stores the conclusion, a rationale, assumptions, and open questions. The rationale is a concise statement of the reasoning. It is a structured record and not the model's hidden reasoning.
+A decision records a conclusion for one choice inside one task. It stores the conclusion, a rationale, assumptions, and open questions. The rationale is a concise statement of the reasoning.
 
 Each decision belongs to a choice key. A choice key has one active decision at a time. To change that decision, call `supersede_decision` with a non-blank explanation. The new decision gets the next revision number, and the old decision becomes `superseded`. The conclusion of a recorded decision never changes.
 
@@ -85,11 +85,10 @@ The built-in agent uses only decisions whose review state is `clear` in its prec
 
 ## Retention
 
-Three operations change recorded history.
+Two operations change recorded history.
 
 - `HistoryRetention.redact_event` replaces one event body with the marker and keeps the event's identity and hash. Decisions that cite the event are flagged for review.
 - `HistoryRetention.delete_task` removes the task, its events, and its steps. With `include_decisions` set to `True`, which is the default, it also removes the task's decisions. With `False`, the decisions remain and lose their link to the deleted task. Decisions in other tasks that cite a deleted event or decision are flagged for review. The call does not flag the decisions that depend on those flagged decisions.
-- A write with a repeated request id does not repeat the operation. See the next section.
 
 ## Request ids
 

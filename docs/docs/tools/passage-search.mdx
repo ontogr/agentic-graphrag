@@ -1,6 +1,6 @@
 ---
 title: Passage search
-description: Find the chunks of your documents that match a query by keyword, by meaning, or both.
+description: Find the chunks of your documents that match a query by lexical match, by meaning, or both.
 ---
 
 # Passage search
@@ -22,8 +22,6 @@ Passage search finds the chunks of your documents that match a query and returns
 ## Overview
 
 Passage search reads the stored chunk text, so a passage is found even when extraction never turned its facts into entities or relations. A hit holds a 240-character preview and an evidence id. [Fetch evidence](./fetch-evidence.mdx) returns the whole passage.
-
-Pick one of three modes.
 
 - `lexical` matches the words of the query. Use it when the query holds an exact word, an identifier, a defined term, or a name.
 - `semantic` compares the meaning of the query with the meaning of each chunk. Use it when the query describes an idea in words the document may not use.
@@ -60,9 +58,9 @@ ok
     | Component | Owner | Purpose | | --- | --- | --- | | Orion Planner |
 ```
 
-The first hit holds the answer. The second hit also comes back from both searches, because the keyword search matches common words such as "customer" and "data" in a chunk about something else. The third hit came only from the semantic search. Fetch the first hit to read it.
+The first hit holds the answer. The second hit also comes back from both searches, because the lexical search matches common words such as "customer" and "data" in a chunk about something else. The third hit came only from the semantic search. Fetch the first hit to read it.
 
-### Keyword search does not match word forms
+### Lexical search does not match word forms
 
 The notes say "deleted" and "erase". Search for the word "deletion" in each mode:
 
@@ -77,7 +75,7 @@ lexical no_match []
 semantic ok ['ev1:c:f24b301d...d7c4d6ef']
 ```
 
-Keyword search matches whole words and does not stem them, so "deletion" finds nothing. Semantic search finds the retention section because its meaning is close. The word "deleted" matches in keyword mode:
+Lexical search matches whole words and does not stem them, so "deletion" finds nothing. Semantic search finds the retention section because its meaning is close. The word "deleted" matches in lexical mode:
 
 ```text
 lexical (deleted) ok ['ev1:c:f24b301d...d7c4d6ef']
@@ -138,7 +136,7 @@ Each hit has these fields.
 | Status | Meaning | Next step |
 |---|---|---|
 | `ok` | Every search that ran returned hits. | Fetch the hits you want to use. |
-| `partial` | One search failed and the other returned hits, and `failures` names the failed one. On MCP, a dimension mismatch between the query embedder and the stored vectors gives this status with keyword hits only. | Treat the list as incomplete. |
+| `partial` | One search failed and the other returned hits, and `failures` names the failed one. On MCP, a dimension mismatch between the query embedder and the stored vectors gives this status with lexical hits only. | Treat the list as incomplete. |
 | `no_match` | Every search ran and no visible passage matched. | Rephrase, switch mode, or try entity search. |
 | `empty_scope` | The scope holds no document keys. | Set the scope. |
 | `index_not_ready` | A needed index is missing or not online. | Wait for ingestion to finish, then retry. |
@@ -188,7 +186,7 @@ This is `found.model_dump_json(indent=2)` for the question above with `limit=2`.
 }
 ```
 
-The first score is 1/61 + 1/61, because both searches ranked the chunk first. The second score is 1/62, because only the keyword search found the chunk, at rank 2. With `limit=2` each search keeps only its top two chunks, so the semantic search, which ranked this chunk third in the example above, does not count it. That is why its score differs from the 0.0320 of the three-hit example. Reciprocal rank fusion adds `1 / (60 + rank)` for each search that found a chunk.
+The first score is 1/61 + 1/61, because both searches ranked the chunk first. The second score is 1/62, because only the lexical search found the chunk, at rank 2. With `limit=2` each search keeps only its top two chunks, so the semantic search, which ranked this chunk third in the example above, does not count it. That is why its score differs from the 0.0320 of the three-hit example. Reciprocal rank fusion adds `1 / (60 + rank)` for each search that found a chunk.
 
 </details>
 

@@ -20,12 +20,12 @@ These stages include slow model calls and writes that can fail independently. A 
 
 <Diagram folder="docs" name="ingestion-stages" alt="Each document runs as its own job. Sources are loaded into documents, chunked, extracted into entities and relations, resolved, merged, and stored. The writes are tagged and hidden from search until that job commits. The call returns an AddResult with one summary for each stage." />
 
-*Each stage hands its output to the next. The result reports every stage.*
+*Each stage hands its output to the next.*
 
 1. Load. A loader reads each source and makes documents. The error policy decides what happens when a source fails. See [Loading documents](./loading.mdx).
 2. Chunk. A chunker splits each document into chunks. See [Chunking](./chunking.mdx).
 3. Extract. The extractor (see [Extraction](./extraction.mdx)) reads each chunk and finds entities and relations. It does not keep an item that the schema does not allow. The result counts each discarded item, and the graph stores it as a candidate unless candidate writes are off. See [Candidates](./candidates.mdx).
-4. Resolve. The resolver (see [Entity resolution](./resolution.mdx)) looks for mentions that name the same thing. It first compares exact names against the whole store. It then compares the remaining mentions with each other and with stored entities. A language model reads only the pairs that stay unclear, and the number of such reads has a cap.
+4. Resolve. The resolver (see [Entity resolution](./resolution.mdx)) looks for mentions that name the same thing. It first compares exact names against the whole store. It then compares the remaining mentions with each other and with stored entities. A language model reads only the pairs that stay ambiguous, and the number of such reads has a cap.
 5. Merge. For entities that share a name, Agentic GraphRAG decides each property value and joins the chunk ids that mention them. Fuzzy, embedding and LLM matches are not merged. See [Matching and resolved entities](./resolved-entities.mdx).
 6. Store. The graph store (see [Graph storage](./graph-storage.mdx)) writes chunks, documents, entities, relations and the edges between them. The embedder adds vectors to the same nodes.
 
@@ -41,9 +41,21 @@ Each document mutation runs under a Cutover Job. `Graph.add` uses one job per do
 
 *A job that stops before its commit rolls back. A job that stops after it rolls forward.*
 
-If a process stops during a call, a later `Graph.open` attempts to recover the unfinished job. It rolls back a pending or rolling-back job after its lease expires, and reruns cleanup for a committed or cleaning job after its lease expires. A live lease is not taken over. Jobs renew a lease that lasts 60 seconds by default. A new job on a document first rolls back an expired pending or rolling-back job for that document. It takes over a previous job directly only when that job is done or rolled back.
+If a process stops during a call, a later `Graph.open` attempts to recover the unfinished job. Each job renews a lease that lasts 60 seconds by default, and a live lease is never taken over. After a job's lease expires, recovery acts on the job's state:
 
-Rollback starts only while the job is still pending under the worker's lease token. The job enters `rolling_back` before its staged vectors and graph rows are deleted. If the worker stops during rollback, `Graph.open` finishes it after the lease expires. If a commit fails with an unclear result, the worker reads the job. A committed job is never rolled back; the worker finishes its cleanup instead. Commit and rollback find a job's rows through an index on the pending tag, so their cost follows the size of the job, not the size of the graph. Two documents that add the same relation at the same time each create their own copy. The commit step merges the copies, so one relation remains and keeps the evidence from both documents.
+- A pending or `rolling_back` job is rolled back.
+- A committed or cleaning job has its cleanup run again.
+
+A new job on a document first rolls back an expired pending or rolling-back job for that document. It takes over a previous job directly only when that job is done or rolled back.
+
+Rollback starts only while the job is still pending under the worker's lease token. The steps are:
+
+1. The job enters `rolling_back` before its staged vectors and graph rows are deleted.
+2. If the worker stops during rollback, `Graph.open` finishes it after the lease expires.
+
+If a commit fails with an ambiguous result, the worker reads the job. A committed job is never rolled back; the worker finishes its cleanup instead.
+
+Commit and rollback find a job's rows through an index on the pending tag, so their cost follows the size of the job, not the size of the graph. Two documents that add the same relation at the same time each create their own copy. The commit step merges the copies, so one relation remains and keeps the evidence from both documents.
 
 Workers that share a graph must run the same version during an upgrade. Use the new version to recover any `rolling_back` jobs before you downgrade.
 
@@ -85,15 +97,15 @@ You call `Graph.add` with a folder of 200 files and `ErrorPolicy.SKIP`. One file
 <details>
 <summary>Design choices</summary>
 
-Why one `add` call for every input? Text, files and prebuilt documents differ only in the first stage. After it, the pipeline is the same, so the behavior is the same.
+One `add` call takes text, files, and prebuilt documents. The three differ only in the first stage, so every later stage behaves the same for each input.
 
-Why does extraction run on each chunk alone? A relation between two entities that sit in different chunks is not captured. A larger chunk size gives the extractor more context. The [Chunking](./chunking.mdx) page describes the size.
+Extraction runs on each chunk alone, so a relation between two entities in different chunks is not captured. A larger chunk size gives the extractor more context. The [Chunking](./chunking.mdx) page describes the size.
 
-Why a job and not a database transaction? Extraction makes slow model calls. A database transaction cannot stay open through them. The job tags writes instead. Neo4j commits them in one short transaction, while FalkorDB runs the commit statements in order and records progress for recovery.
+The job tags writes instead of holding a database transaction, because extraction makes slow model calls that a transaction cannot stay open through. Neo4j commits the tagged writes in one short transaction. FalkorDB runs the commit statements in order and records progress for recovery.
 
-Why does resolution happen before entity writes? The resolver needs the batch's mentions together to compare them. Writing after that decision avoids creating duplicate exact-name entities.
+Resolution runs before entity writes because the resolver needs the batch's mentions together to compare them. Writing after that decision avoids creating duplicate exact-name entities.
 
-Why does the error policy apply to each source? One bad file must not stop a run of thousands. `RAISE` stops at the first failure. `SKIP` counts the failure. `QUARANTINE` records the reason.
+The error policy applies to each source, so one bad file does not stop a run of thousands. `RAISE` stops at the first failure. `SKIP` counts the failure. `QUARANTINE` records the reason.
 
 </details>
 

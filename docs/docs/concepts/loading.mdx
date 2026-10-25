@@ -58,13 +58,13 @@ You add `report.pdf` and `notes.md` in one call. The registry sends both files t
 <details>
 <summary>Design choices</summary>
 
-Why does a document keep two hashes? The content hash is the hash of the document text, and it decides whether a document changed. A Docling document also records `source_hash`, the hash of the raw file bytes. Because Docling can export the same file as different text between versions, a Docling upgrade can change the content hash of an unchanged file and create a new version of it.
+A document keeps two hashes. The content hash covers the document text and decides whether a document changed. A Docling document also records `source_hash`, the hash of the raw file bytes. Docling can export the same file as different text between versions, so a Docling upgrade can change the content hash of an unchanged file and create a new version of it.
 
-Why do offsets point into the normalized text? Every chunk offset counts characters in the text after normalization. If you need offsets that match the raw source, keep the text as it is with `Normalization(bom="keep", newline="keep", unicode_form="none")`.
+Chunk offsets point into the normalized text, because every offset counts characters after normalization. To get offsets that match the raw source, keep the text as it is with `Normalization(bom="keep", newline="keep", unicode_form="none")`.
 
-Why does each extension have its own loader? Different parsers preserve different structure. Docling reads AsciiDoc, Markdown, and HTML structure, while the core CSV loader gives each row its own identity. Choosing by extension avoids treating every installed parser as an equally good fit.
+Each extension has its own loader because parsers preserve different structure. Docling reads AsciiDoc, Markdown, and HTML structure, while the core CSV loader gives each row its own identity. Choosing by extension avoids treating every installed parser as an equally good fit.
 
-Why do PDF and image files need the `docling` extra? The base install includes `docling-slim` for the other listed document formats. The full `docling` package supplies the models used to parse PDF and image files.
+PDF and image files need the `docling` extra. The base install includes `docling-slim` for the other listed document formats, and the full `docling` package supplies the models used to parse PDF and image files.
 
 </details>
 

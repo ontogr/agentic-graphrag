@@ -6,7 +6,7 @@ description: Turn on the cross-encoder that reorders hybrid search results, and 
 
 # Enable reranking
 
-Hybrid search combines keyword hits and vector hits into one list. A cross-encoder can then reorder the top of that list. It reads the query and each passage together, so it can rank the best passage higher than the combined order does.
+Hybrid search combines lexical hits and semantic hits into one list. A cross-encoder can then reorder the top of that list. It reads the query and each passage together, so it can rank the best passage higher than the combined order does.
 
 Reranking runs only in hybrid mode. Lexical and semantic searches never rerank.
 
@@ -23,7 +23,7 @@ uv pip install "agentic-graphrag[neo4j,embed-local]"
 
 ## 1. Set the reranking variables
 
-The variables use the `RETRIEVAL_` prefix. The defaults work for most graphs.
+The variables use the `RETRIEVAL_` prefix.
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
@@ -36,7 +36,7 @@ The [configuration reference](../reference/configuration.mdx#retrieval) lists ev
 
 ## 2. How hybrid search reranks
 
-The search runs the keyword and vector legs, then fuses them. It keeps the top `RETRIEVAL_RERANK_CANDIDATES` fused hits. When the limit asks for more hits, it keeps that many.
+The search runs the lexical and semantic legs, then fuses them. It keeps the top `RETRIEVAL_RERANK_CANDIDATES` fused hits. When the limit asks for more hits, it keeps that many.
 
 The cross-encoder scores the top candidates against the query. The candidates are then sorted by their new scores. The fused hits below the candidates keep their order after them. The search returns the first `limit` hits.
 

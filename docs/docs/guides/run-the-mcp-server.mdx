@@ -76,9 +76,9 @@ These tools work with only a document scope. Each tool reads the documents you l
 
 A typical session starts with `search_evidence`, fetches the best hits with `fetch_evidence`, and then writes an answer that cites the fetched ids. When the question names an entity, start with `entity_search` and `explore_relationships`, then fetch the passages on the edges you use. Run `check_citations` on the ids you cite, and build the numbered references from the `citation_markdown` of each fetch.
 
-`fetch_evidence` also returns a `citation_markdown` field for complete fetches. Use it to build a numbered claim reference and a Sources list in your client's answer. The server keeps the fetched ids in memory for the session, and `check_citations` compares against them. A valid citation shows that the text was fetched. It does not show that the text supports the claim, and a search with no hits does not prove that the documents lack the answer. The server says so in the instructions it gives your client.
+`fetch_evidence` also returns a `citation_markdown` field for complete fetches. Use it to build a numbered claim reference and a Sources list in your client's answer. The server keeps the fetched ids in memory for the session, and `check_citations` compares against them. `check_citations` confirms that a cited id was fetched in this session. [Evidence ids and citations](../concepts/evidence-and-citations.mdx) explains what a valid citation does and does not show. A search with no hits does not prove that the documents lack the answer, and the server says so in the instructions it gives your client.
 
-The parameters, defaults, and caps of each tool are in the [tools reference](../reference/tools.mdx#evidence-tools).
+The [tools reference](../reference/tools.mdx#evidence-tools) lists the parameters, defaults, and caps of each evidence tool.
 
 ## Enable conversation history and decision traces
 
