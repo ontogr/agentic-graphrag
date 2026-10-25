@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.7] - 2026-10-25
+
+### Added
+
+- Rank escalation by relation evidence and record relation provenance ([#166](https://github.com/ontogr/agentic-graphrag/pull/166))
+- Add FalkorDB graph store ([#167](https://github.com/ontogr/agentic-graphrag/pull/167))
+- Update vectorstore seam ([#170](https://github.com/ontogr/agentic-graphrag/pull/170))
+- Update Qdrant vectorstore ([#171](https://github.com/ontogr/agentic-graphrag/pull/171))
+- Update Milvus vectorstore ([#168](https://github.com/ontogr/agentic-graphrag/pull/168))
+- Update Weaviate vectorstore ([#169](https://github.com/ontogr/agentic-graphrag/pull/169))
+
+### Changed
+
+- Use one set of names for tools, Python API and MCP settings ([#164](https://github.com/ontogr/agentic-graphrag/pull/164))
+- Update context graph model and APIs ([#172](https://github.com/ontogr/agentic-graphrag/pull/172))
+- Replace recipe retrieval with unified evidence tools ([#173](https://github.com/ontogr/agentic-graphrag/pull/173))
+
+### Fixed
+
+- Bound resolution concurrency and guard transitive merges ([#165](https://github.com/ontogr/agentic-graphrag/pull/165))
+- Accept any discovery tool in the trajectory expected-tools rule ([#174](https://github.com/ontogr/agentic-graphrag/pull/174))
+
 ## [0.0.6] - 2026-10-19
 
 ### Added
@@ -167,7 +189,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.0.1] - 2026-08-25
 
-[unreleased]: https://github.com/ontogr/agentic-graphrag/compare/v0.0.6..HEAD
+[unreleased]: https://github.com/ontogr/agentic-graphrag/compare/v0.0.7..HEAD
+[0.0.7]: https://github.com/ontogr/agentic-graphrag/compare/v0.0.6..v0.0.7
 [0.0.6]: https://github.com/ontogr/agentic-graphrag/compare/v0.0.5..v0.0.6
 [0.0.5]: https://github.com/ontogr/agentic-graphrag/compare/v0.0.4..v0.0.5
 [0.0.4]: https://github.com/ontogr/agentic-graphrag/compare/v0.0.3..v0.0.4
