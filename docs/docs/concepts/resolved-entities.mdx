@@ -16,7 +16,7 @@ A merge that rewrites or deletes nodes is hard to undo. A later run can learn th
 
 For a judgment call, Agentic GraphRAG adds a link rather than rewriting an entity. It derives one summary node from the linked group, while each link retains its decision evidence. A later re-evaluation can deactivate a link. The cost of this reversible model is extra nodes and edges, and relations remain on member entities rather than moving to the summary.
 
-Exact matches are the one exception. Two mentions with the same label and the same normalized text are the same entity from the start. They share one node. The node counts the mentions it received and lists every source chunk.
+Exact matches are the one exception. Two extracted entities with the same label and the same normalized text are the same entity from the start. They share one node. The node counts the extracted entities it received and lists every source chunk.
 
 ## How it works
 
@@ -59,7 +59,7 @@ Each `MATCHES` link keeps its tier, score, and reason, so you can audit a match.
 
 The name comes from a fixed order, so the same members give the same name each time the node is recomputed. It is not chosen as the best name. If a name matters to you, read the members and choose one in your own code.
 
-Mentions with equal normalized text share one node because there is nothing to judge, and nothing to undo.
+Extracted entities with equal normalized text share one node because there is nothing to judge, and nothing to undo.
 
 </details>
 

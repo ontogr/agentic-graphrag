@@ -27,7 +27,7 @@ Each record in `failures` is a `StageFailure`.
 
 | Field | Meaning |
 | --- | --- |
-| `item_id` | The chunk id, mention id, or batch id that the stage failed on. |
+| `item_id` | The chunk id or entity id that the stage failed on. Some stages record a name instead: a relation type, a step name, or the extracted entity names in a merge group, joined by commas. |
 | `error_type` | The class name of the exception. |
 | `error_message` | The message of the exception. |
 | `trace_id` | The OpenTelemetry trace id when a recording span is active for the failure. |

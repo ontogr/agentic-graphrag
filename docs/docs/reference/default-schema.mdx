@@ -3,6 +3,8 @@ title: Default schema
 description: Entity types, relation types, and presets in DEFAULT_SCHEMA.
 ---
 
+import Diagram from '@site/src/components/Diagram';
+
 # Default schema
 
 `DEFAULT_SCHEMA` ships with Agentic GraphRAG. It has nine entity types and eight relation types. Import it from `agrag.common.data_models`.
@@ -16,6 +18,8 @@ print(DEFAULT_SCHEMA.name, DEFAULT_SCHEMA.version)
 The exported schema and presets contain mutable models and lists. Do not edit their contents directly. Use `DEFAULT_SCHEMA.model_copy(deep=True)` to customize a schema, or call `Preset.apply` to obtain an independent schema.
 
 The schema is closed. The extractor reports only declared types. It has no catch-all type, catch-all relation, or wildcard pattern.
+
+<Diagram name="default-schema" ext="svg" alt="Nine entity types and the eight relations that join them. A person works for an organization. A person or organization authors, owns, and takes part in other types. Software depends on software or a dataset, and organizations supply products. An organization, event, or project is located in a location. Four types can be part of their own kind." />
 
 ## Entity types
 
@@ -61,7 +65,7 @@ Four items use broader wording because the public vocabularies provide only a pa
 
 ## Presets
 
-A preset adds entity types to a schema. It does not add relations. The default relations do not accept preset types. [Use a preset](../guides/use-a-preset.mdx) shows how to apply one.
+A preset adds entity types to a schema. It does not add relations. The default relations do not accept preset types. [Use a preset](../guides/use-a-preset.mdx) shows how to apply one. The [Operations preset](./preset-operations.mdx) and the [Legal preset](./preset-legal.mdx) list each preset's types with their descriptions and show how to add relations for them.
 
 | Preset | Name | Types added |
 | --- | --- | --- |

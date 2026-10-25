@@ -111,7 +111,7 @@ const config = {
       {
         title: 'Agentic GraphRAG',
         description:
-          'Connect enterprise knowledge, conversation history, and decision traces in one graph. Build agents that find evidence, resume work, and review decisions when sources change.',
+          'Build one graph that connects enterprise knowledge to agent conversations and decisions. Build agents that find evidence, resume work, and review decisions when sources change.',
         // The generated API pages are large and add little for a language model.
         ignoreFiles: ['api/**'],
         // The page menu copies a page as Markdown, so every page needs its own .md file.

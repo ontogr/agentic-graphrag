@@ -235,7 +235,7 @@ Each LLM path also opens one small domain span carrying its own ids and counts.
 
 `agrag.merge.resolve_description` opens only when the field
 conflicted. The field conflicted when more than one distinct candidate exists. A field
-every mention agrees on adds no span.
+that every entity in the group agrees on adds no span.
 
 `agrag.resolution.llm_verify` never carries an `ERROR` status. A failed LLM
 call leaves its pairs undecided, not rejected, and is not an error. The span

@@ -222,7 +222,7 @@ async def main() -> None:
     )
     try:
         result = await graph.add(text=TEXT)
-        print("mentions:", result.extraction.entities_extracted)
+        print("extracted entities:", result.extraction.entities_extracted)
         print("relations:", result.extraction.relations_extracted)
         entities = await graph_store.execute_read(
             "MATCH (e:_Node) "
@@ -249,7 +249,7 @@ asyncio.run(main())
 Output:
 
 ```text
-mentions: 6
+extracted entities: 6
 relations: 2
 ['_Node', 'Person'] Ada Lovelace
 ['_Node', 'Machine'] Analytical Engine
@@ -259,7 +259,7 @@ Charles Babbage DESIGNED Analytical Engine
 Ada Lovelace WORKED_IN London
 ```
 
-Six mentions give four entities, because mentions with the same label and text share one node.
+Six extracted entities give four entities, because extracted entities with the same label and text share one node.
 
 ## Compare with the default schema
 
@@ -271,7 +271,7 @@ The local extractor leaves properties empty. The value of `born` stays unset. To
 
 ## Related
 
-- Concept: [Extraction](../concepts/extraction.mdx) describes how chunk text becomes typed entity and relation mentions.
+- Concept: [Extraction](../concepts/extraction.mdx) describes how chunk text becomes typed extracted entities and relations.
 - Guide: [Extract and resolve entities](./extract-and-resolve.mdx) covers the extractors, the LLM settings, and resolution.
 - Reference: [Default schema](../reference/default-schema.mdx) lists the types and relations in `DEFAULT_SCHEMA`.
 - Guide: [Use a preset](./use-a-preset.mdx) adds operations or legal types to the default schema.

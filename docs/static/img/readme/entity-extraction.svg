@@ -1,0 +1,133 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 440" width="880" height="440" role="img" aria-labelledby="extract-light-title extract-light-desc">
+<title id="extract-light-title">Entity and relationship extraction</title>
+<desc id="extract-light-desc">A chunk is read by GLiNER on your machine. In hybrid mode, chunks the local model is unsure about go to an LLM through BAML, within a budget. Your schema feeds both models and the schema check. Declared results enter the graph, and results outside the schema become candidates that you review. Approval returns a schema patch.</desc>
+<style>
+.panel{fill:#faf8f3;stroke:#e4e0d6}
+.stage{font:600 11px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;letter-spacing:.08em;fill:#6b655f}
+.box{fill:#f3f0e9;stroke:#cbc6b9}
+.box-title{font:600 13px ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;fill:#1f2937}
+.box-sub{font:10px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;fill:#6b655f}
+.chip{fill:#ffffff;stroke:#cbc6b9}
+.chip-name{font:600 12px ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;fill:#1f2937}
+.chip-tag{font:10px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;fill:#1d4ed8}
+.node{fill:#eaf0fe;stroke:#1d4ed8;stroke-width:1.25}
+.node-name{font:600 12px ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;fill:#1f2937}
+.node-sub{font:9.5px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;fill:#6b655f}
+.focal{fill:#1d4ed8;stroke:#1d4ed8;stroke-width:1.25}
+.focal-name{font:600 12px ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;fill:#ffffff}
+.focal-sub{font:9.5px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;fill:#ffffff;opacity:.85}
+.bar{fill:#eaf0fe;stroke:#1d4ed8;stroke-width:1.25}
+.edge{fill:none;stroke:#6b655f;stroke-width:1.5}
+.edge-blue{fill:none;stroke:#1d4ed8;stroke-width:1.5}
+.edge-dash{fill:none;stroke:#1d4ed8;stroke-width:1.5;stroke-dasharray:5 4}
+.edge-soft{fill:none;stroke:#6b655f;stroke-width:1.25;stroke-dasharray:5 4}
+.elabel{font:10px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;fill:#6b655f;letter-spacing:.04em}
+.elabel-blue{font:10px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;fill:#1d4ed8;letter-spacing:.04em}
+.mask{fill:#faf8f3}
+.note{font:12px ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;fill:#6b655f}
+.arrowhead{fill:#6b655f}
+.arrowhead-blue{fill:#1d4ed8}
+.glyph-page{fill:#ffffff;stroke:#cbc6b9;stroke-width:1.5}
+.glyph-line{fill:#cbc6b9}
+.span{fill:#eaf0fe;stroke:#1d4ed8;stroke-width:1}
+.span-text{font:600 10px ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;fill:#1f2937}
+.badge{fill:#1d4ed8}
+.badge-text{font:600 9.5px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;fill:#ffffff}
+.x-chunk{animation:x-chunk 14.0s ease-out infinite}
+.x-schema{animation:x-schema 14.0s ease-out infinite}
+.x-in{animation:x-in 14.0s ease-out infinite}
+.x-gliner{animation:x-gliner 14.0s ease-out infinite}
+.x-cg{animation:x-cg 14.0s ease-out infinite}
+.x-bypass{animation:x-bypass 14.0s ease-out infinite}
+.x-llmin{animation:x-llmin 14.0s ease-out infinite}
+.x-llm{animation:x-llm 14.0s ease-out infinite}
+.x-cl{animation:x-cl 14.0s ease-out infinite}
+.x-merge{animation:x-merge 14.0s ease-out infinite}
+.x-check{animation:x-check 14.0s ease-out infinite}
+.x-cc{animation:x-cc 14.0s ease-out infinite}
+.x-outg{animation:x-outg 14.0s ease-out infinite}
+.x-graph{animation:x-graph 14.0s ease-out infinite}
+.x-outc{animation:x-outc 14.0s ease-out infinite}
+.x-cand{animation:x-cand 14.0s ease-out infinite}
+.x-outr{animation:x-outr 14.0s ease-out infinite}
+.x-review{animation:x-review 14.0s ease-out infinite}
+.x-patch{animation:x-patch 14.0s ease-out infinite}
+@keyframes x-chunk{0%,1.43%{opacity:0;transform:translateY(10px)}5.71%,90.00%{opacity:1;transform:none}95.71%,100%{opacity:0;transform:translateY(10px)}}
+@keyframes x-schema{0%,5.71%{opacity:0;transform:translateY(10px)}10.00%,90.00%{opacity:1;transform:none}95.71%,100%{opacity:0;transform:translateY(10px)}}
+@keyframes x-in{0%,10.00%{opacity:0}13.57%,90.00%{opacity:1;transform:none}95.71%,100%{opacity:0}}
+@keyframes x-gliner{0%,11.43%{opacity:0;transform:translateY(10px)}15.00%,90.00%{opacity:1;transform:none}95.71%,100%{opacity:0;transform:translateY(10px)}}
+@keyframes x-cg{0%,15.00%{opacity:0}18.57%,90.00%{opacity:1;transform:none}95.71%,100%{opacity:0}}
+@keyframes x-bypass{0%,21.43%{opacity:0}25.00%,90.00%{opacity:1;transform:none}95.71%,100%{opacity:0}}
+@keyframes x-llmin{0%,24.29%{opacity:0}27.86%,90.00%{opacity:1;transform:none}95.71%,100%{opacity:0}}
+@keyframes x-llm{0%,25.71%{opacity:0;transform:translateY(10px)}29.29%,90.00%{opacity:1;transform:none}95.71%,100%{opacity:0;transform:translateY(10px)}}
+@keyframes x-cl{0%,29.29%{opacity:0}32.86%,90.00%{opacity:1;transform:none}95.71%,100%{opacity:0}}
+@keyframes x-merge{0%,32.86%{opacity:0}36.43%,90.00%{opacity:1;transform:none}95.71%,100%{opacity:0}}
+@keyframes x-check{0%,35.00%{opacity:0;transform:translateY(10px)}38.57%,90.00%{opacity:1;transform:none}95.71%,100%{opacity:0;transform:translateY(10px)}}
+@keyframes x-cc{0%,38.57%{opacity:0}42.14%,90.00%{opacity:1;transform:none}95.71%,100%{opacity:0}}
+@keyframes x-outg{0%,41.43%{opacity:0}45.00%,90.00%{opacity:1;transform:none}95.71%,100%{opacity:0}}
+@keyframes x-graph{0%,42.86%{opacity:0;transform:translateY(10px)}46.43%,90.00%{opacity:1;transform:none}95.71%,100%{opacity:0;transform:translateY(10px)}}
+@keyframes x-outc{0%,45.71%{opacity:0}49.29%,90.00%{opacity:1;transform:none}95.71%,100%{opacity:0}}
+@keyframes x-cand{0%,47.14%{opacity:0;transform:translateY(10px)}50.71%,90.00%{opacity:1;transform:none}95.71%,100%{opacity:0;transform:translateY(10px)}}
+@keyframes x-outr{0%,51.43%{opacity:0}55.00%,90.00%{opacity:1;transform:none}95.71%,100%{opacity:0}}
+@keyframes x-review{0%,52.86%{opacity:0;transform:translateY(10px)}56.43%,90.00%{opacity:1;transform:none}95.71%,100%{opacity:0;transform:translateY(10px)}}
+@keyframes x-patch{0%,57.14%{opacity:0}60.71%,90.00%{opacity:1;transform:none}95.71%,100%{opacity:0}}
+@media (prefers-reduced-motion: reduce){*{animation:none!important}}
+</style>
+<defs>
+<marker id="ah-extract-light" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="arrowhead" d="M0 0L10 5L0 10z"/></marker>
+<marker id="ahb-extract-light" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="arrowhead-blue" d="M0 0L10 5L0 10z"/></marker>
+</defs>
+<rect class="panel" x="0.5" y="0.5" width="879" height="439" rx="10"/>
+
+<text class="stage" x="28" y="52">CHUNK</text>
+<text class="stage" x="150" y="52">FIRST LAYER</text>
+<text class="stage" x="326" y="52">LLM LAYER</text>
+<text class="stage" x="470" y="52">VALIDATION</text>
+<text class="stage" x="650" y="52">RESULT</text>
+
+<g class="x-chunk">
+<rect class="glyph-page" x="24" y="154" width="106" height="104" rx="6"/>
+<rect class="glyph-line" x="36" y="168" width="78" height="4" rx="2"/>
+<rect class="span" x="36" y="180" width="82" height="16" rx="3"/>
+<text class="span-text" x="43" y="191">Ada Lovelace</text>
+<rect class="glyph-line" x="36" y="204" width="50" height="4" rx="2"/>
+<rect class="span" x="36" y="214" width="56" height="16" rx="3"/>
+<text class="span-text" x="43" y="225">Babbage</text>
+<rect class="glyph-line" x="36" y="238" width="60" height="4" rx="2"/>
+</g>
+
+<path class="edge x-in" d="M134 206H146" marker-end="url(#ah-extract-light)"/>
+<g class="x-gliner"><rect class="box" x="150" y="166" width="130" height="80" rx="8"/><text class="box-title" x="162" y="188">GLiNER</text><text class="box-sub" x="162" y="204">local model</text><text class="box-sub" x="162" y="218">no API calls</text></g>
+
+<path class="edge x-bypass" d="M215 166V128Q215 120 223 120H522Q530 120 530 128V166" marker-end="url(#ah-extract-light)"/>
+<g class="x-bypass"><rect class="mask" x="318.0" y="126" width="108" height="14"/><text class="elabel" x="372" y="137" text-anchor="middle">CONFIDENT CHUNKS</text></g>
+<path class="edge x-llmin" d="M284 206H322" marker-end="url(#ah-extract-light)"/>
+<g class="x-llm"><rect class="box" x="326" y="166" width="130" height="80" rx="8"/><text class="box-title" x="338" y="188">LLM via BAML</text><text class="box-sub" x="338" y="204">unsure chunks</text><text class="box-sub" x="338" y="218">within a budget</text></g>
+<path class="edge x-merge" d="M460 206H490" marker-end="url(#ah-extract-light)"/>
+<g class="x-check"><rect class="box" x="494" y="166" width="120" height="80" rx="8"/><text class="box-title" x="506" y="188">Schema check</text><text class="box-sub" x="506" y="204">keeps declared</text><text class="box-sub" x="506" y="218">types and pairs</text></g>
+
+<path class="edge x-outg" d="M618 190H650Q658 190 658 182V148Q658 140 666 140H690" marker-end="url(#ah-extract-light)"/>
+<path class="edge x-outc" d="M618 206H690" marker-end="url(#ah-extract-light)"/>
+<path class="edge x-outr" d="M618 222H650Q658 222 658 230V268Q658 276 666 276H690" marker-end="url(#ah-extract-light)"/>
+<g class="x-graph"><rect class="box" x="694" y="118" width="156" height="44" rx="8"/><text class="box-title" x="706" y="140">Graph</text><text class="box-sub" x="706" y="156">entities and relations</text></g>
+<g class="x-cand"><rect class="box" x="694" y="184" width="156" height="44" rx="8"/><text class="box-title" x="706" y="206">Candidates</text><text class="box-sub" x="706" y="222">outside the schema</text></g>
+<g class="x-review"><rect class="box" x="694" y="254" width="156" height="44" rx="8"/><text class="box-title" x="706" y="276">Your review</text><text class="box-sub" x="706" y="292">approve or reject</text></g>
+
+<g class="x-schema">
+<rect class="bar" x="28" y="340" width="822" height="40" rx="8"/>
+<text class="box-title" x="44" y="364">Your schema</text>
+<text class="box-sub" x="150" y="364">entity types, relation types, allowed pairs, descriptions</text>
+</g>
+
+<path class="edge-blue x-cg" d="M215 336V250" marker-end="url(#ahb-extract-light)"/>
+<g class="x-cg"><rect class="mask" x="219" y="281" width="76" height="14"/><text class="elabel-blue" x="223" y="292" text-anchor="start">TYPES + PAIRS</text></g>
+<path class="edge-blue x-cl" d="M391 336V250" marker-end="url(#ahb-extract-light)"/>
+<g class="x-cl"><rect class="mask" x="395" y="281" width="66" height="14"/><text class="elabel-blue" x="399" y="292" text-anchor="start">BAML ENUMS</text></g>
+<path class="edge-blue x-cc" d="M554 336V250" marker-end="url(#ahb-extract-light)"/>
+<g class="x-cc"><rect class="mask" x="558" y="281" width="76" height="14"/><text class="elabel-blue" x="562" y="292" text-anchor="start">ALLOWED ONLY</text></g>
+<path class="edge-dash x-patch" d="M772 302V336" marker-end="url(#ahb-extract-light)"/>
+<g class="x-patch"><rect class="mask" x="776" y="310" width="80" height="14"/><text class="elabel-blue" x="780" y="321" text-anchor="start">SCHEMA PATCH</text></g>
+
+<text class="note" x="28" y="408">You choose the mode: gliner only, hybrid (the default), or llm only.</text>
+<text class="note" x="28" y="425">In hybrid mode the LLM reads only the chunks the local model is unsure about, up to the budget you set.</text>
+</svg>

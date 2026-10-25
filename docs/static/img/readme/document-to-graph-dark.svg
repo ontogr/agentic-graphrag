@@ -1,0 +1,147 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 430" width="880" height="430" role="img" aria-labelledby="doc2graph-dark-title doc2graph-dark-desc">
+<title id="doc2graph-dark-title">From a document to a graph</title>
+<desc id="doc2graph-dark-desc">A file is read by Docling into typed parts with heading levels. Agentic GraphRAG stores them as a Document, nested Sections, Tables, Figures and Chunks joined by HAS_CHILD, with NEXT_CHUNK between neighbouring chunks.</desc>
+<style>
+.panel{fill:#17181c;stroke:#2a2d33}
+.stage{font:600 11px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;letter-spacing:.08em;fill:#a8a29e}
+.pagebox{fill:#1e2025;stroke:#3b3f46;stroke-width:1.5}
+.glyph-dark{fill:#e5e7eb;opacity:.85}
+.glyph-soft{fill:#3b3f46}
+.glyph-line{fill:none;stroke:#3b3f46;stroke-width:1}
+.glyph-img{fill:#1b2438;stroke:#7aa7ff;stroke-width:1}
+.glyph-hill{fill:#7aa7ff;opacity:.55}
+.scanline{fill:#7aa7ff;opacity:0}
+.caption{font:12px ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;fill:#a8a29e}
+.box{fill:#24262b;stroke:#3b3f46}
+.box-title{font:600 14px ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;fill:#e5e7eb}
+.box-sub{font:11px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;fill:#a8a29e}
+.chip{fill:#1e2025;stroke:#3b3f46}
+.chip-name{font:600 12px ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;fill:#e5e7eb}
+.chip-tag{font:10px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;fill:#7aa7ff}
+.node{fill:#1b2438;stroke:#7aa7ff;stroke-width:1.25}
+.node-name{font:600 12px ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;fill:#e5e7eb}
+.node-sub{font:9.5px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;fill:#a8a29e}
+.focal{fill:#7aa7ff;stroke:#7aa7ff;stroke-width:1.25}
+.focal-name{font:600 12px ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;fill:#111827}
+.focal-sub{font:9.5px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;fill:#111827;opacity:.85}
+.edge{fill:none;stroke:#a8a29e;stroke-width:1.5}
+.edge-dash{fill:none;stroke:#7aa7ff;stroke-width:1.5;stroke-dasharray:5 4}
+.elabel{font:10px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;fill:#a8a29e;letter-spacing:.04em}
+.mask{fill:#17181c}
+.note{font:12px ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;fill:#a8a29e}
+.arrowhead{fill:#a8a29e}
+.arrowhead-blue{fill:#7aa7ff}
+@keyframes scan{0%,6%{opacity:0;transform:translateY(0)}7%{opacity:.55}15%{opacity:.55;transform:translateY(148px)}16%,100%{opacity:0;transform:translateY(148px)}}
+.scanline{animation:scan 14.0s linear infinite}
+.a-page{animation:a-page 14.0s ease-out infinite}
+.a-chip0{animation:a-chip0 14.0s ease-out infinite}
+.a-chip1{animation:a-chip1 14.0s ease-out infinite}
+.a-chip2{animation:a-chip2 14.0s ease-out infinite}
+.a-chip3{animation:a-chip3 14.0s ease-out infinite}
+.a-chip4{animation:a-chip4 14.0s ease-out infinite}
+.a-chip5{animation:a-chip5 14.0s ease-out infinite}
+.a-chip6{animation:a-chip6 14.0s ease-out infinite}
+.a-arrowA{animation:a-arrowA 14.0s ease-out infinite}
+.a-arrowB{animation:a-arrowB 14.0s ease-out infinite}
+.a-doc{animation:a-doc 14.0s ease-out infinite}
+.a-e1{animation:a-e1 14.0s ease-out infinite}
+.a-s1{animation:a-s1 14.0s ease-out infinite}
+.a-e2{animation:a-e2 14.0s ease-out infinite}
+.a-s2{animation:a-s2 14.0s ease-out infinite}
+.a-e3{animation:a-e3 14.0s ease-out infinite}
+.a-chunkA{animation:a-chunkA 14.0s ease-out infinite}
+.a-table{animation:a-table 14.0s ease-out infinite}
+.a-figure{animation:a-figure 14.0s ease-out infinite}
+.a-e4{animation:a-e4 14.0s ease-out infinite}
+.a-chunkB{animation:a-chunkB 14.0s ease-out infinite}
+.a-next{animation:a-next 14.0s ease-out infinite}
+@keyframes a-page{0%,1.43%{opacity:0;transform:translateY(10px)}5.71%,90.00%{opacity:1;transform:none}95.71%,100%{opacity:0;transform:translateY(10px)}}
+@keyframes a-chip0{0%,15.71%{opacity:0;transform:translateX(-28px)}19.29%,90.00%{opacity:1;transform:none}95.71%,100%{opacity:0;transform:translateX(-28px)}}
+@keyframes a-chip1{0%,18.00%{opacity:0;transform:translateX(-28px)}21.57%,90.00%{opacity:1;transform:none}95.71%,100%{opacity:0;transform:translateX(-28px)}}
+@keyframes a-chip2{0%,20.29%{opacity:0;transform:translateX(-28px)}23.86%,90.00%{opacity:1;transform:none}95.71%,100%{opacity:0;transform:translateX(-28px)}}
+@keyframes a-chip3{0%,22.57%{opacity:0;transform:translateX(-28px)}26.14%,90.00%{opacity:1;transform:none}95.71%,100%{opacity:0;transform:translateX(-28px)}}
+@keyframes a-chip4{0%,24.86%{opacity:0;transform:translateX(-28px)}28.43%,90.00%{opacity:1;transform:none}95.71%,100%{opacity:0;transform:translateX(-28px)}}
+@keyframes a-chip5{0%,27.14%{opacity:0;transform:translateX(-28px)}30.71%,90.00%{opacity:1;transform:none}95.71%,100%{opacity:0;transform:translateX(-28px)}}
+@keyframes a-chip6{0%,29.43%{opacity:0;transform:translateX(-28px)}33.00%,90.00%{opacity:1;transform:none}95.71%,100%{opacity:0;transform:translateX(-28px)}}
+@keyframes a-arrowA{0%,11.43%{opacity:0}15.00%,90.00%{opacity:1;transform:none}95.71%,100%{opacity:0}}
+@keyframes a-arrowB{0%,35.71%{opacity:0}39.29%,90.00%{opacity:1;transform:none}95.71%,100%{opacity:0}}
+@keyframes a-doc{0%,38.57%{opacity:0}42.14%,90.00%{opacity:1;transform:none}95.71%,100%{opacity:0}}
+@keyframes a-e1{0%,41.43%{opacity:0}45.00%,90.00%{opacity:1;transform:none}95.71%,100%{opacity:0}}
+@keyframes a-s1{0%,42.14%{opacity:0}45.71%,90.00%{opacity:1;transform:none}95.71%,100%{opacity:0}}
+@keyframes a-e2{0%,45.00%{opacity:0}48.57%,90.00%{opacity:1;transform:none}95.71%,100%{opacity:0}}
+@keyframes a-s2{0%,45.71%{opacity:0}49.29%,90.00%{opacity:1;transform:none}95.71%,100%{opacity:0}}
+@keyframes a-e3{0%,49.29%{opacity:0}52.86%,90.00%{opacity:1;transform:none}95.71%,100%{opacity:0}}
+@keyframes a-chunkA{0%,50.00%{opacity:0;transform:translateY(10px)}53.57%,90.00%{opacity:1;transform:none}95.71%,100%{opacity:0;transform:translateY(10px)}}
+@keyframes a-table{0%,51.43%{opacity:0;transform:translateY(10px)}55.00%,90.00%{opacity:1;transform:none}95.71%,100%{opacity:0;transform:translateY(10px)}}
+@keyframes a-figure{0%,52.86%{opacity:0;transform:translateY(10px)}56.43%,90.00%{opacity:1;transform:none}95.71%,100%{opacity:0;transform:translateY(10px)}}
+@keyframes a-e4{0%,55.71%{opacity:0}59.29%,90.00%{opacity:1;transform:none}95.71%,100%{opacity:0}}
+@keyframes a-chunkB{0%,56.43%{opacity:0;transform:translateY(10px)}60.00%,90.00%{opacity:1;transform:none}95.71%,100%{opacity:0;transform:translateY(10px)}}
+@keyframes a-next{0%,60.71%{opacity:0}64.29%,90.00%{opacity:1;transform:none}95.71%,100%{opacity:0}}
+@media (prefers-reduced-motion: reduce){*{animation:none!important}}
+</style>
+<defs>
+<marker id="ah-dark" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="arrowhead" d="M0 0L10 5L0 10z"/></marker>
+<marker id="ahb-dark" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="arrowhead-blue" d="M0 0L10 5L0 10z"/></marker>
+</defs>
+<rect class="panel" x="0.5" y="0.5" width="879" height="429" rx="10"/>
+
+<text class="stage" x="44" y="62">YOUR FILE</text>
+<text class="stage" x="236" y="62">DOCLING</text>
+<text class="stage" x="526" y="62">THE GRAPH</text>
+
+<g class="a-page">
+<rect class="pagebox" x="44" y="84" width="120" height="176" rx="6"/>
+<rect class="glyph-dark" x="58" y="98" width="70" height="8" rx="2"/>
+<rect class="glyph-dark" x="58" y="118" width="52" height="6" rx="2" opacity=".6"/>
+<rect class="glyph-soft" x="58" y="132" width="92" height="4" rx="2"/>
+<rect class="glyph-soft" x="58" y="141" width="84" height="4" rx="2"/>
+<rect class="glyph-soft" x="58" y="150" width="92" height="4" rx="2"/>
+<rect class="glyph-dark" x="58" y="166" width="40" height="5" rx="2" opacity=".5"/>
+<rect class="glyph-line" x="58" y="178" width="92" height="30"/>
+<path class="glyph-line" d="M58 188H150M58 198H150M89 178V208M120 178V208"/>
+<rect class="glyph-img" x="58" y="218" width="42" height="28" rx="2"/>
+<path class="glyph-hill" d="M62 242L74 228L82 236L90 230L98 242z"/>
+<rect class="glyph-soft" x="106" y="226" width="44" height="4" rx="2"/>
+<rect class="glyph-soft" x="106" y="235" width="34" height="4" rx="2"/>
+<rect class="scanline" x="46" y="86" width="116" height="4" rx="2"/>
+</g>
+<text class="caption" x="104" y="284" text-anchor="middle">PDF, Word, Markdown, HTML</text>
+
+<g class="a-arrowA">
+<path class="edge" d="M172 172H232" marker-end="url(#ah-dark)"/>
+<rect class="mask" x="184" y="152" width="36" height="14"/>
+<text class="elabel" x="202" y="163" text-anchor="middle">READS</text>
+</g>
+
+<rect class="box" x="236" y="76" width="234" height="292" rx="8"/>
+<text class="box-title" x="252" y="100">Docling</text>
+<text class="box-sub" x="252" y="116">typed parts, with their level</text>
+<g class="a-chip0"><rect class="chip" x="252" y="126" width="202" height="26" rx="5"/><text class="chip-name" x="262" y="143">Title</text><text class="chip-tag" x="444" y="143" text-anchor="end">level 0</text></g><g class="a-chip1"><rect class="chip" x="252" y="158" width="202" height="26" rx="5"/><text class="chip-name" x="262" y="175">Heading</text><text class="chip-tag" x="444" y="175" text-anchor="end">level 1</text></g><g class="a-chip2"><rect class="chip" x="266" y="190" width="188" height="26" rx="5"/><text class="chip-name" x="276" y="207">Heading</text><text class="chip-tag" x="444" y="207" text-anchor="end">level 2</text></g><g class="a-chip3"><rect class="chip" x="280" y="222" width="174" height="26" rx="5"/><text class="chip-name" x="290" y="239">Paragraph</text></g><g class="a-chip4"><rect class="chip" x="280" y="254" width="174" height="26" rx="5"/><text class="chip-name" x="290" y="271">List</text></g><g class="a-chip5"><rect class="chip" x="280" y="286" width="174" height="26" rx="5"/><text class="chip-name" x="290" y="303">Table</text></g><g class="a-chip6"><rect class="chip" x="280" y="318" width="174" height="26" rx="5"/><text class="chip-name" x="290" y="335">Figure</text></g>
+
+<g class="a-arrowB">
+<path class="edge" d="M474 101H618" marker-end="url(#ah-dark)"/>
+<rect class="mask" x="520" y="81" width="46" height="14"/>
+<text class="elabel" x="543" y="92" text-anchor="middle">BUILDS</text>
+</g>
+
+<path class="edge a-e1" d="M668 118V146" marker-end="url(#ah-dark)"/>
+<g class="a-e1"><rect class="mask" x="680" y="124" width="62" height="14"/><text class="elabel" x="684" y="135">HAS_CHILD</text></g>
+<path class="edge a-e2" d="M668 180V208" marker-end="url(#ah-dark)"/>
+<path class="edge a-e3" d="M650 242V264Q650 272 642 272H576Q568 272 568 280V286" marker-end="url(#ah-dark)"/>
+<path class="edge a-e3" d="M668 242V286" marker-end="url(#ah-dark)"/>
+<path class="edge a-e3" d="M686 242V264Q686 272 694 272H760Q768 272 768 280V286" marker-end="url(#ah-dark)"/>
+<path class="edge a-e4" d="M668 320V344" marker-end="url(#ah-dark)"/>
+<path class="edge-dash a-next" d="M568 320V353Q568 361 576 361H622" marker-end="url(#ahb-dark)"/>
+<g class="a-next"><rect class="mask" x="540" y="372" width="72" height="14"/><text class="elabel" x="576" y="383" text-anchor="middle">NEXT_CHUNK</text></g>
+
+<g class="a-doc"><rect class="node" x="622" y="84" width="92" height="34" rx="6"/><text class="node-name" x="668.0" y="99" text-anchor="middle">Document</text><text class="node-sub" x="668.0" y="111" text-anchor="middle">one per file</text></g>
+<g class="a-s1"><rect class="node" x="622" y="146" width="92" height="34" rx="6"/><text class="node-name" x="668.0" y="161" text-anchor="middle">Section</text><text class="node-sub" x="668.0" y="173" text-anchor="middle">depth 1</text></g>
+<g class="a-s2"><rect class="node" x="622" y="208" width="92" height="34" rx="6"/><text class="node-name" x="668.0" y="223" text-anchor="middle">Section</text><text class="node-sub" x="668.0" y="235" text-anchor="middle">depth 2</text></g>
+<g class="a-chunkA"><rect class="focal" x="526" y="286" width="84" height="34" rx="6"/><text class="focal-name" x="568.0" y="301" text-anchor="middle">Chunk</text><text class="focal-sub" x="568.0" y="313" text-anchor="middle">heading path</text></g>
+<g class="a-table"><rect class="node" x="626" y="286" width="84" height="34" rx="6"/><text class="node-name" x="668.0" y="301" text-anchor="middle">Table</text><text class="node-sub" x="668.0" y="313" text-anchor="middle">columns, rows</text></g>
+<g class="a-figure"><rect class="node" x="726" y="286" width="84" height="34" rx="6"/><text class="node-name" x="768.0" y="301" text-anchor="middle">Figure</text><text class="node-sub" x="768.0" y="313" text-anchor="middle">caption</text></g>
+<g class="a-chunkB"><rect class="focal" x="626" y="344" width="84" height="34" rx="6"/><text class="focal-name" x="668.0" y="359" text-anchor="middle">Chunk</text><text class="focal-sub" x="668.0" y="371" text-anchor="middle">rows + header</text></g>
+
+<text class="note" x="44" y="404">Chunks follow the sections. A table never mixes with text, and a long table repeats its header row in every chunk.</text>
+<text class="note" x="44" y="421">Chonkie cuts only a paragraph that is too long for one chunk.</text>
+</svg>

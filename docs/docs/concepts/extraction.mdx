@@ -1,26 +1,28 @@
 ---
 sidebar_position: 6
 title: Extraction
-description: How Agentic GraphRAG turns chunk text into typed entity and relation mentions.
+description: How Agentic GraphRAG turns chunk text into typed extracted entities and relations.
 ---
 
 import Diagram from '@site/src/components/Diagram';
 
 # Extraction
 
-Extraction turns a chunk into entity and relation mentions, not graph nodes. The schema defines which types and relation patterns the extractor can return; later resolution decides which mentions share an entity.
+Extraction turns a chunk into extracted entities and relations, which are not graph nodes yet. The schema defines which types and relation patterns the extractor can return; later resolution decides which extracted entities refer to the same entity.
 
 ## Why it exists
 
-A chunk is plain text. Extraction turns statements in that text into typed facts, such as "Charles Babbage designed the Analytical Engine". It records where each mention came from so later stages can validate and resolve it.
+A chunk is plain text. Extraction turns statements in that text into typed facts, such as "Charles Babbage designed the Analytical Engine". It records where each extracted entity came from so later stages can validate and resolve it.
 
 A schema keeps the facts consistent. It names the valid entity types and relation types. It also names the pairs of types that each relation can join. An extractor cannot add a type that the schema does not declare.
 
-A local model reads every chunk without API calls. In `hybrid` mode, an LLM re-reads eligible chunks, such as those with a kept entity scoring under 0.75, up to the escalation budget. GLiNER-only mode avoids those LLM calls, while LLM-only mode sends chunks directly to the LLM.
+[GLiNER](https://github.com/urchade/GLiNER) is a compact encoder model that is trained to extract any entity types you define. Your schema's types and descriptions are its input. It runs on your machine and reads every chunk without API calls. The extraction mode is one of three values: `gliner` uses only the local model, `hybrid` (the default) adds LLM review of weak chunks, and `llm` sends chunks directly to the LLM. See [Choose an extraction mode](../guides/choose-an-extraction-mode.mdx) for the settings. In `hybrid` mode, an LLM re-reads eligible chunks, such as those with a kept entity scoring under 0.75, up to the `escalation_budget` setting, which is the share of each batch the LLM may read. The LLM provider comes from the extraction LLM settings, which use the `EXTRACTION_LLM_` prefix.
 
 ## How it works
 
-<Diagram folder="docs" name="extraction" alt="The local model reads every chunk. In hybrid mode, a chunk with a kept entity below the escalation threshold, no kept entities but enough words, or a kept entity whose type has declared properties goes to an LLM while the budget lasts. The LLM entities combine with the local ones. A schema check keeps allowed mentions and relations and reports rejected items as candidates." />
+<Diagram name="entity-extraction" ext="svg" alt="A chunk is read by GLiNER on your machine. In hybrid mode, chunks the local model is unsure about go to an LLM through BAML, within a budget. Your schema feeds both models and the schema check. Declared results enter the graph, and results outside the schema become candidates that you review. Approval returns a schema patch." />
+
+<Diagram folder="docs" name="extraction" alt="The local model reads every chunk. In hybrid mode, a chunk with a kept entity below the escalation threshold, no kept entities but enough words, or a kept entity whose type has declared properties goes to an LLM while the budget lasts. The LLM entities combine with the local ones. A schema check keeps allowed extracted entities and relations and reports rejected items as candidates." />
 
 *The local model reads every chunk. The LLM reads the chunks that most need it, up to a budget, and its entities combine with the local entities.*
 
@@ -29,9 +31,9 @@ A local model reads every chunk without API calls. In `hybrid` mode, an LLM re-r
 3. The extractor keeps an entity when its score is 0.5 or more. It keeps a relation when its score is 0.7 or more and the pair of entity types is one that the schema allows. When a type has a parent type, the model sees both. If it returns the same words under both, the extractor keeps the label with the higher score. On a tie it keeps the child.
 4. The extractor reports rejected relations and weak entities as [candidates](./candidates.mdx), with a reason. Validation also reports each undeclared property as a property candidate. Property candidates occur only on chunks read by the LLM tier and only when the schema declares properties. You can turn candidate reporting off.
 5. In hybrid mode, after the local model has read every chunk of a batch, the graph ranks eligible chunks. With default settings, a chunk is eligible when a kept entity scores below 0.75, when it has no kept entities and at least eight words, or when a kept entity's type has declared or inherited properties. Chunks with at least two kept entities and no relation come first, because a chunk with several entities and no relation is the likeliest to be missing links. The other chunks follow, weakest first, and chunks with no kept entities come last.
-6. An LLM reads the eligible chunks in that order, until the budget is used. The budget is 20% of the chunks in a batch by default. The schema is part of the prompt. Its entities and the local entities combine into one result. An LLM entity with the name of a local entity keeps the local span and score. A local entity that the LLM did not return stays in the result. If the LLM call fails or gives no usable answer, the chunk keeps the local result.
+6. An LLM reads the eligible chunks in that order, until the budget is used. The budget is 20% of the chunks in a batch by default. In hybrid mode, the local entities go to the LLM as candidates, and the LLM keeps, corrects, drops, or adds to them. The schema is part of the prompt, and [BAML](https://boundaryml.com/) builds the allowed entity and relation labels from it at call time, so the reply can only use declared labels. The `relations` and `properties` fields are added only when the schema declares them. Its entities and the local entities combine into one result. An LLM entity with the name of a local entity keeps the local span and score. A local entity that the LLM did not return stays in the result. If the LLM call fails or gives no usable answer, the chunk keeps the local result.
 7. The pipeline validates the result of every extractor, including an extractor that you write. Validation removes every entity whose label the schema does not declare. It removes every relation whose label, or whose pair of entity types, the schema does not declare. A pattern that names a parent type also covers the child types of that type. It removes undeclared properties from entities and returns them as property candidates. Cardinality and symmetry declarations are not enforced on extracted edges. The pipeline logs how many entities, relations and properties it dropped.
-8. The result is a list of mentions. A mention is not a graph node yet. It keeps its chunk, label, text, and character span. A mention from the local model also keeps a confidence score. A mention from an LLM has none.
+8. The result is a list of extracted entities and relations. An extracted entity is not a graph node yet. It keeps its chunk, label, text, and character span. An extracted entity from the local model also keeps a confidence score. One from an LLM has none.
 
 The graph's extraction mode and available LLM settings determine whether an LLM reads chunks. In `hybrid` or `llm` mode, omitting `llm_extractor` still lets the graph build its default BAML extractor from configured environment settings. If those settings are absent, hybrid mode runs locally; use `mode="gliner"` to disable LLM extraction explicitly. See [Choose an extraction mode](../guides/choose-an-extraction-mode.mdx) for the mode and model settings.
 
@@ -39,16 +41,20 @@ The graph's extraction mode and available LLM settings determine whether an LLM 
 The local model reports spans and labels, but does not fill property values. A kept entity with declared or inherited properties makes its chunk eligible for LLM review, subject to the hybrid budget. Graph logs a warning when it runs in GLiNER-only mode with declared properties. The LLM reports labels, names, and property values; the extractor finds the names' spans in the text.
 :::
 
+## Review candidates
+
+Extraction keeps the items that fall outside the schema, or below a confidence threshold, as candidates. Review lists them, and you approve or reject each one. Approval returns a schema patch. You apply that patch to your schema yourself and raise the schema version, because the review API does not edit the schema file. Converting an approved candidate turns it into an entity, a relation, or a property. A rejected candidate is not created again. See [Candidates](./candidates.mdx) and [Review candidates and grow your schema](../guides/review-candidates.mdx).
+
 ## Example
 
 A schema declares the entity types `Person`, `Machine`, and `City`. It declares the relations `DESIGNED` (Person to Machine) and `WORKED_IN` (Person to City). The local model reads two sentences.
 
-| Text | Mentions | Relations |
+| Text | Extracted entities | Relations |
 | --- | --- | --- |
 | Charles Babbage designed the Analytical Engine in London. | Charles Babbage (Person), Analytical Engine (Machine), London (City) | Charles Babbage DESIGNED Analytical Engine |
 | Ada Lovelace worked in London and wrote notes on the Analytical Engine. | Ada Lovelace (Person), London (City), Analytical Engine (Machine) | Ada Lovelace WORKED_IN London |
 
-The two sentences give six mentions. After resolution, they are four entities, because the two "London" mentions and the two "Analytical Engine" mentions have equal text.
+The two sentences give six extracted entities. After resolution, they are four entities, because the two "London" extracted entities and the two "Analytical Engine" extracted entities have equal text.
 
 <details>
 <summary>Design choices</summary>
@@ -67,7 +73,7 @@ Validation runs after extraction because an LLM can invent a type or a property,
 
 The model scores entities and relations in one pass, so one model call covers both. A second pass for relations only costs time, and the relation endpoints would need a match to the entities anyway.
 
-When the model returns the same words under a parent type and a child type, the extractor keeps the label with the higher score, and keeps the child on a tie. Two labels on one span would make two mentions of one thing. The parent labels are added when the node is written.
+When the model returns the same words under a parent type and a child type, the extractor keeps the label with the higher score, and keeps the child on a tie. Two labels on one span would make two extracted entities for one thing. The parent labels are added when the node is written.
 
 The model reads each chunk a second time at a lower score to report weak spans as candidates. A lower score changes which overlapping spans the model keeps, so the kept entities come from the first read only.
 

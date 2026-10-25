@@ -646,3 +646,39 @@ details.alert {
 .footer__bottom .margin-bottom--sm {
   margin-bottom: 0;
 }
+
+/* Images in doc pages never run wider than the column. Diagrams and screenshots scale down
+   on a phone instead of forcing the page to scroll sideways. */
+.theme-doc-markdown img,
+article img {
+  max-width: 100%;
+  height: auto;
+}
+
+/* On a phone, code blocks wrap long lines and fit the screen, so no block scrolls sideways.
+   Indentation stays, since pre-wrap keeps spaces. */
+@media (max-width: 640px) {
+  div[class*="codeBlockContainer"],
+  .theme-doc-markdown pre,
+  article pre {
+    max-width: 100%;
+  }
+
+  .theme-doc-markdown pre,
+  article pre {
+    overflow-x: hidden;
+  }
+
+  pre code,
+  pre code span {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    word-break: normal;
+  }
+
+  /* Inline code in prose can break too, so a long name does not push the page wide. */
+  .theme-doc-markdown :not(pre) > code,
+  article :not(pre) > code {
+    overflow-wrap: anywhere;
+  }
+}

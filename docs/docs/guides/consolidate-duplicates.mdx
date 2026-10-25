@@ -10,7 +10,7 @@ Run resolution over every entity in the graph, review the matches it finds, and 
 
 ## When to use this guide
 
-`Graph.add` already compares new mentions with the entities that the graph stores. Run `Graph.consolidate` after you add an LLM to a graph built without one, or when you want to re-review every entity.
+`Graph.add` already compares new extracted entities with the entities that the graph stores. Run `Graph.consolidate` after you add an LLM to a graph built without one, or when you want to re-review every entity.
 
 ## Before you start
 
@@ -152,7 +152,7 @@ If any of the three failure counts is not zero, the pass is partial. Run `consol
 
 ## Related
 
-- Concept: [Entity resolution](../concepts/resolution.mdx) explains how mentions that name the same real-world thing are decided.
+- Concept: [Entity resolution](../concepts/resolution.mdx) explains how extracted entities that name the same real-world thing are decided.
 - Concept: [Matching and resolved entities](../concepts/resolved-entities.mdx) explains how a match is recorded and how a resolved entity is derived.
 - Guide: [Extract and resolve entities](./extract-and-resolve.mdx) covers resolution during ingestion and the LLM settings.
 - Reference: [Ingestion API](../api/ingestion/index.md) lists the signatures of the classes in `agrag.ingestion`, including `Graph`.

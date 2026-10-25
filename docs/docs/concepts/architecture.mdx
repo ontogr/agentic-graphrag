@@ -24,7 +24,7 @@ The components separate source parsing, graph construction, search, conversation
 
 *Graph.add writes enterprise knowledge through ingestion. Agents and MCP clients read evidence, record conversation history, and manage decision traces.*
 
-Ingestion loads each source as a document, chunks its text, extracts and resolves entity mentions, then stores the graph and embeddings. The [Ingestion pipeline](./ingestion.mdx) page explains how these stages handle updates and failures.
+Ingestion loads each source as a document, chunks its text, extracts entities and relations, resolves the extracted entities, then stores the graph and embeddings. The [Ingestion pipeline](./ingestion.mdx) page explains how these stages handle updates and failures.
 
 At query time, one task-scoped agent discovers and fetches evidence from the graph, then writes an answer that cites only the evidence it fetched. The agent records messages, tool calls, and tool results as conversation history, and it stores decisions with explicit supports in the same graph. [Agent loop](./agent-loop.mdx) describes when the agent searches again and where its limits apply.
 

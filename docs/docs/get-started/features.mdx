@@ -10,10 +10,16 @@ import Diagram from '@site/src/components/Diagram';
 
 <Diagram name="context-graph" alt="Three connected graph layers. Enterprise knowledge contains documents, sections, chunks, entities, and relations. Conversation history contains tasks, events, and steps. Decision traces link conclusions to document passages, task events, and other decisions." />
 
-## Read the files you already have
+## Structure-aware ingestion
+
+<Diagram name="document-to-graph" ext="svg" alt="A file is read by Docling into typed parts with heading levels: a title at level 0, headings at levels 1 and 2, then paragraphs, lists, tables, and figures. Agentic GraphRAG stores them as a Document, nested Sections, Tables, Figures, and Chunks joined by HAS_CHILD, with NEXT_CHUNK between neighboring chunks." />
+
+### Loading files
 
 - You can add a file, a folder, a pattern that matches many files, a list of paths, plain text, or documents you built yourself.
-- Plain text, logs, XML, Markdown, HTML, AsciiDoc, Word, PowerPoint, and Excel files are read directly. PDF and image support is an optional part of the install.
+- Plain text, logs, and XML files are read by the core loaders.
+- [Docling](https://github.com/docling-project/docling) reads Markdown, HTML, AsciiDoc, Word, PowerPoint, and Excel files. These formats need no model, so the base install is enough.
+- PDF and image files go through Docling with its layout and table models. They need the optional `docling` install.
 - Each row of a CSV or TSV file, and each record of a JSON or JSON Lines file, becomes its own document. You name the column that holds the identifier.
 - A conversation file is read with one section for each message.
 - Headings, sections, tables, and figures stay in the graph. PDF pages keep their page numbers and positions.
@@ -23,7 +29,7 @@ import Diagram from '@site/src/components/Diagram';
 
 See [Loading documents](../concepts/loading.mdx) and [Ingest documents](../guides/ingest-documents.mdx).
 
-## Split documents along their structure
+### Splitting into chunks
 
 - Sections are packed into chunks in reading order. A small chunk carries on into the next section, so short sections do not each become a tiny chunk.
 - A table that fits stays whole. A larger table is split into groups of rows that each repeat the header row, and tables never share a chunk with running text.
@@ -33,24 +39,37 @@ See [Loading documents](../concepts/loading.mdx) and [Ingest documents](../guide
 
 See [Chunking](../concepts/chunking.mdx) and [Configure chunking](../guides/configure-chunking.mdx).
 
-## Build a graph around your own schema
-
-<Diagram name="schema-pipeline" alt="Extraction reads each chunk with a local model, sends uncertain chunks to an LLM, and checks the result against your schema. Entities and relationships outside the schema are saved for review. Resolution then compares entities in steps, from cheap checks to an LLM, and stores each match as a link." />
+## Schema and ontology
 
 - You write the schema in code, in a YAML or JSON file, with Pydantic classes, or by importing an OWL or RDFS ontology.
 - You can start from the default schema or a ready-made preset for operations or legal documents, then override, exclude, or add to it. A schema can also be exported to JSON Schema, SHACL, or JSON-LD.
+- The schema is closed. Extraction, graph creation, retrieval, and agents read the same entity types, relation types, and allowed type pairs.
+
+See [Ontologies](../concepts/ontologies.mdx), [Define a graph schema](../guides/define-a-graph-schema.mdx), and the [default schema](../reference/default-schema.mdx).
+
+## Entity and relationship extraction
+
+<Diagram name="schema-pipeline" alt="Extraction reads each chunk with a local model, sends uncertain chunks to an LLM, and checks the result against your schema. Entities and relationships outside the schema are saved for review. Resolution then compares entities in steps, from cheap checks to an LLM, and stores each match as a link." />
+
+<Diagram name="entity-extraction" ext="svg" alt="A chunk is read by GLiNER on your machine. In hybrid mode, chunks the local model is unsure about go to an LLM through BAML, within a budget. Your schema feeds both models and the schema check. Declared results enter the graph, and results outside the schema become candidates that you review. Approval returns a schema patch." />
+
+- You choose the mode: `gliner` runs only the local model, `hybrid` (the default) adds LLM review, and `llm` sends chunks straight to the LLM.
 - A local model reads every chunk and finds entities and relations on your machine, so a graph can be built without an LLM key.
 - An LLM can read the passages that the local model is least sure about. You set how much of each batch it may read. Entity types with properties go to the LLM, which fills in the values.
+- The schema is part of the LLM prompt. BAML builds the allowed entity and relation labels from it, so the model can only return declared types, and validation removes anything else.
 - Calls to an LLM work with many providers. Retries are built in, and fallback or rotation across several models is supported.
 - You set separate confidence thresholds for each entity and relation type.
 - Items that your schema does not allow are saved as candidates, with links to their source passages.
-- You can list, search, approve, or reject candidates. Approving writes a schema patch for you to review, and your own schema file is never edited. Approved candidates then become entities, relations, or properties.
+- You can list, search, approve, or reject candidates. Approving returns a schema patch for you to review, and your own schema file is never edited. Approved candidates then become entities, relations, or properties.
 
-See [Define a graph schema](../guides/define-a-graph-schema.mdx), [Choose an extraction mode](../guides/choose-an-extraction-mode.mdx), and [Review candidates](../guides/review-candidates.mdx).
+See [Extraction](../concepts/extraction.mdx), [Define a graph schema](../guides/define-a-graph-schema.mdx), [Choose an extraction mode](../guides/choose-an-extraction-mode.mdx), and [Review candidates](../guides/review-candidates.mdx).
 
-## Merge duplicates without losing anything
+## Entity resolution
 
-- Mentions with the same label and text share one entity, which records how often and where it appears.
+<Diagram name="entity-resolution" ext="svg" alt="Extracted entities with the same label and text collapse into one entity. Other pairs go down tiers: a name gate, fuzzy match, embedding similarity, clustering, and LLM review. A match is stored as a link between entities, and linked entities are grouped under one resolved entity." />
+
+- Entities with the same label and text are deduplicated into one entity, which records how often and where it appears.
+- A name gate blocks pairs whose names carry different numbers, such as "Apollo 11" and "Apollo 13", and names that are very long.
 - Similar spellings, close embeddings, and LLM-reviewed pairs are stored as links between entities. The original entities and their relations stay in the graph.
 - Each connected set of matches is grouped under one combined entity that links to its members.
 - A pair that no check can decide stays unmatched. It is never treated as a rejection.
@@ -62,6 +81,20 @@ See [Define a graph schema](../guides/define-a-graph-schema.mdx), [Choose an ext
 - An entity and its matches are removed when an update, delete, or purge takes away the last evidence for it.
 
 See [Entity resolution](../concepts/resolution.mdx) and [Consolidate duplicates](../guides/consolidate-duplicates.mdx).
+
+## Communities
+
+<Diagram name="community-detection" ext="svg" alt="Entities joined by relations weighted by their supporting passages are clustered with Leiden. Each community gets a report with a title, summary, and findings, and the report is embedded. A broad question is matched against the reports in theme search, which returns the passages behind each matching theme." />
+
+- The entity graph is grouped into communities. You can preview the groups before writing them.
+- Each relation is weighted by the number of passages that support it.
+- An LLM writes a title, summary, rating, and findings for the larger communities. A simple template covers the rest.
+- Each report is embedded, so `search_themes` can answer broad questions from the summaries and return the passages that support each theme.
+- Thematic search matches a broad question against the embedded reports by meaning. It returns the matching themes with their entities and the passages that mention them, inside the documents in scope, and never the report text.
+- Communities cluster the entities that your schema defines. Document structure, links to passages, and candidates are left out of the clustering.
+- Writing communities replaces the earlier groups in one step, so a rerun is safe.
+
+See [Communities](../concepts/communities.mdx).
 
 ## Keep the graph current
 
@@ -108,16 +141,6 @@ See [Graph storage](../concepts/graph-storage.mdx).
 - An older citation still resolves. It returns its text and is labeled as superseded.
 - A check confirms that every cited passage was read in scope. It reports the passages that were not read, that belong to another document, or that are malformed.
 - Answers are rendered with numbered references and a Sources list. A source becomes a link when it has a web address.
-
-## Answer broad questions with community summaries
-
-- The entity graph is grouped into communities. You can preview the groups before writing them.
-- Each relation is weighted by the number of passages that support it.
-- An LLM writes a title, summary, rating, and findings for the larger communities. A simple template covers the rest.
-- Each report is embedded, so `search_themes` can answer broad questions from the summaries and return the passages that support each theme.
-- Writing communities replaces the earlier groups in one step, so a rerun is safe.
-
-See [Communities](../concepts/communities.mdx).
 
 ## Record conversation history
 

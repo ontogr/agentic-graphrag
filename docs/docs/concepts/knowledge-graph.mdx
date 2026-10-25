@@ -27,9 +27,11 @@ Agentic GraphRAG keeps both text and structure in one graph. An entity links to 
 3. Table and Figure: one node for each table or figure. A table holds its caption, its column names and its row count. A figure holds its caption and its page box. It does not store the image.
 4. Source: one node for each record file, such as a CSV file. It joins each of its row documents with `HAS_DOCUMENT`.
 5. Chunk: one retrieval-sized piece of text. It holds the text, its location in the source, the headings above it, the sections it covers and the chunker that made it.
-6. Entity: one node for each name and type, such as the person "Ada Lovelace". Its label is the type from your schema. A type with parents also adds the labels of its parents to the node. The same name with two types makes two entities. It records which chunks mention it.
+6. Entity: one node for each name and type, such as the person "Ada Lovelace". Its label is the type from your schema. A type with parents also adds the labels of its parents to the node. The same name with two types makes two entities. It records which chunks mention it. A schema cannot use these graph-owned labels as an entity type or a parent type: `Document`, `Chunk`, `Section`, `Table`, `Figure`, `Source`, `Community`, `ResolvedEntity`, `CutoverJob`, `Candidate`, `VectorPlacement`, `_Node`, and `_MergeAlias`.
 7. ResolvedEntity (see [Matching and resolved entities](./resolved-entities.mdx)): a group of entities that the resolver decided are the same thing. It exists only for groups of two or more.
 8. Community (see [Communities](./communities.mdx)): a group of related entities. It holds a title, a summary, a rating and findings.
+
+The nodes form a tree. A document holds its top-level sections, and each section nests under the nearest heading above it with a smaller depth. A section holds the chunks, tables, and figures that it contains, in reading order, and a table holds the chunks of its row groups.
 
 The edges connect them:
 

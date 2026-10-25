@@ -36,6 +36,7 @@ const sidebars = {
       'concepts/graph-storage',
     ]),
     section('Build the graph', [
+      'concepts/ontologies',
       'guides/define-a-graph-schema',
       'guides/use-a-preset',
       'guides/write-a-custom-schema',
@@ -104,6 +105,8 @@ const sidebars = {
       'reference/configuration',
       'reference/schema-file-format',
       'reference/default-schema',
+      'reference/preset-operations',
+      'reference/preset-legal',
       'reference/schema-format-json-schema',
       'reference/schema-format-pydantic',
       'reference/schema-json-ld',

@@ -41,7 +41,7 @@ Some steps fall back and continue. They record the exception on the span but lea
 
 ## A worked example
 
-You add one short text with the local extractor. The trace shows one `add` span. Under it, `chunk document` reports one chunk. The extraction span reports four entities and no relations. The resolution spans report four compared pairs and none that need a model. The storage spans report one chunk node, one document node, and four mention edges.
+You add one short text with the local extractor. The trace shows one `add` span. Under it, `chunk document` reports one chunk. The extraction span reports four entities and no relations. The resolution spans report four compared pairs and none that need a model. The storage spans report one chunk node, one document node, and four `MENTIONED_IN` edges.
 
 <details>
 <summary>Design choices</summary>
