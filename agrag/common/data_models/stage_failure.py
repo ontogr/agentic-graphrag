@@ -15,8 +15,9 @@ class StageFailure(BaseModel):
     """One item failure within a pipeline stage.
 
     Attributes:
-        item_id: The chunk id, mention id, or batch id that the stage
-            failed on.
+        item_id: A stage-specific identifier or name for the failed item, such
+            as a chunk or entity id, relation type, step name, or comma-joined
+            entity names in a merge group.
         error_type: The exception's class name.
         error_message: The exception's message.
         trace_id: The OTel trace id correlating to the full span detail,

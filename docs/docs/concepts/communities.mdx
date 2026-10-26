@@ -22,7 +22,9 @@ A community report gives a compact view of one cluster through a title, summary,
 
 *Groups with many attested relations get an LLM report. Small groups get a simple one.*
 
-Community detection is an explicit, graph-wide operation. `Graph.add` does not run it automatically, because clustering reads the full graph and replaces the previous partition.
+Community detection is an explicit operation across all entity types in the active schema. `Graph.add` does not run it automatically, because clustering reads the eligible graph and replaces the previous partition.
+
+Community detection uses a relationship only when both endpoint nodes carry labels declared as entity types in the active schema and the relationship type is declared in that schema. It ignores stored relationships whose types are not in the active schema, including graph-owned links such as `MATCHES` and `RESOLVED_AS`. The detector does not recheck whether each relationship's endpoint labels match a declared relation pattern.
 
 When you call `Graph.detect_communities`, Agentic GraphRAG weights each entity relation by the number of source chunks that support it. Unsupported relations weigh zero. Leiden clustering creates a hierarchy, but the graph keeps only level 0 of the hierarchy and groups with at least two entities.
 
@@ -57,7 +59,7 @@ Why keep only the first level? One level of groups is enough for retrieval. It a
 
 Why rebuild every time? A full rebuild gives one clean partition. There is no rule for merging an old partition with a new one.
 
-Community detection reads the whole graph and replaces the previous partition. Running it on request keeps that cost out of ordinary ingestion and lets you decide when reports need a refresh.
+Community detection reads all current-schema entity types and replaces the previous partition. Running it on request keeps that cost out of ordinary ingestion and lets you decide when reports need a refresh.
 
 </details>
 
