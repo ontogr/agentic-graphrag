@@ -8,13 +8,15 @@ import Diagram from '@site/src/components/Diagram';
 
 # Loading documents
 
-A loader converts a source into documents with text, identity, and structure. Text and record loaders normalize decoded text. Docling loaders use the structure returned by Docling. The loader registry selects a default parser by extension, while record formats can produce one document per row or record.
+A loader converts a source into documents with text, identity, and structure. Text and record loaders normalize decoded text. [Docling](https://github.com/docling-project/docling) loaders use the structure that Docling returns. The loader registry selects a default parser by extension, while record formats can produce one document per row or record.
 
 ## Why it exists
 
 Later ingestion stages need a consistent document model, even when sources differ. The loader preserves useful structure such as headings and tables. A document's key identifies it for updates; parser choice can change its text and the source locations available to citations.
 
 ## How it works
+
+<Diagram name="document-to-graph" ext="svg" alt="A file is read by Docling into typed parts with heading levels: a title at level 0, headings at levels 1 and 2, then paragraphs, lists, tables, and figures. Agentic GraphRAG stores them as a Document, nested Sections, Tables, Figures, and Chunks joined by HAS_CHILD, with NEXT_CHUNK between neighboring chunks." />
 
 <Diagram folder="docs" name="loading" alt="A source uses the loader you pass in. Without one, Agentic GraphRAG looks up the loader for the file extension. If no loader is found, an optional extra is missing, or an eligible source read fails, the error policy applies: RAISE stops the run, SKIP drops and counts the source, and QUARANTINE records the failure. A missing import from a base parser is an installation error, not a source error." />
 
@@ -49,7 +51,7 @@ The base install includes `docling-slim` for Markdown, HTML, AsciiDoc, Word, Pow
 
 ### Sections
 
-A section is a heading and the content under it. A PDF gets heading depth from its outline when Docling reports it. Without outline depths, Agentic GraphRAG reads dotted heading numbers such as "3.2 Results" only when Docling reports every heading at depth 1, the document has at least three headings, and at least half are numbered. Otherwise it keeps the heading depths reported by Docling. A nonblank prose document with stored text and no headings has one section with an empty heading. A record row has no sections. Chunks have page spans only when the loader supplies page provenance.
+A section is a heading and the content under it. A title has depth 0. A heading has the depth that Docling reports for it, except in the numbered PDF case below. A section nests under the nearest heading above it with a smaller depth, so a document holds its top-level sections, and each deeper heading sits under the one before it. A PDF gets heading depth from its outline when Docling reports it. Without outline depths, Agentic GraphRAG reads dotted heading numbers such as "3.2 Results" only when Docling reports every heading at depth 1, the document has at least three headings, and at least half are numbered. Otherwise it keeps the heading depths reported by Docling. A nonblank prose document with stored text and no headings has one section with an empty heading. A record row has no sections. Chunks have page spans only when the loader supplies page provenance. Page headers and page footers that Docling reports are left out of the sections.
 
 ## Example
 
@@ -58,13 +60,13 @@ You add `report.pdf` and `notes.md` in one call. The registry sends both files t
 <details>
 <summary>Design choices</summary>
 
-Why does a document keep two hashes? The content hash is the hash of the document text, and it decides whether a document changed. A Docling document also records `source_hash`, the hash of the raw file bytes. Because Docling can export the same file as different text between versions, a Docling upgrade can change the content hash of an unchanged file and create a new version of it.
+A document keeps two hashes. The content hash covers the document text and decides whether a document changed. A Docling document also records `source_hash`, the hash of the raw file bytes. Docling can export the same file as different text between versions, so a Docling upgrade can change the content hash of an unchanged file and create a new version of it.
 
-Why do offsets point into the normalized text? Every chunk offset counts characters in the text after normalization. If you need offsets that match the raw source, keep the text as it is with `Normalization(bom="keep", newline="keep", unicode_form="none")`.
+Chunk offsets point into the normalized text, because every offset counts characters after normalization. To get offsets that match the raw source, keep the text as it is with `Normalization(bom="keep", newline="keep", unicode_form="none")`.
 
-Why does each extension have its own loader? Different parsers preserve different structure. Docling reads AsciiDoc, Markdown, and HTML structure, while the core CSV loader gives each row its own identity. Choosing by extension avoids treating every installed parser as an equally good fit.
+Each extension has its own loader because parsers preserve different structure. Docling reads AsciiDoc, Markdown, and HTML structure, while the core CSV loader gives each row its own identity. Choosing by extension avoids treating every installed parser as an equally good fit.
 
-Why do PDF and image files need the `docling` extra? The base install includes `docling-slim` for the other listed document formats. The full `docling` package supplies the models used to parse PDF and image files.
+PDF and image files need the `docling` extra. The base install includes `docling-slim` for the other listed document formats, and the full `docling` package supplies the models used to parse PDF and image files.
 
 </details>
 

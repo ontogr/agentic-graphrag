@@ -1,23 +1,23 @@
 ---
 sidebar_position: 12
 title: How passage search works
-description: Which chunks passage search can see, how the keyword and semantic searches rank them, and how hybrid mode fuses the rankings.
+description: Which chunks passage search can see, how the lexical and semantic searches rank them, and how hybrid mode fuses the rankings.
 ---
 
 import Diagram from '@site/src/components/Diagram';
 
 # How passage search works
 
-[Passage search](../tools/passage-search.mdx) runs a keyword search, a semantic search, or both over the chunks of your documents. Each search asks an index for candidates, drops the chunks the caller may not see, and ranks the rest. Hybrid mode then fuses the two rankings into one list.
+[Passage search](../tools/passage-search.mdx) runs a lexical search, a semantic search, or both over the chunks of your documents. Each search asks an index for candidates, drops the chunks the caller may not see, and ranks the rest. Hybrid mode then fuses the two rankings into one list and, when a reranker is set up, reorders the top of that list.
 
 <Diagram folder="docs" name="passage-search" alt="A query goes to a lexical search and a semantic search. Each reads candidates from its index and keeps only visible chunks in scope. In hybrid mode the two ranked lists are fused with reciprocal rank fusion. The result is a list of hits with evidence ids, previews, and a status." />
 
 ## The steps of a call
 
 1. The call checks the scope. An empty scope returns `empty_scope` without a search.
-2. The call checks that each index the mode needs exists and is online. A missing or offline index returns `index_not_ready`. Keyword search needs the full-text index on chunk text, and semantic search needs the vector index on chunk embeddings. `Graph.open` creates both indexes.
-3. Each search asks its index for `limit` candidates and drops the chunks that are not visible.
-4. When fewer than `limit` candidates are visible, the search asks again with four times as many candidates, up to 1000. The result sets `truncated` when the ceiling is reached before `limit` visible chunks are found.
+2. The call checks that each index the mode needs exists and is online. A missing or offline index returns `index_not_ready`. Lexical search needs the full-text index on chunk text, and semantic search needs the vector index on chunk embeddings. `Graph.open` creates both indexes.
+3. Each search asks its index for twice the number of visible chunks it needs, and drops the chunks that are not visible. It needs `limit` chunks. In hybrid mode with a reranker, it needs at least 30 (`RETRIEVAL_RERANK_CANDIDATES`) when that is more than `limit`.
+4. When the first read leaves fewer visible chunks than the search needs, and the index filled that read, the search reads again with up to 1000 candidates. With an external vector store, the semantic search uses the store's `max_results` as its ceiling instead. The result sets `truncated` when that read also leaves the search short and the index filled it.
 5. In `hybrid` mode the call fuses the two ranked lists. In the other modes the order of the single search stands.
 6. The call builds one hit for each chunk, with the evidence id, the document key, the title, the location, a preview of the first 240 characters, the score, and the searches that found it.
 
@@ -25,19 +25,19 @@ import Diagram from '@site/src/components/Diagram';
 
 A chunk is visible when it has an open `HAS_PART` edge from a current document version, belongs to a document in scope, and no ingestion job is still writing it. These rules are part of each search query, so a hidden chunk never takes a result slot. Superseded text and text outside the scope cannot appear in a result.
 
-## Keyword search
+## Lexical search
 
 The call reduces the query to its word characters, lowercases them, and joins the words with spaces. Lucene operators, field names, quotes, and escapes never reach the parser, so the query `AND (policy` becomes the two plain terms `and` and `policy`.
 
 Neo4j reads the terms with Lucene's default operator, which is OR. A chunk that holds any query word can match. The full-text score ranks chunks that match more of the words, or rarer words, higher.
 
-FalkorDB also matches any query word and ranks matches by its native TF-IDF score. We add `1.0` to that score so matches with a native score of zero remain positive. The constant does not change their order. We index internal copies of text with line breaks replaced by spaces. Keyword scores and hybrid rankings can differ between backends even for the same documents and query.
+FalkorDB also matches any query word and ranks matches by its native TF-IDF score. The adapter adds `1.0` to that score so matches with a native score of zero remain positive. The constant does not change their order. The adapter indexes internal copies of text with line breaks replaced by spaces. Lexical scores and hybrid rankings can differ between backends even for the same documents and query.
 
 Quotes do not make a phrase, `-` does not exclude a word, and `AND` does not require both words.
 
 ## Semantic search
 
-The embedder you pass embeds the query, and the vector index returns the chunks with the nearest embeddings. The index measures nearness with the distance function that `Embedder.distance` declared when ingestion created the index.
+The embedder you pass embeds the query, and the vector index returns the chunks with the nearest embeddings. With an external vector store, the store returns the nearest chunks in place of the graph vector index. The index measures nearness with the distance function that `Embedder.distance` declared when ingestion created the index.
 
 By default a chunk is embedded with its heading path in front of its text, so a query that matches a section title can find the passages under it.
 
@@ -49,9 +49,11 @@ The semantic search has no similarity threshold. It returns the nearest chunks f
 
 Reciprocal rank fusion scores each chunk from its rank in each list and ignores the raw scores. A chunk at rank `r` in a list adds `1 / (60 + r)`, and a chunk in both lists adds both terms. The call sorts by fused score and breaks ties by evidence id, so the order is stable.
 
-The hybrid search for "How soon is customer data erased?" in [Passage search](../tools/passage-search.mdx#example) shows the arithmetic. The retention chunk ranks first in both searches, so it scores 1/61 + 1/61, which prints as 0.0328. The route planning chunk ranks second in the keyword search and third in the semantic search, so it scores 1/62 + 1/63, which prints as 0.0320. The table chunk appears only in the semantic search, at rank 2, so it scores 1/62, which prints as 0.0161. A chunk that two searches rank well beats a chunk that one search ranks well.
+The hybrid search for "How soon is customer data erased?" in [Passage search](../tools/passage-search.mdx#example) shows the arithmetic. The retention chunk ranks first in both searches, so it scores 1/61 + 1/61, which prints as 0.0328. The route planning chunk ranks second in the lexical search and third in the semantic search, so it scores 1/62 + 1/63, which prints as 0.0320. The table chunk appears only in the semantic search, at rank 2, so it scores 1/62, which prints as 0.0161. Each search contributes at most its top visible chunks up to the number it needs (`limit`, or at least 30 with a reranker), so a chunk beyond that depth in one list adds nothing from that list. Scores differ in scale between modes, so a score from one mode does not compare with a score from another.
 
-Each search contributes at most its top `limit` visible chunks, so a chunk beyond that depth in one list adds nothing from that list. Scores differ in scale between modes, so a score from one mode does not compare with a score from another.
+### Rerank
+
+When a reranker is set up, hybrid mode sends the top 30 fused chunks (`RETRIEVAL_RERANK_CANDIDATES`) to a cross-encoder. The cross-encoder scores replace the fused scores of those chunks, and the chunks are sorted by those scores, with ties broken by evidence id. Chunks below the top 30 keep their fused order after them. A reranker is set up when `RETRIEVAL_RERANK_ENABLED` is true, which is the default, and the `embed-local` extra is installed. If the rerank call fails or runs past `RETRIEVAL_RERANK_TIMEOUT_SECONDS`, which defaults to 5, the fused order stands and the result lists a rerank failure. Lexical and semantic modes never rerank.
 
 <details>
 <summary>Design choices</summary>
@@ -60,7 +62,7 @@ Search runs over chunks. A chunk is small enough to read and to cite, and its ev
 
 The call strips query syntax. A query comes from a model or a user and cannot change how the index parses it. Plain words remove a class of malformed-query failures and give the same behavior on every surface.
 
-Fusion works on ranks. A full-text relevance score and a vector similarity differ in scale and distribution, and a rank compares across searches. A fused score has meaning only inside one call.
+Fusion works on ranks. A lexical relevance score and a vector similarity differ in scale and distribution, and a rank compares across searches. A fused score has meaning only inside one call.
 
 A failed search changes the status. A hybrid call that dropped the failed half without saying so would look like a complete call with fewer hits. The `partial` status and the `failures` list show the gap, so a caller can retry or warn.
 
@@ -70,4 +72,4 @@ A failed search changes the status. A hybrid call that dropped the failed half w
 
 - [Passage search](../tools/passage-search.mdx) lists the inputs, the result fields, and the statuses.
 - [Chunking](./chunking.mdx) sets the size and boundaries of the chunks that search returns.
-- [Retrieval](./retrieval.mdx) compares keyword, semantic, and hybrid search with the other strategies.
+- [Retrieval](./retrieval.mdx) compares lexical, semantic, and hybrid search with the other strategies.

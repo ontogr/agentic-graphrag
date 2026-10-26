@@ -36,7 +36,7 @@ You need a configured [graph backend](./configure-storage-backends.mdx), the sam
 
 ## Prepare a Milvus server
 
-Use Milvus 3.0.1 or later, or a Zilliz Cloud endpoint. Install `agentic-graphrag[neo4j,milvus]`, replacing `neo4j` with `falkordb` if needed. In a source checkout, start an isolated local server:
+Use the Milvus 3.0.1 server that the compose files in `docker/` run, or a Zilliz Cloud endpoint. Install `agentic-graphrag[neo4j,milvus]`, replacing `neo4j` with `falkordb` if needed. In a source checkout, start an isolated local server:
 
 ```bash
 docker compose -p agrag-milvus -f docker/docker-compose.dev.yml up -d --wait milvus

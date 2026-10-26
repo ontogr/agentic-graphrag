@@ -1,0 +1,52 @@
+---
+sidebar_position: 13
+title: How entity search and relations work
+description: How entity search finds entities, why an entity needs a visible passage, and how the relation walk reads edges and stops at its bounds.
+---
+
+import Diagram from '@site/src/components/Diagram';
+
+# How entity search and relations work
+
+[Entity search](../tools/entity-search.mdx) looks entities up by name and by meaning, then keeps the ones that a visible passage mentions. [Explore relationships](../tools/explore-relationships.mdx) walks the stored relations from one entity and sorts each edge by whether a passage states it.
+
+## Entity search
+
+<Diagram folder="docs" name="entity-search" alt="A query goes to a lexical search over entity names and a semantic search over entity embeddings, for each entity label. The two are fused with reciprocal rank fusion. Each entity then gets up to three supporting passages that are visible in scope." />
+
+1. The call checks the scope and finds the labels to search. Without `labels`, it searches every entity label that has a vector index, which are the labels of your graph schema. Chunk, community, and resolved-entity nodes are not entity labels.
+2. The call checks that each label has a full-text index on `name` and a vector index on `embedding`. A missing or offline index returns `index_not_ready`.
+3. The lexical search matches the words of the query against the entity name. The semantic search embeds the query and searches the entity embeddings. Each reads up to twice `limit` candidates for each label, up to 1000. With an external vector store, the semantic read is also capped at the store's `max_results`. When the first semantic read fills up and fewer than `limit` of its entities are visible, the search reads again at that cap.
+4. In `hybrid` mode the call fuses the two ranked lists with reciprocal rank fusion and the constant 60 (`RETRIEVAL_RRF_K`). The other modes use the order of their own search. With an external vector store, the semantic search reads the entity vectors from that store, and the lexical search still reads the graph full-text index on `name`.
+5. The call reads the passages that mention each candidate entity and keeps the visible ones. A passage is visible when its document is in scope, its version is current, and no job is still writing it. An entity is returned only when a passage in scope mentions it.
+6. Each returned entity lists up to `support_limit` passages as evidence ids. The default is 3, and the agent and the MCP server use the default.
+
+The query rules of passage search apply. The lexical search reduces the query to plain lowercase words, so Lucene syntax has no effect, and the semantic search has no similarity threshold. [How passage search works](./how-passage-search-works.mdx) describes both searches.
+
+An entity that passages in scope mention, none of which is current, comes back as `unsupported` with no passages. An entity that no passage in scope mentions does not come back at all.
+
+## Relationship walk
+
+<Diagram folder="docs" name="relationship-exploration" alt="A walk starts at one entity and follows relations out to depth 1 or 2. An edge with a visible supporting passage is an assertion. An edge with no passage is a path. The walk stops at the node, edge, depth, or candidate bound and reports which bound cut it." />
+
+1. The call checks that `entity_id` is a canonical lowercase UUID string and that the entity has at least one visible passage in scope. Otherwise the result is `malformed` or `unavailable`.
+2. The walk follows relations that join two entities. With `relation_types`, only those types are followed. Without it, every stored relation type is followed except the graph-owned types such as `HAS_PART` and `MENTIONED_IN`. An edge must also join two entities that have a passage in scope.
+3. Each step reads the edges around the entities found so far. An edge with a visible passage in scope is an `assertion`, and the edge lists up to three of those passages. An edge with no passage is a `path`. An edge whose passages are all superseded or out of scope is dropped.
+4. The walk stops at the first bound it reaches in each step, and `truncated_by` lists every bound that cut the walk.
+
+<details>
+<summary>Design choices</summary>
+
+An entity hit carries its supporting passages. An entity in a graph is a claim that extraction made, and a passage is the source. Returning both lets a caller read before trusting, and it shows an unsupported entity instead of hiding it.
+
+Edges are either assertions or paths. Many graphs link entities by co-occurrence or by inference, and a caller that treats every edge as a stated fact repeats errors with confidence. The edge kind states what the graph knows.
+
+Depth stops at two. The node, edge, and candidate bounds also cap the response, and `truncated_by` names the bound that cut the walk, so a caller can narrow with `relation_types` and walk again.
+
+</details>
+
+## Related
+
+- [Entity search](../tools/entity-search.mdx) lists the inputs, the result fields, and an example hit.
+- [Explore relationships](../tools/explore-relationships.mdx) lists the inputs, the bounds, and the statuses.
+- [Resolved entities](./resolved-entities.mdx) explains how duplicate entities are merged.

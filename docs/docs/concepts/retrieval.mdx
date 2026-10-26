@@ -10,7 +10,9 @@ import Diagram from '@site/src/components/Diagram';
 
 Retrieval finds the parts of your documents that answer a question, and it lets an answer point back to the exact text it came from. The evidence tools in `agrag.evidence` search your documents, return the exact text of a passage, and check the citations in an answer. The built-in agent and the MCP server use them.
 
-No single search finds everything. A name lookup finds "Ada Lovelace" and misses "the main themes in this corpus". A keyword search finds an exact contract term and misses a paraphrase of it. A vector search finds the paraphrase and can rank a similar but wrong passage first. The tools below cover these cases one at a time.
+No single search finds everything. A name lookup finds "Ada Lovelace" and misses "the main themes in this corpus". A lexical search finds an exact contract term but not its paraphrase. A semantic search finds the paraphrase but can rank a similar wrong passage first.
+
+<Diagram name="retrieval" ext="svg" alt="A question goes to passage search, entity search with relationships, or theme search, inside the documents you allow. Each returns evidence ids. Fetch returns the exact text for an id, and navigation returns neighboring ids. The citation check compares cited ids with the ids that were read, and only then is the cited answer returned." />
 
 <Diagram folder="docs" name="evidence-tools-overview" alt="A query goes to passage search, or to entity search and then relationship exploration. Both return evidence ids. Fetch turns an id into its exact text. Document tree navigation moves from a passage to neighboring passages and returns more ids. The citation check compares cited ids with the ids that were fetched." />
 
@@ -59,7 +61,7 @@ ev1:c:f24b301d...12cd16fb    not_fetched
 ev1:c:oops                   malformed
 ```
 
-The second id points to a real passage that nobody read. The third is not an id at all. A `valid` verdict shows that the passage was read. It does not show that the passage supports the claim. A valid citation then becomes a numbered reference:
+The second id points to a real passage that nobody read. The third is not an id at all. A `valid` verdict shows that the passage was read. [Evidence ids and citations](./evidence-and-citations.mdx) explains what the verdict does not show. A valid citation then becomes a numbered reference:
 
 ```text
 Customer data is deleted within 10 business days. [1]
@@ -75,9 +77,9 @@ You give the tools a list of documents that they may read. The list is called th
 
 ## Retrieval strategies
 
-### Keyword search
+### Lexical search
 
-Keyword search matches the words of the query against chunk text with a full-text index. [Passage search](../tools/passage-search.mdx) runs it in `lexical` mode.
+Lexical search matches the words of the query against chunk text with the graph full-text index. [Passage search](../tools/passage-search.mdx) runs it in `lexical` mode.
 
 Main features:
 
@@ -97,7 +99,7 @@ Main features:
 
 ### Hybrid search
 
-Hybrid search runs keyword search and semantic search, then fuses the two ranked lists with reciprocal rank fusion. It is the default mode of [passage search](../tools/passage-search.mdx).
+Hybrid search runs lexical search and semantic search, then fuses the two ranked lists with reciprocal rank fusion. It is the default mode of [passage search](../tools/passage-search.mdx).
 
 Main features:
 
@@ -105,7 +107,7 @@ Main features:
 - Ranks a chunk higher when both searches rank it well.
 - Reports `partial` when one of the two searches fails.
 
-When a reranker is configured, hybrid search also reorders its top hits with a cross-encoder model and marks the result `reranked`. With an external vector store, the store itself performs the hybrid fusion of dense and keyword results, and the graph full-text index is not searched in this mode. The `lexical` mode always searches the graph full-text index, on every backend.
+When a reranker is configured, hybrid search also reorders its top hits with a cross-encoder model and marks the result `reranked`. With an external vector store, the store itself performs the hybrid fusion of dense and lexical results, and the graph full-text index is not searched in this mode. The `lexical` mode always searches the graph full-text index, on every backend.
 
 ### Entity search
 
@@ -147,6 +149,52 @@ Main features:
 - Returns up to five member entity names and up to `support_limit` visible in-scope passages per theme, each passage with its evidence id.
 - Never returns community report text, because community nodes carry no document scope.
 - Returns no theme before the first `detect_communities` run, and leaves documents added after that run out until the next run.
+
+## How each technique works
+
+### How passage search runs
+
+Passage search reads the text of chunks, using the full-text index for lexical mode and the vector index for semantic mode. Hybrid mode fuses the two ranked lists with reciprocal rank fusion, using the constant 60, and a reranker, when one is set up, reorders the top 30 fused chunks. Each search asks its index for twice the number of visible chunks it needs, so hidden chunks and chunks outside the scope do not use result slots. The result is a list of hits, each with an evidence id, a preview, a score, and a status for the call, and `limit` sets how many hits return, with a default of 10. A rerank that runs past 5 seconds keeps the fused order. [How passage search works](./how-passage-search-works.mdx) covers the steps and the arithmetic.
+
+### How entity search runs
+
+Entity search runs a lexical search over entity names and a semantic search over entity embeddings, once for each label. Without `labels`, it searches the labels of the declared entity types, which have an index in the graph. In hybrid mode, the two lists are fused with reciprocal rank fusion, and a candidate is returned only when a passage in scope mentions it. Each entity comes back with its label, its schema properties, and up to `support_limit` passages as evidence ids, with a default of 3. An entity none of whose passages is current comes back as `unsupported`. [How entity search and relations work](./how-entity-search-works.mdx) describes the candidate limits.
+
+### How relationship exploration walks
+
+The walk starts from one entity and follows the relations that join it to other entities, for at most two steps. With `relation_types`, it follows only the listed types. Without it, it follows every stored relation type except the reserved ones, such as `HAS_PART` and `MENTIONED_IN`. A relation with no source passage is a path, and a relation with a visible source passage in scope is an assertion that lists up to 3 passages. A relation whose source passages are all hidden or out of scope is dropped. The walk stops at the first bound it reaches, which is the node, edge, or depth limit (25 nodes and 50 edges by default), and `truncated_by` names each bound that cut it. [Explore relationships](../tools/explore-relationships.mdx) lists the inputs and statuses.
+
+### How theme search runs
+
+Theme search matches the query against the embeddings of community reports, which the last `detect_communities` run wrote. It reads up to three times `limit` candidates, with a cap of 100, and drops each candidate that has no visible passage in scope. Each theme lists up to five member entity names and up to `support_limit` passages as evidence ids, with a default of 3. Themes come back best first, and `truncated` is true when fewer than `limit` themes remain and the candidate read filled its window. The community report text is never returned. [Search themes](../tools/search-themes.mdx) lists the inputs and statuses.
+
+### How fetch evidence reads text
+
+Fetch evidence reads the stored text for each id, either the text of a chunk or the characters of a span, and returns the results in the order of the ids. The agent and the MCP server accept up to 20 ids in one call. Each text is cut at `max_chars`, which defaults to 4000 characters, and the outcome says when a cut happened. An id from an earlier version of a document still returns its text, labeled `superseded` in `status_of_version`, and only status `ok` makes an id citable. A missing id and an id outside the scope both return `unavailable`. [Fetch evidence](../tools/fetch-evidence.mdx) lists the statuses and result fields.
+
+### How document tree navigation reads
+
+Navigation starts from an evidence id and reads the passages near it, using one of six relations: `parent`, `children`, `siblings`, `previous`, `next`, or `table_context`. `parent` and `siblings` follow the section structure, and `table_context` returns the table around a table cell. It reads the document version that the starting id names. The result is capped by `limit` (default 10, at most 50) and by a `max_chars` budget (default 12000, at most 20000), and the item that the budget cuts gets `text_truncated` while later items are dropped. Navigation returns text, so a fetch is still needed before a neighbor is cited. [Navigate the document tree](../tools/navigate-document-tree.mdx) lists the inputs and results.
+
+### How the citation check decides
+
+The citation check compares the ids that an answer cites with the ids that a fetch returned, and it reads no document text. It returns one verdict for each cited id, in the order given. A chunk id is `valid` when a fetch returned it and its document is in scope, and a span id is also `valid` when its range lies inside a fetched span of the same document and content hash. A cited id that was not fetched is `not_fetched`, including a span that reaches past the fetched range, and a document outside the scope is `unavailable` even when it was fetched earlier. A `valid` verdict does not show that the text supports the claim, and [Check citations](../tools/check-citations.mdx) lists the verdicts.
+
+## How retrieval uses the schema
+
+Only some retrieval operations read names from the graph schema. Passage search reads chunks, which are internal nodes with a fixed label, and it does not use the schema at all. Entity search without `labels` searches each declared entity type that has a vector index in the graph, and ingestion creates one index for each declared entity type. Relationship exploration follows the relation types that a caller passes, and without them it follows the stored types except the reserved ones. Theme search, fetch, navigation, and the citation check use only names that the code fixes, such as the chunk and community labels.
+
+The schema rejects a relation type with a reserved name, such as `HAS_PART`, `HAS_CHILD`, or `MENTIONED_IN`, because the graph writes those edges itself. `RESERVED_RELATION_TYPES` in `agrag/common/data_models/graph_schema.py` holds the full list. The exclusion applies only when `relation_types` is omitted. A list that a caller passes is used as given, and the walk does not check it against the schema.
+
+The evidence tools take `labels` for entity search and `relation_types` for the walk, and every tool takes a scope. They do not take property filters. `SearchFilters` in `agrag/retrieval/filters.py` holds labels, relation types, document ids, and exact property filters, and the vector retrieval method and the ingestion candidate source import it. Its `to_cypher_where` method turns each label into a native node label check, such as `node:Person`, after validating it, and passes the other filters through `filter_clause`.
+
+Each entity hit has a `label`, the label it was found under, and a `properties` map with its schema properties. The map leaves out internal fields and null values. A declared child type can name parent types in `parents`, and a node of the child type is stored with its ancestor labels. A search for a parent label therefore reaches nodes of its child types, and each entity id appears once in the result.
+
+The query builders in `agrag/cypher/` pass every value as a query parameter, such as `$k`, `$scope_ids`, `$node_ids`, `$relation_types`, and the query vector. The walk in `explore_edges_query` takes the relation types as `$relation_types`, so no type name enters its query text. Only node labels enter query text, and each one is checked first. In `entity_candidates_query` in `agrag/cypher/evidence.py`, the label goes through `validate_identifier` in `agrag/cypher/entities.py` before it is written as `WHERE node:<label>`. `validate_identifier` accepts names that match `^[A-Za-z_][A-Za-z0-9_]*$` and rejects the reserved candidate label. The Neo4j search calls pass index names as parameters.
+
+A label or relation type that the schema does not declare is not checked against the schema when the query runs. For entity search, a label with no matching index in the graph gives `index_not_ready`. On FalkorDB, a label that is not a valid identifier makes the semantic or hybrid readiness check raise a `ValueError`, and the search reports `failed`. For the relation walk, a relation type that matches no stored edge adds no edges, and the walk raises no error, including for a name that is not a valid identifier, because the walk passes types as parameters.
+
+Here is a worked example with the default schema. Take an entity search with `labels=["Person"]`, assuming the graph has the indexes for `Person`. First, the call runs the full-text index on `name` and the vector index on `embedding` for the `Person` label, and fuses the two lists. Each candidate stays only when a passage in scope mentions it, and each hit carries `label` set to `Person` and its schema properties. Second, a walk from one of those entities with `relation_types=["WORKS_FOR"]` follows only `WORKS_FOR` edges. The walk matches relations in either direction, and the other entity must have a passage in scope. The default schema declares `WORKS_FOR` from `Person` to `Organization`, so the walk from a person reaches organizations that a passage in scope mentions.
 
 ## Which tool to call for a question
 

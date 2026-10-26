@@ -1,0 +1,26 @@
+---
+title: agrag.ingestion.extract
+sidebar_label: extract
+---
+
+# `agrag.ingestion.extract` \{#agrag-ingestion-extract}
+
+The Extractor interface: reads one Chunk and produces an ExtractionResult.
+
+**Classes:**
+
+- [**BAMLExtractor**](BAMLExtractor.md) – Extract entities and relations with an LLM through a typed BAML function.
+- [**ExtractionLLMSettings**](ExtractionLLMSettings.md) – Env-backed LLM client configuration for the extraction role.
+- [**Extractor**](Extractor.md) – Reads one chunk and returns the entities and relations it contains.
+- [**ExtractorMissingExtraError**](ExtractorMissingExtraError.md) – An Extractor needs a package extra that is not installed.
+- [**GlinerExtractor**](GlinerExtractor.md) – Extracts entities and relations with a local GLiNER2.5 model.
+- [**LLMExtractor**](LLMExtractor.md) – LLM role that may receive entities found by an earlier extractor.
+- [**UnparsableExtractionError**](UnparsableExtractionError.md) – The LLM replied, but the reply holds no JSON answer.
+
+**Functions:**
+
+- [**validate_extraction**](validate_extraction.md) – Drop entities and relations that the schema does not declare.
+
+**Attributes:**
+
+- [**logger**](logger.md) –

@@ -1,0 +1,117 @@
+---
+sidebar_position: 3
+title: Ingestion pipeline
+description: The stages that turn sources into a graph, and how a failed run recovers.
+---
+
+import Diagram from '@site/src/components/Diagram';
+
+# Ingestion pipeline
+
+`Graph.add` turns sources into graph records through loading, chunking, extraction, resolution, merging, and storage. All input forms converge on this pipeline after loading, so later stages treat them consistently.
+
+## Why it exists
+
+These stages include slow model calls and writes that can fail independently. A single pipeline gives each stage a place to report failures and lets the storage job hide staged writes until commit. Neo4j commits atomically. FalkorDB's multi-statement commit can become partially visible and uses [forward recovery](../guides/configure-storage-backends.mdx#crash-recovery-of-a-commit).
+
+`Graph.update` uses the same pipeline but can skip work when stored fingerprints show that the document or its processing settings have not changed. The tables below explain which changes require rechunking or re-extraction.
+
+## How it works
+
+<Diagram folder="docs" name="ingestion-stages" alt="Each document runs as its own job. Sources are loaded into documents, chunked, extracted into entities and relations, resolved, merged, and stored. The writes are tagged and hidden from search until that job commits. The call returns an AddResult with one summary for each stage." />
+
+*Each stage hands its output to the next.*
+
+1. Load. A loader reads each source and makes documents. The error policy decides what happens when a source fails. See [Loading documents](./loading.mdx).
+2. Chunk. A chunker splits each document into chunks. See [Chunking](./chunking.mdx).
+3. Extract. The extractor (see [Extraction](./extraction.mdx)) reads each chunk and finds entities and relations. It does not keep an item that the schema does not allow. The result counts each discarded item, and the graph stores it as a candidate unless candidate writes are off. See [Candidates](./candidates.mdx).
+4. Resolve. The resolver (see [Entity resolution](./resolution.mdx)) looks for extracted entities that name the same thing. It first compares exact names against the whole store. It then compares the remaining extracted entities with each other and with stored entities. A language model reads only the pairs that stay ambiguous, and the number of such reads has a cap.
+5. Merge. For entities that share a name, Agentic GraphRAG decides each property value and joins the chunk ids that mention them. Fuzzy, embedding and LLM matches are not merged. See [Matching and resolved entities](./resolved-entities.mdx).
+6. Store. The graph store (see [Graph storage](./graph-storage.mdx)) writes chunks, documents, entities, relations and the edges between them. The embedder adds vectors to the same nodes.
+
+`Graph.add` returns an `AddResult`. It holds one summary for each stage: ingestion, chunking, extraction, resolution, merge and storage. Each summary lists failures. A failure carries a trace id, so you can find the full record in your tracing tool.
+
+The extraction summary also counts the discarded items. See [Run statistics](../reference/run-stats.mdx).
+
+### Crash safety
+
+Each document mutation runs under a Cutover Job. `Graph.add` uses one job per document; `update`, `delete_document` and `purge_document` each operate on one document per job. The job tags staged writes with its own id, and search skips tagged writes. Neo4j exposes committed changes atomically. On FalkorDB, readers can see intermediate changes during the multi-statement commit.
+
+<Diagram folder="docs" name="cutover-job" alt="A job starts as pending, with its writes hidden from search. A commit makes the writes visible, then the job cleans up and is done. A job that stops before its commit rolls back, and its writes and the job are deleted." />
+
+*A job that stops before its commit rolls back. A job that stops after it rolls forward.*
+
+If a process stops during a call, a later `Graph.open` attempts to recover the unfinished job. Each job renews a lease that lasts 60 seconds by default, and a live lease is never taken over. After a job's lease expires, recovery acts on the job's state:
+
+- A pending or `rolling_back` job is rolled back.
+- A committed or cleaning job has its cleanup run again.
+
+A new job on a document first rolls back an expired pending or rolling-back job for that document. It takes over a previous job directly only when that job is done or rolled back.
+
+Rollback starts only while the job is still pending under the worker's lease token. The steps are:
+
+1. The job enters `rolling_back` before its staged vectors and graph rows are deleted.
+2. If the worker stops during rollback, `Graph.open` finishes it after the lease expires.
+
+If a commit fails with an ambiguous result, the worker reads the job. A committed job is never rolled back; the worker finishes its cleanup instead.
+
+Commit and rollback find a job's rows through an index on the pending tag, so their cost follows the size of the job, not the size of the graph. Two documents that add the same relation at the same time each create their own copy. The commit step merges the copies, so one relation remains and keeps the evidence from both documents.
+
+Workers that share a graph must run the same version during an upgrade. Use the new version to recover any `rolling_back` jobs before you downgrade.
+
+On FalkorDB, a job with a commit-started marker is finished rather than rolled back after its lease expires. Recovery resumes persisted deferred writes, but a crash between a replay step and its progress record can repeat that step. The interrupted commit's resolved-entity component rebuild does not run. See [commit recovery](../guides/configure-storage-backends.mdx#crash-recovery-of-a-commit).
+
+## How Agentic GraphRAG decides a document is unchanged
+
+`Graph.update` compares the values that it stored for the document with the new values. The differences decide what runs.
+
+| What differs | What `Graph.update` does |
+|---|---|
+| The content hash, section structure, chunker fingerprint or schema fingerprint differs, or no chunk is open | It writes a new version with new chunks and embeddings. The old version closes when the job commits. |
+| `force=True`, or only the extraction fingerprint differs | It extracts entities again on the existing chunks. The chunks and embeddings stay the same. Entities that only the old run produced are removed. |
+| Only `published_at` or `content_date` differs | It writes the dates without chunking or extraction. |
+| All compared values match | Nothing runs. The call returns `no_op=True`. |
+
+The values come from the document and its chunks:
+
+| Value | What changes it |
+|---|---|
+| Content hash | An edit to the text of the document. |
+| Chunker fingerprint | A change to the chunk size, the minimum chunk size, the tokenizer, the table rules or the installed version of the splitter package. |
+| Schema fingerprint | A change to the structure of the schema: entity types, parents, properties, relations, patterns, cardinality or symmetry. The schema name, the schema version and the descriptions do not change it. |
+| Extraction fingerprint | A change to a description, a tracked extraction setting, the effective extraction mode, the LLM model or prompt identity, or the heading path option of `BAMLExtractor`. |
+| Open chunk | A deleted document has none. |
+
+The Document node stores the schema name, the schema version, the schema fingerprint and the extraction fingerprint. Each chunk stores the chunker fingerprint, the schema fingerprint and the extraction fingerprint. The job writes these values at its commit. A job that fails leaves the old values in place.
+
+The escalation budget is not part of the extraction fingerprint, so a change of the budget does not extract a document again. The chunks do not depend on the extraction settings, so a re-extraction keeps the chunks and their embeddings. A change of the chunker or the schema structure writes a new version, so the document is chunked and embedded again.
+
+`Graph.add` applies this same table to each document whose key already has a current version. A key without a current version is added as a new document.
+
+Each change that a job commits also adds a `DocumentActivation` node to the document, linked by a `HAS_ACTIVATION` edge. The node records the verb (`add`, `update`, `delete` or `purge`), the content hash of the new version, the content hash that it replaces, the version id and the job id. The Document node counts its records in `activation_seq`, so the history of a document stays in order even when an earlier version comes back. A re-extraction in place, a date-only update and an unchanged `add` write no record.
+
+## Example
+
+You call `Graph.add` with a folder of 200 files and `ErrorPolicy.SKIP`. One file ends in `.dat`, and no loader reads that extension. The loader skips it and counts it. The other 199 files become documents and chunks. The `AddResult` shows 199 documents, 1 skipped source, and the number of entities that extraction found.
+
+<details>
+<summary>Design choices</summary>
+
+One `add` call takes text, files, and prebuilt documents. The three differ only in the first stage, so every later stage behaves the same for each input.
+
+Extraction runs on each chunk alone, so a relation between two entities in different chunks is not captured. A larger chunk size gives the extractor more context. The [Chunking](./chunking.mdx) page describes the size.
+
+The job tags writes instead of holding a database transaction, because extraction makes slow model calls that a transaction cannot stay open through. Neo4j commits the tagged writes in one short transaction. FalkorDB runs the commit statements in order and records progress for recovery.
+
+Resolution runs before entity writes because the resolver needs the batch's extracted entities together to compare them. Writing after that decision avoids creating duplicate exact-name entities.
+
+The error policy applies to each source, so one bad file does not stop a run of thousands. `RAISE` stops at the first failure. `SKIP` counts the failure. `QUARANTINE` records the reason.
+
+</details>
+
+## Related
+
+- [Loading documents](./loading.mdx) and [Chunking](./chunking.mdx) describe the first two stages.
+- [Ingest documents](../guides/ingest-documents.mdx) shows how to call `Graph.add`.
+- [Update and delete documents](../guides/update-and-delete-documents.mdx) shows the same pipeline for changes.
+- [Trace spans](../reference/trace-spans.mdx) lists the spans of each stage.

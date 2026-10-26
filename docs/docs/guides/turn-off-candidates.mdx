@@ -5,7 +5,7 @@ description: Stop Graph from writing discarded extraction items as candidates.
 
 # Turn candidates off
 
-By default, `Graph.add` and `Graph.update` write discarded extraction items as candidates. The extraction and merge statistics still count discarded items when candidate writes are off. For candidate details, see [Candidates](../concepts/candidates.mdx).
+By default, `Graph.add` and `Graph.update` write discarded extraction items as candidates. The extraction and merge statistics still count discarded items when candidate writes are off. [Candidates](../concepts/candidates.mdx) describes what a candidate holds.
 
 ## Disable candidate writes
 
@@ -50,7 +50,7 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
-The script prints `0` for `candidates_written`. It also prints the discarded-item counts. The `entity_band` reason is absent because GLiNER does not run its candidate pass.
+The script prints `0` for `candidates_written`, then one line for each entry in `extraction.dropped`. The `entity_band` reason is absent because GLiNER does not run its candidate pass.
 
 ## Existing candidates
 
@@ -58,5 +58,5 @@ Turning candidate writes off does not delete existing candidates. `Graph.update`
 
 ## Related
 
-- Explanation: [Candidates](../concepts/candidates.mdx).
-- Reference: [Run statistics](../reference/run-stats.mdx) and [Configuration](../reference/configuration.mdx).
+- Explanation: [Candidates](../concepts/candidates.mdx) describes candidate visibility and lifecycle.
+- Reference: [Run statistics](../reference/run-stats.mdx) lists the counts, and [Configuration](../reference/configuration.mdx) lists the candidate settings.

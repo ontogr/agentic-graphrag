@@ -5,7 +5,7 @@ sidebar_position: 5
 
 # Trace an agent run
 
-Record OpenTelemetry spans to see which tools and model calls an agent used. Start with the in-memory example to inspect a run locally, or send spans to an OTLP collector. Traces include full question, tool-input, and evidence text. To build the agent first, see [Retrieve and answer](./retrieve-and-answer.mdx).
+Record OpenTelemetry spans to see which tools and model calls an agent used. Start with the in-memory example to inspect a run locally, or send spans to an OTLP collector. Traces include full question, tool-input, and evidence text. [Retrieve and answer](./retrieve-and-answer.mdx) shows how to build the agent.
 
 ## Prerequisites
 
@@ -141,9 +141,9 @@ Spans hold the question, the tool inputs, and the evidence text. The agent path 
 
 ## Trace the rest of the library with the same tracer
 
-Components record spans only when they receive a tracer. Pass the same tracer to `build_agent` for agent and model spans, to the graph store and the embedder for store and embedding spans, and to `Graph.open` for ingestion and resolution spans. Passing one tracer keeps the spans connected. When you supply a custom extractor, give it the tracer too; `Graph.open` does not replace an injected extractor. A default extractor built by `Graph` receives the graph tracer.
+Components record spans only when they receive a tracer. Pass the same tracer to `build_agent` for agent and model spans, to the graph store and the embedder for store and embedding spans, and to `Graph.open` for ingestion and resolution spans. Passing one tracer keeps the spans connected. When you supply a custom extractor, give it the tracer too. `Graph.open` does not replace an injected extractor. A default extractor built by `Graph` receives the graph tracer.
 
-The next block is a reference. `tracer`, `chunks_by_id`, `graph_store`, `schema`, and `chat_model` stand for objects that your application already builds.
+In the block below, `tracer`, `chunks_by_id`, `graph_store`, `schema`, and `chat_model` stand for objects that your application already builds.
 
 {/* pmd-metadata: notest */}
 
@@ -173,7 +173,7 @@ verifier = LLMVerify(chunks_by_id=chunks_by_id, tracer=tracer)
 judge = ChatModelJudge(chat_model, "gpt-4o-mini", tracer=tracer)
 ```
 
-`Graph` passes its tracer to its resolution and merge steps, and community report generation uses it. A custom extractor must receive the tracer separately. A tracer on `Graph.open` does not change the tracer already set on the graph store or embedder.
+`Graph` passes its tracer to its resolution and merge steps, and community report generation uses it. A tracer on `Graph.open` does not change the tracer already set on the graph store or embedder.
 
 Inside an agent run, every retrieval span nests under the `TOOL` span of the tool call that made it. A trace answers which tool call produced a given graph query or embedding call. Retrieval spans hold the full result text. The arrays `agrag.result_texts` and `agrag.result_ids` record every result, uncapped.
 

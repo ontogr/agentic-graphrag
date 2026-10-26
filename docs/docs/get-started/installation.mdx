@@ -20,7 +20,7 @@ uv pip install agentic-graphrag
 
 To install uv, see the [installation docs](https://docs.astral.sh/uv/getting-started/installation/).
 
-Agentic GraphRAG needs Python 3.11 or newer and a Neo4j or FalkorDB server to store the graph and its indexes. Install the matching driver extra and [configure the backend](../guides/configure-storage-backends.mdx). The [Quickstart](./quickstart.mdx) uses Neo4j.
+Agentic GraphRAG needs Python 3.11 or newer and a graph server to store the graph and its indexes. Use Neo4j 5.23 or later, or FalkorDB 4.22.2 or later. Install the matching driver extra and [configure the backend](../guides/configure-storage-backends.mdx). The [Quickstart](./quickstart.mdx) uses Neo4j.
 
 The base install includes the loaders, the chunkers, the data models, and the default embedder. Storage, extraction, the agent, and the MCP server are extras.
 
@@ -35,7 +35,7 @@ When you install with uv, add `--torch-backend=auto`. uv looks for a GPU driver.
 uv pip install "agentic-graphrag[neo4j,extract]" --torch-backend=auto
 ```
 
-To always install the CPU build, use `--torch-backend=cpu`. This flag is a uv preview feature. It needs uv 0.6.9 or newer.
+To always install the CPU build, use `--torch-backend=cpu`. Use this flag with `uv pip install`.
 
 </details>
 
@@ -55,14 +55,14 @@ To build and search a graph, you also need a graph store and an extractor. Each 
 
 Other parts of Agentic GraphRAG need more third-party packages. These packages install only if you select them as extras. If an extra is missing, Agentic GraphRAG raises an error that names the extra to install.
 
-The following table lists the extras. Install them with `pip install "agentic-graphrag[NAME1,NAME2]"` or `uv pip install "agentic-graphrag[NAME1,NAME2]"`.
+Install the extras with `pip install "agentic-graphrag[NAME1,NAME2]"` or `uv pip install "agentic-graphrag[NAME1,NAME2]"`.
 
 | Extra | Description |
 | --- | --- |
 | `neo4j` | Installs the driver for Neo4j, including Aura. The server holds the graph, full-text indexes, and vector indexes. |
 | `falkordb` | Installs the driver for FalkorDB. The server holds the graph, full-text indexes, and vector indexes. |
 | `qdrant` | Installs the optional Qdrant client for an exclusive external vector index. A Neo4j or FalkorDB graph store is still required. [Choose where vectors live](../guides/choose-where-vectors-live.mdx). |
-| `milvus` | Installs PyMilvus for external dense and BM25 vectors on Milvus 3.0.1 or later, including Zilliz Cloud. A graph-store extra is still required. |
+| `milvus` | Installs PyMilvus (`pymilvus>=3.0.2`) for external dense and BM25 vectors, including Zilliz Cloud. The compose files in `docker/` run Milvus `v3.0.1`. A graph-store extra is still required. |
 | `weaviate` | Installs the Weaviate client for exclusive external vector storage. A graph backend is still required. |
 | `embed-local` | Installs Sentence Transformers, to embed with models that the default embedder does not support. |
 | `extract` | Installs GLiNER 2.5, to run entity extraction on your machine. |

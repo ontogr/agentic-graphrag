@@ -1,9 +1,10 @@
 .command {
   display: inline-flex;
-  align-items: center;
+  max-width: 100%;
+  align-items: flex-start;
   gap: 0.6rem;
   min-height: 3rem;
-  padding: 0 0.5rem 0 1rem;
+  padding: 0.5rem 0.5rem 0.5rem 1rem;
   border-radius: 10px;
   background: var(--agrag-stone-bg);
   font-family: var(--ifm-font-family-monospace);
@@ -16,17 +17,21 @@
   background: none;
   color: var(--ifm-font-color-base);
   font-size: inherit;
-  white-space: nowrap;
-  overflow-x: auto;
+  min-width: 0;
+  min-width: 0;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
 }
 
 .prompt {
+  padding-top: 0.25rem;
   color: var(--ifm-color-content-secondary);
   user-select: none;
 }
 
 .copy {
   margin-left: 0.5rem;
+  margin-top: -0.1rem;
   padding: 0.3rem 0.65rem;
   border: 0;
   border-radius: 6px;
@@ -48,4 +53,8 @@
   .command {
     font-size: 0.82rem;
   }
+}
+
+.flag {
+  white-space: nowrap;
 }

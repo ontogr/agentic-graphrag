@@ -4,7 +4,7 @@ title: Configuration
 
 # Configuration
 
-Agentic GraphRAG reads its configuration from environment variables. This page lists the variables of each settings class, with their defaults.
+Agentic GraphRAG reads its configuration from environment variables, grouped here by settings class.
 
 ## How configuration loads
 
@@ -51,14 +51,12 @@ Class: `QdrantSettings`. Prefix: `QDRANT_`. Requires the `qdrant` extra and Qdra
 | `QDRANT_API_KEY` | none | Authentication secret. Leave unset for an unauthenticated local server. |
 | `QDRANT_REQUIRE_TLS` | `false` | Require HTTPS for remote connections even without a credential. Loopback hosts remain exempt. |
 | `QDRANT_COLLECTION_PREFIX` | required | Unique graph prefix matching `^[A-Za-z][A-Za-z0-9_]{0,40}$`. Four collections use this prefix. |
-| `MCP_VECTOR_STORE` | none | `qdrant`, `milvus`, or `weaviate` selects external placement in MCP. Unset selects graph-native placement. |
-| `RETRIEVAL_HYBRID_ALPHA` | `0.5` | Dense weight in external hybrid search, from `0.0` (lexical only) to `1.0` (dense only). Graph-native search does not use it. |
 
 Qdrant limits one search to 16384 results. Dense scores use the graph-native scale; hybrid scores carry rank only. Labels are the only payload pre-filter. Document scope and properties are filtered after joining results to the graph. [Choose where vectors live](../guides/choose-where-vectors-live.mdx) describes placement and repair.
 
 ## Milvus
 
-Class: `MilvusSettings`. Prefix: `MILVUS_`. Requires the `milvus` extra and Milvus 3.0.1 or later. The SDK uses native async calls and server-side BM25.
+Class: `MilvusSettings`. Prefix: `MILVUS_`. Requires the `milvus` extra, which installs `pymilvus>=3.0.2`. The compose files in `docker/` run `milvusdb/milvus:v3.0.1`. The SDK uses native async calls and server-side BM25.
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
@@ -118,7 +116,7 @@ EXTRACTION_MIN_ESCALATION_WORDS=8
 EXTRACTION_CANDIDATES_ENABLED=true
 ```
 
-The `EXTRACTION_LLM_` settings in [Extraction](#extraction) belong to `ExtractionLLMSettings`, not `ExtractionSettings`. `fp16` and `bf16` can reduce memory use, but speed and support depend on the device and PyTorch build. The extractor loads the model in `fp32` and then casts it. Test lower precision on your data before using it in production.
+The `EXTRACTION_LLM_` settings in [Extraction](#extraction) belong to `ExtractionLLMSettings`, not `ExtractionSettings`. `fp16` and `bf16` can reduce memory use, but speed and support depend on the device and PyTorch build. Test lower precision on your data before using it in production.
 
 ## LLM clients
 
@@ -155,12 +153,24 @@ Class: `AgentLLMSettings`. Prefix: `AGENT_LLM_`.
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `AGENT_LLM_CLIENTS` | required | A JSON list of client objects. |
-| `AGENT_LLM_STRATEGY` | `single` | `single`, `fallback`, or `round_robin`. Ignored with one client. |
+| `AGENT_LLM_STRATEGY` | `single` | `single`, `fallback`, or `round_robin`. See [Agent strategies](#agent-strategies). Read from the environment only when you build `AgentLLMSettings()` directly. |
 | `AGENT_LLM_BASE_URL` | `LLM_BASE_URL` | Read by `from_openai_compatible_env()`. |
 | `AGENT_LLM_API_KEY` | `LLM_API_KEY` | Read by `from_openai_compatible_env()`. |
 | `AGENT_LLM_MODEL_ID` | `LLM_MODEL_ID`, then `gpt-4o-mini` | Read by `from_openai_compatible_env()`. |
 
 The agent builds its chat model from the first client in `AGENT_LLM_CLIENTS`. It supports the providers `anthropic`, `openai`, `openai-generic`, and `google-ai`. `AgentLLMSettings` has no retry settings. The retry settings under [Extraction](#extraction) configure extraction, merge-description, resolution-verification, and community-report calls.
+
+#### Agent strategies
+
+The agent always calls the first client in `AGENT_LLM_CLIENTS` as its primary model. The strategy decides what happens to the other clients.
+
+| Strategy | Behavior |
+| --- | --- |
+| `single` | Uses only the first client. The other entries are not built. |
+| `fallback` | After a failed model call, tries the other clients in list order. |
+| `round_robin` | Sends each model call to the next client in the list, starting with the first, and wraps around. |
+
+With one client, all three strategies behave the same way. `from_openai_compatible_env()` always builds one client with `single`. For more than one client, set `AGENT_LLM_CLIENTS` and `AGENT_LLM_STRATEGY`, or pass `AgentLLMSettings(clients=[...], strategy="fallback")` to `build_agent`. With `fallback` or `round_robin`, every client must use one of the four agent providers.
 
 ### Evaluation judge
 
@@ -200,7 +210,9 @@ Class: `AgentSettings`. Prefix: `AGENT_`.
 | `AGENT_RECURSION_LIMIT` | `50` | The maximum LangGraph steps before the run stops. |
 | `AGENT_MAX_TOOL_CALLS` | `20` | The maximum tool calls in one task run. |
 | `AGENT_MAX_RESULT_CHARACTERS` | `12000` | The maximum text that one evidence fetch returns. |
-| `AGENT_REQUEST_DEADLINE_SECONDS` | `30.0` | The timeout of each store read that an evidence tool makes. |
+| `AGENT_REQUEST_DEADLINE_SECONDS` | `30.0` | Seconds allowed for each store read that an evidence tool makes. Must be greater than zero. |
+
+The field name is `request_deadline_seconds` on `AgentSettings`. The limit applies to each store read, not to the whole tool call.
 
 ## Retrieval
 
@@ -213,6 +225,7 @@ Class: `RetrievalSettings`. Prefix: `RETRIEVAL_`.
 | `RETRIEVAL_RERANK_CANDIDATES` | `30` | How many of the top fused hits the cross-encoder scores. |
 | `RETRIEVAL_RERANK_TIMEOUT_SECONDS` | `5.0` | The most seconds one rerank call may take. A timed-out or failed rerank keeps the fused order. |
 | `RETRIEVAL_CROSS_ENCODER_MODEL` | `cross-encoder/ms-marco-MiniLM-L-6-v2` | The cross-encoder for reranking. |
+| `RETRIEVAL_HYBRID_ALPHA` | `0.5` | Dense weight in hybrid search on an external vector store, from `0.0` (lexical only) to `1.0` (dense only). Graph-native search does not use it. |
 
 ## Ingestion
 
@@ -228,18 +241,19 @@ Class: `McpServerSettings`. Prefix: `MCP_`. The `agrag-mcp` server reads these v
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `MCP_SCOPE_DOCUMENT_KEYS` | none | Required. A comma-separated list with at least one document key that the server may read. A file document's key is its resolved absolute path. |
+| `MCP_SCOPE_DOCUMENT_KEYS` | none | Required. A comma-separated list with at least one document key that the server may read. Blank entries are ignored. With no key left, the server refuses to start. A file document's key is its resolved absolute path. |
 | `MCP_READ_ONLY` | `true` | When `true`, the server registers no write tools. Set it to `false` to enable conversation-history and decision writes. |
 | `MCP_PROJECT_ID` | none | The project that conversation-history and decision tools read and write. Required when `MCP_READ_ONLY` is `false`. |
 | `MCP_AGENT_ID` | none | The author recorded on writes. Required when `MCP_READ_ONLY` is `false`. |
 | `MCP_ALLOW_REJECT` | `false` | Set to `true` to register `reject_decision`. |
 | `MCP_GRAPH_STORE` | `neo4j` | The graph store the server reads: `neo4j` or `falkordb`. |
+| `MCP_VECTOR_STORE` | none | The external vector store the server reads: `qdrant`, `milvus`, or `weaviate`. Unset selects graph-native placement. It must match the placement used at ingestion. |
 | `MCP_MAX_HITS` | `10` | The most hits one search returns. |
 | `MCP_MAX_SNIPPET_CHARS` | `240` | The most characters of one hit snippet. |
 | `MCP_MAX_FETCH_CHARS` | `4000` | The most characters returned for each fetched evidence id. |
-| `MCP_MAX_FETCH_IDS` | `20` | The most evidence ids one fetch or citation check takes. A tool call accepts at most 20 ids on every surface, so a larger value lowers the cap but cannot raise it. |
-| `MCP_MAX_RESPONSE_CHARS` | `60000` | The most characters of one result as sent. Search and fetch results send their JSON twice, so they count at twice their JSON length. |
-| `MCP_REQUEST_DEADLINE_SECONDS` | `30.0` | The timeout of each store read. |
+| `MCP_MAX_FETCH_IDS` | `20` | The most evidence ids one fetch or citation check takes. Accepts 1 to 20. A value above 20 stops the server at startup. |
+| `MCP_MAX_RESPONSE_CHARS` | `60000` | The most characters of one result as sent. Search, fetch, and check-citations results count their JSON twice, once for the text copy and once for the structured copy. When a result is over the cap, the server drops trailing items until it fits. An empty result over the cap returns an error. The other MCP tools count their JSON once, plus the 35-character text block the server sends beside it, and count the UTF-8 bytes of that JSON. Their results are not cut, so a result over the cap returns an error. |
+| `MCP_REQUEST_DEADLINE_SECONDS` | `30.0` | The most seconds one tool operation may run, across all its store reads. Must be greater than zero. A longer operation returns the error `tool operation deadline exceeded`. The field name is `request_deadline_seconds`. |
 
 The server reads `NEO4J_*` or `FALKORDB_*` according to `MCP_GRAPH_STORE`, along with `EMBEDDING_*`. Set `EMBEDDING_MODEL` to the model you used for ingestion. `MCP_GRAPH_STORE` selects the backend only for MCP. Python callers select it with `build_graph_store("neo4j")` or `build_graph_store("falkordb")`.
 
@@ -264,6 +278,6 @@ One dense or hybrid search accepts at most 10,000 results. A larger limit raises
 
 ## Related
 
-- How-to: [Configure storage backends](../guides/configure-storage-backends.mdx).
-- How-to: [Control LLM cost during extraction](../guides/control-llm-cost-during-extraction.mdx).
-- Reference: [Core API](../api/index.md).
+- [Configure storage backends](../guides/configure-storage-backends.mdx) sets up the graph store and vector store that the `NEO4J_`, `FALKORDB_`, `QDRANT_`, `MILVUS_`, and `WEAVIATE_` variables configure.
+- [Control LLM cost during extraction](../guides/control-llm-cost-during-extraction.mdx) shows how to set the `EXTRACTION_` mode and budget values for a run.
+- [Core API](../api/index.md) lists the Python classes and functions that read these settings.

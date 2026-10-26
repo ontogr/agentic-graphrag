@@ -5,7 +5,7 @@ description: Limit how many chunks an LLM reads during extraction, and read the 
 
 # Control LLM cost during extraction
 
-In `hybrid` mode, a local model reads every chunk, then an LLM can review eligible chunks up to a budget. Eligibility includes low-confidence or empty results and chunks with entities that declare properties. Use this guide to set the budget and interpret the run report. For other mode tradeoffs, see [Choose an extraction mode](./choose-an-extraction-mode.mdx).
+In `hybrid` mode, a local model reads every chunk, then an LLM can review eligible chunks up to a budget. Eligibility includes low-confidence or empty results and chunks with entities that declare properties. [Choose an extraction mode](./choose-an-extraction-mode.mdx) compares the three modes.
 
 ## Before you start
 
@@ -66,7 +66,7 @@ A chunk is eligible in three cases:
 2. It has no entities and at least `EXTRACTION_MIN_ESCALATION_WORDS` words.
 3. One of its entities has a type with declared or inherited properties. The default local extractor does not fill property values; the LLM extractor does.
 
-The budget is a share of all chunks in a batch, not a share of the eligible chunks. The result is rounded up. For example, a budget of `0.2` on a batch of 12 chunks lets the LLM read 3 chunks. The LLM reads the weakest eligible chunks first. The chunk with the lowest entity score comes first, and chunks with no entities come last. Chunks with equal scores keep their order in the batch.
+The budget is a share of all chunks in a batch, not a share of the eligible chunks. The result is rounded up. For example, a budget of `0.2` on a batch of 12 chunks lets the LLM read 3 chunks. The LLM reads chunks with at least two kept entities and no relation first. The other eligible chunks follow, lowest entity score first, and chunks with no kept entities come last. Chunks with equal scores keep their order in the batch.
 
 `Graph.add` ranks the chunks of each batch of up to 100 documents. `Graph.update` ranks the chunks of the one document that it updates.
 
@@ -123,11 +123,11 @@ The line about the budget and the line about the left-over chunks appear only wh
 ## Choose a budget from the report
 
 1. Run once with the default budget.
-2. Read `lowest score left`. A value near the escalation threshold means that the chunks the LLM did not read are almost strong. A low value, such as 0.4, means that weak chunks stayed with the local model.
+2. Read `lowest score left`. A value near the escalation threshold means that the chunks the LLM did not read have scores close to the threshold. A low value, such as 0.4, means that weak chunks stayed with the local model.
 3. To let the LLM read every eligible chunk, set `EXTRACTION_ESCALATION_BUDGET` to the `budget needed` value, or to `all`.
 4. To cut cost, lower the budget. Set it to `0` to send no chunk to the LLM.
 
 ## Related
 
-- Explanation: [Extraction](../concepts/extraction.mdx).
-- Reference: [Configuration](../reference/configuration.mdx#local-extraction).
+- Explanation: [Extraction](../concepts/extraction.mdx) describes how chunk text becomes extracted entities and relations.
+- Reference: [Configuration](../reference/configuration.mdx#local-extraction) lists each extraction variable and its default.

@@ -4,8 +4,8 @@ build-backend = "uv_build"
 
 [project]
 name = "agentic-graphrag"
-version = "0.0.6"
-description = "Context graphs that connect enterprise knowledge, conversation history, and decision traces."
+version = "0.0.7"
+description = "Builds one graph connecting enterprise knowledge to the conversations agents have and the decisions they make."
 readme = "README.md"
 requires-python = ">=3.11"
 license = "Apache-2.0"

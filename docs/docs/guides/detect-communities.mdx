@@ -6,7 +6,7 @@ description: Group connected entities into communities and read the report for e
 
 # Detect communities and read reports
 
-Group the connected entities of your graph into communities. Read the report that Agentic GraphRAG writes for each community.
+Group the connected entities that your schema declares into communities. Applying the result writes a report for each community.
 
 ## Before you start
 
@@ -21,7 +21,7 @@ uv pip install "agentic-graphrag[neo4j,extract,llm,community]"
 
 ## 1. Add documents and detect communities
 
-Communities are groups of entities that relations connect. The graph needs relations, so this script uses a schema with two relation types. The script adds seven short documents, previews the communities, applies them, and reads the reports back.
+Communities are groups of entities that relations connect, so the graph needs relations. The schema below declares two relation types.
 
 ```python fixture:llm_env fixture:clean_neo4j
 import asyncio
@@ -105,7 +105,7 @@ asyncio.run(main())
 
 ## 2. Read the output
 
-The preview lists the groups. A preview has member ids and the internal weight only. It has no title and no summary, because Agentic GraphRAG writes reports only when you apply.
+A preview has member ids and the internal weight only, with no title or summary. `detect_communities` writes reports only when `apply=True`.
 
 ```text
 preview: 5 members, internal weight 6.0
@@ -114,7 +114,7 @@ preview: 3 members, internal weight 2.0
 applied: True failures: 0
 ```
 
-Then the script prints one block for each community. The group with an internal weight of 6.0 is at or above 5, so an LLM wrote its report. The other two groups get a simple report:
+The group with an internal weight of 6.0 is at or above 5, so an LLM wrote its report. The other two groups get a simple report:
 
 ```text
 Early Computing Pioneers (rating 8.0, weight 6.0)
@@ -134,7 +134,7 @@ An LLM report can contain a mistake. Compare its `findings` with the relations t
 
 ## 3. Handle a missing LLM
 
-If the `llm` extra is missing, Agentic GraphRAG writes the simple report for every community and logs a warning. If an LLM call fails, it writes the simple report for the communities in that batch, and `report.failures` holds one item for each of them. The call still ends with `applied` set to `True`.
+If the `llm` extra is missing, `detect_communities` writes the simple report for every community and logs a warning. If an LLM call fails, it writes the simple report for the communities in that batch, and `report.failures` holds one item for each of them. The call still ends with `applied` set to `True`.
 
 ## 4. Change the grouping
 
@@ -144,6 +144,6 @@ Each call with `apply=True` deletes every earlier community and writes new ones.
 
 ## Related
 
-- Concept: [Communities](../concepts/communities.mdx)
-- Guide: [Extract and resolve entities](./extract-and-resolve.mdx)
-- Reference: [Ingestion API](../api/ingestion/index.md)
+- Concept: [Communities](../concepts/communities.mdx) describes how groups are formed and how each report is written.
+- Guide: [Extract and resolve entities](./extract-and-resolve.mdx) covers the extraction and resolution that produce the entities and relations to group.
+- Reference: [Ingestion API](../api/ingestion/index.md) lists the signatures of the classes in `agrag.ingestion`, including `Graph`.

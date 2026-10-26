@@ -7,7 +7,7 @@ title: Configure storage backends
 
 Connect to Neo4j or FalkorDB to store the graph, embeddings, full-text indexes, and vector indexes. Both backends support ingestion, retrieval, conversation history, and decision traces. Choose by [transaction and search behavior](../concepts/graph-storage.mdx#choose-a-backend), then follow the setup for that server.
 
-Vectors stay in the graph database by default. To use an exclusive Qdrant index instead, [choose where vectors live](./choose-where-vectors-live.mdx). The graph database and its full-text indexes are required in either case.
+Vectors stay in the graph database by default. To store them exclusively in Qdrant, Milvus, or Weaviate instead, [choose where vectors live](./choose-where-vectors-live.mdx). The graph database and its full-text indexes are required in either case.
 
 ## Before you start
 
@@ -224,7 +224,7 @@ The example leaves the note and index in the database. It waits up to 60 seconds
 
 ## Select the backend for MCP
 
-Install `agentic-graphrag[neo4j,mcp]` or `agentic-graphrag[falkordb,mcp]`. Set `MCP_GRAPH_STORE` in the environment used by your MCP client. Python callers still select the store explicitly with `build_graph_store`.
+Install `agentic-graphrag[neo4j,mcp]` or `agentic-graphrag[falkordb,mcp]`. Set `MCP_GRAPH_STORE` in the environment used by your MCP client. Python callers still select the store explicitly with `build_graph_store`. If vectors live in an external store, also set `MCP_VECTOR_STORE` to `qdrant`, `milvus`, or `weaviate`, matching ingestion. [Choose where vectors live](./choose-where-vectors-live.mdx) covers the store setup.
 
 For a FalkorDB graph already populated by ingestion, add these values to the MCP server's environment. Replace the document key with the resolved path used at ingestion.
 
@@ -266,7 +266,7 @@ Use `Distance.COSINE` or `Distance.EUCLID`. `ensure_vector_index` raises `ValueE
 
 ### Filtered vector search
 
-Filters apply after the native index picks nearest candidates. We request more candidates when needed, up to an internal cap. A selective filter can still return fewer hits than the requested limit. Both backends use candidate expansion, and neither guarantees identical rankings.
+Filters apply after the native index picks nearest candidates. The adapter requests more candidates when needed, up to an internal cap. A selective filter can still return fewer hits than the requested limit. Both backends use candidate expansion, and neither guarantees identical rankings.
 
 ### Crash recovery of a commit
 
@@ -278,11 +278,11 @@ A failed multi-statement history or decision write can leave partial effects. Re
 
 ### Full-text search
 
-A query matches text containing any query word, ranked by FalkorDB's native TF-IDF score. We add `1.0` so matches with a native score of zero remain positive, without changing their order. Neo4j uses its native full-text scores, so keyword and hybrid rankings can differ. We index internal copies of FalkorDB text properties with line breaks replaced by spaces to work around tokenization at line breaks. Those copies are hidden from returned properties.
+A query matches text containing any query word, ranked by FalkorDB's native TF-IDF score. The adapter adds `1.0` so matches with a native score of zero remain positive, without changing their order. Neo4j uses its native full-text scores, so lexical and hybrid rankings can differ. The adapter indexes internal copies of FalkorDB text properties with line breaks replaced by spaces to work around tokenization at line breaks. Those copies are hidden from returned properties.
 
 ## Configure Milvus vectors
 
-Milvus 3.0.1 or later stores external dense vectors and generates BM25 sparse vectors from text. A Neo4j or FalkorDB graph remains required for graph records, visibility checks, and property filters. Install `agentic-graphrag[milvus]` alongside the graph driver extra.
+Milvus stores external dense vectors and generates BM25 sparse vectors from text. A Neo4j or FalkorDB graph remains required for graph records, visibility checks, and property filters. Install `agentic-graphrag[milvus]` alongside the graph driver extra.
 
 1. Set `MILVUS_URI` to the server endpoint. For Zilliz Cloud, use its HTTPS endpoint and set `MILVUS_TOKEN` privately. Do not put credentials in the URI or commit the token.
 2. Set `MILVUS_COLLECTION_PREFIX` to a namespace unique to this graph. The prefix must start with a letter and contain at most 41 letters, digits or underscores.

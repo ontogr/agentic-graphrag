@@ -6,7 +6,7 @@ sidebar_label: Score on your own questions
 
 # Score Agentic GraphRAG on your own question set
 
-This guide shows how to measure the quality of Agentic GraphRAG answers on your own documents and questions with `agrag.eval`. The example script `examples/eval/score_agrag.py` does the work. For the full setup, see the [example README](https://github.com/ontogr/agentic-graphrag/blob/main/examples/eval/README.md).
+Measure the quality of Agentic GraphRAG answers on your own documents and questions with `agrag.eval`. The script `examples/eval/score_agrag.py` runs the scoring. The [example README](https://github.com/ontogr/agentic-graphrag/blob/main/examples/eval/README.md) covers the full setup.
 
 ## Prerequisites
 
@@ -53,7 +53,7 @@ The judge is the model that scores the answers. Set `EVAL_JUDGE_*` in `.env` to 
 uv run python examples/eval/score_agrag.py --dataset your-folder
 ```
 
-Without `--dataset`, the script uses a five-question subset of FinanceBench. Its licence is CC-BY-NC-4.0. It does not fall under the Apache-2.0 licence of Agentic GraphRAG.
+Without `--dataset`, the script uses a five-question subset of FinanceBench. Its license is CC-BY-NC-4.0. It does not fall under the Apache-2.0 license of Agentic GraphRAG.
 
 ## Read the table
 
@@ -73,4 +73,4 @@ Each score is one judge run. The agent reads each chunk in full.
 
 Every question costs about 8 to 21 LLM calls for the agent, and about 1 call for each metric plus 1 for each cited sentence for the judge. Start with five questions. Do not run the script on each commit.
 
-The metrics are in `agrag.eval`. See the [API Reference](../api/index.md).
+The metric functions are in `agrag.eval`. The [API Reference](../api/index.md) lists their signatures.

@@ -1,0 +1,109 @@
+---
+title: Enable reranking
+sidebar_position: 5
+description: Turn on the cross-encoder that reorders hybrid search results, and see what happens when it is unavailable.
+---
+
+# Enable reranking
+
+Hybrid search combines lexical hits and semantic hits into one list. A cross-encoder can then reorder the top of that list. It reads the query and each passage together, so it can rank the best passage higher than the combined order does.
+
+Reranking runs only in hybrid mode. Lexical and semantic searches never rerank.
+
+Reranking is on by default. The model needs the `embed-local` extra. Without that extra, hybrid search runs without reranking.
+
+## Before you start
+
+- A graph with documents. See [Ingest documents](./ingest-documents.mdx).
+- The extra for the cross-encoder:
+
+```bash
+uv pip install "agentic-graphrag[neo4j,embed-local]"
+```
+
+## 1. Set the reranking variables
+
+The variables use the `RETRIEVAL_` prefix.
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `RETRIEVAL_RERANK_ENABLED` | `true` | Set to `false` to turn reranking off. |
+| `RETRIEVAL_RERANK_CANDIDATES` | `30` | The number of fused hits that the cross-encoder scores. |
+| `RETRIEVAL_RERANK_TIMEOUT_SECONDS` | `5.0` | The most seconds one rerank call may take. |
+| `RETRIEVAL_CROSS_ENCODER_MODEL` | `cross-encoder/ms-marco-MiniLM-L-6-v2` | The sentence-transformers cross-encoder to load. |
+
+The [configuration reference](../reference/configuration.mdx#retrieval) lists every retrieval variable.
+
+## 2. How hybrid search reranks
+
+The search runs the lexical and semantic legs, then fuses them. It keeps the top `RETRIEVAL_RERANK_CANDIDATES` fused hits. When the limit asks for more hits, it keeps that many.
+
+The cross-encoder scores the top candidates against the query. The candidates are then sorted by their new scores. The fused hits below the candidates keep their order after them. The search returns the first `limit` hits.
+
+Each passage is cut to its first 2000 characters before scoring. A search with fewer than two fused hits is not reranked.
+
+## 3. Check the result
+
+`search_evidence` takes the reranker as an argument. The agent and the MCP server build one for you. In your own code, build it from the retrieval settings and warm it up first, so the first search does not wait for the model to load.
+
+```python notest
+import asyncio
+from pathlib import Path
+
+from agrag.common.data_models.evidence import EvidenceSearchMode
+from agrag.embedding import build_embedder
+from agrag.evidence import search_evidence
+from agrag.evidence.rerank import reranker_from_settings
+from agrag.graphdb import build_graph_store
+from agrag.retrieval.settings import RetrievalSettings
+
+
+async def main() -> None:
+    settings = RetrievalSettings()
+    reranker = reranker_from_settings(settings)
+    if reranker is not None:
+        await reranker.warm_up()
+    store = build_graph_store("neo4j")
+    scope = frozenset({str(Path("your-document.md").resolve())})
+    try:
+        await store.connect()
+        result = await search_evidence(
+            store,
+            build_embedder("ibm-granite/granite-embedding-small-english-r2"),
+            "What does the document require?",
+            mode=EvidenceSearchMode.HYBRID,
+            scope=scope,
+            reranker=reranker,
+            settings=settings,
+        )
+        print("reranked:", result.reranked)
+        for failure in result.failures:
+            print("failed leg:", failure.leg, failure.message)
+        for hit in result.hits:
+            print(hit.evidence_id, hit.score)
+    finally:
+        await store.close()
+
+
+asyncio.run(main())
+```
+
+`result.reranked` is `True` when the cross-encoder reordered the hits. The cross-encoder score uses a different scale from the fused score, so compare scores only within one result. The MCP tool output does not include the `reranked` flag.
+
+## 4. When reranking is unavailable
+
+| Situation | What happens | What you see |
+| --- | --- | --- |
+| The `embed-local` extra is not installed | When the reranker is built, the server or agent logs one warning and runs without it. | `reranked` is `False`. No failure is listed. |
+| The model fails to load, or scoring raises an error | The fused order stands. The search logs the error. | `failures` has a `rerank` leg with the message `rerank failed`. `reranked` is `False`. The status does not change. |
+| A rerank call runs longer than `RETRIEVAL_RERANK_TIMEOUT_SECONDS` | The search stops waiting and keeps the fused order. The scoring keeps running in the background. | Same as a failure. |
+
+The model loads on the first rerank call. A slow first load can pass the timeout, so that call returns the fused order. Later calls use the loaded model. The MCP server loads the model when it starts. An agent built with `build_agent` does not, so its first hybrid search can take this path.
+
+To turn reranking off, set `RETRIEVAL_RERANK_ENABLED=false`. Use this when the extra is not installed, so the warning does not appear.
+
+## Related
+
+- [Find and cite evidence](./find-and-cite-evidence.mdx) shows the search call without the reranker.
+- [Retrieval](../concepts/retrieval.mdx) explains how hybrid fusion works.
+- [Configuration reference](../reference/configuration.mdx#retrieval) lists the retrieval variables.

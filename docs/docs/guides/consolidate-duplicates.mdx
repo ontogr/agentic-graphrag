@@ -6,11 +6,11 @@ description: Find entities that name the same thing across the whole graph, revi
 
 # Consolidate duplicates
 
-Run resolution over every entity in the graph. Review the matches it finds. Then apply them.
+Run resolution over every entity in the graph, review the matches it finds, and apply them.
 
 ## When to use this guide
 
-`Graph.add` already compares new mentions with the entities that the graph stores. Run `Graph.consolidate` in two cases. You added data before you configured an LLM, so some pairs stayed unmatched. Or you want to review the whole graph again.
+`Graph.add` already compares new extracted entities with the entities that the graph stores. Run `Graph.consolidate` after you add an LLM to a graph built without one, or when you want to re-review every entity.
 
 ## Before you start
 
@@ -65,7 +65,7 @@ Each `add` prints a resolution summary. `ambiguous_count` counts uncertain, miss
 
 ## 2. Preview and apply the matches
 
-`Graph.consolidate()` is a dry run. It writes nothing. `Graph.consolidate(apply=True)` writes the matches. The LLM reviews the most similar pairs first for each label. Entity indices break ties, so the order is repeatable. Pairs over the cap stay undecided. This script previews, applies, and then reads the groups back.
+`Graph.consolidate()` is a dry run. It writes nothing. `Graph.consolidate(apply=True)` writes the matches. The exact, fuzzy, embedding, and cluster tiers run first. The LLM then gets the most similar remaining pairs of each label, up to the cap. Entity indices break ties, so the order is repeatable. Pairs over the cap stay undecided.
 
 ```python
 import asyncio
@@ -152,7 +152,7 @@ If any of the three failure counts is not zero, the pass is partial. Run `consol
 
 ## Related
 
-- Concept: [Entity resolution](../concepts/resolution.mdx)
-- Concept: [Matching and resolved entities](../concepts/resolved-entities.mdx)
-- Guide: [Extract and resolve entities](./extract-and-resolve.mdx)
-- Reference: [Ingestion API](../api/ingestion/index.md)
+- Concept: [Entity resolution](../concepts/resolution.mdx) explains how extracted entities that name the same real-world thing are decided.
+- Concept: [Matching and resolved entities](../concepts/resolved-entities.mdx) explains how a match is recorded and how a resolved entity is derived.
+- Guide: [Extract and resolve entities](./extract-and-resolve.mdx) covers resolution during ingestion and the LLM settings.
+- Reference: [Ingestion API](../api/ingestion/index.md) lists the signatures of the classes in `agrag.ingestion`, including `Graph`.

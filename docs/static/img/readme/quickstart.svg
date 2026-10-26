@@ -1,0 +1,73 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 376" width="880" height="376" role="img" aria-labelledby="quick-light-title quick-light-desc">
+<title id="quick-light-title">What the quickstart builds</title>
+<desc id="quick-light-desc">Your script adds one document on your machine, with a schema, GLiNER and local embeddings and no LLM calls. The graph is stored in Neo4j. The built-in agent reads only that document from the graph, calls an LLM endpoint, and returns an answer with numbered sources.</desc>
+<style>
+.panel{fill:#faf8f3;stroke:#e4e0d6}
+.stage{font:600 11px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;letter-spacing:.08em;fill:#6b655f}
+.box{fill:#f3f0e9;stroke:#cbc6b9}
+.box-title{font:600 13px ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;fill:#1f2937}
+.box-sub{font:10px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;fill:#6b655f}
+.chip{fill:#ffffff;stroke:#cbc6b9}
+.chip-name{font:600 12px ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;fill:#1f2937}
+.chip-tag{font:10px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;fill:#1d4ed8}
+.node{fill:#eaf0fe;stroke:#1d4ed8;stroke-width:1.25}
+.node-name{font:600 12px ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;fill:#1f2937}
+.node-sub{font:9.5px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;fill:#6b655f}
+.focal{fill:#1d4ed8;stroke:#1d4ed8;stroke-width:1.25}
+.focal-name{font:600 12px ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;fill:#ffffff}
+.focal-sub{font:9.5px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;fill:#ffffff;opacity:.85}
+.bar{fill:#eaf0fe;stroke:#1d4ed8;stroke-width:1.25}
+.edge{fill:none;stroke:#6b655f;stroke-width:1.5}
+.edge-blue{fill:none;stroke:#1d4ed8;stroke-width:1.5}
+.edge-dash{fill:none;stroke:#1d4ed8;stroke-width:1.5;stroke-dasharray:5 4}
+.edge-soft{fill:none;stroke:#6b655f;stroke-width:1.25;stroke-dasharray:5 4}
+.elabel{font:10px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;fill:#6b655f;letter-spacing:.04em}
+.elabel-blue{font:10px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;fill:#1d4ed8;letter-spacing:.04em}
+.mask{fill:#faf8f3}
+.note{font:12px ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;fill:#6b655f}
+.arrowhead{fill:#6b655f}
+.arrowhead-blue{fill:#1d4ed8}
+.glyph-page{fill:#ffffff;stroke:#cbc6b9;stroke-width:1.5}
+.glyph-line{fill:#cbc6b9}
+.span{fill:#eaf0fe;stroke:#1d4ed8;stroke-width:1}
+.span-text{font:600 10px ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;fill:#1f2937}
+.badge{fill:#1d4ed8}
+.badge-text{font:600 9.5px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;fill:#ffffff}
+
+.frame{fill:none;stroke:#cbc6b9;stroke-width:1.25;stroke-dasharray:6 4}
+.frame-label{font:600 11px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;letter-spacing:.06em;fill:#6b655f}
+
+
+@media (prefers-reduced-motion: reduce){*{animation:none!important}}
+</style>
+<defs>
+<marker id="ah-quick-light" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="arrowhead" d="M0 0L10 5L0 10z"/></marker>
+<marker id="ahb-quick-light" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="arrowhead-blue" d="M0 0L10 5L0 10z"/></marker>
+<marker id="ahs-quick-light" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrowhead" d="M0 0L10 5L0 10z"/></marker></defs>
+<rect class="panel" x="0.5" y="0.5" width="879" height="375" rx="10"/>
+
+<g class="q-frame"><rect class="frame" x="24" y="90" width="832" height="130" rx="12"/>
+<text class="frame-label" x="40" y="110">ON YOUR MACHINE</text></g>
+<g class="q-doc"><rect class="box" x="44" y="136" width="128" height="64" rx="8"/><text class="box-title" x="56" y="158">Document</text><text class="box-sub" x="56" y="174">any Markdown</text><text class="box-sub" x="56" y="188">or text file</text></g>
+<path class="edge q-a1" d="M176 168H204" marker-end="url(#ah-quick-light)"/>
+<g class="q-add"><rect class="box" x="208" y="136" width="190" height="64" rx="8"/><text class="box-title" x="220" y="158">Add</text><text class="box-sub" x="220" y="174">schema, GLiNER, embeddings</text><text class="box-sub" x="220" y="188">no LLM calls</text></g>
+<path class="edge q-a2" d="M402 168H430" marker-end="url(#ah-quick-light)"/>
+<g class="q-agent"><rect class="box" x="434" y="136" width="190" height="64" rx="8"/><text class="box-title" x="446" y="158">Agent</text><text class="box-sub" x="446" y="174">reads only this document</text><text class="box-sub" x="446" y="188">records its steps</text></g>
+<path class="edge q-a3" d="M628 168H660" marker-end="url(#ah-quick-light)"/>
+<g class="q-ans"><rect class="focal" x="664" y="136" width="184" height="64" rx="8"/><text class="focal-name" style="font-size:13px" x="676" y="160">Answer</text><text class="focal-sub" style="font-size:11px" x="676" y="178">numbered sources</text></g>
+
+<g class="q-neo"><rect class="box" x="270" y="262" width="290" height="64" rx="8"/><text class="box-title" x="282" y="284">Neo4j</text><text class="box-sub" x="282" y="300">the graph lives here</text></g>
+<path class="edge-blue q-write" d="M303 200V258" marker-end="url(#ahb-quick-light)"/>
+<g class="q-write"><rect class="mask" x="307" y="225" width="50" height="14"/><text class="elabel-blue" x="311" y="236" text-anchor="start">WRITES</text></g>
+<path class="edge-blue q-read" d="M528 258V204" marker-end="url(#ahb-quick-light)"/>
+<g class="q-read"><rect class="mask" x="532" y="225" width="44" height="14"/><text class="elabel-blue" x="536" y="236" text-anchor="start">READS</text></g>
+
+<g class="q-llm"><rect class="box" x="434" y="14" width="190" height="56" rx="8"/><text class="box-title" x="446" y="36">LLM endpoint</text><text class="box-sub" x="446" y="52">OpenAI compatible</text></g>
+<path class="edge q-llma" d="M529 132V74" marker-start="url(#ahs-quick-light)" marker-end="url(#ah-quick-light)"/>
+<g class="q-llma"><rect class="mask" x="537" y="97" width="70" height="14"/><text class="elabel" x="541" y="108" text-anchor="start">AGENT ONLY</text></g>
+
+<g class="q-note">
+<text class="note" x="24" y="342">The first run downloads the embedding and extraction models.</text>
+<text class="note" x="24" y="360">Run it again with the same task name, and the agent works in the same stored task.</text>
+</g>
+</svg>

@@ -1,0 +1,114 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 440" width="880" height="440" role="img" aria-labelledby="retrieve-light-title retrieve-light-desc">
+<title id="retrieve-light-title">Retrieval</title>
+<desc id="retrieve-light-desc">A question goes to passage search, entity search with relationships, or theme search, inside the documents you allow. Each returns evidence ids. Fetch returns the exact text for an id, and navigation returns neighboring ids. The citation check compares cited ids with the ids that were read before the cited answer is returned.</desc>
+<style>
+.panel{fill:#faf8f3;stroke:#e4e0d6}
+.stage{font:600 11px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;letter-spacing:.08em;fill:#6b655f}
+.box{fill:#f3f0e9;stroke:#cbc6b9}
+.box-title{font:600 13px ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;fill:#1f2937}
+.box-sub{font:10px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;fill:#6b655f}
+.chip{fill:#ffffff;stroke:#cbc6b9}
+.chip-name{font:600 12px ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;fill:#1f2937}
+.chip-tag{font:10px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;fill:#1d4ed8}
+.node{fill:#eaf0fe;stroke:#1d4ed8;stroke-width:1.25}
+.node-name{font:600 12px ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;fill:#1f2937}
+.node-sub{font:9.5px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;fill:#6b655f}
+.focal{fill:#1d4ed8;stroke:#1d4ed8;stroke-width:1.25}
+.focal-name{font:600 12px ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;fill:#ffffff}
+.focal-sub{font:9.5px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;fill:#ffffff;opacity:.85}
+.bar{fill:#eaf0fe;stroke:#1d4ed8;stroke-width:1.25}
+.edge{fill:none;stroke:#6b655f;stroke-width:1.5}
+.edge-blue{fill:none;stroke:#1d4ed8;stroke-width:1.5}
+.edge-dash{fill:none;stroke:#1d4ed8;stroke-width:1.5;stroke-dasharray:5 4}
+.edge-soft{fill:none;stroke:#6b655f;stroke-width:1.25;stroke-dasharray:5 4}
+.elabel{font:10px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;fill:#6b655f;letter-spacing:.04em}
+.elabel-blue{font:10px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;fill:#1d4ed8;letter-spacing:.04em}
+.mask{fill:#faf8f3}
+.note{font:12px ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;fill:#6b655f}
+.arrowhead{fill:#6b655f}
+.arrowhead-blue{fill:#1d4ed8}
+.glyph-page{fill:#ffffff;stroke:#cbc6b9;stroke-width:1.5}
+.glyph-line{fill:#cbc6b9}
+.span{fill:#eaf0fe;stroke:#1d4ed8;stroke-width:1}
+.span-text{font:600 10px ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;fill:#1f2937}
+.badge{fill:#1d4ed8}
+.badge-text{font:600 9.5px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;fill:#ffffff}
+
+.frame{fill:none;stroke:#1d4ed8;stroke-width:1.25;stroke-dasharray:6 4}
+.frame-label{font:600 11px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;letter-spacing:.06em;fill:#1d4ed8}
+.r-q{animation:r-q 26.0s ease-out infinite}
+.r-frame{animation:r-frame 26.0s ease-out infinite}
+.r-fan{animation:r-fan 26.0s ease-out infinite}
+.r-ps{animation:r-ps 26.0s ease-out infinite}
+.r-es{animation:r-es 26.0s ease-out infinite}
+.r-ts{animation:r-ts 26.0s ease-out infinite}
+.r-ids{animation:r-ids 26.0s ease-out infinite}
+.r-fetch{animation:r-fetch 26.0s ease-out infinite}
+.r-nava{animation:r-nava 26.0s ease-out infinite}
+.r-nav{animation:r-nav 26.0s ease-out infinite}
+.r-read{animation:r-read 26.0s ease-out infinite}
+.r-chk{animation:r-chk 26.0s ease-out infinite}
+.r-val{animation:r-val 26.0s ease-out infinite}
+.r-ans{animation:r-ans 26.0s ease-out infinite}
+.r-note{animation:r-note 26.0s ease-out infinite}
+@keyframes r-q{0%,0.77%{opacity:0;transform:translateY(10px)}2.69%,95.38%{opacity:1;transform:none}99.23%,100%{opacity:0;transform:translateY(10px)}}
+@keyframes r-frame{0%,2.31%{opacity:0}4.62%,95.38%{opacity:1;transform:none}99.23%,100%{opacity:0}}
+@keyframes r-fan{0%,3.85%{opacity:0}5.77%,95.38%{opacity:1;transform:none}99.23%,100%{opacity:0}}
+@keyframes r-ps{0%,4.62%{opacity:0;transform:translateY(10px)}6.54%,95.38%{opacity:1;transform:none}99.23%,100%{opacity:0;transform:translateY(10px)}}
+@keyframes r-es{0%,5.77%{opacity:0;transform:translateY(10px)}7.69%,95.38%{opacity:1;transform:none}99.23%,100%{opacity:0;transform:translateY(10px)}}
+@keyframes r-ts{0%,6.92%{opacity:0;transform:translateY(10px)}8.85%,95.38%{opacity:1;transform:none}99.23%,100%{opacity:0;transform:translateY(10px)}}
+@keyframes r-ids{0%,9.62%{opacity:0}11.54%,95.38%{opacity:1;transform:none}99.23%,100%{opacity:0}}
+@keyframes r-fetch{0%,10.77%{opacity:0;transform:translateY(10px)}12.69%,95.38%{opacity:1;transform:none}99.23%,100%{opacity:0;transform:translateY(10px)}}
+@keyframes r-nava{0%,13.46%{opacity:0}15.38%,95.38%{opacity:1;transform:none}99.23%,100%{opacity:0}}
+@keyframes r-nav{0%,14.23%{opacity:0;transform:translateY(10px)}16.15%,95.38%{opacity:1;transform:none}99.23%,100%{opacity:0;transform:translateY(10px)}}
+@keyframes r-read{0%,17.69%{opacity:0}19.62%,95.38%{opacity:1;transform:none}99.23%,100%{opacity:0}}
+@keyframes r-chk{0%,18.85%{opacity:0;transform:translateY(10px)}20.77%,95.38%{opacity:1;transform:none}99.23%,100%{opacity:0;transform:translateY(10px)}}
+@keyframes r-val{0%,21.92%{opacity:0}23.85%,95.38%{opacity:1;transform:none}99.23%,100%{opacity:0}}
+@keyframes r-ans{0%,22.69%{opacity:0;transform:translateY(10px)}24.62%,95.38%{opacity:1;transform:none}99.23%,100%{opacity:0;transform:translateY(10px)}}
+@keyframes r-note{0%,25.38%{opacity:0}27.31%,95.38%{opacity:1;transform:none}99.23%,100%{opacity:0}}
+@media (prefers-reduced-motion: reduce){*{animation:none!important}}
+</style>
+<defs>
+<marker id="ah-retrieve-light" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="arrowhead" d="M0 0L10 5L0 10z"/></marker>
+<marker id="ahb-retrieve-light" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="arrowhead-blue" d="M0 0L10 5L0 10z"/></marker>
+<marker id="ahs-retrieve-light" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrowhead" d="M0 0L10 5L0 10z"/></marker></defs>
+<rect class="panel" x="0.5" y="0.5" width="879" height="439" rx="10"/>
+
+<g class="r-frame">
+<rect class="frame" x="150" y="62" width="490" height="288" rx="12"/>
+<text class="frame-label" x="166" y="84">DOCUMENTS YOU ALLOW</text>
+</g>
+
+<g class="r-q"><rect class="chip" style="stroke-dasharray:none" x="24" y="190" width="100" height="32" rx="16"/>
+<text class="chip-name" x="74" y="211" text-anchor="middle">Question</text></g>
+
+<path class="edge r-fan" d="M124 206H130Q138 206 138 198V134Q138 126 146 126H170" marker-end="url(#ah-retrieve-light)"/>
+<path class="edge r-fan" d="M124 206H170" marker-end="url(#ah-retrieve-light)"/>
+<path class="edge r-fan" d="M124 206H130Q138 206 138 214V278Q138 286 146 286H170" marker-end="url(#ah-retrieve-light)"/>
+
+<g class="r-ps"><rect class="box" x="170" y="96" width="170" height="60" rx="8"/><text class="box-title" x="182" y="118">Passage search</text><text class="box-sub" x="182" y="134">lexical, semantic, hybrid</text><text class="box-sub" x="182" y="148">optional reranker</text></g>
+<g class="r-es"><rect class="box" x="170" y="176" width="170" height="60" rx="8"/><text class="box-title" x="182" y="198">Entity search</text><text class="box-sub" x="182" y="214">by name and meaning</text><text class="box-sub" x="182" y="228">follows relations</text></g>
+<g class="r-ts"><rect class="box" x="170" y="256" width="170" height="60" rx="8"/><text class="box-title" x="182" y="278">Theme search</text><text class="box-sub" x="182" y="294">community reports</text><text class="box-sub" x="182" y="308">themes, then passages</text></g>
+
+<path class="edge r-ids" d="M340 126H356Q364 126 364 134V198Q364 206 372 206H400" marker-end="url(#ah-retrieve-light)"/>
+<path class="edge r-ids" d="M340 206H400" marker-end="url(#ah-retrieve-light)"/>
+<path class="edge r-ids" d="M340 286H356Q364 286 364 278V214Q364 206 372 206H400" marker-end="url(#ah-retrieve-light)"/>
+<g class="r-ids"><rect class="mask" x="372" y="153" width="82" height="14"/><text class="elabel" x="376" y="164" text-anchor="start">EVIDENCE IDS</text></g>
+
+<g class="r-fetch"><rect class="box" x="400" y="176" width="160" height="60" rx="8"/><text class="box-title" x="412" y="198">Exact text</text><text class="box-sub" x="412" y="214">fetch by evidence id</text><text class="box-sub" x="412" y="228">status and version</text></g>
+<path class="edge r-nava" d="M480 240V268" marker-start="url(#ahs-retrieve-light)" marker-end="url(#ah-retrieve-light)"/>
+<g class="r-nava"><rect class="mask" x="488" y="247" width="82" height="14"/><text class="elabel" x="492" y="258" text-anchor="start">NEIGHBOR IDS</text></g>
+<g class="r-nav"><rect class="box" x="400" y="272" width="160" height="60" rx="8"/><text class="box-title" x="412" y="294">Navigation</text><text class="box-sub" x="412" y="310">section, siblings, rows</text><text class="box-sub" x="412" y="324">returns more ids</text></g>
+
+<path class="edge r-read" d="M564 206H664" marker-end="url(#ah-retrieve-light)"/>
+<g class="r-read"><rect class="mask" x="587.0" y="185" width="54" height="14"/><text class="elabel" x="614" y="196" text-anchor="middle">READ IDS</text></g>
+<g class="r-chk"><rect class="box" x="668" y="176" width="190" height="62" rx="8"/><text class="box-title" x="680" y="198">Citation check</text><text class="box-sub" x="680" y="214">flags unread, out of scope,</text><text class="box-sub" x="680" y="228">or malformed ids</text></g>
+<path class="edge r-val" d="M760 238V282" marker-end="url(#ah-retrieve-light)"/>
+<g class="r-val"><rect class="mask" x="764" y="255" width="62" height="14"/><text class="elabel" x="768" y="266" text-anchor="start">VALID IDS</text></g>
+<g class="r-ans"><rect class="focal" x="668" y="284" width="190" height="62" rx="8"/><text class="focal-name" style="font-size:13px" x="680" y="308">Cited answer</text><text class="focal-sub" style="font-size:11px" x="680" y="326">numbered sources</text></g>
+
+<g class="r-note">
+<text class="note" x="24" y="384">An id keeps pointing at the same passage. After an edit, the old id returns the old text marked superseded.</text>
+<text class="note" x="24" y="402">A cut-off result or a failed part of a search is reported, never returned as an empty result.</text>
+</g>
+</svg>

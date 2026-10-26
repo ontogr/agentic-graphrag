@@ -14,7 +14,7 @@ Chunking divides a document into pieces that extraction and search can process. 
 
 Search and extraction work on short pieces of text. Where you cut decides what they can find. A cut in the wrong place can separate a name from the fact about it.
 
-A document already has structure: headings, paragraphs, and tables. The chunker uses that structure to avoid cutting facts apart where possible, while keeping chunks small enough for search and extraction. These goals compete: larger chunks preserve more context but make search less precise and increase work per chunk.
+A document already has structure: headings, paragraphs, and tables. The chunker uses that structure to avoid cutting facts apart where possible, while keeping chunks small enough for search and extraction. Larger chunks keep more context and make search less precise. The default `size` is 600 tokens, and the default `min_size` is 150 tokens.
 
 ## How it works
 
@@ -22,12 +22,12 @@ A document already has structure: headings, paragraphs, and tables. The chunker 
 
 *An example with the default size of 600 tokens and a min_size of 150.*
 
-1. Pack. The chunker walks the sections in reading order. A unit is a paragraph, list, code block or formula. The chunker adds units to a chunk until the next unit would pass `size` tokens. The default size is 600 tokens.
-2. Split. A unit that is over `size` on its own is cut at paragraph, sentence, clause or word boundaries.
+1. Pack. The chunker walks the sections in reading order. A unit is a paragraph, list, code block or formula. The chunker adds units to a chunk until the next unit would pass `size` tokens. The default size is 600 tokens. The chunker does this packing itself, without Chonkie.
+2. Split. A unit that is over `size` on its own is cut at paragraph, sentence, clause or word boundaries. The cut is made by the [Chonkie](https://github.com/chonkie-inc/chonkie) RecursiveChunker, and the chunker calls it only for a unit or heading that is longer than `size`.
 3. Merge. When a section ends and the open chunk has fewer than `min_size` tokens, the chunk carries on into the next section. The default `min_size` is a quarter of `size`. The next heading goes into the chunk text, so the text keeps its meaning.
 4. Tables. A table never mixes with text. If its rendered text exceeds `size` and it has more than one body row, it becomes row groups. Each group repeats the header row, and only the first group includes the caption. A table with zero or one body row stays one chunk, even if it exceeds `size`.
 
-One `Chunker` serves every format. Each loader maps its source into sections and units first, so chunk behavior does not depend on a file extension.
+One `Chunker` serves every format. Each loader maps its source into sections and units first, so chunk behavior does not depend on a file extension. [Docling](https://github.com/docling-project/docling) does not chunk. Its loaders return sections and units, and the chunker makes every chunk.
 
 ### What a chunk carries
 
