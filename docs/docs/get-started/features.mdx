@@ -86,7 +86,7 @@ See [Entity resolution](../concepts/resolution.mdx) and [Consolidate duplicates]
 
 <Diagram name="community-detection" ext="svg" alt="Entities joined by relations weighted by their supporting passages are clustered with Leiden. Each community gets a report with a title, summary, and findings, and the report is embedded. A broad question is matched against the reports in theme search, which returns the passages behind each matching theme." />
 
-- The entity graph is grouped into communities. You can preview the groups before writing them.
+- The entities and relations that your schema declares are grouped into communities. You can preview the groups before writing them.
 - Each relation is weighted by the number of passages that support it.
 - An LLM writes a title, summary, rating, and findings for the larger communities. A simple template covers the rest.
 - Each report is embedded, so `search_themes` can answer broad questions from the summaries and return the passages that support each theme.

@@ -28,6 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Bound resolution concurrency and guard transitive merges ([#165](https://github.com/ontogr/agentic-graphrag/pull/165))
 - Accept any discovery tool in the trajectory expected-tools rule ([#174](https://github.com/ontogr/agentic-graphrag/pull/174))
+- Scope community detection to active schema ([#175](https://github.com/ontogr/agentic-graphrag/pull/175))
 
 ## [0.0.6] - 2026-10-19
 

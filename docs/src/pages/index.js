@@ -86,7 +86,7 @@ const next = [
     text: 'Search passages, read the exact text, and check the citations in an answer.',
   },
   {
-    to: '/latest/concepts/conversation-history-and-decisions',
+    to: '/stable/concepts/conversation-history-and-decisions',
     title: 'History and decisions',
     text: 'Record tasks, events, steps, and decisions, and review decisions when a source changes.',
   },

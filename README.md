@@ -75,7 +75,7 @@ Accepted formats:
 - An OWL or RDFS Turtle file
 - A shipped schema: `default`, `operations`, or `legal`
 
-Schemas export to JSON Schema, JSON-LD (an OWL vocabulary), and SHACL shapes. For more detail on the supported ontologies, see [ontology formats and examples](https://ontogr.github.io/agentic-graphrag/latest/concepts/ontologies).
+Schemas export to JSON Schema, JSON-LD (an OWL vocabulary), and SHACL shapes. For more detail on the supported ontologies, see [ontology formats and examples](https://ontogr.github.io/agentic-graphrag/stable/concepts/ontologies).
 
 #### Default schema and domain-specific presets
 
@@ -83,7 +83,7 @@ Schemas export to JSON Schema, JSON-LD (an OWL vocabulary), and SHACL shapes. Fo
   <img src="https://raw.githubusercontent.com/ontogr/agentic-graphrag/main/docs/static/img/readme/default-schema.svg" alt="Nine entity types and the eight relations that join them. A person works for an organization. A person or organization authors, owns, and takes part in other types. Software depends on software or a dataset, and organizations supply products. An organization, event, or project is located in a location. Four types can be part of their own kind." width="860">
 </p>
 
-Each entity type and relation, with the pairs it joins, is defined in the [default schema reference](https://ontogr.github.io/agentic-graphrag/stable/reference/default-schema). The domain-specific presets are [operations](https://ontogr.github.io/agentic-graphrag/latest/reference/preset-operations) and [legal](https://ontogr.github.io/agentic-graphrag/latest/reference/preset-legal).
+Each entity type and relation, with the pairs it joins, is defined in the [default schema reference](https://ontogr.github.io/agentic-graphrag/stable/reference/default-schema). The domain-specific presets are [operations](https://ontogr.github.io/agentic-graphrag/stable/reference/preset-operations) and [legal](https://ontogr.github.io/agentic-graphrag/stable/reference/preset-legal).
 
 ### Entity and relationship extraction
 
@@ -157,7 +157,7 @@ The steps, in order:
 - **Citation check:** Flags every cited id that was never fetched, is out of scope, or is malformed.
 - **Incomplete results:** A cut-off result or a failed part of a search is reported as such. An empty list means that the search ran and found nothing.
 
-Search, fetch, navigation, and the citation check are the [evidence tools](https://ontogr.github.io/agentic-graphrag/latest/reference/tools) that the built-in agent and the MCP server share.
+Search, fetch, navigation, and the citation check are the [evidence tools](https://ontogr.github.io/agentic-graphrag/stable/reference/tools) that the built-in agent and the MCP server share.
 
 ### History and decision traces
 
@@ -174,7 +174,7 @@ Search, fetch, navigation, and the citation check are the [evidence tools](https
 - **Tasks resume from recorded state:** When a task resumes, the agent sees its goal, events, steps, and decisions, including any that need review. It reuses finished work that is still valid and runs an interrupted step again.
 - **Past decisions inform new ones:** Agents can search earlier decisions in the same project. The built-in agent's search leaves out decisions that need review, and the agent cannot cite one as support.
 
-The same records are available from Python without the built-in agent. The [decision traces guide](https://ontogr.github.io/agentic-graphrag/latest/guides/decision-traces) records and reviews decisions end to end.
+The same records are available from Python without the built-in agent. The [decision traces guide](https://ontogr.github.io/agentic-graphrag/stable/guides/decision-traces) records and reviews decisions end to end.
 
 ### Agents and MCP
 
@@ -313,7 +313,7 @@ The script prints the answer and a Sources list. References are numbered by docu
   <img src="https://raw.githubusercontent.com/ontogr/agentic-graphrag/main/docs/static/img/readme/quickstart-output.svg" alt="Output of the quickstart script on a sample document. The answer has three numbered points, and every reference is [1] because all cited passages come from one document. A Sources list ends the output with one entry, the document title." width="860">
 </p>
 
-To run the example on FalkorDB, follow the [FalkorDB setup](https://ontogr.github.io/agentic-graphrag/latest/guides/configure-storage-backends#set-up-a-falkordb-graph-store), replace the `neo4j` install extra with `falkordb`, use `FALKORDB_*` connection settings, and change the store selection to `build_graph_store("falkordb")`.
+To run the example on FalkorDB, follow the [FalkorDB setup](https://ontogr.github.io/agentic-graphrag/stable/guides/configure-storage-backends#set-up-a-falkordb-graph-store), replace the `neo4j` install extra with `falkordb`, use `FALKORDB_*` connection settings, and change the store selection to `build_graph_store("falkordb")`.
 
 ## MCP
 
