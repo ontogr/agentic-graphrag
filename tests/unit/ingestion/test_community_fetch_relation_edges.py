@@ -2,7 +2,25 @@
 
 from unittest.mock import AsyncMock
 
+from agrag.common.data_models.graph_schema import EntityType, GraphSchema, RelationType
 from agrag.ingestion.community import fetch_relation_edges
+
+
+def _schema() -> GraphSchema:
+    """Return a schema for the relation types returned by these test pages."""
+    return GraphSchema(
+        name="test",
+        version="1",
+        entities=[EntityType(label="Entity", description="test entity")],
+        relations=[
+            RelationType(
+                label=relation_type,
+                description="test relation",
+                patterns=[("Entity", "Entity")],
+            )
+            for relation_type in ("KNOWS", "WORKS_WITH")
+        ],
+    )
 
 
 class TestFetchRelationEdges:
@@ -27,7 +45,7 @@ class TestFetchRelationEdges:
                 "rel_id": "r2",
             },
         ]
-        edges = await fetch_relation_edges(mock_store, page_size=10)
+        edges = await fetch_relation_edges(mock_store, schema=_schema(), page_size=10)
         assert edges[0][2] == 2.0
         assert edges[1][2] == 0.0
 
@@ -60,7 +78,7 @@ class TestFetchRelationEdges:
             ],
             [],
         ]
-        edges = await fetch_relation_edges(mock_store, page_size=1)
+        edges = await fetch_relation_edges(mock_store, schema=_schema(), page_size=1)
         assert len(edges) == 2
         second_call_params = mock_store.execute_read.call_args_list[1].args[1]
         assert second_call_params["last_a"] == "a"

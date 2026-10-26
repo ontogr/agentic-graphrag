@@ -17,7 +17,7 @@ Community detection: hierarchical Leiden over the entity graph.
 - [**delete_all_communities**](delete_all_communities.md) – Delete every Community node and its edges, in batches.
 - [**detect_communities**](detect_communities.md) – Detect entity communities via hierarchical Leiden.
 - [**embed_communities**](embed_communities.md) – Compute each community's embedding from its report text, in place.
-- [**fetch_relation_edges**](fetch_relation_edges.md) – Return every live domain relation as a weighted edge tuple.
+- [**fetch_relation_edges**](fetch_relation_edges.md) – Return current-schema entity relations as weighted edge tuples.
 - [**generate_community_reports**](generate_community_reports.md) – Generate a report for each community, in place.
 - [**required_member_ids**](required_member_ids.md) – Return the member ids generate_community_reports will actually read.
 
