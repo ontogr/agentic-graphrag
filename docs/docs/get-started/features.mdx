@@ -120,11 +120,11 @@ See [Ingestion](../concepts/ingestion.mdx) and [Update and delete documents](../
 
 See [Graph storage](../concepts/graph-storage.mdx).
 
-## Search the graph and read the evidence
+## Retrieval
 
-<Diagram name="search-evidence" alt="A query runs full-text, semantic, or hybrid search over the chunks of the documents you allow. Hits carry evidence ids, and a fetch returns the exact passage text with a citation. Optional steps navigate the document tree, search entities, and explore relationships." />
+<Diagram name="retrieval" ext="svg" alt="A question goes to passage search, entity search with relationships, or theme search, inside the documents you allow. Each returns evidence ids. Fetch returns the exact text for an id, and navigation returns neighboring ids. The citation check compares cited ids with the ids that were read, and only then is the cited answer returned." />
 
-- Lexical search (BM25 full-text) matches keywords, semantic search compares embeddings, and hybrid search combines the two rankings.
+- Lexical search matches keywords in chunk text, semantic search compares embeddings, and hybrid search combines the two ranked lists.
 - Results come from the current text of documents in the caller's scope. Older versions and rows from unfinished jobs stay out.
 - Fetch returns the exact text behind a result. It says when the text was cut or covers only part of what was asked for.
 - You can find entities by name and by embedding similarity, and see the passages that mention each one.
@@ -144,7 +144,7 @@ See [Graph storage](../concepts/graph-storage.mdx).
 
 ## Record conversation history
 
-<Diagram name="conversation-history" alt="The agent records messages, tool calls, tool results, and named steps under a task. Decision traces cite document passages, task events, and earlier decisions. A source change flags affected decisions for review, and a later run can resume the task and search earlier decisions." />
+<Diagram name="conversation-history" ext="svg" alt="The agent records messages, tool calls, tool results, and named steps under a task. Decision traces cite document passages, task events, and earlier decisions. A source change flags affected decisions for review, and a later run can resume the task and search earlier decisions." />
 
 - A task has a goal, ordered events, and named steps. Events include messages, tool calls, tool results, and notes.
 - A step is not started, in progress, completed, failed, or unknown.

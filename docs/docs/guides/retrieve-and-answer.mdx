@@ -154,9 +154,7 @@ See [Citations in MCP clients](../concepts/agent-loop.mdx#citations-in-mcp-clien
 
 ### Set the document scope
 
-Pass the exact document keys the agent may read as a set of strings. The
-scope is fixed when the agent is built and applies to search, fetch, and
-citation checks.
+Pass the exact document keys the agent may read as a set of strings. The scope is fixed when the agent is built and applies to search, fetch, and citation checks.
 
 {/* pmd-metadata: fixture:llm_env */}
 
@@ -213,11 +211,7 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
-Set the scope when your application builds the agent. The tools enforce the
-scope. The model cannot see or change it. To call the evidence tools from your
-own code, use [Find and cite evidence](./find-and-cite-evidence.mdx). The
-[tools reference](../reference/tools.mdx) lists each agent tool and its
-parameters.
+Set the scope when your application builds the agent. The tools enforce the scope. The model cannot see or change it. To call the evidence tools from your own code, use [Find and cite evidence](./find-and-cite-evidence.mdx). The [tools reference](../reference/tools.mdx) lists each agent tool and its parameters.
 
 ## Search themes
 

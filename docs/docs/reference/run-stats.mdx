@@ -35,7 +35,7 @@ Each record in `failures` is a `StageFailure`.
 
 ## Escalation report
 
-`AddResult.escalation` counts the chunks of one run. The first extractor reads every chunk. A chunk is eligible when that first result is weak, and the escalation budget caps how many eligible chunks the LLM extractor reads, weakest first.
+`AddResult.escalation` counts the chunks of one run. The first extractor reads every chunk. A chunk is eligible when that first result is weak, and the escalation budget caps how many eligible chunks the LLM extractor reads. Chunks with at least two kept entities and no relation rank first, then the other eligible chunks by lowest entity score.
 
 | Field | Meaning |
 | --- | --- |

@@ -249,7 +249,7 @@ for row in indexes:
 | Search rejects a result count | The requested count exceeds 16384, or a Zilliz gateway rejects the response size. | Reduce the result limit. The gateway's byte limit can apply below 16384 results. |
 | BM25 truncation warning | Text exceeds 65535 UTF-8 bytes. | Use smaller chunks when lexical search must cover every character. Dense embeddings are unchanged. |
 
-The server must support Milvus 3.0.1 APIs, including sorted scalar queries used to page UUIDs. Use the same collection prefix for ingestion and retrieval. Check the [Milvus connection settings](../reference/configuration.mdx#milvus) without printing token values.
+The server must support the Milvus 3.0 APIs that the client uses, including sorted scalar queries used to page UUIDs. Use the same collection prefix for ingestion and retrieval. Check the [Milvus connection settings](../reference/configuration.mdx#milvus) without printing token values.
 
 ## Weaviate cannot connect or rejects a collection
 

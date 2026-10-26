@@ -106,7 +106,7 @@ The server caps what it returns. A result states when it left items out.
 | `MCP_MAX_RESPONSE_CHARS` | `60000` | Characters in one result. |
 | `MCP_REQUEST_DEADLINE_SECONDS` | `30.0` | Seconds one tool operation may run. |
 
-A result over `MCP_MAX_RESPONSE_CHARS` returns the error `tool result exceeds the configured response limit`. It is not cut short. A tool operation that runs past `MCP_REQUEST_DEADLINE_SECONDS` returns `tool operation deadline exceeded`.
+A result over `MCP_MAX_RESPONSE_CHARS` is shortened for `search_evidence`, `fetch_evidence`, and `check_citations`, which drop trailing items and set `truncated`. Every other tool returns the error `tool result exceeds the configured response limit` and sends no partial result. A tool operation that runs past `MCP_REQUEST_DEADLINE_SECONDS` returns `tool operation deadline exceeded`.
 
 The [Configuration reference](../reference/configuration.mdx#mcp-server) lists every variable.
 

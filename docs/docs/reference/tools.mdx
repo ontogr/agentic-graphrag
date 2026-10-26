@@ -117,7 +117,7 @@ Returns the exact stored text for evidence ids. Only a complete fetch makes an i
 | Parameter | Type | Default | Range and notes |
 |---|---|---|---|
 | `evidence_ids` | list of strings | required | At most 20 ids per call on the agent. On MCP, at most `MCP_MAX_FETCH_IDS`, default 20. |
-| `max_chars` | integer | agent `max_result_characters`, MCP `MCP_MAX_FETCH_CHARS` | The agent setting defaults to 12000. MCP accepts the argument and caps it at `MCP_MAX_FETCH_CHARS`, default 4000. Python requires the argument. |
+| `max_chars` | integer | agent `max_result_characters`, MCP `MCP_MAX_FETCH_CHARS` | The agent setting defaults to 12000. MCP accepts the argument and caps it at `MCP_MAX_FETCH_CHARS`, default 4000. Python uses 4000 when the argument is omitted, and raises `ValueError` when it is not positive. |
 
 Returns one outcome for each id, in order. An outcome has `status`, `text`, `title`, `uri`, `location`, `content_hash`, `status_of_version`, `partial`, and `citation_markdown`.
 
@@ -328,4 +328,4 @@ The parameters below apply to the MCP server unless a note says otherwise. The a
 | Tool calls in one run | `max_tool_calls`, default 20 | none |
 | Steps in one run | `recursion_limit`, default 50 | none |
 
-An MCP result sets `truncated` when it left items out. For search, fetch, and citation-check results, the server counts the JSON twice, once for each copy the SDK sends. [Agent loop](../concepts/agent-loop.mdx#limits) describes the agent settings, and the [configuration reference](./configuration.mdx#mcp-server) lists the MCP variables.
+Search, fetch, and check-citations results count their JSON twice, once for each copy the SDK sends, and set `truncated` when they drop trailing items to fit `MCP_MAX_RESPONSE_CHARS`. The other MCP tools count their JSON once, plus the 35-character text block the server sends beside it, and count UTF-8 bytes. Their results are not cut, so a result over the limit returns an error. [Agent loop](../concepts/agent-loop.mdx#limits) describes the agent settings, and the [configuration reference](./configuration.mdx#mcp-server) lists the MCP variables.

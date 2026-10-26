@@ -41,32 +41,8 @@
 .gnode{fill:#1b2438;stroke:#7aa7ff;stroke-width:1.25}
 .gedge{fill:none;stroke:#a8a29e;stroke-linecap:round}
 .note{font:12px ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;fill:#a8a29e}
-.c-nodes{animation:c-nodes 14.0s ease-out infinite}
-.c-edges{animation:c-edges 14.0s ease-out infinite}
-.c-a1{animation:c-a1 14.0s ease-out infinite}
-.c-leiden{animation:c-leiden 14.0s ease-out infinite}
-.c-a2{animation:c-a2 14.0s ease-out infinite}
-.c-comms{animation:c-comms 14.0s ease-out infinite}
-.c-a3{animation:c-a3 14.0s ease-out infinite}
-.c-reports{animation:c-reports 14.0s ease-out infinite}
-.c-question{animation:c-question 14.0s ease-out infinite}
-.c-a4{animation:c-a4 14.0s ease-out infinite}
-.c-theme{animation:c-theme 14.0s ease-out infinite}
-.c-a5{animation:c-a5 14.0s ease-out infinite}
-.c-passages{animation:c-passages 14.0s ease-out infinite}
-@keyframes c-nodes{0%,1.43%{opacity:0;transform:translateY(10px)}5.71%,90.00%{opacity:1;transform:none}95.71%,100%{opacity:0;transform:translateY(10px)}}
-@keyframes c-edges{0%,5.00%{opacity:0}9.29%,90.00%{opacity:1;transform:none}95.71%,100%{opacity:0}}
-@keyframes c-a1{0%,10.00%{opacity:0}13.57%,90.00%{opacity:1;transform:none}95.71%,100%{opacity:0}}
-@keyframes c-leiden{0%,11.43%{opacity:0;transform:translateY(10px)}15.00%,90.00%{opacity:1;transform:none}95.71%,100%{opacity:0;transform:translateY(10px)}}
-@keyframes c-a2{0%,16.43%{opacity:0}20.00%,90.00%{opacity:1;transform:none}95.71%,100%{opacity:0}}
-@keyframes c-comms{0%,17.86%{opacity:0;transform:translateY(10px)}22.14%,90.00%{opacity:1;transform:none}95.71%,100%{opacity:0;transform:translateY(10px)}}
-@keyframes c-a3{0%,23.57%{opacity:0}27.14%,90.00%{opacity:1;transform:none}95.71%,100%{opacity:0}}
-@keyframes c-reports{0%,25.00%{opacity:0;transform:translateY(10px)}28.57%,90.00%{opacity:1;transform:none}95.71%,100%{opacity:0;transform:translateY(10px)}}
-@keyframes c-question{0%,30.71%{opacity:0;transform:translateY(10px)}34.29%,90.00%{opacity:1;transform:none}95.71%,100%{opacity:0;transform:translateY(10px)}}
-@keyframes c-a4{0%,34.29%{opacity:0}37.86%,90.00%{opacity:1;transform:none}95.71%,100%{opacity:0}}
-@keyframes c-theme{0%,35.71%{opacity:0;transform:translateY(10px)}39.29%,90.00%{opacity:1;transform:none}95.71%,100%{opacity:0;transform:translateY(10px)}}
-@keyframes c-a5{0%,40.71%{opacity:0}44.29%,90.00%{opacity:1;transform:none}95.71%,100%{opacity:0}}
-@keyframes c-passages{0%,42.14%{opacity:0;transform:translateY(10px)}45.71%,90.00%{opacity:1;transform:none}95.71%,100%{opacity:0;transform:translateY(10px)}}
+
+
 @media (prefers-reduced-motion: reduce){*{animation:none!important}}
 </style>
 <defs>

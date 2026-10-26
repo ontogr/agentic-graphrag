@@ -33,44 +33,44 @@
 .span-text{font:600 10px ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;fill:#e5e7eb}
 .badge{fill:#7aa7ff}
 .badge-text{font:600 9.5px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;fill:#111827}
-.x-chunk{animation:x-chunk 14.0s ease-out infinite}
-.x-schema{animation:x-schema 14.0s ease-out infinite}
-.x-in{animation:x-in 14.0s ease-out infinite}
-.x-gliner{animation:x-gliner 14.0s ease-out infinite}
-.x-cg{animation:x-cg 14.0s ease-out infinite}
-.x-bypass{animation:x-bypass 14.0s ease-out infinite}
-.x-llmin{animation:x-llmin 14.0s ease-out infinite}
-.x-llm{animation:x-llm 14.0s ease-out infinite}
-.x-cl{animation:x-cl 14.0s ease-out infinite}
-.x-merge{animation:x-merge 14.0s ease-out infinite}
-.x-check{animation:x-check 14.0s ease-out infinite}
-.x-cc{animation:x-cc 14.0s ease-out infinite}
-.x-outg{animation:x-outg 14.0s ease-out infinite}
-.x-graph{animation:x-graph 14.0s ease-out infinite}
-.x-outc{animation:x-outc 14.0s ease-out infinite}
-.x-cand{animation:x-cand 14.0s ease-out infinite}
-.x-outr{animation:x-outr 14.0s ease-out infinite}
-.x-review{animation:x-review 14.0s ease-out infinite}
-.x-patch{animation:x-patch 14.0s ease-out infinite}
-@keyframes x-chunk{0%,1.43%{opacity:0;transform:translateY(10px)}5.71%,90.00%{opacity:1;transform:none}95.71%,100%{opacity:0;transform:translateY(10px)}}
-@keyframes x-schema{0%,5.71%{opacity:0;transform:translateY(10px)}10.00%,90.00%{opacity:1;transform:none}95.71%,100%{opacity:0;transform:translateY(10px)}}
-@keyframes x-in{0%,10.00%{opacity:0}13.57%,90.00%{opacity:1;transform:none}95.71%,100%{opacity:0}}
-@keyframes x-gliner{0%,11.43%{opacity:0;transform:translateY(10px)}15.00%,90.00%{opacity:1;transform:none}95.71%,100%{opacity:0;transform:translateY(10px)}}
-@keyframes x-cg{0%,15.00%{opacity:0}18.57%,90.00%{opacity:1;transform:none}95.71%,100%{opacity:0}}
-@keyframes x-bypass{0%,21.43%{opacity:0}25.00%,90.00%{opacity:1;transform:none}95.71%,100%{opacity:0}}
-@keyframes x-llmin{0%,24.29%{opacity:0}27.86%,90.00%{opacity:1;transform:none}95.71%,100%{opacity:0}}
-@keyframes x-llm{0%,25.71%{opacity:0;transform:translateY(10px)}29.29%,90.00%{opacity:1;transform:none}95.71%,100%{opacity:0;transform:translateY(10px)}}
-@keyframes x-cl{0%,29.29%{opacity:0}32.86%,90.00%{opacity:1;transform:none}95.71%,100%{opacity:0}}
-@keyframes x-merge{0%,32.86%{opacity:0}36.43%,90.00%{opacity:1;transform:none}95.71%,100%{opacity:0}}
-@keyframes x-check{0%,35.00%{opacity:0;transform:translateY(10px)}38.57%,90.00%{opacity:1;transform:none}95.71%,100%{opacity:0;transform:translateY(10px)}}
-@keyframes x-cc{0%,38.57%{opacity:0}42.14%,90.00%{opacity:1;transform:none}95.71%,100%{opacity:0}}
-@keyframes x-outg{0%,41.43%{opacity:0}45.00%,90.00%{opacity:1;transform:none}95.71%,100%{opacity:0}}
-@keyframes x-graph{0%,42.86%{opacity:0;transform:translateY(10px)}46.43%,90.00%{opacity:1;transform:none}95.71%,100%{opacity:0;transform:translateY(10px)}}
-@keyframes x-outc{0%,45.71%{opacity:0}49.29%,90.00%{opacity:1;transform:none}95.71%,100%{opacity:0}}
-@keyframes x-cand{0%,47.14%{opacity:0;transform:translateY(10px)}50.71%,90.00%{opacity:1;transform:none}95.71%,100%{opacity:0;transform:translateY(10px)}}
-@keyframes x-outr{0%,51.43%{opacity:0}55.00%,90.00%{opacity:1;transform:none}95.71%,100%{opacity:0}}
-@keyframes x-review{0%,52.86%{opacity:0;transform:translateY(10px)}56.43%,90.00%{opacity:1;transform:none}95.71%,100%{opacity:0;transform:translateY(10px)}}
-@keyframes x-patch{0%,57.14%{opacity:0}60.71%,90.00%{opacity:1;transform:none}95.71%,100%{opacity:0}}
+.x-chunk{animation:x-chunk 26.0s ease-out infinite}
+.x-schema{animation:x-schema 26.0s ease-out infinite}
+.x-in{animation:x-in 26.0s ease-out infinite}
+.x-gliner{animation:x-gliner 26.0s ease-out infinite}
+.x-cg{animation:x-cg 26.0s ease-out infinite}
+.x-bypass{animation:x-bypass 26.0s ease-out infinite}
+.x-llmin{animation:x-llmin 26.0s ease-out infinite}
+.x-llm{animation:x-llm 26.0s ease-out infinite}
+.x-cl{animation:x-cl 26.0s ease-out infinite}
+.x-merge{animation:x-merge 26.0s ease-out infinite}
+.x-check{animation:x-check 26.0s ease-out infinite}
+.x-cc{animation:x-cc 26.0s ease-out infinite}
+.x-outg{animation:x-outg 26.0s ease-out infinite}
+.x-graph{animation:x-graph 26.0s ease-out infinite}
+.x-outc{animation:x-outc 26.0s ease-out infinite}
+.x-cand{animation:x-cand 26.0s ease-out infinite}
+.x-outr{animation:x-outr 26.0s ease-out infinite}
+.x-review{animation:x-review 26.0s ease-out infinite}
+.x-patch{animation:x-patch 26.0s ease-out infinite}
+@keyframes x-chunk{0%,0.77%{opacity:0;transform:translateY(10px)}3.08%,95.38%{opacity:1;transform:none}99.23%,100%{opacity:0;transform:translateY(10px)}}
+@keyframes x-schema{0%,3.08%{opacity:0;transform:translateY(10px)}5.38%,95.38%{opacity:1;transform:none}99.23%,100%{opacity:0;transform:translateY(10px)}}
+@keyframes x-in{0%,5.38%{opacity:0}7.31%,95.38%{opacity:1;transform:none}99.23%,100%{opacity:0}}
+@keyframes x-gliner{0%,6.15%{opacity:0;transform:translateY(10px)}8.08%,95.38%{opacity:1;transform:none}99.23%,100%{opacity:0;transform:translateY(10px)}}
+@keyframes x-cg{0%,8.08%{opacity:0}10.00%,95.38%{opacity:1;transform:none}99.23%,100%{opacity:0}}
+@keyframes x-bypass{0%,11.54%{opacity:0}13.46%,95.38%{opacity:1;transform:none}99.23%,100%{opacity:0}}
+@keyframes x-llmin{0%,13.08%{opacity:0}15.00%,95.38%{opacity:1;transform:none}99.23%,100%{opacity:0}}
+@keyframes x-llm{0%,13.85%{opacity:0;transform:translateY(10px)}15.77%,95.38%{opacity:1;transform:none}99.23%,100%{opacity:0;transform:translateY(10px)}}
+@keyframes x-cl{0%,15.77%{opacity:0}17.69%,95.38%{opacity:1;transform:none}99.23%,100%{opacity:0}}
+@keyframes x-merge{0%,17.69%{opacity:0}19.62%,95.38%{opacity:1;transform:none}99.23%,100%{opacity:0}}
+@keyframes x-check{0%,18.85%{opacity:0;transform:translateY(10px)}20.77%,95.38%{opacity:1;transform:none}99.23%,100%{opacity:0;transform:translateY(10px)}}
+@keyframes x-cc{0%,20.77%{opacity:0}22.69%,95.38%{opacity:1;transform:none}99.23%,100%{opacity:0}}
+@keyframes x-outg{0%,22.31%{opacity:0}24.23%,95.38%{opacity:1;transform:none}99.23%,100%{opacity:0}}
+@keyframes x-graph{0%,23.08%{opacity:0;transform:translateY(10px)}25.00%,95.38%{opacity:1;transform:none}99.23%,100%{opacity:0;transform:translateY(10px)}}
+@keyframes x-outc{0%,24.62%{opacity:0}26.54%,95.38%{opacity:1;transform:none}99.23%,100%{opacity:0}}
+@keyframes x-cand{0%,25.38%{opacity:0;transform:translateY(10px)}27.31%,95.38%{opacity:1;transform:none}99.23%,100%{opacity:0;transform:translateY(10px)}}
+@keyframes x-outr{0%,27.69%{opacity:0}29.62%,95.38%{opacity:1;transform:none}99.23%,100%{opacity:0}}
+@keyframes x-review{0%,28.46%{opacity:0;transform:translateY(10px)}30.38%,95.38%{opacity:1;transform:none}99.23%,100%{opacity:0;transform:translateY(10px)}}
+@keyframes x-patch{0%,30.77%{opacity:0}32.69%,95.38%{opacity:1;transform:none}99.23%,100%{opacity:0}}
 @media (prefers-reduced-motion: reduce){*{animation:none!important}}
 </style>
 <defs>

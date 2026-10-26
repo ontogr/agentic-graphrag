@@ -56,7 +56,7 @@ Qdrant limits one search to 16384 results. Dense scores use the graph-native sca
 
 ## Milvus
 
-Class: `MilvusSettings`. Prefix: `MILVUS_`. Requires the `milvus` extra and Milvus 3.0.1 or later. The SDK uses native async calls and server-side BM25.
+Class: `MilvusSettings`. Prefix: `MILVUS_`. Requires the `milvus` extra, which installs `pymilvus>=3.0.2`. The compose files in `docker/` run `milvusdb/milvus:v3.0.1`. The SDK uses native async calls and server-side BM25.
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
@@ -252,7 +252,7 @@ Class: `McpServerSettings`. Prefix: `MCP_`. The `agrag-mcp` server reads these v
 | `MCP_MAX_SNIPPET_CHARS` | `240` | The most characters of one hit snippet. |
 | `MCP_MAX_FETCH_CHARS` | `4000` | The most characters returned for each fetched evidence id. |
 | `MCP_MAX_FETCH_IDS` | `20` | The most evidence ids one fetch or citation check takes. Accepts 1 to 20. A value above 20 stops the server at startup. |
-| `MCP_MAX_RESPONSE_CHARS` | `60000` | The most characters of one result as sent. Search and fetch results send their JSON twice, so they count at twice their JSON length. |
+| `MCP_MAX_RESPONSE_CHARS` | `60000` | The most characters of one result as sent. Search, fetch, and check-citations results count their JSON twice, once for the text copy and once for the structured copy. When a result is over the cap, the server drops trailing items until it fits. An empty result over the cap returns an error. The other MCP tools count their JSON once, plus the 35-character text block the server sends beside it, and count the UTF-8 bytes of that JSON. Their results are not cut, so a result over the cap returns an error. |
 | `MCP_REQUEST_DEADLINE_SECONDS` | `30.0` | The most seconds one tool operation may run, across all its store reads. Must be greater than zero. A longer operation returns the error `tool operation deadline exceeded`. The field name is `request_deadline_seconds`. |
 
 The server reads `NEO4J_*` or `FALKORDB_*` according to `MCP_GRAPH_STORE`, along with `EMBEDDING_*`. Set `EMBEDDING_MODEL` to the model you used for ingestion. `MCP_GRAPH_STORE` selects the backend only for MCP. Python callers select it with `build_graph_store("neo4j")` or `build_graph_store("falkordb")`.

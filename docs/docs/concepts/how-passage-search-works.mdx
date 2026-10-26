@@ -37,7 +37,7 @@ Quotes do not make a phrase, `-` does not exclude a word, and `AND` does not req
 
 ## Semantic search
 
-The embedder you pass embeds the query, and the vector index returns the chunks with the nearest embeddings. The index measures nearness with the distance function that `Embedder.distance` declared when ingestion created the index.
+The embedder you pass embeds the query, and the vector index returns the chunks with the nearest embeddings. With an external vector store, the store returns the nearest chunks in place of the graph vector index. The index measures nearness with the distance function that `Embedder.distance` declared when ingestion created the index.
 
 By default a chunk is embedded with its heading path in front of its text, so a query that matches a section title can find the passages under it.
 
@@ -49,8 +49,7 @@ The semantic search has no similarity threshold. It returns the nearest chunks f
 
 Reciprocal rank fusion scores each chunk from its rank in each list and ignores the raw scores. A chunk at rank `r` in a list adds `1 / (60 + r)`, and a chunk in both lists adds both terms. The call sorts by fused score and breaks ties by evidence id, so the order is stable.
 
-The hybrid search for "How soon is customer data erased?" in [Passage search](../tools/passage-search.mdx#example) shows the arithmetic. The retention chunk ranks first in both searches, so it scores 1/61 + 1/61, which prints as 0.0328. The route planning chunk ranks second in the lexical search and third in the semantic search, so it scores 1/62 + 1/63, which prints as 0.0320. The table chunk appears only in the semantic search, at rank 2, so it scores 1/62, which prints as 0.0161.
-Each search contributes at most its top visible chunks up to the number it needs (`limit`, or at least 30 with a reranker), so a chunk beyond that depth in one list adds nothing from that list. Scores differ in scale between modes, so a score from one mode does not compare with a score from another.
+The hybrid search for "How soon is customer data erased?" in [Passage search](../tools/passage-search.mdx#example) shows the arithmetic. The retention chunk ranks first in both searches, so it scores 1/61 + 1/61, which prints as 0.0328. The route planning chunk ranks second in the lexical search and third in the semantic search, so it scores 1/62 + 1/63, which prints as 0.0320. The table chunk appears only in the semantic search, at rank 2, so it scores 1/62, which prints as 0.0161. Each search contributes at most its top visible chunks up to the number it needs (`limit`, or at least 30 with a reranker), so a chunk beyond that depth in one list adds nothing from that list. Scores differ in scale between modes, so a score from one mode does not compare with a score from another.
 
 ### Rerank
 

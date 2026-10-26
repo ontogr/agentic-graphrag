@@ -282,7 +282,7 @@ A query matches text containing any query word, ranked by FalkorDB's native TF-I
 
 ## Configure Milvus vectors
 
-Milvus 3.0.1 or later stores external dense vectors and generates BM25 sparse vectors from text. A Neo4j or FalkorDB graph remains required for graph records, visibility checks, and property filters. Install `agentic-graphrag[milvus]` alongside the graph driver extra.
+Milvus stores external dense vectors and generates BM25 sparse vectors from text. A Neo4j or FalkorDB graph remains required for graph records, visibility checks, and property filters. Install `agentic-graphrag[milvus]` alongside the graph driver extra.
 
 1. Set `MILVUS_URI` to the server endpoint. For Zilliz Cloud, use its HTTPS endpoint and set `MILVUS_TOKEN` privately. Do not put credentials in the URI or commit the token.
 2. Set `MILVUS_COLLECTION_PREFIX` to a namespace unique to this graph. The prefix must start with a letter and contain at most 41 letters, digits or underscores.

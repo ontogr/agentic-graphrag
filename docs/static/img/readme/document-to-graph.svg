@@ -31,52 +31,52 @@
 .note{font:12px ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;fill:#6b655f}
 .arrowhead{fill:#6b655f}
 .arrowhead-blue{fill:#1d4ed8}
-@keyframes scan{0%,6%{opacity:0;transform:translateY(0)}7%{opacity:.55}15%{opacity:.55;transform:translateY(148px)}16%,100%{opacity:0;transform:translateY(148px)}}
-.scanline{animation:scan 14.0s linear infinite}
-.a-page{animation:a-page 14.0s ease-out infinite}
-.a-chip0{animation:a-chip0 14.0s ease-out infinite}
-.a-chip1{animation:a-chip1 14.0s ease-out infinite}
-.a-chip2{animation:a-chip2 14.0s ease-out infinite}
-.a-chip3{animation:a-chip3 14.0s ease-out infinite}
-.a-chip4{animation:a-chip4 14.0s ease-out infinite}
-.a-chip5{animation:a-chip5 14.0s ease-out infinite}
-.a-chip6{animation:a-chip6 14.0s ease-out infinite}
-.a-arrowA{animation:a-arrowA 14.0s ease-out infinite}
-.a-arrowB{animation:a-arrowB 14.0s ease-out infinite}
-.a-doc{animation:a-doc 14.0s ease-out infinite}
-.a-e1{animation:a-e1 14.0s ease-out infinite}
-.a-s1{animation:a-s1 14.0s ease-out infinite}
-.a-e2{animation:a-e2 14.0s ease-out infinite}
-.a-s2{animation:a-s2 14.0s ease-out infinite}
-.a-e3{animation:a-e3 14.0s ease-out infinite}
-.a-chunkA{animation:a-chunkA 14.0s ease-out infinite}
-.a-table{animation:a-table 14.0s ease-out infinite}
-.a-figure{animation:a-figure 14.0s ease-out infinite}
-.a-e4{animation:a-e4 14.0s ease-out infinite}
-.a-chunkB{animation:a-chunkB 14.0s ease-out infinite}
-.a-next{animation:a-next 14.0s ease-out infinite}
-@keyframes a-page{0%,1.43%{opacity:0;transform:translateY(10px)}5.71%,90.00%{opacity:1;transform:none}95.71%,100%{opacity:0;transform:translateY(10px)}}
-@keyframes a-chip0{0%,15.71%{opacity:0;transform:translateX(-28px)}19.29%,90.00%{opacity:1;transform:none}95.71%,100%{opacity:0;transform:translateX(-28px)}}
-@keyframes a-chip1{0%,18.00%{opacity:0;transform:translateX(-28px)}21.57%,90.00%{opacity:1;transform:none}95.71%,100%{opacity:0;transform:translateX(-28px)}}
-@keyframes a-chip2{0%,20.29%{opacity:0;transform:translateX(-28px)}23.86%,90.00%{opacity:1;transform:none}95.71%,100%{opacity:0;transform:translateX(-28px)}}
-@keyframes a-chip3{0%,22.57%{opacity:0;transform:translateX(-28px)}26.14%,90.00%{opacity:1;transform:none}95.71%,100%{opacity:0;transform:translateX(-28px)}}
-@keyframes a-chip4{0%,24.86%{opacity:0;transform:translateX(-28px)}28.43%,90.00%{opacity:1;transform:none}95.71%,100%{opacity:0;transform:translateX(-28px)}}
-@keyframes a-chip5{0%,27.14%{opacity:0;transform:translateX(-28px)}30.71%,90.00%{opacity:1;transform:none}95.71%,100%{opacity:0;transform:translateX(-28px)}}
-@keyframes a-chip6{0%,29.43%{opacity:0;transform:translateX(-28px)}33.00%,90.00%{opacity:1;transform:none}95.71%,100%{opacity:0;transform:translateX(-28px)}}
-@keyframes a-arrowA{0%,11.43%{opacity:0}15.00%,90.00%{opacity:1;transform:none}95.71%,100%{opacity:0}}
-@keyframes a-arrowB{0%,35.71%{opacity:0}39.29%,90.00%{opacity:1;transform:none}95.71%,100%{opacity:0}}
-@keyframes a-doc{0%,38.57%{opacity:0}42.14%,90.00%{opacity:1;transform:none}95.71%,100%{opacity:0}}
-@keyframes a-e1{0%,41.43%{opacity:0}45.00%,90.00%{opacity:1;transform:none}95.71%,100%{opacity:0}}
-@keyframes a-s1{0%,42.14%{opacity:0}45.71%,90.00%{opacity:1;transform:none}95.71%,100%{opacity:0}}
-@keyframes a-e2{0%,45.00%{opacity:0}48.57%,90.00%{opacity:1;transform:none}95.71%,100%{opacity:0}}
-@keyframes a-s2{0%,45.71%{opacity:0}49.29%,90.00%{opacity:1;transform:none}95.71%,100%{opacity:0}}
-@keyframes a-e3{0%,49.29%{opacity:0}52.86%,90.00%{opacity:1;transform:none}95.71%,100%{opacity:0}}
-@keyframes a-chunkA{0%,50.00%{opacity:0;transform:translateY(10px)}53.57%,90.00%{opacity:1;transform:none}95.71%,100%{opacity:0;transform:translateY(10px)}}
-@keyframes a-table{0%,51.43%{opacity:0;transform:translateY(10px)}55.00%,90.00%{opacity:1;transform:none}95.71%,100%{opacity:0;transform:translateY(10px)}}
-@keyframes a-figure{0%,52.86%{opacity:0;transform:translateY(10px)}56.43%,90.00%{opacity:1;transform:none}95.71%,100%{opacity:0;transform:translateY(10px)}}
-@keyframes a-e4{0%,55.71%{opacity:0}59.29%,90.00%{opacity:1;transform:none}95.71%,100%{opacity:0}}
-@keyframes a-chunkB{0%,56.43%{opacity:0;transform:translateY(10px)}60.00%,90.00%{opacity:1;transform:none}95.71%,100%{opacity:0;transform:translateY(10px)}}
-@keyframes a-next{0%,60.71%{opacity:0}64.29%,90.00%{opacity:1;transform:none}95.71%,100%{opacity:0}}
+@keyframes scan{0%,3.23%{opacity:0;transform:translateY(0)}3.77%{opacity:.55}8.08%{opacity:.55;transform:translateY(148px)}8.62%,100%{opacity:0;transform:translateY(148px)}}
+.scanline{animation:scan 26.0s linear infinite}
+.a-page{animation:a-page 26.0s ease-out infinite}
+.a-chip0{animation:a-chip0 26.0s ease-out infinite}
+.a-chip1{animation:a-chip1 26.0s ease-out infinite}
+.a-chip2{animation:a-chip2 26.0s ease-out infinite}
+.a-chip3{animation:a-chip3 26.0s ease-out infinite}
+.a-chip4{animation:a-chip4 26.0s ease-out infinite}
+.a-chip5{animation:a-chip5 26.0s ease-out infinite}
+.a-chip6{animation:a-chip6 26.0s ease-out infinite}
+.a-arrowA{animation:a-arrowA 26.0s ease-out infinite}
+.a-arrowB{animation:a-arrowB 26.0s ease-out infinite}
+.a-doc{animation:a-doc 26.0s ease-out infinite}
+.a-e1{animation:a-e1 26.0s ease-out infinite}
+.a-s1{animation:a-s1 26.0s ease-out infinite}
+.a-e2{animation:a-e2 26.0s ease-out infinite}
+.a-s2{animation:a-s2 26.0s ease-out infinite}
+.a-e3{animation:a-e3 26.0s ease-out infinite}
+.a-chunkA{animation:a-chunkA 26.0s ease-out infinite}
+.a-table{animation:a-table 26.0s ease-out infinite}
+.a-figure{animation:a-figure 26.0s ease-out infinite}
+.a-e4{animation:a-e4 26.0s ease-out infinite}
+.a-chunkB{animation:a-chunkB 26.0s ease-out infinite}
+.a-next{animation:a-next 26.0s ease-out infinite}
+@keyframes a-page{0%,0.77%{opacity:0;transform:translateY(10px)}3.08%,95.38%{opacity:1;transform:none}99.23%,100%{opacity:0;transform:translateY(10px)}}
+@keyframes a-chip0{0%,8.46%{opacity:0;transform:translateX(-28px)}10.38%,95.38%{opacity:1;transform:none}99.23%,100%{opacity:0;transform:translateX(-28px)}}
+@keyframes a-chip1{0%,9.69%{opacity:0;transform:translateX(-28px)}11.62%,95.38%{opacity:1;transform:none}99.23%,100%{opacity:0;transform:translateX(-28px)}}
+@keyframes a-chip2{0%,10.92%{opacity:0;transform:translateX(-28px)}12.85%,95.38%{opacity:1;transform:none}99.23%,100%{opacity:0;transform:translateX(-28px)}}
+@keyframes a-chip3{0%,12.15%{opacity:0;transform:translateX(-28px)}14.08%,95.38%{opacity:1;transform:none}99.23%,100%{opacity:0;transform:translateX(-28px)}}
+@keyframes a-chip4{0%,13.38%{opacity:0;transform:translateX(-28px)}15.31%,95.38%{opacity:1;transform:none}99.23%,100%{opacity:0;transform:translateX(-28px)}}
+@keyframes a-chip5{0%,14.62%{opacity:0;transform:translateX(-28px)}16.54%,95.38%{opacity:1;transform:none}99.23%,100%{opacity:0;transform:translateX(-28px)}}
+@keyframes a-chip6{0%,15.85%{opacity:0;transform:translateX(-28px)}17.77%,95.38%{opacity:1;transform:none}99.23%,100%{opacity:0;transform:translateX(-28px)}}
+@keyframes a-arrowA{0%,6.15%{opacity:0}8.08%,95.38%{opacity:1;transform:none}99.23%,100%{opacity:0}}
+@keyframes a-arrowB{0%,19.23%{opacity:0}21.15%,95.38%{opacity:1;transform:none}99.23%,100%{opacity:0}}
+@keyframes a-doc{0%,20.77%{opacity:0}22.69%,95.38%{opacity:1;transform:none}99.23%,100%{opacity:0}}
+@keyframes a-e1{0%,22.31%{opacity:0}24.23%,95.38%{opacity:1;transform:none}99.23%,100%{opacity:0}}
+@keyframes a-s1{0%,22.69%{opacity:0}24.62%,95.38%{opacity:1;transform:none}99.23%,100%{opacity:0}}
+@keyframes a-e2{0%,24.23%{opacity:0}26.15%,95.38%{opacity:1;transform:none}99.23%,100%{opacity:0}}
+@keyframes a-s2{0%,24.62%{opacity:0}26.54%,95.38%{opacity:1;transform:none}99.23%,100%{opacity:0}}
+@keyframes a-e3{0%,26.54%{opacity:0}28.46%,95.38%{opacity:1;transform:none}99.23%,100%{opacity:0}}
+@keyframes a-chunkA{0%,26.92%{opacity:0;transform:translateY(10px)}28.85%,95.38%{opacity:1;transform:none}99.23%,100%{opacity:0;transform:translateY(10px)}}
+@keyframes a-table{0%,27.69%{opacity:0;transform:translateY(10px)}29.62%,95.38%{opacity:1;transform:none}99.23%,100%{opacity:0;transform:translateY(10px)}}
+@keyframes a-figure{0%,28.46%{opacity:0;transform:translateY(10px)}30.38%,95.38%{opacity:1;transform:none}99.23%,100%{opacity:0;transform:translateY(10px)}}
+@keyframes a-e4{0%,30.00%{opacity:0}31.92%,95.38%{opacity:1;transform:none}99.23%,100%{opacity:0}}
+@keyframes a-chunkB{0%,30.38%{opacity:0;transform:translateY(10px)}32.31%,95.38%{opacity:1;transform:none}99.23%,100%{opacity:0;transform:translateY(10px)}}
+@keyframes a-next{0%,32.69%{opacity:0}34.62%,95.38%{opacity:1;transform:none}99.23%,100%{opacity:0}}
 @media (prefers-reduced-motion: reduce){*{animation:none!important}}
 </style>
 <defs>

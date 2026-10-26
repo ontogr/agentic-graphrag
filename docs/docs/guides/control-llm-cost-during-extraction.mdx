@@ -66,7 +66,7 @@ A chunk is eligible in three cases:
 2. It has no entities and at least `EXTRACTION_MIN_ESCALATION_WORDS` words.
 3. One of its entities has a type with declared or inherited properties. The default local extractor does not fill property values; the LLM extractor does.
 
-The budget is a share of all chunks in a batch, not a share of the eligible chunks. The result is rounded up. For example, a budget of `0.2` on a batch of 12 chunks lets the LLM read 3 chunks. The LLM reads the weakest eligible chunks first. The chunk with the lowest entity score comes first, and chunks with no entities come last. Chunks with equal scores keep their order in the batch.
+The budget is a share of all chunks in a batch, not a share of the eligible chunks. The result is rounded up. For example, a budget of `0.2` on a batch of 12 chunks lets the LLM read 3 chunks. The LLM reads chunks with at least two kept entities and no relation first. The other eligible chunks follow, lowest entity score first, and chunks with no kept entities come last. Chunks with equal scores keep their order in the batch.
 
 `Graph.add` ranks the chunks of each batch of up to 100 documents. `Graph.update` ranks the chunks of the one document that it updates.
 
