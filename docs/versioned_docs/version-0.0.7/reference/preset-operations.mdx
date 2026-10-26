@@ -1,0 +1,123 @@
+---
+title: Operations preset
+description: The facility, service and occupation entity types that the operations preset adds to the default schema.
+---
+
+# Operations preset
+
+The operations preset adds three entity types to the default schema: `Facility`, `Service` and `Occupation`. It fits schemas about sites, equipment, service delivery and staffing. The preset adds no relations.
+
+## Import and name
+
+`OPERATIONS` is a constant in `agrag.common.data_models`. Its `name` is `operations`, which is the name that `load_schema` accepts.
+
+```python
+from agrag.common.data_models import OPERATIONS
+
+print(OPERATIONS.name)
+```
+
+```text
+operations
+```
+
+## Entity types added
+
+| Type | Description |
+| --- | --- |
+| `Facility` | A place, equipment, or service that supports a specific function. |
+| `Service` | A service provided by an organization, such as delivery or printing. |
+| `Occupation` | A profession, which may need long training or a formal qualification. |
+
+The three types have no parents and no properties.
+
+## Apply the preset
+
+`load_schema("operations")` and `OPERATIONS.apply(DEFAULT_SCHEMA)` return the default schema with the three types added. The name of the result is `default+operations`. `load_schema({}, extends=OPERATIONS)` builds a schema named `custom` on top of the preset. The relations example below uses the same `extends` form.
+
+```python
+from agrag.common.data_models import DEFAULT_SCHEMA, OPERATIONS
+from agrag.schema import load_schema
+
+by_name = load_schema("operations")
+by_apply = OPERATIONS.apply(DEFAULT_SCHEMA)
+by_extends = load_schema({}, extends=OPERATIONS)
+
+for schema in (by_name, by_apply, by_extends):
+    print(schema.name, len(schema.entities), len(schema.relations))
+```
+
+```text
+default+operations 12 8
+default+operations 12 8
+custom 12 8
+```
+
+`apply` returns a new schema and does not change `DEFAULT_SCHEMA`. It raises `ValueError` when the schema already declares one of the preset labels, so apply the preset once. [Use a preset](../guides/use-a-preset.mdx) lists the same limits.
+
+## Size of the resulting schema
+
+The default schema has nine entity types and eight relation types. With the operations preset, the schema has 12 entity types and 8 relation types.
+
+## Relations for the new types
+
+The default relations do not accept the new types. A `LOCATED_IN` pair from `Facility` to `Location` is rejected, and the same pair from `Organization` is accepted because `LOCATED_IN` already allows `Organization` to `Location`.
+
+```python
+from agrag.common.data_models import DEFAULT_SCHEMA, OPERATIONS
+
+schema = OPERATIONS.apply(DEFAULT_SCHEMA)
+print(schema.allows("LOCATED_IN", "Facility", "Location"))
+print(schema.allows("LOCATED_IN", "Organization", "Location"))
+```
+
+```text
+False
+True
+```
+
+`add_patterns` adds `Facility` to the source types of `LOCATED_IN` and `Service` to the targets of `SUPPLIES`. `HOLDS_OCCUPATION` is a new relation from `Person` to `Occupation`.
+
+```python
+from agrag.common.data_models import OPERATIONS
+from agrag.schema import load_schema
+
+schema = load_schema(
+    {
+        "relations": [
+            {"label": "LOCATED_IN", "add_patterns": [["Facility", "Location"]]},
+            {"label": "SUPPLIES", "add_patterns": [["Organization", "Service"]]},
+            {
+                "label": "HOLDS_OCCUPATION",
+                "description": "A person has a profession.",
+                "patterns": [["Person", "Occupation"]],
+            },
+        ]
+    },
+    extends=OPERATIONS,
+)
+
+print(schema.name, len(schema.entities), len(schema.relations))
+for relation in schema.relations:
+    if relation.label in ("LOCATED_IN", "SUPPLIES", "HOLDS_OCCUPATION"):
+        print(relation.label, relation.patterns)
+print(schema.allows("HOLDS_OCCUPATION", "Person", "Occupation"))
+print(schema.allows("SUPPLIES", "Organization", "Service"))
+```
+
+```text
+custom 12 9
+LOCATED_IN [('Organization', 'Location'), ('Event', 'Location'), ('Project', 'Location'), ('Facility', 'Location')]
+SUPPLIES [('Organization', 'Product'), ('Organization', 'Service')]
+HOLDS_OCCUPATION [('Person', 'Occupation')]
+True
+True
+```
+
+`add_patterns` adds pairs to a base relation, and it keeps the patterns that the base already declares. A new relation label needs `patterns`, and the schema rejects a relation that names a type it does not declare.
+
+## Related
+
+- [Use a preset](../guides/use-a-preset.mdx) shows how to add the operations types to a graph with `Graph.open`.
+- [Default schema](./default-schema.mdx) lists the default entity types and relation types that the preset extends.
+- [Ontologies](../concepts/ontologies.mdx) explains how an ontology maps to a schema and the formats that define one.

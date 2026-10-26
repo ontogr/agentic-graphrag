@@ -1,0 +1,283 @@
+---
+title: Configuration
+---
+
+# Configuration
+
+Agentic GraphRAG reads its configuration from environment variables, grouped here by settings class.
+
+## How configuration loads
+
+Each settings class reads three sources. The first source that has a value wins.
+
+1. An environment variable with the class prefix, for example `NEO4J_URI`.
+2. A `.env` file in the working directory.
+3. The default in the table.
+
+A class ignores variables it does not know. A list or object value is a JSON string.
+
+## Neo4j
+
+Class: `Neo4jSettings`. Prefix: `NEO4J_`.
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `NEO4J_URI` | `bolt://localhost:7687` | The Bolt URI. Use `neo4j+s://` for Aura. A plain `bolt://` or `neo4j://` URI to a non-local host raises `ValueError`. |
+| `NEO4J_USERNAME` | `neo4j` | The database user. |
+| `NEO4J_PASSWORD` | `neo4j` | The database password. |
+| `NEO4J_DATABASE` | `neo4j` | The database name. |
+| `NEO4J_MAX_CONNECTION_LIFETIME` | `240` | Seconds a pooled connection lives. Aura closes idle connections after about five minutes. |
+
+## FalkorDB
+
+Class: `FalkorDBSettings`. Prefix: `FALKORDB_`.
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `FALKORDB_URL` | `redis://localhost:6379` | The Redis connection URL. Use `rediss://` for TLS. A plain `redis://` URL to a non-local host raises `ValueError` when `FALKORDB_PASSWORD` is set. |
+| `FALKORDB_PASSWORD` | none | The Redis password. Leave it unset for a server without a password. |
+| `FALKORDB_GRAPH` | `agrag` | The name of the graph that holds all data. |
+| `FALKORDB_MAX_CONNECTIONS` | `16` | The size of the connection pool. |
+
+`connect` raises `GraphStoreError` when the server's graph module is older than version `42202`, or when the server's `RESULTSET_SIZE` is not `-1`. See [Configure storage backends](../guides/configure-storage-backends.mdx#start-a-falkordb-server-locally) for the server arguments.
+
+## Qdrant
+
+Class: `QdrantSettings`. Prefix: `QDRANT_`. Requires the `qdrant` extra and Qdrant 1.17.0 or later. The graph database remains required.
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `QDRANT_URL` | `http://localhost:6333` | HTTP endpoint. The repository's compose service publishes port `7961`, so set this explicitly for local compose. Remote credentials require HTTPS. The port must be 1 to 65535. |
+| `QDRANT_API_KEY` | none | Authentication secret. Leave unset for an unauthenticated local server. |
+| `QDRANT_REQUIRE_TLS` | `false` | Require HTTPS for remote connections even without a credential. Loopback hosts remain exempt. |
+| `QDRANT_COLLECTION_PREFIX` | required | Unique graph prefix matching `^[A-Za-z][A-Za-z0-9_]{0,40}$`. Four collections use this prefix. |
+
+Qdrant limits one search to 16384 results. Dense scores use the graph-native scale; hybrid scores carry rank only. Labels are the only payload pre-filter. Document scope and properties are filtered after joining results to the graph. [Choose where vectors live](../guides/choose-where-vectors-live.mdx) describes placement and repair.
+
+## Milvus
+
+Class: `MilvusSettings`. Prefix: `MILVUS_`. Requires the `milvus` extra, which installs `pymilvus>=3.0.2`. The compose files in `docker/` run `milvusdb/milvus:v3.0.1`. The SDK uses native async calls and server-side BM25.
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `MILVUS_URI` | `http://localhost:19530` | HTTP(S) server endpoint. The repository's Compose service publishes `7971`, so set this explicitly for local Compose. Non-local endpoints must use HTTPS, including Zilliz Cloud; plaintext is allowed only for loopback hosts. Local-file and embedded endpoints are unsupported. |
+| `MILVUS_TOKEN` | none | Authentication token. URI-embedded credentials are rejected. |
+| `MILVUS_COLLECTION_PREFIX` | required | Unique namespace for one graph. Starts with a letter and contains at most 41 letters, digits or underscores. |
+
+Collections store dense vectors and an analyzed BM25 text field. Stored text is truncated at a whole UTF-8 character within 65535 bytes, with one warning per upsert call. Truncation does not change the dense embedding or its input. Labels are an any-of scalar-array filter, with at most 4096 labels per record and at most 256 UTF-8 bytes per label. Oversized labels reject the whole call before writing. Server failures can leave earlier upsert or delete batches applied; retrying the same records or IDs is idempotent. Reads use Strong consistency after writes and deletes without a manual flush.
+
+Searches accept at most 16384 results per call. Zilliz gateways can impose an approximately 4 MB response cap, so a request below the count cap can still require a smaller limit. Dense scores use `(1 + cosine) / 2` or `1 / (1 + squared_distance)`. Hybrid scores use normalized weighted ranking and are meaningful only for ordering. Alpha one runs dense search only; alpha zero runs BM25 only.
+
+## Embeddings
+
+Class: `EmbeddingSettings`. Prefix: `EMBEDDING_`.
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `EMBEDDING_MODEL` | `ibm-granite/granite-embedding-small-english-r2` | The model name. The default embedder takes a model that FastEmbed supports. A `SentenceTransformerEmbedder` takes a sentence-transformers model name or path. |
+| `EMBEDDING_DEVICE` | none | The device, such as `cpu` or `cuda`. Only `SentenceTransformerEmbedder` uses it. None lets sentence-transformers choose. |
+| `EMBEDDING_NORMALIZE` | `true` | Whether to L2-normalize the vectors. |
+| `EMBEDDING_BATCH_SIZE` | `32` | Texts encoded per call. |
+| `EMBEDDING_CACHE_FOLDER` | none | Where the embedder caches downloaded model files. |
+
+## Local extraction
+
+Class: `ExtractionSettings`. Prefix: `EXTRACTION_`.
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `EXTRACTION_MODE` | `hybrid` | Selects `gliner`, `hybrid`, or `llm`. If no LLM extractor is available, `hybrid` selects `gliner` and logs a warning. `llm` mode sends chunks that meet the word minimum to the LLM. See [Choose an extraction mode](../guides/choose-an-extraction-mode.mdx) for tradeoffs and [Control LLM cost during extraction](../guides/control-llm-cost-during-extraction.mdx) for budget details. |
+| `EXTRACTION_MODEL_NAME` | `fastino/gliner2.5-base-v1` | GLiNER checkpoint loaded by `GlinerExtractor`. |
+| `EXTRACTION_DTYPE` | `fp32` | Model precision: `fp32`, `fp16`, or `bf16`. The model loads in `fp32` before the extractor casts it. |
+| `EXTRACTION_ENTITY_THRESHOLD` | `0.5` | Minimum score for a kept entity span. |
+| `EXTRACTION_RELATION_THRESHOLD` | `0.7` | Minimum score for a kept relation. A relation below it becomes a candidate when candidates are enabled. |
+| `EXTRACTION_RELATION_FLOOR` | `0.3` | Minimum relation score returned by the model. Relations between this value and `EXTRACTION_RELATION_THRESHOLD` are reported as candidates. It cannot exceed `EXTRACTION_RELATION_THRESHOLD`. |
+| `EXTRACTION_BAND_FLOOR` | `0.3` | Minimum entity score in the band below `EXTRACTION_ENTITY_THRESHOLD`. When candidates are enabled, a second model call reports spans in this band that overlap no kept entity. It cannot exceed `EXTRACTION_ENTITY_THRESHOLD`. |
+| `EXTRACTION_LABEL_THRESHOLDS` | `{}` | JSON object mapping entity or relation labels to their own thresholds. An entity label's threshold replaces `EXTRACTION_ENTITY_THRESHOLD` for that label. A relation label's threshold replaces `EXTRACTION_RELATION_THRESHOLD` as the cut for kept relations, and the model reads that relation at the lower of the threshold and `EXTRACTION_RELATION_FLOOR`. A label not in the schema has no effect. |
+| `EXTRACTION_ESCALATION_THRESHOLD` | `0.75` | A chunk is eligible for the LLM in `hybrid` mode when one of its entities scores below this value. |
+| `EXTRACTION_ESCALATION_BUDGET` | `0.2` | The share of the chunks in a batch that the LLM extractor can read, from `0` to `1`, or `all`. The count is the share of the batch rounded up, and at least one chunk goes to the LLM when the budget is above `0` and any chunk is eligible. `all` sets no limit, and `0` means no chunk goes to the LLM. |
+| `EXTRACTION_MIN_ESCALATION_WORDS` | `8` | Minimum words in a chunk with no entities for the LLM to read it. Used in `llm` mode and for the empty-result case in `hybrid` mode. |
+| `EXTRACTION_CANDIDATES_ENABLED` | `true` | Set to `false` to stop writing candidates. The dropped counts stay on. Disabling candidates also skips GLiNER's second model call for band entities. |
+
+All score values must be between `0` and `1`. `EXTRACTION_LABEL_THRESHOLDS` must be one JSON object. For example, the following `.env` values configure every field:
+
+```dotenv
+EXTRACTION_MODE=hybrid
+EXTRACTION_MODEL_NAME=fastino/gliner2.5-base-v1
+EXTRACTION_DTYPE=fp32
+EXTRACTION_ENTITY_THRESHOLD=0.5
+EXTRACTION_RELATION_THRESHOLD=0.7
+EXTRACTION_RELATION_FLOOR=0.3
+EXTRACTION_BAND_FLOOR=0.3
+EXTRACTION_LABEL_THRESHOLDS={"Person": 0.7, "Organization": 0.6}
+EXTRACTION_ESCALATION_THRESHOLD=0.75
+EXTRACTION_ESCALATION_BUDGET=0.2
+EXTRACTION_MIN_ESCALATION_WORDS=8
+EXTRACTION_CANDIDATES_ENABLED=true
+```
+
+The `EXTRACTION_LLM_` settings in [Extraction](#extraction) belong to `ExtractionLLMSettings`, not `ExtractionSettings`. `fp16` and `bf16` can reduce memory use, but speed and support depend on the device and PyTorch build. Test lower precision on your data before using it in production.
+
+## LLM clients
+
+Three roles call an LLM: extraction, the agent, and the evaluation judge. You can set one endpoint for all three with the shared variables, or set a role's own variables.
+
+### Shared variables
+
+| Variable | Default | Read by |
+| --- | --- | --- |
+| `LLM_BASE_URL` | none | `from_openai_compatible_env()` of the three roles. Required for extraction. |
+| `LLM_API_KEY` | none | The same three methods. |
+| `LLM_MODEL_ID` | none | The same three methods. Required for extraction and for the judge. |
+
+### Extraction
+
+Class: `ExtractionLLMSettings`. Prefix: `EXTRACTION_LLM_`.
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `EXTRACTION_LLM_CLIENTS` | required | A JSON list of client objects (see below). |
+| `EXTRACTION_LLM_STRATEGY` | `single` | `single`, `fallback`, or `round_robin`. Ignored with one client. |
+| `EXTRACTION_LLM_RETRY` | see below | A JSON object with `max_retries` (`3`), `delay_ms` (`1000`), `multiplier` (`2.0`), `max_delay_ms` (`30000`), `timeout_ms` (`0`, no deadline), and `request_timeout_ms` (`300000`, `0` turns it off). `timeout_ms` stops new attempts after the deadline; it does not stop a request that is already running. `request_timeout_ms` cancels one attempt that runs too long. |
+
+`ExtractionLLMSettings.from_openai_compatible_env()` builds one `openai-generic` client from `LLM_BASE_URL`, `LLM_API_KEY`, and `LLM_MODEL_ID`. It raises `RuntimeError` when `LLM_BASE_URL` or `LLM_MODEL_ID` is missing.
+
+`Graph` falls back to the same shared variables when `EXTRACTION_LLM_CLIENTS` is not set. Because the default mode is `hybrid`, setting `LLM_BASE_URL` and `LLM_MODEL_ID` for the agent also lets extraction send low-confidence chunks to that model. Set `EXTRACTION_MODE=gliner` to keep extraction local.
+
+`ExtractionLLMSettings` also configures the LLM calls that summarize merged descriptions, verify entity matches, and write community reports. All of them read the same clients, strategy and retry values.
+
+### Agent
+
+Class: `AgentLLMSettings`. Prefix: `AGENT_LLM_`.
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `AGENT_LLM_CLIENTS` | required | A JSON list of client objects. |
+| `AGENT_LLM_STRATEGY` | `single` | `single`, `fallback`, or `round_robin`. See [Agent strategies](#agent-strategies). Read from the environment only when you build `AgentLLMSettings()` directly. |
+| `AGENT_LLM_BASE_URL` | `LLM_BASE_URL` | Read by `from_openai_compatible_env()`. |
+| `AGENT_LLM_API_KEY` | `LLM_API_KEY` | Read by `from_openai_compatible_env()`. |
+| `AGENT_LLM_MODEL_ID` | `LLM_MODEL_ID`, then `gpt-4o-mini` | Read by `from_openai_compatible_env()`. |
+
+The agent builds its chat model from the first client in `AGENT_LLM_CLIENTS`. It supports the providers `anthropic`, `openai`, `openai-generic`, and `google-ai`. `AgentLLMSettings` has no retry settings. The retry settings under [Extraction](#extraction) configure extraction, merge-description, resolution-verification, and community-report calls.
+
+#### Agent strategies
+
+The agent always calls the first client in `AGENT_LLM_CLIENTS` as its primary model. The strategy decides what happens to the other clients.
+
+| Strategy | Behavior |
+| --- | --- |
+| `single` | Uses only the first client. The other entries are not built. |
+| `fallback` | After a failed model call, tries the other clients in list order. |
+| `round_robin` | Sends each model call to the next client in the list, starting with the first, and wraps around. |
+
+With one client, all three strategies behave the same way. `from_openai_compatible_env()` always builds one client with `single`. For more than one client, set `AGENT_LLM_CLIENTS` and `AGENT_LLM_STRATEGY`, or pass `AgentLLMSettings(clients=[...], strategy="fallback")` to `build_agent`. With `fallback` or `round_robin`, every client must use one of the four agent providers.
+
+### Evaluation judge
+
+Class: `EvalJudgeSettings`. Prefix: `EVAL_JUDGE_`.
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `EVAL_JUDGE_CLIENT` | required | A JSON client object. Only direct construction reads it. |
+| `EVAL_JUDGE_TEMPERATURE` | `0.0` | The sampling temperature. An empty value sends none. |
+| `EVAL_JUDGE_BASE_URL` | `LLM_BASE_URL` | Read by `from_openai_compatible_env()`. |
+| `EVAL_JUDGE_API_KEY` | `LLM_API_KEY` | Read by `from_openai_compatible_env()`. |
+| `EVAL_JUDGE_MODEL_ID` | `LLM_MODEL_ID` | Read by `from_openai_compatible_env()`. There is no default model. |
+
+### Client object
+
+Each entry in a `*_CLIENTS` list has these keys.
+
+| Key | Meaning |
+| --- | --- |
+| `name` | A unique name for the client. |
+| `provider` | One of `anthropic`, `aws-bedrock`, `google-ai`, `vertex-ai`, `openai`, `openai-responses`, `azure-openai`, `openai-generic`. Extraction accepts all of them. The agent accepts the four listed under [Agent](#agent). |
+| `model` | The model identifier the provider expects. |
+| `api_key` | The API key, when the provider needs one directly. |
+| `base_url` | A custom endpoint. Required for `openai-generic`. |
+| `options` | Provider fields with no common shape, such as an Azure deployment id. |
+
+```dotenv
+EXTRACTION_LLM_CLIENTS=[{"name": "c", "provider": "openai-generic", "model": "your-model", "base_url": "https://your-endpoint.example.com/v1", "api_key": "your-key"}]
+```
+
+## Agent loop
+
+Class: `AgentSettings`. Prefix: `AGENT_`.
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `AGENT_RECURSION_LIMIT` | `50` | The maximum LangGraph steps before the run stops. |
+| `AGENT_MAX_TOOL_CALLS` | `20` | The maximum tool calls in one task run. |
+| `AGENT_MAX_RESULT_CHARACTERS` | `12000` | The maximum text that one evidence fetch returns. |
+| `AGENT_REQUEST_DEADLINE_SECONDS` | `30.0` | Seconds allowed for each store read that an evidence tool makes. Must be greater than zero. |
+
+The field name is `request_deadline_seconds` on `AgentSettings`. The limit applies to each store read, not to the whole tool call.
+
+## Retrieval
+
+Class: `RetrievalSettings`. Prefix: `RETRIEVAL_`.
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `RETRIEVAL_RRF_K` | `60` | The reciprocal-rank-fusion constant for the evidence tools. A rank position counts less as the value grows. |
+| `RETRIEVAL_RERANK_ENABLED` | `true` | Whether hybrid search reorders its top hits with the cross-encoder. Turning it on needs the `embed-local` extra; a missing extra turns rerank off with a warning. |
+| `RETRIEVAL_RERANK_CANDIDATES` | `30` | How many of the top fused hits the cross-encoder scores. |
+| `RETRIEVAL_RERANK_TIMEOUT_SECONDS` | `5.0` | The most seconds one rerank call may take. A timed-out or failed rerank keeps the fused order. |
+| `RETRIEVAL_CROSS_ENCODER_MODEL` | `cross-encoder/ms-marco-MiniLM-L-6-v2` | The cross-encoder for reranking. |
+| `RETRIEVAL_HYBRID_ALPHA` | `0.5` | Dense weight in hybrid search on an external vector store, from `0.0` (lexical only) to `1.0` (dense only). Graph-native search does not use it. |
+
+## Ingestion
+
+Class: `CutoverJobSettings`. Prefix: `CUTOVER_JOB_`.
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `CUTOVER_JOB_LEASE_TTL_SECONDS` | `60` | Seconds a worker's lease on a document stays valid before another worker can take it. Must be greater than zero. |
+
+## MCP server
+
+Class: `McpServerSettings`. Prefix: `MCP_`. The `agrag-mcp` server reads these variables at start. See [Run the MCP server](../guides/run-the-mcp-server.mdx) for how to use them.
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `MCP_SCOPE_DOCUMENT_KEYS` | none | Required. A comma-separated list with at least one document key that the server may read. Blank entries are ignored. With no key left, the server refuses to start. A file document's key is its resolved absolute path. |
+| `MCP_READ_ONLY` | `true` | When `true`, the server registers no write tools. Set it to `false` to enable conversation-history and decision writes. |
+| `MCP_PROJECT_ID` | none | The project that conversation-history and decision tools read and write. Required when `MCP_READ_ONLY` is `false`. |
+| `MCP_AGENT_ID` | none | The author recorded on writes. Required when `MCP_READ_ONLY` is `false`. |
+| `MCP_ALLOW_REJECT` | `false` | Set to `true` to register `reject_decision`. |
+| `MCP_GRAPH_STORE` | `neo4j` | The graph store the server reads: `neo4j` or `falkordb`. |
+| `MCP_VECTOR_STORE` | none | The external vector store the server reads: `qdrant`, `milvus`, or `weaviate`. Unset selects graph-native placement. It must match the placement used at ingestion. |
+| `MCP_MAX_HITS` | `10` | The most hits one search returns. |
+| `MCP_MAX_SNIPPET_CHARS` | `240` | The most characters of one hit snippet. |
+| `MCP_MAX_FETCH_CHARS` | `4000` | The most characters returned for each fetched evidence id. |
+| `MCP_MAX_FETCH_IDS` | `20` | The most evidence ids one fetch or citation check takes. Accepts 1 to 20. A value above 20 stops the server at startup. |
+| `MCP_MAX_RESPONSE_CHARS` | `60000` | The most characters of one result as sent. Search, fetch, and check-citations results count their JSON twice, once for the text copy and once for the structured copy. When a result is over the cap, the server drops trailing items until it fits. An empty result over the cap returns an error. The other MCP tools count their JSON once, plus the 35-character text block the server sends beside it, and count the UTF-8 bytes of that JSON. Their results are not cut, so a result over the cap returns an error. |
+| `MCP_REQUEST_DEADLINE_SECONDS` | `30.0` | The most seconds one tool operation may run, across all its store reads. Must be greater than zero. A longer operation returns the error `tool operation deadline exceeded`. The field name is `request_deadline_seconds`. |
+
+The server reads `NEO4J_*` or `FALKORDB_*` according to `MCP_GRAPH_STORE`, along with `EMBEDDING_*`. Set `EMBEDDING_MODEL` to the model you used for ingestion. `MCP_GRAPH_STORE` selects the backend only for MCP. Python callers select it with `build_graph_store("neo4j")` or `build_graph_store("falkordb")`.
+
+## Weaviate
+
+Class: `WeaviateSettings` in `agrag.vectordb.weaviate`. Prefix: `WEAVIATE_`.
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `WEAVIATE_MODE` | `custom` | Explicit deployment type, `custom` or `cloud`. |
+| `WEAVIATE_URL` | `http://localhost:8080` | HTTP(S) endpoint without a path or embedded credentials. Cloud requires HTTPS. |
+| `WEAVIATE_API_KEY` | none | API key sent to both HTTP and gRPC endpoints. |
+| `WEAVIATE_GRPC_PORT` | `50051` | Custom deployment gRPC port. Cloud uses TLS on port 443. |
+| `WEAVIATE_REQUIRE_TLS` | `false` | Reject plaintext connections to non-loopback hosts even without credentials. Remote credentials always require TLS. |
+| `WEAVIATE_COLLECTION_PREFIX` | required | Graph-specific prefix matching `[A-Za-z][A-Za-z0-9_]{0,40}`, with an additional lowercase-first-letter requirement. |
+
+The adapter capitalizes the first letter of each collection name. For example, `my_graph` produces `My_graph_chunks`, `My_graph_entities`, `My_graph_resolved_entities`, and `My_graph_communities`. An uppercase initial prefix is rejected because it would alias the lowercase prefix. Do not reuse a prefix across graphs.
+
+The collection description stores adapter-owned dimensions and prefix metadata. Do not edit it. Existing collections must match both the persisted dimensions and the actual vector-index distance. An empty collection still has dimension metadata and a count of zero.
+
+One dense or hybrid search accepts at most 10,000 results. A larger limit raises `ValueError`. UUID listing is strictly ascending with an exclusive cursor at every collection size. Each page scans the collection and retains only the requested page in memory. Disable server-side `ASYNC_INDEXING` to keep vector reads consistent with completed writes.
+
+## Related
+
+- [Configure storage backends](../guides/configure-storage-backends.mdx) sets up the graph store and vector store that the `NEO4J_`, `FALKORDB_`, `QDRANT_`, `MILVUS_`, and `WEAVIATE_` variables configure.
+- [Control LLM cost during extraction](../guides/control-llm-cost-during-extraction.mdx) shows how to set the `EXTRACTION_` mode and budget values for a run.
+- [Core API](../api/index.md) lists the Python classes and functions that read these settings.

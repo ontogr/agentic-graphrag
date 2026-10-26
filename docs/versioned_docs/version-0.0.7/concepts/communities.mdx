@@ -1,0 +1,84 @@
+---
+sidebar_position: 9
+title: Communities
+description: How Agentic GraphRAG groups connected entities and writes a short report for each group.
+---
+
+import Diagram from '@site/src/components/Diagram';
+
+# Communities
+
+A community is a cluster of related entities summarized for broad questions. The report complements source chunks and individual relations; it does not replace them as evidence.
+
+## Why it exists
+
+Some questions have no single chunk as an answer. "What are the main themes in this corpus?" needs a broad view. A list of every fact is too long to read.
+
+A community report gives a compact view of one cluster through a title, summary, and findings. Retrieval can use the report to find a topic, then return the underlying entities or chunks for detail. Because an LLM can make errors in a report, treat its claims as a guide and compare them with source evidence.
+
+## How it works
+
+<Diagram name="community-detection" ext="svg" alt="Entities joined by relations weighted by their supporting passages are clustered with Leiden. Each community gets a report with a title, summary, and findings, and the report is embedded. A broad question is matched against the reports in theme search, which returns the passages behind each matching theme." />
+
+<Diagram folder="docs" name="communities" alt="Each entity relation is weighted by the chunks that support it. Leiden clustering groups the entities, and the graph keeps groups of two or more. A group with a total weight of 5 or more gets an LLM report. A smaller group gets a simple report. The graph embeds each report and stores the communities." />
+
+*Groups with many attested relations get an LLM report. Small groups get a simple one.*
+
+Clustering uses hierarchical Leiden ([Traag et al., 2019](https://doi.org/10.1038/s41598-019-41695-z)) from the native implementation in [graspologic](https://github.com/graspologic-org/graspologic). Community reports for corpus-wide questions follow [From Local to Global: A Graph RAG Approach to Query-Focused Summarization](https://arxiv.org/abs/2404.16130).
+
+Community detection is an explicit operation across all entity types in the active schema. `Graph.add` does not run it automatically, because clustering reads the eligible graph and replaces the previous partition.
+
+Community detection uses a relationship only when both endpoint nodes carry labels declared as entity types in the active schema and the relationship type is declared in that schema. It ignores stored relationships whose types are not in the active schema, including graph-owned links such as `MATCHES` and `RESOLVED_AS`. The detector does not recheck whether each relationship's endpoint labels match a declared relation pattern.
+
+When you call `Graph.detect_communities`, Agentic GraphRAG weights each entity relation by the number of source chunks that support it. Unsupported relations weigh zero. Leiden clustering creates a hierarchy, but the graph keeps only level 0 of the hierarchy and groups with at least two entities.
+
+For each group, the graph sums its internal relation weights. Groups with a total weight of at least 5 get an LLM report with a title, summary, rating, reason, and findings. Smaller groups get a simple report whose title lists the three top members and whose rating is half the internal weight, capped at 10. If the `llm` extra is not installed, the graph uses the simple report and logs a warning. If an LLM call fails, the graph uses the simple report for that batch and records one failure for each community in it.
+
+The graph embeds each report title and summary for retrieval. Applying the result replaces the previous communities rather than merging two partitions.
+
+A dry run is the default. It returns the groups without reports.
+
+## How it fits the schema
+
+Communities cluster the entities that your schema defines. Extraction writes the relations between those entities only for the relations that your schema declares. Clustering skips the document structure, the links from entities to passages (`MENTIONED_IN`), the `MEMBER_OF` edges, the task event and step edges, and the candidate edges. Each community is joined to its member entities by `MEMBER_OF`. `Community` is a graph-owned label, so a schema cannot use it as an entity type.
+
+## Thematic search
+
+When detection runs, the graph embeds the title and summary of each report. [Search themes](../tools/search-themes.mdx) matches a broad question against these embeddings by meaning, and it returns the matching themes with their entities and the passages that mention those entities. The passages come from the documents in the caller's scope. Search themes never returns the report text, because a community has no document scope, and its report can describe documents outside the scope you searched.
+
+## Example
+
+Seven short documents about early computing give three communities.
+
+| Members | Internal weight | Report | Title |
+| --- | --- | --- | --- |
+| Babbage, Lovelace, London, and two machines (5) | 6.0 | LLM | Early Computing Pioneers in London |
+| Hopper, Philadelphia, UNIVAC compiler (3) | 3.0 | Simple | Grace Hopper, Philadelphia, UNIVAC compiler |
+| Turing, Bletchley, Bombe (3) | 2.0 | Simple | Alan Turing, Bombe, Bletchley |
+
+An LLM writes the first report, and an LLM can make mistakes. In one test run, a finding said that Ada Lovelace designed the Analytical Engine. The source text says that she wrote notes on it. Compare findings with the relations.
+
+<details>
+<summary>Design choices</summary>
+
+Relations are weighted by chunk count, so a relation that many chunks state counts more. A relation without a source chunk cannot inflate a community.
+
+The report type depends on internal weight, not on group size. A small group with many attested relations can matter more than a large sparse group.
+
+Small groups get a simple report, which costs no LLM call and is the same on every run. Most groups in a large graph are small.
+
+Only level 0 is kept. One level of groups is enough for retrieval, and it keeps the number of `Community` nodes small.
+
+Every run rebuilds the full partition, because there is no rule for merging an old partition with a new one.
+
+Community detection reads all current-schema entity types and replaces the previous partition. Running it on request keeps that cost out of ordinary ingestion and lets you decide when reports need a refresh.
+
+</details>
+
+## Related
+
+- Guide: [Detect communities and read reports](../guides/detect-communities.mdx) shows how to run detection and read each report.
+- Tool: [Search themes](../tools/search-themes.mdx) searches these reports and returns the passages that mention their members.
+- Previous: [Matching and resolved entities](./resolved-entities.mdx) explains how duplicate entities are matched before communities group them.
+- Concept: [Knowledge graph](./knowledge-graph.mdx) describes the entity and relation nodes that communities group.
+- Reference: [Ingestion API](../api/ingestion/index.md) lists the calls that run detection and apply the result.
