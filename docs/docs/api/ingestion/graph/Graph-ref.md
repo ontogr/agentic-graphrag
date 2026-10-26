@@ -283,14 +283,13 @@ Dry-run by default. It produces a report of the communities that the
 call will write before any node is touched. Pass apply=True to write
 them.
 
-Fetches every live domain relation across the whole graph (not scoped
-by entity label the way consolidate() is; community structure spans
-entity types), builds a weighted edge list, and runs hierarchical
-Leiden off the event loop. Every prior run's Community nodes and
-MEMBER_OF edges are deleted before the new ones are written when
-apply=True. This is a full recompute, not an incremental update,
-so there is no notion of merging this run's output with a
-previous one.
+Uses relationships declared in this graph's schema between nodes with
+declared entity labels, then runs hierarchical Leiden off the event
+loop. Stored relationships outside the schema do not affect clustering.
+Every prior run's Community nodes and MEMBER_OF edges are deleted before
+the new ones are written when apply=True. This is a full recompute, not
+an incremental update, so there is no notion of merging this run's
+output with a previous one.
 
 **Parameters:**
 

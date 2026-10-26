@@ -423,12 +423,10 @@ async def test_community_via_store_e2e() -> None:  # noqa: PLR0915
 @pytest.mark.skipif(neo4j_missing, reason="neo4j extra not installed")
 @pytest.mark.skipif(graspologic_missing, reason="graspologic-native missing")
 async def test_community_via_graph_add_e2e() -> None:  # noqa: PLR0915
-    """Graph.add-seeded seam with unrelated data left in the graph.
+    """Exclude unrelated graph entities from schema-scoped communities.
 
-    detect_communities scans the whole graph, so the test first seeds a second
-    set of entities under other labels and keeps it in place. It then checks
-    only the communities that contain its own members, and that loading read
-    exactly the members those communities need.
+    The test leaves a connected star under other labels in the graph while it
+    creates communities from its own graph schema.
     """
     # Unique labels keep this test from touching other tests' data.
     suffix = uuid4().hex[:8]
@@ -523,12 +521,23 @@ async def test_community_via_graph_add_e2e() -> None:  # noqa: PLR0915
                 ["Acme", "Alice", "Bob", "Eve"],
                 ["Carol", "Dave", "Globex"],
             ]
-            # The unrelated star forms its own community, apart from ours.
             residue_ids = {str(e.id) for e in (*residue, hub)}
-            assert any(
-                {str(m) for m in c.member_ids} == residue_ids
-                for c in report.communities
-            )
+            report_member_ids = {
+                str(member_id)
+                for community in report.communities
+                for member_id in community.member_ids
+            }
+            assert {names_by_id[member_id] for member_id in report_member_ids} == {
+                "Acme",
+                "Alice",
+                "Bob",
+                "Carol",
+                "Dave",
+                "Eve",
+                "Globex",
+            }
+            assert report_member_ids.isdisjoint(residue_ids)
+            assert captured_ids.isdisjoint(residue_ids)
             own_needed = {str(i) for i in required_member_ids(own)}
             assert captured_ids & set(names_by_id) == own_needed
             assert str(isolated.id) not in captured_ids
@@ -550,12 +559,12 @@ async def test_community_via_graph_add_e2e() -> None:  # noqa: PLR0915
             }
             assert thematic_own
             artifact = write_artifact(
-                "community_graph_add_with_residue",
+                "community_graph_add_respects_schema_scope",
                 {
                     "communities": member_sets,
                     "loaded_count": len(captured_ids & set(names_by_id)),
                     "isolated_loaded": False,
-                    "unrelated_community_found": True,
+                    "unrelated_community_excluded": True,
                     "entity_search_finds_entity": True,
                     "thematic_finds_own_community": True,
                 },

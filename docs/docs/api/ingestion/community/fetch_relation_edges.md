@@ -6,10 +6,10 @@ sidebar_label: fetch_relation_edges
 # `agrag.ingestion.community.fetch_relation_edges` \{#agrag-ingestion-community-fetch_relation_edges}
 
 ```python
-fetch_relation_edges(graph_store:GraphStore, *, page_size:int = 5000) -> list[WeightedEdge]
+fetch_relation_edges(graph_store:GraphStore, *, schema:GraphSchema, page_size:int = 5000) -> list[WeightedEdge]
 ```
 
-Return every live domain relation as a weighted edge tuple.
+Return current-schema entity relations as weighted edge tuples.
 
 Weight is len(source_chunk_ids) (attestation count). A relation with
 no attested chunks contributes weight 0.0, so an unsupported edge
@@ -23,6 +23,7 @@ Pages by keyset on `(a.id, b.id, type(r), r.id)`.
 **Parameters:**
 
 - **graph_store** (<code>[GraphStore](../../graphdb/base/GraphStore.md)</code>) – Where the relations are read from.
+- **schema** (<code>[GraphSchema](../../common/data_models/graph_schema/GraphSchema.md)</code>) – The active entity and relation types for this graph.
 - **page_size** (<code>int</code>) – Rows fetched per page.
 
 **Returns:**

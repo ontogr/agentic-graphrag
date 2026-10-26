@@ -13,6 +13,7 @@ from uuid import uuid4
 import pytest
 
 from agrag.common.data_models.graph_record import NodeRecord, RelationRecord
+from agrag.common.data_models.graph_schema import EntityType, GraphSchema, RelationType
 from agrag.cypher.entities import validate_identifier
 from agrag.ingestion.community import fetch_relation_edges
 from tests.integration._backend import build_test_store
@@ -31,23 +32,24 @@ class TestFetchRelationEdgesPaginationIntegration:
         self.store = build_test_store()
         await self.store.connect()
         self.entity_label = validate_identifier(f"Entity_{uuid4().hex[:8]}")
+        self.schema = GraphSchema(
+            name="test",
+            version="1",
+            entities=[EntityType(label=self.entity_label, description="test entity")],
+            relations=[
+                RelationType(
+                    label="KNOWS",
+                    description="test relation",
+                    patterns=[(self.entity_label, self.entity_label)],
+                )
+            ],
+        )
         yield
         await self.store.execute_write(f"MATCH (n:{self.entity_label}) DETACH DELETE n")
         await self.store.close()
 
     async def test_pagination_with_page_size_two(self) -> None:
-        """Seeds 3 relations and asserts every page is bounded by page_size.
-
-        ``fetch_relation_edges`` paginates every live relation in the
-        database, not just this test's own, so a concurrently-running
-        test's relations can add extra pages. Asserts the pagination
-        contract instead of an exact call count: every page holds at
-        most ``page_size`` rows, and this test's own 3 relations alone
-        require more than one page. The final read may return no rows at
-        all: the loop probes once more to detect the end whenever a full
-        page exactly exhausts the result set, which depends on how many
-        live relations other tests have written concurrently.
-        """
+        """Return all 3 schema-matched relations across bounded pages."""
         node_ids = [uuid4() for _ in range(4)]
         try:
             await self.store.upsert_nodes(
@@ -95,20 +97,15 @@ class TestFetchRelationEdgesPaginationIntegration:
 
             self.store.execute_read = counting_read  # type: ignore[method-assign]
             try:
-                edges = await fetch_relation_edges(self.store, page_size=2)
+                edges = await fetch_relation_edges(
+                    self.store, schema=self.schema, page_size=2
+                )
             finally:
                 self.store.execute_read = original_read  # type: ignore[method-assign]
 
             our_ids = {str(nid) for nid in node_ids}
             relevant = [e for e in edges if e[0] in our_ids and e[1] in our_ids]
             assert len(relevant) == 3
-            assert len(page_sizes) >= 2
-            # Every request but the last came back exactly full: the loop
-            # continues only while a page is full.
-            assert all(size == 2 for size in page_sizes[:-1])
-            # The last request is either a shorter final page or the empty
-            # probe that ends an exact multiple of page_size, so only the
-            # upper bound applies to it.
-            assert page_sizes[-1] <= 2
+            assert page_sizes == [2, 1]
         finally:
             pass

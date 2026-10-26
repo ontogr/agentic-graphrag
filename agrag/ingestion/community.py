@@ -16,6 +16,7 @@ from agrag.common.data_models.community import (
     Community,
 )
 from agrag.common.data_models.entity import Entity
+from agrag.common.data_models.graph_schema import GraphSchema
 from agrag.common.data_models.relation import Relation
 from agrag.common.data_models.stage_failure import StageFailure
 from agrag.common.data_models.vector_record import VectorKind
@@ -60,9 +61,9 @@ class CommunityDetectionMissingExtraError(Exception):
 
 
 async def fetch_relation_edges(
-    graph_store: GraphStore, *, page_size: int = 5000
+    graph_store: GraphStore, *, schema: GraphSchema, page_size: int = 5000
 ) -> list[WeightedEdge]:
-    """Return every live domain relation as a weighted edge tuple.
+    """Return current-schema entity relations as weighted edge tuples.
 
     Weight is len(source_chunk_ids) (attestation count). A relation with
     no attested chunks contributes weight 0.0, so an unsupported edge
@@ -75,6 +76,7 @@ async def fetch_relation_edges(
 
     Args:
         graph_store: Where the relations are read from.
+        schema: The active entity and relation types for this graph.
         page_size: Rows fetched per page.
 
     Returns:
@@ -85,15 +87,23 @@ async def fetch_relation_edges(
     last_b = ""
     last_type = ""
     last_rel_id = ""
+    entity_labels = [entity.label for entity in schema.entities]
+    relation_types = [relation.label for relation in schema.relations]
+    query = fetch_all_relations_query_cursor(
+        entity_labels=entity_labels,
+        relation_types=relation_types,
+    )
     while True:
         rows = await graph_store.execute_read(
-            fetch_all_relations_query_cursor(),
+            query,
             {
                 "last_a": last_a,
                 "last_b": last_b,
                 "last_type": last_type,
                 "last_rel_id": last_rel_id,
                 "limit": page_size,
+                "entity_labels": entity_labels,
+                "relation_types": relation_types,
             },
         )
         if not rows:
@@ -761,6 +771,7 @@ async def _write_communities(
 async def detect_communities(
     graph_store: GraphStore,
     *,
+    schema: GraphSchema,
     embedder: Embedder,
     tracer: Tracer | None = None,
     apply: bool = False,
@@ -771,15 +782,17 @@ async def detect_communities(
 ) -> CommunityDetectionReport:
     """Detect entity communities via hierarchical Leiden.
 
-    Reads every live domain relation across the whole graph, not only one
-    entity label, because community structure spans entity types. It builds a
-    weighted edge list and runs hierarchical Leiden off the event loop. With
-    ``apply=True`` the run is a full recompute: it deletes every earlier
-    Community node and MEMBER_OF edge before it stores the new ones.
+    Reads relationships declared by the active schema between nodes carrying
+    declared entity labels. Stored relationships outside the schema do not
+    affect clustering. It builds a weighted edge list and runs hierarchical
+    Leiden off the event loop. With ``apply=True`` the run is a full recompute:
+    it deletes every earlier Community node and MEMBER_OF edge before it stores
+    the new ones.
 
     Args:
         graph_store: Where relations and entities are read and communities are
             written.
+        schema: The active entity and relation types for this graph.
         embedder: Embeds the community summaries.
         tracer: Opens the detection span. None opens no recorded span.
         apply: Write the communities. False returns a report only.
@@ -797,7 +810,7 @@ async def detect_communities(
             installed.
     """
     with get_tracer(tracer).start_as_current_span("agrag.ingestion.detect_communities"):
-        edges = await fetch_relation_edges(graph_store)
+        edges = await fetch_relation_edges(graph_store, schema=schema)
         if not edges:
             if not apply:
                 return CommunityDetectionReport(
