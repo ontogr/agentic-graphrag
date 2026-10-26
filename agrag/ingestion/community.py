@@ -72,7 +72,9 @@ async def fetch_relation_edges(
     one edge tuple per type. graspologic_native sums parallel-edge
     weights when it builds its own adjacency.
 
-    Pages by keyset on ``(a.id, b.id, type(r), r.id)``.
+    Only relations whose type is declared in the schema and whose endpoints
+    both carry a declared entity label are read. Pages by keyset on
+    ``(a.id, b.id, type(r), r.id)``.
 
     Args:
         graph_store: Where the relations are read from.
