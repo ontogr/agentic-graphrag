@@ -1,31 +1,47 @@
+/* The landing page follows the site palette: warm neutrals with an ink primary. Blue,
+   green, and amber name the three layers of the graph and match the diagrams. */
+
 .hero {
-  padding: 4rem 0 3.5rem;
-  text-align: center;
+  padding: 4.5rem 0 4rem;
   background:
     radial-gradient(75rem 30rem at 50% -8rem, rgba(120, 113, 108, 0.08), transparent 65%),
     linear-gradient(180deg, var(--ifm-background-surface-color) 0%, var(--ifm-background-color) 100%);
 }
 
 .heroInner {
-  position: relative;
+  display: grid;
+  grid-template-columns: clamp(24rem, 40vw, 33rem) minmax(0, 1fr);
+  gap: 2.5rem;
+  align-items: center;
 }
 
 .title {
-  max-width: 52rem;
-  margin: 0 auto 1rem;
-  font-size: clamp(1.75rem, 4vw, 2.5rem);
-  line-height: 1.1;
+  margin: 0 0 1.25rem;
+  font-size: clamp(2rem, 4.2vw, 3.1rem);
+  line-height: 1.08;
+  letter-spacing: -0.03em;
+  text-wrap: balance;
 }
 
-.accent {
+.blue {
   color: var(--agrag-blue);
 }
 
+.green {
+  color: var(--agrag-green);
+}
+
+.amber {
+  color: var(--agrag-amber);
+}
+
 .pitch {
-  max-width: 38rem;
-  margin: 0 auto 1.75rem;
+  max-width: 34rem;
+  margin: 0 0 2rem;
   font-size: 1.15rem;
+  line-height: 1.55;
   color: var(--ifm-color-content-secondary);
+  text-wrap: pretty;
 }
 
 .actions {
@@ -33,12 +49,7 @@
   flex-wrap: wrap;
   gap: 0.75rem;
   align-items: stretch;
-  justify-content: center;
   margin-bottom: 1.25rem;
-}
-
-.closing {
-  text-align: center;
 }
 
 .facts {
@@ -47,129 +58,194 @@
   color: var(--ifm-color-content-secondary);
 }
 
-.flow {
+.heroActions {
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.heroImageWrap {
+  margin-right: calc(-1 * clamp(0px, calc((100vw - 1288px) / 2 - 12px), 5rem));
+}
+
+.heroImage {
   display: block;
   width: 100%;
-  max-width: 62rem;
-  margin-inline: auto;
-  margin-block: 0;
+  height: auto;
   border-radius: 12px;
 }
 
-.intro {
-  max-width: 46rem;
-  text-align: center;
+/* One authored moment: the hero settles in once on load. Without the animation the hero is
+   fully visible. */
+@media (prefers-reduced-motion: no-preference) {
+  .heroText,
+  .heroImage {
+    animation: settle 0.7s cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+
+  .heroImage {
+    animation-delay: 0.12s;
+  }
 }
 
-.intro p {
-  margin-bottom: 1rem;
-  font-size: 1.05rem;
+@keyframes settle {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
 }
 
 .section {
-  padding: 1.5rem 0;
+  padding: 3.5rem 0;
 }
 
-.tiles {
-  --tile-radius: 12px;
-  display: grid;
-  grid-template-columns: repeat(6, 1fr);
-  gap: 1rem;
+.sectionHead {
+  max-width: 52rem;
+  margin-bottom: 1.75rem;
 }
 
-.tile {
-  --tone: var(--agrag-blue);
-  --tone-bg: var(--agrag-blue-bg);
-  --tone-muted: var(--ifm-color-content-secondary);
-  grid-column: span 2;
-  padding: 1.75rem;
-  border-radius: var(--tile-radius);
-  background: var(--tone-bg);
-}
-
-.tile::before {
-  display: block;
-  width: 1.75rem;
-  height: 3px;
-  margin-bottom: 1.1rem;
-  border-radius: 2px;
-  background: var(--tone);
-  content: '';
-}
-
-.blue {
-  --tone: var(--agrag-blue);
-  --tone-bg: var(--agrag-blue-bg);
-}
-
-.green {
-  --tone: var(--agrag-green);
-  --tone-bg: var(--agrag-green-bg);
-}
-
-.amber {
-  --tone: var(--agrag-amber);
-  --tone-bg: var(--agrag-amber-bg);
-}
-
-.stone {
-  --tone: var(--agrag-stone);
-  --tone-bg: var(--agrag-stone-bg);
-}
-
-.violet {
-  --tone: var(--agrag-violet);
-  --tone-bg: var(--agrag-violet-bg);
-}
-
-.tileFeatured {
-  grid-column: span 4;
-}
-
-.tile h3 {
+.sectionHead h2,
+.closing h2 {
   margin: 0 0 0.6rem;
-  font-size: 1.2rem;
-  font-weight: 600;
-  letter-spacing: -0.015em;
+  font-size: clamp(1.5rem, 2.6vw, 1.9rem);
+  line-height: 1.15;
   text-wrap: balance;
 }
 
-.tile p {
+.sectionHead p {
   margin: 0;
-  font-size: 0.98rem;
+  font-size: 1.05rem;
   line-height: 1.6;
-  color: var(--tone-muted);
+  color: var(--ifm-color-content-secondary);
+}
+
+/* Three pillars, one for each layer of the graph. A rule in the layer's tone sits on top
+   of each column. */
+.pillars {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 2.5rem 3rem;
+}
+
+.pillar {
+  --rule: var(--agrag-stone);
+  padding-top: 1.25rem;
+  border-top: 2px solid var(--rule);
+}
+
+
+.ruleblue {
+  --rule: var(--agrag-blue);
+}
+
+.rulegreen {
+  --rule: var(--agrag-green);
+}
+
+.ruleamber {
+  --rule: var(--agrag-amber);
+}
+
+.ruleviolet {
+  --rule: var(--agrag-violet);
+}
+
+.pillar h2 {
+  margin: 0 0 0.6rem;
+  font-size: 1.3rem;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+  text-wrap: balance;
+}
+
+.pillar p {
+  margin: 0;
+  font-size: 1rem;
+  line-height: 1.65;
+  color: var(--ifm-color-content-secondary);
   text-wrap: pretty;
 }
 
-.tileFeatured h3 {
-  font-size: 1.7rem;
-  letter-spacing: -0.025em;
+.flow {
+  margin-block: 0;
 }
 
-.tileFeatured p {
-  max-width: 34rem;
-  font-size: 1.08rem;
+.tabs {
+  max-width: 52rem;
 }
 
-@media (max-width: 996px) {
-  .tiles {
-    grid-template-columns: repeat(2, 1fr);
-  }
-
-  .tile {
-    grid-column: auto;
-  }
-
-  .tileFeatured {
-    grid-column: 1 / -1;
-  }
+.tabLead {
+  margin: 0 0 0.9rem;
+  color: var(--ifm-color-content-secondary);
 }
 
-@media (max-width: 640px) {
-  .tiles {
-    grid-template-columns: 1fr;
-  }
+/* Where to go next: rows separated by hairlines, each with a title and one line on what the
+   page does for the reader. */
+.next {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 3rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.next li {
+  border-top: 1px solid var(--agrag-border);
+}
+
+.nextLink {
+  display: grid;
+  gap: 0.25rem;
+  padding: 1.15rem 0 1.35rem;
+  color: var(--ifm-font-color-base);
+  text-decoration: none;
+}
+
+.nextLink:hover {
+  color: var(--ifm-font-color-base);
+  text-decoration: none;
+}
+
+.nextTitle {
+  font-size: 1.1rem;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  text-decoration: underline;
+  text-decoration-color: transparent;
+  text-underline-offset: 0.3em;
+  transition: text-decoration-color 0.2s;
+}
+
+.nextLink:hover .nextTitle,
+.nextLink:focus-visible .nextTitle {
+  text-decoration-color: currentColor;
+}
+
+.nextText {
+  color: var(--ifm-color-content-secondary);
+  line-height: 1.55;
+  text-wrap: pretty;
+}
+
+.nextLink:focus-visible {
+  outline: 2px solid var(--agrag-blue);
+  outline-offset: 2px;
+}
+
+.closing {
+  padding-bottom: 5rem;
+  text-align: center;
+}
+
+.closing .actions {
+  justify-content: center;
+  margin-bottom: 0;
 }
 
 .actions :global(.button) {
@@ -210,12 +286,44 @@
   color: var(--ifm-font-color-base);
 }
 
-@media (max-width: 480px) {
-  .hero {
-    padding: 2.5rem 0 2rem;
+.hero ::selection,
+.section ::selection {
+  background: var(--agrag-blue-bg);
+  color: var(--agrag-ink);
+}
+
+@media (max-width: 996px) {
+  .heroInner {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 2.5rem;
   }
 
-  .actions > * {
+  .heroImageWrap {
+    margin-right: 0;
+  }
+
+  .pillars {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 2rem;
+  }
+
+  .next {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 480px) {
+  .hero {
+    padding: 2.5rem 0 2.5rem;
+  }
+
+  .section {
+    padding: 2.5rem 0;
+  }
+
+  .actions > *,
+  .buttons,
+  .buttons > * {
     width: 100%;
   }
 }

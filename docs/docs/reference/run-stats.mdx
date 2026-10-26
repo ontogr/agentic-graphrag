@@ -4,7 +4,7 @@ title: Run statistics
 
 # Run statistics
 
-`Graph.add` returns an `AddResult`. `Graph.update` returns an `UpdateResult` whose `add_result` contains the same summaries. This page lists the fields of `AddResult`, the failure records that its stages return, and the counts of discarded items. See the [Python API](../api/index.md) for the types.
+`Graph.add` returns an `AddResult`. `Graph.update` returns an `UpdateResult` whose `add_result` contains the same summaries. See the [Python API](../api/index.md) for the types.
 
 ## Add result
 
@@ -27,7 +27,7 @@ Each record in `failures` is a `StageFailure`.
 
 | Field | Meaning |
 | --- | --- |
-| `item_id` | The chunk id, mention id, or batch id that the stage failed on. |
+| `item_id` | The chunk id or entity id that the stage failed on. Some stages record a name instead: a relation type, a step name, or the extracted entity names in a merge group, joined by commas. |
 | `error_type` | The class name of the exception. |
 | `error_message` | The message of the exception. |
 | `trace_id` | The OpenTelemetry trace id when a recording span is active for the failure. |
@@ -35,7 +35,7 @@ Each record in `failures` is a `StageFailure`.
 
 ## Escalation report
 
-`AddResult.escalation` counts the chunks of one run. The first extractor reads every chunk. A chunk is eligible when that first result is weak, and the escalation budget caps how many eligible chunks the LLM extractor reads, weakest first.
+`AddResult.escalation` counts the chunks of one run. The first extractor reads every chunk. A chunk is eligible when that first result is weak, and the escalation budget caps how many eligible chunks the LLM extractor reads. Chunks with at least two kept entities and no relation rank first, then the other eligible chunks by lowest entity score.
 
 | Field | Meaning |
 | --- | --- |
@@ -97,6 +97,6 @@ An `off_pattern` candidate in `llm` mode has confidence `0.0`, because the model
 
 ## Related
 
-- How-to: [Turn candidates off](../guides/turn-off-candidates.mdx).
-- How-to: [Review candidates and grow your schema](../guides/review-candidates.mdx).
-- Explanation: [Candidates](../concepts/candidates.mdx).
+- [Turn candidates off](../guides/turn-off-candidates.mdx) shows how to stop writing candidates.
+- [Review candidates and grow your schema](../guides/review-candidates.mdx) shows how to approve or reject candidates and turn them into schema additions.
+- [Candidates](../concepts/candidates.mdx) explains the candidate concept and its lifecycle.

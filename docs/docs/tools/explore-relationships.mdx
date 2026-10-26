@@ -57,7 +57,7 @@ Both edges are assertions, and the passage `...3e66aa77` states both. Fetch that
 
 ### See which bound cut a walk
 
-`truncated_by` names every bound that cut a walk. These three calls show how a walk is cut and how to narrow it. The first starts at the planner and goes one step, the second follows only `AUTHORED` relations, and the third allows one edge:
+`truncated_by` names every bound that cut a walk. The first starts at the planner and goes one step, the second follows only `AUTHORED` relations, and the third allows one edge:
 
 ```python notest
 view = await explore_relationships(store, planner_id, scope=scope, depth=1)

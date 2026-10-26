@@ -1,0 +1,454 @@
+---
+title: History and decisions data model
+description: Fields, types, defaults, limits, state values, error codes, and exception classes for conversation history, decision traces, and retention.
+---
+
+# History and decisions data model
+
+`ConversationHistory`, `DecisionTraces`, and `HistoryRetention` return the models below. The models are defined in `agrag/common/data_models/task.py`, `decision.py`, `write_result.py`, and `retention.py`. The classes are in `agrag/history/` and `agrag/decisions.py`. [Conversation history and decisions](../concepts/conversation-history-and-decisions.mdx) explains the concepts behind these fields.
+
+## Tasks and events
+
+### Task
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `id` | `UUID` | Derived from the project id and the task name. |
+| `project_id` | `str` | The project that owns the task. |
+| `name` | `str` | The task name, unique within the project. |
+| `goal` | `str` | The goal given when the task was created. |
+| `status` | `TaskStatus` | The lifecycle state. |
+| `event_seq` | `int` | The sequence number of the last event, or 0. |
+| `author` | `str` | The agent that created the task. |
+| `created_at` | `datetime` | When the task was created. |
+
+### Event
+
+| Field | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `id` | `UUID` | none | Derived from the task id and the sequence number. |
+| `task_id` | `UUID` | none | The task the event belongs to. |
+| `seq` | `int` | none | Position in the task, from 1 with no gaps. |
+| `kind` | `EventKind` | none | The kind of event. |
+| `role` | `str \| None` | none | The speaker role of a message, or `None`. |
+| `name` | `str \| None` | none | The tool or source name for a tool event, or `None`. |
+| `payload` | `str` | none | The stored text. Cut to 32,000 characters when `truncated` is `True`. Replaced by `[REDACTED]` after a redaction. |
+| `payload_sha256` | `str` | none | SHA-256 of the full text, encoded as UTF-8, before any cut. |
+| `truncated` | `bool` | none | Whether the stored payload is shorter than the full text. |
+| `author` | `str` | none | The agent that recorded the event. |
+| `at` | `datetime` | none | When the event was recorded. |
+| `redacted_at` | `datetime \| None` | `None` | When the payload was redacted. |
+
+### Step
+
+| Field | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `id` | `UUID` | none | Derived from the task id and the step name. |
+| `task_id` | `UUID` | none | The task the step belongs to. |
+| `name` | `str` | none | The step name, unique within the task. |
+| `kind` | `StepKind` | none | The broad category of the step. |
+| `state` | `StepState` | none | The current state. |
+| `result_event_seq` | `int \| None` | none | The sequence number of the event that holds the result. |
+| `updated_seq` | `int` | none | The task's event sequence number when the step was last set. |
+| `result_basis` | `StepResultBasis` | `unknown` | Whether the result depends on evidence. |
+| `result_supports` | `list[Support]` | `[]` | The supports of the result. |
+
+### StepSummary
+
+The step fields that a resume view shows.
+
+| Field | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `name` | `str` | none | The step name. |
+| `kind` | `StepKind` | none | The broad category. |
+| `state` | `StepState` | none | The current state. |
+| `result_event_seq` | `int \| None` | none | The sequence number of the result event. |
+| `result_basis` | `StepResultBasis` | `unknown` | Whether the result depends on evidence. |
+| `result_validity` | `StepResultValidity` | `unknown` | Whether a completed result can be reused. |
+| `result_supports` | `list[Support]` | `[]` | The supports of the result. |
+
+### StepPage
+
+| Field | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `steps` | `list[StepSummary]` | `[]` | The steps in the page. |
+| `truncated` | `bool` | `False` | Whether more steps follow. |
+| `next_after_name` | `str \| None` | `None` | The `after_name` value that fetches the next page. |
+
+### TaskView
+
+The bounded resume view. It never includes event bodies.
+
+| Field | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `task_name` | `str` | none | The task name. |
+| `goal` | `str` | none | The task goal. |
+| `status` | `TaskStatus` | none | The lifecycle state. |
+| `last_event_seq` | `int` | none | The sequence number of the last event, or 0. |
+| `steps` | `dict[StepState, list[StepSummary]]` | none | Shown steps grouped by state. Every state is a key. |
+| `step_counts` | `dict[StepState, int]` | none | Steps in each state, including hidden steps. Every state is a key. |
+| `steps_truncated` | `bool` | none | Whether some steps are hidden. |
+| `decisions` | `list[Decision]` | `[]` | Active decisions, newest first. |
+| `decision_count` | `int` | `0` | The number of active decisions, including hidden ones. |
+| `decisions_truncated` | `bool` | `False` | Whether some active decisions are hidden. |
+| `review_decisions` | `list[Decision]` | `[]` | Active decisions that need review. |
+| `conflicts` | `list[ConflictGroup]` | `[]` | Conflicting choices that include this task. |
+| `conflicts_truncated` | `bool` | `False` | Whether some conflicts are hidden. |
+
+### Lookups and pages
+
+| Model | Fields | Meaning |
+| --- | --- | --- |
+| `TaskLookup` | `found: bool`, `view: TaskView \| None` | The result of `get_task`. `view` is `None` when `found` is `False`. |
+| `EventPage` | `found: bool`, `events: list[Event]`, `truncated: bool`, `next_after_seq: int \| None` | One page of events in sequence order. |
+| `EventLookup` | `found: bool`, `event: Event \| None` | The result of `fetch_event`. |
+
+### Write results
+
+Every history write returns one of these models. Each one has `recorded: bool` and `error: WriteErrorCode \| None`. The model that matches the write also has its result field.
+
+| Model | Extra field | Returned by |
+| --- | --- | --- |
+| `CreateTaskResult` | `task: Task \| None` | `create_task` |
+| `RecordEventResult` | `event: Event \| None` | `record_event` |
+| `SetStepResult` | `step: Step \| None` | `set_step` |
+
+## Decisions
+
+### Decision
+
+| Field | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `id` | `UUID` | none | Derived from the task id, the choice key, and the revision. |
+| `task_id` | `UUID` | none | The task the decision belongs to. |
+| `task_name` | `str` | none | The name of that task. |
+| `choice_key` | `str` | none | The choice inside the task that the decision settles. |
+| `revision` | `int` | none | `1` for the first decision of a choice, then one more for each supersession. |
+| `conclusion` | `str` | none | The conclusion. Never changed after recording. |
+| `rationale` | `str` | none | The stated reasoning. |
+| `assumptions` | `list[str]` | none | The assumptions the decision relies on. |
+| `open_questions` | `list[str]` | none | The questions left open. |
+| `author` | `str` | none | The agent that recorded the decision. |
+| `status` | `DecisionStatus` | none | The lifecycle state. |
+| `review_state` | `ReviewState` | none | Whether the supports still hold. |
+| `review_reason` | `ReviewReason \| None` | `None` | Why the decision needs review. |
+| `rejection_reason` | `str \| None` | `None` | The reason given when the decision was rejected. |
+| `rejected_by` | `str \| None` | `None` | Who rejected the decision. |
+| `created_at` | `datetime` | none | When the decision was recorded. |
+| `supports` | `list[Support]` | `[]` | The stored supports, in the order given. |
+
+### Supports
+
+A stored support is one of three models. The `kind` field selects the model.
+
+#### DocumentSupport
+
+| Field | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `kind` | `"document"` | none | Always `document`. |
+| `evidence_id` | `str` | none | The evidence id the caller cited. |
+| `document_key` | `str` | none | The stable key of the cited document. |
+| `document_node_id` | `UUID` | none | The id of the Document node. |
+| `content_hash_prefix` | `str` | none | The first 16 hex characters of the cited version. |
+| `content_hash` | `str` | none | The full content hash of the cited version. |
+| `reference_kind` | `EvidenceKind` | none | Whether the id names a span or a chunk. |
+| `char_start` | `int \| None` | `None` | Start offset of a span, or `None` for a chunk. |
+| `char_end` | `int \| None` | `None` | End offset of a span, or `None` for a chunk. |
+| `chunk_id` | `UUID \| None` | `None` | The chunk id of a chunk reference, or `None` for a span. |
+| `recorded_activation_seq` | `int \| None` | `None` | The document's activation sequence when the decision was recorded. |
+| `current` | `bool` | `True` | Whether the support is the current one. |
+| `reviewed_by` | `str \| None` | `None` | Who reviewed the support. |
+| `reviewed_at` | `datetime \| None` | `None` | When the support was reviewed. |
+| `review_explanation` | `str \| None` | `None` | The explanation given during review. |
+
+#### EventSupport
+
+| Field | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `kind` | `"event"` | none | Always `event`. |
+| `event_id` | `UUID` | none | The id of the event node. |
+| `task_name` | `str` | none | The task that holds the event. |
+| `seq` | `int` | none | The sequence number of the event in that task. |
+| `current`, `reviewed_by`, `reviewed_at`, `review_explanation` | as in DocumentSupport | `True`, `None`, `None`, `None` | Review fields. |
+
+#### DecisionSupport
+
+| Field | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `kind` | `"decision"` | none | Always `decision`. |
+| `decision_id` | `UUID` | none | The id of the decision depended on. |
+| `current`, `reviewed_by`, `reviewed_at`, `review_explanation` | as in DocumentSupport | `True`, `None`, `None`, `None` | Review fields. |
+
+### Support inputs
+
+These models are the arguments that a write accepts.
+
+| Model | Fields | Meaning |
+| --- | --- | --- |
+| `DocumentSupportInput` | `evidence_id: str` | A passage fetched in full with status `ok`. |
+| `EventSupportInput` | `task_name: str`, `seq: int` | An existing event in the project. |
+| `DecisionSupportInput` | `decision_id: str` | An active decision in the project. |
+
+### Pages and lookups
+
+| Model | Fields | Meaning |
+| --- | --- | --- |
+| `DecisionPage` | `decisions: list[Decision]`, `count: int`, `truncated: bool` | Decisions of a list call. `count` includes hidden decisions. |
+| `DecisionPageLookup` | `found: bool`, `page: DecisionPage` | The result of `list_decisions`. |
+| `DecisionLookup` | `found: bool`, `decision: Decision \| None` | The result of `get_decision`. |
+| `DecisionReviewList` | `decisions: list[Decision]`, `count: int`, `truncated: bool` | The result of `list_decisions_for_review`. |
+| `SupportHistoryPage` | `supports: list[Support]`, `truncated: bool`, `next_after_ordinal: int \| None` | The result of `list_support_history`. |
+| `DecisionHit` | `decision: Decision`, `task_goal: str`, `marker: "precedent"` | One result of `search_decisions`. |
+| `ConflictGroup` | `choice_key: str`, `decisions: list[Decision]`, `truncated: bool` | Active decisions of one choice that disagree across tasks. |
+| `ConflictList` | `groups: list[ConflictGroup]`, `truncated: bool` | The result of `list_conflicts`. |
+
+### Decision write results
+
+| Model | Extra fields | Returned by |
+| --- | --- | --- |
+| `RecordDecisionResult` | `decision: Decision \| None`, `warnings: list[str]` | `record_decision` and `supersede_decision`. `warnings` holds `source_changed_during_recording` when a cited source changed. |
+| `RejectDecisionResult` | `decision: Decision \| None` | `reject_decision` |
+| `ReaffirmDecisionResult` | `decision: Decision \| None` | `reaffirm_decision` |
+
+### Retention
+
+| Model | Fields | Returned by |
+| --- | --- | --- |
+| `RetentionResult` | `recorded: bool`, `error: RetentionErrorCode \| None`, `affected_decision_ids: list[str]` | `redact_event` and `delete_task`. `affected_decision_ids` lists the decisions flagged by the call, sorted. |
+
+## Methods, defaults, and limits
+
+Each method clamps its page size to the maximum shown.
+
+| Method | Parameter | Default | Limit |
+| --- | --- | --- | --- |
+| `ConversationHistory.list_events` | `after_seq`, `limit` | `0`, `50` | `limit` is 1 to 200. |
+| `ConversationHistory.list_steps` | `after_name`, `limit` | `None`, `50` | `limit` is 1 to 200. |
+| `ConversationHistory.record_event` | `payload` | none | At most 32,000 characters are stored. Longer text is cut. |
+| `ConversationHistory.get_task` | none | none | Shows at most 50 steps, 20 active decisions, 20 review decisions, and 10 conflict groups. |
+| `DecisionTraces.record_decision` | `supports` | none | At least 1 support and at most 20. |
+| `DecisionTraces.supersede_decision` | `explanation` | none | Must not be blank. |
+| `DecisionTraces.reaffirm_decision` | `explanation` | `"Reaffirmed after review."` | Stored with the review. |
+| `DecisionTraces.list_decisions` | `include_history` | `True` | At most 20 decisions per call. |
+| `DecisionTraces.list_decisions_for_review` | `task_name`, `limit` | `None`, `20` | At most 20 decisions per call. |
+| `DecisionTraces.search_decisions` | `task_name`, `limit` | `None`, `20` | At most 100 results. |
+| `DecisionTraces.list_support_history` | `after_ordinal`, `limit` | `-1`, `20` | At most 100 per call. |
+| `DecisionTraces.continue_decision_review` | `limit` | `100` | At most 100 queued decisions per call. |
+| `DecisionTraces.list_conflicts` | none | none | At most 50 groups, with at most 50 decisions shown per group. |
+| `HistoryRetention.delete_task` | `include_decisions` | `True` | none |
+| All writes | `request_id` | `None` | 1 to 64 characters when set. |
+
+## Enums and states
+
+Each value is the string that is stored and returned.
+
+### Task and step states
+
+| Enum | Value | Meaning |
+| --- | --- | --- |
+| `TaskStatus` | `open` | The task was created. Every task starts in this state. |
+| `TaskStatus` | `done` | Defined in the model. No method in this version sets it. |
+| `EventKind` | `message` | A message from a speaker. Set `role` to name the speaker. |
+| `EventKind` | `tool_call` | A call to a tool. Set `name` to the tool. |
+| `EventKind` | `tool_result` | The result of a tool call. Set `name` to the tool. |
+| `EventKind` | `note` | A free-form note from the agent. |
+| `StepState` | `not_started` | The step is planned and has not begun. |
+| `StepState` | `in_progress` | The step has begun, and no outcome is recorded yet. |
+| `StepState` | `completed` | The step finished. Resume does not rerun it. |
+| `StepState` | `failed` | The step finished with a failure. Resume reruns it. |
+| `StepState` | `unknown` | The outcome is not known, for example after an interrupted run. Resume reruns it. |
+| `StepKind` | `read` | A step that reads sources. |
+| `StepKind` | `analysis` | A step that analyzes gathered material. |
+| `StepKind` | `other` | Any other step. This is the default. |
+| `StepResultBasis` | `independent` | The result does not depend on evidence. |
+| `StepResultBasis` | `supported` | The result depends on supports. |
+| `StepResultBasis` | `unknown` | The basis is not known. This is the default. |
+| `StepResultValidity` | `reusable` | The supports still match, so the result can be reused. |
+| `StepResultValidity` | `needs_review` | A support changed, or a supporting decision is not clear or active. |
+| `StepResultValidity` | `unavailable` | A support is gone, redacted, truncated, or was not found. |
+| `StepResultValidity` | `unknown` | Validity was not established. This is the default. |
+
+### Decision states
+
+| Enum | Value | Meaning |
+| --- | --- | --- |
+| `DecisionStatus` | `active` | The decision is the current one for its choice. Only active decisions are reused. |
+| `DecisionStatus` | `rejected` | A reviewer rejected the decision. The record and its supports are kept. |
+| `DecisionStatus` | `superseded` | A later revision of the same choice replaced the decision. |
+| `ReviewState` | `clear` | The supports still hold. |
+| `ReviewState` | `needs_review` | A support changed or was removed, or a decision it depends on is flagged. A flag does not mean the decision is false. |
+| `ReviewState` | `unknown` | The state could not be established, for example while review is incomplete. The decision is treated as needing review. |
+| `ReviewReason` | `source_changed` | A cited document version was replaced. Set by the document update path. |
+| `ReviewReason` | `source_removed` | A cited document was deleted or purged, a cited event was redacted, or a task with cited records was deleted. |
+| `ReviewReason` | `source_changed_during_recording` | A cited document changed while the decision was recorded. The result carries a warning. |
+| `ReviewReason` | `dependency_review` | A decision the record depends on was flagged. Set by review propagation, which `continue_decision_review` runs. |
+| `SupportKind` | `document` | A `DocumentSupport`. |
+| `SupportKind` | `event` | An `EventSupport`. |
+| `SupportKind` | `decision` | A `DecisionSupport`. |
+
+### Verdicts and source states
+
+| Enum or type | Value | Meaning |
+| --- | --- | --- |
+| `SourceState` (`source_status`) | `current` | The committed version is complete and no job is pending. |
+| `SourceState` (`source_status`) | `pending` | A cutover job holds an unexpired lease. |
+| `SourceState` (`source_status`) | `failed` | An incomplete job has an expired lease, or the last write did not complete. |
+| `SourceState` (`source_status`) | `deleted` | The last committed change was a delete or purge. |
+| `SourceState` (`source_status`) | `unknown` | The document key is not in the graph, and no job exists for it. |
+| `FetchStatus` | `ok` | The text is returned in full. This is the only status that can back a document support. |
+| `FetchStatus` | `partial` | Part of the requested range has no chunk. Only the covered part is returned. |
+| `FetchStatus` | `truncated` | The text was cut at the requested maximum length. |
+| `FetchStatus` | `unavailable` | The id names no evidence the caller can read. Missing and out-of-scope ids look the same. |
+| `FetchStatus` | `malformed` | The id does not decode. |
+| `FetchStatus` | `index_not_ready` | An index the operation needs is not ready. |
+| `FetchStatus` | `failed` | The store failed while reading the evidence. |
+| `VersionStatus` | `current` | The text is from the document's current version. |
+| `VersionStatus` | `superseded` | The document changed after the text was written. The text is returned but is not searchable. |
+| `CitationVerdict` | `valid` | The id decodes, is in scope, and was fetched, or lies inside a fetched span. |
+| `CitationVerdict` | `not_fetched` | The id is in scope but was not fetched, or it extends past every fetched span. |
+| `CitationVerdict` | `unavailable` | The id names a document outside the scope. |
+| `CitationVerdict` | `malformed` | The id does not decode. |
+| `VerificationResult.status` | `PASS` | Every sub-question has supporting evidence, and nothing contradicts it. |
+| `VerificationResult.status` | `INSUFFICIENT` | One or more sub-questions lack supporting evidence. |
+| `VerificationResult.status` | `CONTRADICTORY` | Cited evidence conflicts, so further research cannot settle it. |
+| `CandidateState` (`Literal`) | `pending` | A candidate waits for review. |
+| `CandidateState` (`Literal`) | `approved` | A reviewer approved the candidate. |
+| `CandidateState` (`Literal`) | `rejected` | A reviewer rejected the candidate. |
+
+### Agent result status
+
+`AgentRunResult.status` has six values. The built-in agent sets the first value that applies, in this order.
+
+| Order | Value | Set when |
+| --- | --- | --- |
+| 1 | `recording_failed` | A task write did not complete. |
+| 2 | `budget_exhausted` | The run used its tool or time budget. |
+| 3 | `partial_retrieval` | A retrieval call failed. |
+| 4 | `partial` | An invalid citation exists, or no structured answer was produced. |
+| 5 | `insufficient_evidence` | The answer's support status is `insufficient_evidence`. |
+| 6 | `answered` | None of the above applies. |
+
+### Write error codes
+
+Each write returns one of these codes in its `error` field. The `WriteErrorCode` enum has two sets of values, one for conversation history writes and one for decision writes.
+
+#### Conversation history writes
+
+`agrag/common/data_models/task.py`, returned by `ConversationHistory`.
+
+| Code | Meaning |
+| --- | --- |
+| `task_exists` | The task name is used with a different goal. |
+| `task_not_found` | The task does not exist in the project. |
+| `event_not_found` | `result_event_seq` names no event in the task. |
+| `support_required` | A supported result has no supports. |
+| `support_invalid` | A support does not match an event or document in the project. |
+| `request_id_reused` | The request id was used with different arguments. |
+| `invalid_request_id` | The request id is empty or longer than 64 characters. |
+
+#### Decision writes
+
+`agrag/common/data_models/write_result.py`, returned by `DecisionTraces`.
+
+| Code | Meaning |
+| --- | --- |
+| `task_exists` | Defined in the enum. Decision writes do not return it in this version. |
+| `task_not_found` | The task does not exist in the project. |
+| `event_not_found` | Defined in the enum. Decision writes return `support_event_not_found` instead. |
+| `request_id_reused` | The request id was used with different arguments. |
+| `invalid_request_id` | The request id is empty or longer than 64 characters. |
+| `choice_exists` | The choice already has a decision. Use `supersede_decision`. |
+| `supersede_target_invalid` | The decision to supersede does not exist or is not active. |
+| `explanation_required` | `supersede_decision` received a blank explanation. |
+| `support_required` | The write has no supports, or more than 20. |
+| `support_malformed` | A support or evidence id does not decode or has an invalid form. |
+| `support_not_fetched` | A document support has no fetch outcome with status `ok`. |
+| `support_out_of_scope` | Defined in the enum. Decision writes do not return it in this version. |
+| `support_document_not_found` | The cited document is not in the graph. |
+| `support_event_not_found` | The cited event is not in the project. |
+| `support_decision_not_found` | The cited decision is not in the project. |
+| `decision_not_found` | The decision id does not exist in the project. |
+| `decision_not_active` | The decision is rejected or superseded, so the operation does not apply. |
+| `support_decision_not_active` | A decision support names a decision that is not active. |
+| `cannot_revalidate` | `reaffirm_decision` cannot confirm the decision, because a cited text changed, the review is incomplete, or a dependency is not clear. |
+
+### Retention error codes
+
+`agrag/common/data_models/retention.py`, returned by `HistoryRetention`.
+
+| Code | Meaning |
+| --- | --- |
+| `event_not_found` | The event id names no event in the project. |
+| `task_not_found` | The task does not exist in the project. |
+| `request_id_reused` | The request id was used with different arguments. |
+| `invalid_request_id` | The request id is empty or longer than 64 characters. |
+
+## Exceptions
+
+The history, decision, and retention writes return the error codes above for a refused write and do not raise. The `_WriteRefusedError`, `_DecisionRefusedError`, and `_RetentionRefusedError` classes are private and not part of the public API.
+
+A class is public when its module name does not start with an underscore. `CutoverJobLeaseError` in `agrag/ingestion/_cutover.py` is therefore not listed. The base classes with no raise site in `agrag` are marked as bases. Catch a base class to handle every subclass.
+
+### Graph store
+
+| Class | Base | Raised when |
+| --- | --- | --- |
+| `GraphStoreError` | `Exception` | The base class. A query or transaction failed in the backend. |
+| `GraphStoreMissingExtraError` | `GraphStoreError` | The Neo4j or FalkorDB client package is not installed. |
+| `GraphStoreWriteConflictError` | `GraphStoreError` | A write reaches a row that an in-flight job owns, and the write cannot defer it. The transaction rolls back. |
+| `GraphStoreConstraintViolationError` | `GraphStoreError` | The backend reports a uniqueness violation. History writes retry it up to three times. |
+| `GraphStoreAliasConflictError` | `GraphStoreConstraintViolationError` | A merge key alias is already owned by another entity. Raised by the entity merge step. Attribute: `conflicts`. |
+
+### Embeddings and vector stores
+
+| Class | Base | Raised when |
+| --- | --- | --- |
+| `EmbeddingError` | `Exception` | The base class for embedding errors. No raise site in `agrag` uses it directly. |
+| `EmbeddingMissingExtraError` | `EmbeddingError` | The local sentence-transformers embedder or the reranker needs an extra that is not installed. Attribute: `extra`. |
+| `EmbeddingDimensionMismatchError` | `EmbeddingError` | The embedder produces a dimension that differs from the stored index. Attributes: `expected`, `actual`. |
+| `VectorStoreError` | `Exception` | An external vector index operation failed. |
+| `VectorStoreMissingExtraError` | `VectorStoreError` | The client for the selected vector store is not installed. Attribute: `extra`. |
+| `CollectionMismatchError` | `VectorStoreError` | An existing collection has incompatible dimensions, distance, or metadata. |
+| `VectorPlacementError` | `VectorStoreError` | The requested vector placement differs from the placement recorded in the graph. |
+
+### Ingestion and loaders
+
+| Class | Base | Raised when |
+| --- | --- | --- |
+| `IngestionError` | `Exception` | The base class for ingestion errors. Ingestion code catches it to skip a source. No raise site uses it directly. |
+| `UnsupportedFormatError` | `IngestionError` | No registered loader reads the file extension. Attribute: `extension`. |
+| `MissingExtraError` | `UnsupportedFormatError` | A loader exists for the format, but its extra is not installed. An error policy treats it like an unsupported format. Attributes: `extension`, `extra`. |
+| `DecodeError` | `IngestionError` | The source bytes do not decode under the forced encoding, or detection fails and the fallback is unavailable. |
+| `MalformedRecordError` | `IngestionError` | A record in a record-family source, such as a chat export or a table, does not parse. |
+| `DocumentTooLargeError` | `IngestionError` | A prose source is larger than the configured byte limit. |
+| `DocumentConversionError` | `IngestionError` | The Docling loader cannot parse or convert the source. |
+| `ChunkingError` | `Exception` | The chunker cannot split a document without changing its text, or a text chunk has no offsets. |
+
+### Extraction and communities
+
+| Class | Base | Raised when |
+| --- | --- | --- |
+| `ExtractorMissingExtraError` | `IngestionError` | The GLiNER or BAML extractor needs an extra that is not installed. Attributes: `component`, `extra`. |
+| `UnparsableExtractionError` | `IngestionError` | The LLM reply holds no JSON answer. An empty result from a model that found nothing is not this error. |
+| `CommunityDetectionMissingExtraError` | `Exception` | The community detection package is not installed. |
+
+### Schema
+
+| Class | Base | Raised when |
+| --- | --- | --- |
+| `SchemaError` | `Exception` | The base class for schema loader errors. No raise site uses it directly. |
+| `SchemaLoadError` | `SchemaError`, `ValueError` | A schema source is invalid. The message lists every issue with its path. Attributes: `issues`, `source`. |
+| `SchemaFormatError` | `ValueError` | An input cannot be imported as a supported schema format, for example an invalid OWL or Turtle document. |
+| `SchemaFormatMissingExtraError` | `SchemaFormatError` | The optional package for a schema format is not installed. Attributes: `component`, `extra`. |
+
+### Evidence, candidates, and agents
+
+| Class | Base | Raised when |
+| --- | --- | --- |
+| `MalformedEvidenceIdError` | `ValueError` | An evidence id is not in the canonical form, or it names an empty or reversed range. History and decision writes convert it to `support_malformed`. |
+| `PatchNotAppliedError` | `ValueError` | The active schema does not contain every item of a candidate patch. Attribute: `missing`. |
+| `AgentMissingExtraError` | `Exception` | The agent extra is not installed, or agent tracing needs the observability extra. Attribute: `extra`. |
+| `UnsupportedAgentProviderError` | `Exception` | The configured model provider has no agent mapping. |
+| `McpServerMissingExtraError` | `Exception` | The MCP server is started without the `mcp` extra. Attribute: `extra`. |
+
+The `agrag` package defines no class whose name ends in `Exception`.

@@ -7,13 +7,9 @@ import Diagram from '@site/src/components/Diagram';
 
 # Trace Spans
 
-This page is the reference for the spans Agentic GraphRAG records when you pass it a
-`tracer`. It lists the span names, attributes, and provider values that ingestion, extraction, resolution, the agent, and the judge record.
+Agentic GraphRAG records the spans below when you pass it a `tracer`. They cover ingestion, extraction, resolution, the agent, and the judge.
 
-Tracing is opt-in per object. A `tracer` of `None` opens no recorded span.
-Agentic GraphRAG never installs a global provider. You inject
-the tracer you want. See [Trace an agent run](../guides/trace-an-agent-run.mdx) for
-how to build and pass one.
+Tracing is opt-in per object. A `tracer` of `None` opens no recorded span. Agentic GraphRAG never installs a global provider. You inject the tracer you want. See [Trace an agent run](../guides/trace-an-agent-run.mdx) for how to build and pass one.
 
 ## How the span families nest
 
@@ -34,9 +30,7 @@ how to build and pass one.
 
 ## The LLM span tree
 
-Every BAML-backed path produces the same three spans, nested. BAML collects
-data during the attempt. The path writes the `request`
-span after the attempt finishes. The span carries the real request and response.
+Every BAML-backed path produces the same three spans, nested. BAML collects data during the attempt. The path writes the `request` span after the attempt finishes. The span carries the real request and response.
 
 ```text
 agrag.extraction.extract_chunk            (INTERNAL)
@@ -52,9 +46,7 @@ agrag.extraction.extract_chunk            (INTERNAL)
 | `agrag.llm.attempt` | INTERNAL | `agrag.llm.attempt` (1-based) |
 | `agrag.llm.request` | CLIENT | the table below |
 
-`agrag.llm.function` is the BAML function name, such as
-`ExtractEntitiesAndRelations`. The attempt span records the exception when an
-attempt fails. The `call` span reports `ERROR` when the call as a whole fails.
+`agrag.llm.function` is the BAML function name, such as `ExtractEntitiesAndRelations`. The attempt span records the exception when an attempt fails. The `call` span reports `ERROR` when the call as a whole fails.
 
 ## Ingestion spans
 
@@ -66,7 +58,7 @@ attempt fails. The `call` span reports `ERROR` when the call as a whole fails.
 
 ## Ingestion root spans
 
-Every public `Graph` call opens one root span. The spans in the sections below nest under it.
+Every public `Graph` call opens one root span.
 
 | Span | Opens when | Attributes |
 |---|---|---|
@@ -155,7 +147,7 @@ agrag.ingestion.add
 
 ## Graph store spans
 
-The Neo4j store opens these spans. Reads and writes carry the query text and the value of every parameter except vectors and the full-text search terms. A trace shows what each query asked for.
+The Neo4j store opens these spans. Reads and writes carry the query text and the value of every parameter except vectors and the lexical search terms. A trace shows what each query asked for.
 
 | Span | Attributes |
 |---|---|
@@ -234,16 +226,9 @@ Each LLM path also opens one small domain span carrying its own ids and counts.
 | Community | `agrag.community.report_batch` | `agrag.batch_size` |
 | Judge | `agrag.eval.judge` | `agrag.eval.judge_model` |
 
-One of these is conditional:
+`agrag.merge.resolve_description` opens only when the field conflicted. The field conflicted when more than one distinct candidate exists. A field that every entity in the group agrees on adds no span.
 
-- `agrag.merge.resolve_description` opens only when the field
-  conflicted. The field conflicted when more than one distinct candidate exists. A field
-  every mention agrees on adds no span.
-
-`agrag.resolution.llm_verify` never carries an `ERROR` status. A failed LLM
-call leaves its pairs undecided, not rejected, and is not an error. The span
-stays `UNSET` and sets `agrag.request_failed` instead. When no LLM settings are
-available, it sets `agrag.llm_unavailable` instead.
+`agrag.resolution.llm_verify` never carries an `ERROR` status. A failed LLM call leaves its pairs undecided, not rejected, and is not an error. The span stays `UNSET` and sets `agrag.request_failed` instead. When no LLM settings are available, it sets `agrag.llm_unavailable` instead.
 
 ## The `agrag.llm.request` span
 
@@ -268,13 +253,11 @@ This is the only span a BAML path tags with the OpenInference LLM kind.
 | `agrag.llm.requested_model` | the model in the request body |
 | `agrag.llm.selected` | whether BAML used this call's reply |
 
-The span's status is `ERROR` when the status is 400 or higher, or when the call
-got no response at all.
+The span's status is `ERROR` when the status is 400 or higher, or when the call got no response at all.
 
 ### Provider mapping
 
 BAML's provider ids map to the same OpenInference values the agent path emits.
-The same configuration reports the same provider either way.
 
 | BAML provider id | `llm.provider` |
 |---|---|
@@ -284,13 +267,11 @@ The same configuration reports the same provider either way.
 | `google-ai`, `vertex-ai` | `google` |
 | `aws-bedrock` | `aws` |
 
-An id outside this table stays unchanged. A newly added provider still
-produces a usable span.
+An id outside this table stays unchanged. A newly added provider still produces a usable span.
 
 ## Counting calls and tokens
 
-To count the LLM calls in a trace, count the spans tagged with the
-OpenInference LLM kind:
+To count the LLM calls in a trace, count the spans tagged with the OpenInference LLM kind:
 
 ```python
 def count_llm_calls(spans):
@@ -301,40 +282,18 @@ def count_llm_calls(spans):
     )
 ```
 
-Token counts live only on `agrag.llm.request` spans and on the agent and judge
-LLM spans. The parent spans never carry them. A sum of
-`llm.token_count.prompt` over every span with that kind is exact. Nothing
-counts twice.
+Token counts live only on `agrag.llm.request` spans and on the agent and judge LLM spans. The parent spans never carry them. A sum of `llm.token_count.prompt` over every span with that kind is exact because no token is counted twice.
 
 ## What is recorded, and what is not
 
-Nothing withholds text. `agrag.llm.request` records the full request and
-response bodies, and the agent and judge spans record the question, tool inputs
-and evidence text. The OpenInference redaction environment variables no longer
-change any span, on any path. To record less, scrub attributes in a
-`SpanProcessor` you configure, or run without a tracer.
+Nothing withholds text. `agrag.llm.request` records the full request and response bodies, and the agent and judge spans record the question, tool inputs and evidence text. The OpenInference redaction environment variables no longer change any span, on any path. To record less, scrub attributes in a `SpanProcessor` you configure, or run without a tracer.
 
-No span records two things: the request headers, which carry the
-provider key, and the request URL. Graph store spans record the query text and the
-value of every parameter except vectors and full-text search terms. A parameter can hold source text or entity
-names.
+No span attribute records the request headers, which carry the provider key, or the request URL. Error text can still contain the URL; see Known limits. Graph store spans record the query text and the value of every parameter except vectors and lexical search terms. A parameter can hold source text or entity names.
 
 ## Known limits
 
-- An unparsable extraction reply raises `UnparsableExtractionError`. The
-  `agrag.extraction.baml` span sets `agrag.extraction.unparsable` and ends with
-  an error status.
-- Retries below BAML are invisible: LangChain and the provider SDKs retry
-  internally, and one agent or judge LLM span can cover several HTTP requests.
-  The `agrag.llm.request` spans, read from BAML's collector, are exact for the
-  requests BAML itself made.
-- Token semantics match an OpenAI-compatible endpoint only.
-  For `anthropic`, `google-ai`, `vertex-ai`, `aws-bedrock` and `azure-openai`,
-  the counts are whatever BAML's `Usage` reports.
-- The SDK caps attributes at 128 by default. A long agent run can reach that
-  limit. The SDK then drops attributes without a warning. Raise `SpanLimits.max_attributes` on
-  your provider. Use a sampling processor in production.
-- BAML error text includes the request URL. It reaches exception events and
-  `StageFailure.error_message`. `output.value` holds only a response body, so a
-  connection failure leaves it empty. Never put a provider key in a `base_url`
-  query string.
+- An unparsable extraction reply raises `UnparsableExtractionError`. The `agrag.extraction.baml` span sets `agrag.extraction.unparsable` and ends with an error status.
+- Retries below BAML are invisible: LangChain and the provider SDKs retry internally, and one agent or judge LLM span can cover several HTTP requests. The `agrag.llm.request` spans, read from BAML's collector, are exact for the requests BAML itself made.
+- Token semantics match an OpenAI-compatible endpoint only. For `anthropic`, `google-ai`, `vertex-ai`, `aws-bedrock` and `azure-openai`, the counts are whatever BAML's `Usage` reports.
+- The SDK caps attributes at 128 by default. A long agent run can reach that limit. The SDK then drops attributes without a warning. Raise `SpanLimits.max_attributes` on your provider. Use a sampling processor in production.
+- BAML error text includes the request URL. It reaches exception events and `StageFailure.error_message`. `output.value` holds only a response body, so a connection failure leaves it empty. Never put a provider key in a `base_url` query string.

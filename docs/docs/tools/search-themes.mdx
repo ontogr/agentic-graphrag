@@ -1,0 +1,138 @@
+---
+title: Search themes
+description: Find themes, groups of related entities from community detection, each with the passages that mention its members.
+---
+
+# Search themes
+
+Search themes finds the themes that match a query. A theme is a community of related entities from the last community detection run. Each theme comes with the passages that mention its members.
+
+| | |
+|---|---|
+| Python function | `search_themes` |
+| Built-in agent tool | `search_themes` |
+| MCP tool | `search_themes` |
+| Required inputs | `query`. Python also needs `store`, `embedder`, and `scope`. |
+| Optional inputs | `limit` (default 5) and `support_limit` (default 3). Python also takes `vector_store`, `settings`, and `timeout`. |
+| Returns | A `ThemeResult` with ranked `themes`. Each theme has `entities` and `passages`. |
+| Needs | A community detection run, and the vector index on community embeddings. An embedder for the query. |
+| Reads | Visible passages of the documents in scope that mention the members of a community |
+| API reference | [`agrag.evidence.themes.search_themes`](../api/evidence/themes/search_themes.md) |
+
+## Overview
+
+Passage search finds one passage, and entity search finds one named thing. A broad question, such as "What are the main topics in these documents?", spans many passages, and no single passage answers it. Search themes returns groups of related entities, so one answer can draw on several documents.
+
+A theme comes from the last [community detection](../concepts/communities.mdx) run. The query is matched by meaning against the embedding of each community report. Lexical matching is not used. The returned passages come from the graph and its stored chunks, never from the report text.
+
+- Use search themes for a broad question that spans many documents.
+- Use [passage search](./passage-search.mdx) when the answer is a fact in one passage.
+- Use [entity search](./entity-search.mdx) when the question names a thing.
+
+Membership is only as current as the last run. A document added after that run is absent until you run detection again. A passage that is deleted, superseded, or hidden stops appearing at once, without a new run.
+
+## Example
+
+The examples use the notes from [Set up the example](./example-setup.mdx), and they reuse `store`, `embedder`, `scope`, and `short` from that page. Run community detection on the graph before you search. Without a run, there are no themes to return.
+
+Search for the broad question "How is customer data handled?" and print each theme with its passages:
+
+```python notest
+themes = await search_themes(
+    store,
+    embedder,
+    "How is customer data handled?",
+    scope=scope,
+    limit=3,
+    support_limit=2,
+)
+print(themes.status.value, themes.truncated, themes.index_state)
+for theme in themes.themes:
+    print(f"{theme.score:.4f}  {theme.theme_id}  {theme.entities}")
+    for passage in theme.passages:
+        print("   ", short(passage.evidence_id))
+```
+
+The themes come back best first. `theme.entities` lists up to five member names that a visible passage mentions. Each passage is an evidence id, so fetch it to read the text. Your output depends on your documents and on the detection run.
+
+## Usage
+
+### In Python
+
+Import `search_themes` from `agrag.evidence`, and call it as in the example above. Python needs the connected `store`, the `embedder`, and the `scope`. Use the same embedder that loaded the documents. The query is embedded with it, and a different embedding model gives a failed result.
+
+### In the built-in agent
+
+The agent calls `search_themes` on its own for a broad question. You do not call it. You set the documents the agent can read with the `scope` argument of `build_agent`. A theme search that does not end in `ok`, `no_match`, or `empty_scope`, or that is truncated, marks the run as `partial_retrieval`.
+
+### On the MCP server
+
+An MCP client calls `search_themes` with the query and optional limits. The server supplies the scope.
+
+```json
+{"query": "How is customer data handled?", "limit": 3, "support_limit": 2}
+```
+
+The server caps `limit` at `MCP_MAX_HITS`. The parameter ranges are in the [tools reference](../reference/tools.mdx#theme-search).
+
+## Limits
+
+| Input | Python | Agent and MCP |
+|---|---|---|
+| `query` | Any string | 1 to 1000 characters |
+| `limit` | Default 5. Zero or less raises `ValueError`. | 1 to 10. On MCP, also capped at `MCP_MAX_HITS` (default 10). |
+| `support_limit` | Default 3. Zero or less raises `ValueError`. | 1 to 10 |
+
+Each theme lists at most five entity names. The search reads up to `min(limit * 3, 100)` community candidates from the vector index, then drops each candidate that has no visible passage. A large `limit` therefore reads more candidates, up to 100.
+
+## Scope rules
+
+- Only passages of the documents in `scope` are used. The MCP server takes the scope from its settings, so a call cannot widen it.
+- Each community report is matched, but its text is never returned. A community node has no document scope, so its report can describe documents outside the scope.
+- A community with no passage in scope is dropped from the result.
+- Membership comes from the last run. Documents added after that run do not appear.
+
+## Result
+
+A call returns a `ThemeResult`.
+
+| Field | Meaning |
+|---|---|
+| `status` | The outcome. See the status table. |
+| `themes` | The themes, best first. |
+| `truncated` | True when fewer than `limit` themes remained and the candidate read filled its window, so more themes may exist. |
+| `index_state` | `ready`, `not_ready`, or `null` when no index was checked. |
+| `failures` | The legs that failed. Each one has the leg and a message. |
+
+Each theme has these fields.
+
+| Field | Meaning |
+|---|---|
+| `theme_id` | The id of the community node. |
+| `score` | The similarity of the query to the community report. It orders the themes and is not a confidence. |
+| `entities` | Up to five names of members that a visible in-scope passage mentions. |
+| `passages` | The visible in-scope passages that mention members, best first. Each has an `evidence_id`, `document_key`, and `location`. |
+
+Passages in a theme rank by the number of distinct members that mention them, then by chunk position. The score does not rank passages.
+
+| Status | Meaning | Next step |
+|---|---|---|
+| `ok` | Themes were found. | Fetch the passages you use. |
+| `no_match` | The read ran, and no community had a visible passage. | Rephrase the query, or try passage search. |
+| `empty_scope` | The scope holds no document keys, so nothing was searched. | Set the scope. |
+| `index_not_ready` | The community index is missing or not online. | Run community detection, wait for the index, then retry. |
+| `failed` | The theme read failed, or the query embedding does not match the stored vectors. `failures` says which. | Read `failures` and retry. For a mismatch, set the same `EMBEDDING_*` settings that ingestion used. |
+
+## Errors
+
+- Python raises `ValueError` when `limit` or `support_limit` is not positive.
+- The agent does not raise on bad arguments. It returns an `Invalid arguments.` message that names each bad field, so the model can correct the call.
+- The MCP server rejects arguments that break the ranges above before the search runs.
+
+## Related
+
+- [Communities](../concepts/communities.mdx) describes how the themes are built and how their reports are written.
+- [Passage search](./passage-search.mdx) and [entity search](./entity-search.mdx) answer narrower questions.
+- [Fetch evidence](./fetch-evidence.mdx) returns the text behind each passage id.
+- [Detect communities and read reports](../guides/detect-communities.mdx) shows how to run the community detection that themes need.
+- [Agent loop](../concepts/agent-loop.mdx) lists the tools the agent uses.

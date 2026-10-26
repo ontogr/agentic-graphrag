@@ -18,7 +18,7 @@ Choose an extraction mode based on where you want models to run and how much tex
 | `hybrid` (default) | You want local extraction on all chunks and LLM review of selected chunks. | You run both models. The budget limits LLM calls, so some chunks keep only their local results. |
 | `llm` | You want an LLM to extract without running GLiNER. | Every chunk that meets the word minimum goes to the LLM. There is no local result to keep if that call fails. |
 
-Start with `gliner` if you do not need property values or extraction LLM review. Choose `hybrid` if you want to limit how many chunks reach the LLM. Choose `llm` if you do not want to run a local extraction model. LLM usage depends on how many chunks it reads; when you use a hosted endpoint, those chunks are sent to that provider.
+When you use a hosted endpoint, the chunks that the LLM reads are sent to that provider.
 
 The modes do not establish an accuracy ranking. Check the extracted entities, relations, and properties on representative documents before choosing a mode for your workload. The setting controls extraction only, not LLM use elsewhere in the graph.
 
@@ -92,7 +92,7 @@ If graph construction raises `ValueError`, check that your extractor arguments m
 
 ## Related guides
 
-- [How extraction works](../concepts/extraction.mdx)
-- [Extract and resolve entities](./extract-and-resolve.mdx)
-- [Control LLM cost during extraction](./control-llm-cost-during-extraction.mdx)
-- [Configuration reference](../reference/configuration.mdx)
+- [How extraction works](../concepts/extraction.mdx) explains how chunk text becomes typed extracted entities and relations.
+- [Extract and resolve entities](./extract-and-resolve.mdx) covers the extractor classes, their settings, and the LLM client configuration.
+- [Control LLM cost during extraction](./control-llm-cost-during-extraction.mdx) covers the hybrid budget and the run report.
+- [Configuration reference](../reference/configuration.mdx) lists every extraction variable and its default.

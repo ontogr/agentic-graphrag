@@ -4,11 +4,11 @@ sidebar_position: 2
 
 # Extract and resolve entities
 
-Use an extractor directly when you need to inspect extraction results, or pass extractors to `Graph` to extract and resolve entities during ingestion. This guide covers both paths and explains which results are retained when a model cannot decide.
+Use an extractor directly when you need to inspect extraction results, or pass extractors to `Graph` to extract and resolve entities during ingestion.
 
 ## Before you start
 
-The extraction examples use a chunk of text. The resolution examples use a graph. This guide assumes that you finished the [Quickstart](../get-started/quickstart.mdx). Each code block is complete and opens its own connections. The LLM examples read `LLM_BASE_URL`, `LLM_MODEL_ID`, and optionally `LLM_API_KEY` from the environment or from `.env`.
+Extraction examples run on one chunk of text, and resolution examples run on a graph. The examples assume that you finished the [Quickstart](../get-started/quickstart.mdx). Each code block is complete and opens its own connections. The LLM examples read `LLM_BASE_URL`, `LLM_MODEL_ID`, and optionally `LLM_API_KEY` from the environment or from `.env`.
 
 ## Extract with the default schema
 
@@ -81,7 +81,7 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
-Only `BAMLExtractor` uses the heading path. The local extractor reads the chunk text only. See [Configure chunking](./configure-chunking.mdx) for the embedding side of this configuration.
+Only `BAMLExtractor` uses the heading path. The local extractor reads the chunk text only. See [Configure chunking](./configure-chunking.mdx) for how chunks record their heading paths.
 
 ## Configure extraction
 
@@ -114,7 +114,7 @@ extractor = GlinerExtractor(settings=settings)
 
 `Graph` takes the settings from an injected, top-level `GlinerExtractor`. For a custom extractor, pass `extraction_settings=` to `Graph.open`. If you pass settings to both the graph and a top-level GLiNER extractor, their values must match.
 
-See the [configuration reference](../reference/configuration.mdx#local-extraction) for all extraction settings. Each extracted entity and relation has a `confidence` score from the model.
+See the [configuration reference](../reference/configuration.mdx#local-extraction) for all extraction settings. Each entity and relation that `GlinerExtractor` keeps has a `confidence` score from the model. LLM-only entities and relations have none.
 
 `EXTRACTION_MODE` accepts `gliner`, `hybrid` (the default), and `llm`. `Graph.effective_mode` reports the mode selected for the graph, not the class of the extractor. When `hybrid` has no LLM configured, the mode becomes `gliner` and Graph logs a warning. An injected custom local extractor still runs unchanged in that mode; Graph does not replace it with GLiNER. In `hybrid`, Graph sends the weak chunks to the LLM extractor. See [Control LLM cost during extraction](./control-llm-cost-during-extraction.mdx) for the modes, the budget and the run report.
 
@@ -162,7 +162,7 @@ asyncio.run(main())
 
 Each kept entity and relation has a `confidence`. The extractor keeps an entity at 0.5 or more and a relation at 0.7 or more. Set `EXTRACTION_ENTITY_THRESHOLD` and `EXTRACTION_RELATION_THRESHOLD` to change them. A relation must also match a pattern of the schema. The pattern accepts the child types of its labels.
 
-A stored relation edge records which extractor found it in `extractors`: `gliner`, `llm`, or both when both read the same chunk. It also records `confidence`, the highest score among the mentions of that edge. An edge found only by the LLM has no `confidence`. Both values only grow as the edge is written again. They are not lowered when a source chunk is later removed or replaced, so treat them as a record of the best evidence the edge has had.
+A stored relation edge records which extractor found it in `extractors`: `gliner`, `llm`, or both when both read the same chunk. It also records `confidence`, the highest score among the extracted relations for that edge. An edge found only by the LLM has no `confidence`. Both values only grow as the edge is written again. They are not lowered when a source chunk is later removed or replaced, so treat them as a record of the best evidence the edge has had.
 
 `result.candidates` lists proposed candidate records. GLiNER reports relation drops in extraction statistics whether candidate writing is enabled or not. Set `EXTRACTION_CANDIDATES_ENABLED=false` to stop writing candidate records; GLiNER still makes one model call for each chunk and skips the entity-band candidate pass. With candidates on, it makes two calls.
 
@@ -213,7 +213,7 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
-The `escalation` report shows how many chunks were weak, how many the LLM read, and how many LLM calls failed. The [Control LLM cost during extraction](./control-llm-cost-during-extraction.mdx) guide explains the budget settings and each field of the report.
+The `escalation` report shows how many chunks were weak, how many the LLM read, and how many LLM calls failed. See [Control LLM cost during extraction](./control-llm-cost-during-extraction.mdx) for the budget settings and each field of the report.
 
 ## Configure the LLM provider
 
@@ -230,7 +230,7 @@ Alternatively, use `ExtractionLLMSettings.from_openai_compatible_env()` to read 
 
 ## Resolution runs inside every write
 
-`Graph.add` runs resolution as part of ingestion. Exact, fuzzy, and embedding tiers handle candidate pairs before the capped LLM tier reviews remaining ambiguous pairs. The LLM considers pairs in similarity order, with entity indices breaking ties. Pairs outside the cap stay undecided. Resolution preserves the original entity nodes. Confirmed non-exact matches are stored as `MATCHES` edges and represented by a derived resolved entity.
+`Graph.add` runs resolution as part of ingestion. The exact, fuzzy, embedding, and cluster tiers decide the pairs they can first. The capped LLM tier then reviews the remaining ambiguous pairs. For each label, it gets the most similar pairs up to the cap, with entity indices breaking ties. Pairs outside the cap stay undecided. Resolution preserves the original entity nodes. Confirmed non-exact matches are stored as `MATCHES` edges and represented by a derived resolved entity.
 
 ```python
 import asyncio
@@ -264,7 +264,7 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
-`Graph.open` takes one resolution setting, `max_llm_pairs`, which caps the pairs that the LLM reviews for each label. Resolution uses the schema, the embedder, and the extractor that you pass to it. Inspect every run through the resolution stats on the returned `AddResult`. A pair that the LLM could not judge stays undecided. It is not a rejection, and it does not merge. Nonzero `failed_llm_requests`, `cap_truncated_pairs`, or `llm_unavailable_pairs` means that some pairs did not receive an LLM verdict. Fix the cause and run `consolidate()` to review them. Zero counts do not guarantee a decision for every pair, because the LLM can still return an uncertain answer. `in_batch_groups` counts only groups with at least two incoming mentions, not singletons or a lone mention joined to persisted candidates.
+`Graph.open` takes one resolution setting, `max_llm_pairs`, which caps the pairs that the LLM reviews for each label. Resolution uses the schema, the embedder, and the extractor that you pass to it. Inspect every run through the resolution stats on the returned `AddResult`. A pair that the LLM could not judge stays undecided. It is not a rejection, and it does not merge. Nonzero `failed_llm_requests`, `cap_truncated_pairs`, or `llm_unavailable_pairs` means that some pairs did not receive an LLM verdict. Fix the cause and run `consolidate()` to review them. Zero counts do not guarantee a decision for every pair, because the LLM can still return an uncertain answer. `in_batch_groups` counts only groups with at least two incoming extracted entities, not singletons or a lone extracted entity joined to persisted candidates.
 
 ## Consolidate the whole graph
 
@@ -304,7 +304,7 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
-A dry run writes nothing. An apply run writes `MATCHES` edges and derived resolved nodes. It reports exactly the matches it wrote. LLM review calls stay bounded no matter how large the graph grows.
+A dry run writes nothing. An apply run writes `MATCHES` edges and derived resolved nodes. It reports exactly the matches it wrote. LLM review is capped at `max_llm_pairs` pairs for each label, which defaults to 500, however large the graph is.
 
 ## Re-evaluate specific entities
 
@@ -372,4 +372,4 @@ schema = GraphSchema(
 
 ## Next steps
 
-See the [API reference](../api/index.md) for every `Extractor`, `Comparator`, and schema field.
+The [API reference](../api/index.md) gives the signature of every `Extractor`, `Comparator`, and schema field.

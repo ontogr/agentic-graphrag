@@ -56,7 +56,7 @@ The status is `ok`, so the text is complete and the id is citable. The last line
 
 ### A short budget and a bad id
 
-Fetch two ids with a budget of 60 characters. The second id is not an id:
+Fetch two ids with a budget of 60 characters. The second id does not decode:
 
 ```python notest
 outcomes = await fetch_evidence(store, [retention_id, "ev1:c:oops"], scope=scope, max_chars=60)

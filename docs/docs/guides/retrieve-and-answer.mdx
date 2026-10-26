@@ -78,7 +78,7 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
-An empty result is not an error. See [Troubleshoot common errors](./troubleshoot-common-errors.mdx#a-search-returns-nothing) for its causes. [Find and cite evidence](./find-and-cite-evidence.mdx) adds the citation check and the other evidence tools.
+An empty result is not an error. [Troubleshoot common errors](./troubleshoot-common-errors.mdx#a-search-returns-nothing) lists its causes. [Find and cite evidence](./find-and-cite-evidence.mdx) covers the citation check and the other evidence tools.
 
 ## Answer with an agent
 
@@ -144,7 +144,7 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
-The result has the `answer`, a `status` that says whether the agent answered or reached a limit, the `citations` it fetched, the `invalid_citations`, any `recording_failures`, the `task` name with its last event number, and the `messages`. See [Agent loop](../concepts/agent-loop.mdx#result-status) for the statuses. The agent stores task state under the supplied `project_id`, `agent_id`, and `task_name`.
+The result has the `answer`, a `status` such as `answered`, `insufficient_evidence`, `partial`, `budget_exhausted`, `recording_failed` or `partial_retrieval`, the `citations` it fetched, the `invalid_citations`, any `recording_failures`, the `task` name with its last event number, and the `messages`. See [Agent loop](../concepts/agent-loop.mdx#result-status) for the statuses. The agent stores task state under the supplied `project_id`, `agent_id`, and `task_name`.
 
 Render `result["answer"]` with your application's Markdown renderer to show clickable HTTP(S) source references. The example uses an inline source URI, so its references are readable text rather than links. Keep `result["citations"]` for canonical evidence IDs and fetched passage text.
 
@@ -152,13 +152,9 @@ For a document copied from a remote source, set `Document.uri` to its actual use
 
 See [Citations in MCP clients](../concepts/agent-loop.mdx#citations-in-mcp-clients) for using readable source references in client answers.
 
-The agent uses the supplied document keys as its read scope. It does not search outside that scope.
-
 ### Set the document scope
 
-Pass the exact document keys the agent may read as a set of strings. The
-scope is fixed when the agent is built and applies to search, fetch, and
-citation checks.
+Pass the exact document keys the agent may read as a set of strings. The scope is fixed when the agent is built and applies to search, fetch, and citation checks.
 
 {/* pmd-metadata: fixture:llm_env */}
 
@@ -215,10 +211,7 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
-Set the scope when your application builds the agent. The tools enforce the
-scope. The model cannot see or change it. To call the evidence tools from your
-own code, see [Find and cite evidence](./find-and-cite-evidence.mdx). The
-agent's tools are listed in the [tools reference](../reference/tools.mdx).
+Set the scope when your application builds the agent. The tools enforce the scope. The model cannot see or change it. To call the evidence tools from your own code, use [Find and cite evidence](./find-and-cite-evidence.mdx). The [tools reference](../reference/tools.mdx) lists each agent tool and its parameters.
 
 ## Search themes
 
@@ -238,7 +231,7 @@ for theme in themes.themes:
         print("   ", passage.evidence_id)
 ```
 
-The result carries no community report text. Each passage is an evidence id that `fetch_evidence` reads, so a theme search feeds the same search, fetch, and citation check sequence as the other evidence tools.
+The result carries no community report text. Each passage is an evidence id that `fetch_evidence` reads, so its passages go through the same fetch and citation check steps as the other evidence tools.
 
 ## Configuration
 

@@ -80,8 +80,6 @@ children  no_match  []
 next      ok        [('table', 'Dependencies', 'ev1:c:f24b301d...12cd16fb')]
 ```
 
-Read each line against the notes.
-
 - `parent` returns the same chunk twice, once for each section it holds. The loader put "Route planning" and "Dependencies" in one chunk, so `multi_section` is true.
 - `siblings` returns the one section that the starting chunk does not hold, "Data retention".
 - `children` finds no other passage under the same parent, because each section holds one chunk, so the status is `no_match`.

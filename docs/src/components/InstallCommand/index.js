@@ -32,7 +32,14 @@ export default function InstallCommand({command, className}) {
   return (
     <div className={`${styles.command} ${className ?? ''}`}>
       <span className={styles.prompt} aria-hidden="true">$</span>
-      <code>{command}</code>
+      <code>
+        {command.split(' ').map((word, i) => (
+          <span key={i}>
+            {i > 0 && ' '}
+            {word.startsWith('--') ? <span className={styles.flag}>{word}</span> : word}
+          </span>
+        ))}
+      </code>
       <button type="button" className={styles.copy} onClick={copy}>
         {copied ? 'Copied' : 'Copy'}
       </button>

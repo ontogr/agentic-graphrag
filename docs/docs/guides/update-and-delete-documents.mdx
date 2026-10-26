@@ -32,7 +32,7 @@ If you add text that will change, pass a `Document` with a key you choose.
 
 ## Add, update and delete a document
 
-This script adds a document with the key `apollo-notes`. It then updates the document with the same text, updates it with new text, and deletes it.
+The script adds a document with the key `apollo-notes`, updates it with the same text and then with new text, and deletes it.
 
 ```python
 import asyncio
@@ -166,15 +166,15 @@ Call `Graph.purge_document` with the key when the text itself must leave the gra
 result = await graph.purge_document("apollo-notes")
 ```
 
-The call hard-deletes the chunks, sections, tables and figures of every version of the document, with their mention and relation evidence. Entities that lose their last evidence are removed. Evidence ids from the document then fetch as `unavailable`. The document node and its activation records stay, so the history shows that the purge happened. Decisions that cite the document are flagged for review with the reason `source_removed`. A key with no stored content gives `no_op=True`.
+The call hard-deletes the chunks, sections, tables and figures of every version of the document, with their `MENTIONED_IN` links and relation evidence. Entities that lose their last evidence are removed. Evidence ids from the document then fetch as `unavailable`. The document node and its activation records stay, so the history shows that the purge happened. Decisions that cite the document are flagged for review with the reason `source_removed`. A key with no stored content gives `no_op=True`.
 
 Pending candidates that cite the document are deleted. Approved and rejected candidates stay, but their links to deleted chunks are removed. Community summaries are not rebuilt by purge; run community detection again to refresh them.
 
-Purge belongs to `Graph`, not `HistoryRetention`, because it removes ingested content and runs graph cleanup. It scans relationships for `source_chunk_ids` citations, including relations whose endpoints no longer have mention links. These array membership checks have no index. Content deletion runs in one transaction on Neo4j. FalkorDB runs statements in order without multi-statement rollback, subject to its [commit recovery behavior](./configure-storage-backends.mdx#crash-recovery-of-a-commit). Before starting the cutover job, preflight rejects more than 10,000 content nodes, cited relations, pending candidates, or combined mention and citation endpoint records with `ValueError`. An entity counted in both endpoint sets counts twice toward this limit. Large graphs can still take time to scan.
+Purge belongs to `Graph`, not `HistoryRetention`, because it removes ingested content and runs graph cleanup. It scans relationships for `source_chunk_ids` citations, including relations whose endpoints no longer have `MENTIONED_IN` links. These array membership checks have no index. Content deletion runs in one transaction on Neo4j. FalkorDB runs statements in order without multi-statement rollback, subject to its [commit recovery behavior](./configure-storage-backends.mdx#crash-recovery-of-a-commit). Before starting the cutover job, preflight rejects more than 10,000 content nodes, cited relations, pending candidates, or combined `MENTIONED_IN` and citation endpoint records with `ValueError`. An entity counted in both endpoint sets counts twice toward this limit. Large graphs can still take time to scan.
 
 ## See what stays in the graph
 
-After the script above, run this query. It lists the chunks of each document and whether the link to them is open.
+Run this query to list each document's chunks and whether their `HAS_PART` link is open.
 
 ```python
 import asyncio
