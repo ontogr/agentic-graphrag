@@ -68,6 +68,6 @@
 
 <g class="q-note">
 <text class="note" x="24" y="342">The first run downloads the embedding and extraction models.</text>
-<text class="note" x="24" y="360">Run it again with the same task name, and the agent continues where it stopped.</text>
+<text class="note" x="24" y="360">Run it again with the same task name, and the agent works in the same stored task.</text>
 </g>
 </svg>

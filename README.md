@@ -248,7 +248,7 @@ AGENT_LLM_API_KEY=your-api-key
 AGENT_LLM_MODEL_ID=your-model-id
 ```
 
-The last three lines are the address, key, and model of your OpenAI-compatible LLM endpoint. For a Neo4j database on another machine, see [Configuration](https://ontogr.github.io/agentic-graphrag/stable/reference/configuration).
+The last three lines are the address, key, and model of your OpenAI-compatible LLM endpoint. The address ends at `/v1`, because the client adds the `/chat/completions` path itself. For a Neo4j database on another machine, see [Configuration](https://ontogr.github.io/agentic-graphrag/stable/reference/configuration).
 
 ### 4. Run the example
 
@@ -307,10 +307,10 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
-The script prints the answer and a Sources list. References are numbered by document, so a one-document run has a single source. Run it again with the same task name and the agent continues where it stopped.
+The script prints the answer and a Sources list. References are numbered by document, so a one-document run has a single source. Run it again with the same task name, and the agent works in the same stored task.
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/ontogr/agentic-graphrag/main/docs/static/img/readme/quickstart-output.svg" alt="Output of the quickstart script on a sample document. The answer has two short paragraphs, and every reference is [1] because all cited passages come from one document. A Sources list ends the output with one entry, the document title." width="860">
+  <img src="https://raw.githubusercontent.com/ontogr/agentic-graphrag/main/docs/static/img/readme/quickstart-output.svg" alt="Output of the quickstart script on a sample document. The answer has three numbered points, and every reference is [1] because all cited passages come from one document. A Sources list ends the output with one entry, the document title." width="860">
 </p>
 
 To run the example on FalkorDB, follow the [FalkorDB setup](https://ontogr.github.io/agentic-graphrag/latest/guides/configure-storage-backends#set-up-a-falkordb-graph-store), replace the `neo4j` install extra with `falkordb`, use `FALKORDB_*` connection settings, and change the store selection to `build_graph_store("falkordb")`.
