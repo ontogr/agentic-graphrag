@@ -20,6 +20,7 @@ from agrag.common.data_models.community import COMMUNITY_LABEL, Community
 from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.graph_schema import EntityType, GraphSchema, RelationType
 from agrag.common.data_models.relation import Relation
+from agrag.common.data_models.resolved_entity import ResolvedEntity
 from agrag.common.data_models.stage_failure import StageFailure  # noqa: F401
 from agrag.cypher.entities import validate_identifier
 from agrag.embedding.base import Embedder
@@ -295,6 +296,121 @@ class TestCommunityDetectionIntegration:
     @pytest.mark.skipif(
         graspologic_native_missing, reason="graspologic-native not installed"
     )
+    async def test_clusters_only_current_schema_entities_and_relations(self) -> None:
+        """Cluster only entities and relations declared by the active schema."""
+        entities = [
+            Entity(id=uuid4(), label=self.label, name=f"S{i}") for i in range(6)
+        ]
+        await self.store.upsert_nodes(
+            self.label, [entity.to_node_record() for entity in entities]
+        )
+
+        def chunk_ids(count: int) -> list[UUID]:
+            return [uuid4() for _ in range(count)]
+
+        relations = [
+            Relation(
+                id=uuid4(),
+                type="RELATED_TO",
+                source_id=entities[source].id,
+                target_id=entities[target].id,
+                source_chunk_ids=chunk_ids(2),
+            )
+            for source, target in ((0, 1), (1, 2), (3, 4), (4, 5))
+        ]
+        matches = Relation(
+            id=uuid4(),
+            type="MATCHES",
+            source_id=entities[2].id,
+            target_id=entities[3].id,
+            source_chunk_ids=chunk_ids(2),
+        )
+        stale_relation = Relation(
+            id=uuid4(),
+            type="OLD_RELATED_TO",
+            source_id=entities[2].id,
+            target_id=entities[3].id,
+            source_chunk_ids=chunk_ids(10),
+        )
+        resolved = ResolvedEntity(
+            id=uuid4(),
+            label=self.label,
+            name="Resolved",
+            member_ids=[entities[0].id],
+        )
+        declared_to_resolved = Relation(
+            id=uuid4(),
+            type="RELATED_TO",
+            source_id=entities[0].id,
+            target_id=resolved.id,
+            source_chunk_ids=chunk_ids(10),
+        )
+        resolved_as = Relation(
+            id=uuid4(),
+            type="RESOLVED_AS",
+            source_id=entities[0].id,
+            target_id=resolved.id,
+            source_chunk_ids=chunk_ids(10),
+        )
+        decision_id = uuid4()
+        try:
+            await self.store.upsert_nodes("ResolvedEntity", [resolved.to_node_record()])
+            await self.store.upsert_relations(
+                [
+                    relation.to_relation_record()
+                    for relation in [
+                        *relations,
+                        matches,
+                        stale_relation,
+                        declared_to_resolved,
+                        resolved_as,
+                    ]
+                ]
+            )
+            await self.store.execute_write(
+                "CREATE (:Decision {id: $decision_id})",
+                {"decision_id": str(decision_id)},
+            )
+            await self.store.execute_write(
+                "MATCH (decision:Decision {id: $decision_id}), "
+                "(entity:_Node {id: $entity_id}) "
+                "CREATE (decision)-[:HAS_SUPPORT]->(entity)",
+                {
+                    "decision_id": str(decision_id),
+                    "entity_id": str(entities[0].id),
+                },
+            )
+
+            edges = await fetch_relation_edges(self.store, schema=self.schema)
+            assert set(edges) == {
+                (str(entities[0].id), str(entities[1].id), 2.0, "RELATED_TO"),
+                (str(entities[1].id), str(entities[2].id), 2.0, "RELATED_TO"),
+                (str(entities[3].id), str(entities[4].id), 2.0, "RELATED_TO"),
+                (str(entities[4].id), str(entities[5].id), 2.0, "RELATED_TO"),
+            }
+
+            report = await self.graph.detect_communities(apply=False)
+
+            memberships = {
+                frozenset(community.member_ids) for community in report.communities
+            }
+            assert memberships == {
+                frozenset(entity.id for entity in entities[:3]),
+                frozenset(entity.id for entity in entities[3:]),
+            }
+            assert all(
+                resolved.id not in community.member_ids
+                for community in report.communities
+            )
+        finally:
+            await self.store.execute_write(
+                "MATCH (node) WHERE node.id IN $ids DETACH DELETE node",
+                {"ids": [str(resolved.id), str(decision_id)]},
+            )
+
+    @pytest.mark.skipif(
+        graspologic_native_missing, reason="graspologic-native not installed"
+    )
     async def test_apply_writes_communities_and_member_of(self) -> None:
         """Apply writes Community nodes and MEMBER_OF edges."""
         await _seed_small_graph(self.store, self.label)
@@ -438,7 +554,7 @@ class TestCommunityDetectionIntegration:
         seeded = {str(entity.id) for entity in entities}
         edges = [
             edge
-            for edge in await fetch_relation_edges(self.store)
+            for edge in await fetch_relation_edges(self.store, schema=self.schema)
             if edge[0] in seeded and edge[1] in seeded
         ]
         comms = await asyncio.to_thread(compute_communities, edges)

@@ -449,17 +449,22 @@ def entities_mentioned_in_chunks_query() -> str:
     )
 
 
-def fetch_all_relations_query_cursor() -> str:
-    """Build Cypher paginating every live domain relationship via keyset.
+def fetch_all_relations_query_cursor(
+    *,
+    entity_labels: Sequence[str] | None = None,
+    relation_types: Sequence[str] | None = None,
+) -> str:
+    """Build Cypher to page matching live relationships by keyset.
 
-    Pages every live domain relationship by keyset, so cost does not grow
+    Pages matching live domain relationships by keyset, so cost does not grow
     with the page number. Orders by ``(a.id, b.id, type(r), r.id)`` and
     pages by the last seen tuple; the first page uses ``last_a=""``,
     ``last_b=""``, ``last_type=""`` and ``last_rel_id=""``. It excludes
-    every edge an in-flight Cutover Job wrote. Used by
-    Graph.detect_communities() to build the weighted edge list for
-    clustering; it skips MENTIONED_IN and MEMBER_OF (system edges, not
-    entity-graph topology) and any endpoint that is a Chunk or a Community.
+    every edge an in-flight Cutover Job wrote. Optional schema filters limit
+    both endpoints to declared entity labels and relationships to declared
+    types. With no filters, the query skips mention, membership, structure,
+    history and candidate edge types, and excludes Chunk and Community
+    endpoints.
 
     The relationship type and id break ties on ``(a.id, b.id)``: two
     distinct relationships (different types, or the same type with
@@ -470,8 +475,18 @@ def fetch_all_relations_query_cursor() -> str:
 
     Returns:
         Parameterized Cypher expecting ``$last_a``, ``$last_b``,
-        ``$last_type``, ``$last_rel_id`` and ``$limit``.
+        ``$last_type``, ``$last_rel_id`` and ``$limit``, plus schema filter
+        parameters when their corresponding arguments are provided.
     """
+    entity_label_filter = (
+        "AND any(entity_label IN labels(a) WHERE entity_label IN $entity_labels) "
+        "AND any(entity_label IN labels(b) WHERE entity_label IN $entity_labels) "
+        if entity_labels is not None
+        else ""
+    )
+    relation_type_filter = (
+        "AND type(r) IN $relation_types " if relation_types is not None else ""
+    )
     return (
         f"MATCH (a:{NODE_IDENTITY_LABEL})-[r]->(b:{NODE_IDENTITY_LABEL}) "
         f"WHERE (a.id > $last_a "
@@ -481,6 +496,8 @@ def fetch_all_relations_query_cursor() -> str:
         f"AND coalesce(r.id, '') > $last_rel_id) "
         f'OR ($last_a = "" AND $last_b = "" AND $last_type = "" '
         f'AND $last_rel_id = "")) '
+        f"{entity_label_filter}"
+        f"{relation_type_filter}"
         f"AND NOT a:Chunk AND NOT b:Chunk "
         f"AND NOT a:Community AND NOT b:Community "
         f"AND NOT type(r) IN {_NON_ENTITY_RELATIONS} "
