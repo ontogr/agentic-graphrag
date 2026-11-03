@@ -42,7 +42,7 @@ repos:
         exclude: agrag/llm/baml_client/
 
   - repo: https://github.com/astral-sh/uv-pre-commit
-    rev: 0.13.6
+    rev: 0.13.7
     hooks:
       - id: uv-lock
 
@@ -65,7 +65,7 @@ repos:
         additional_dependencies: ["bandit[toml]"]
 
   - repo: https://github.com/crate-ci/typos
-    rev: v1.52.0
+    rev: v1.51.1
     hooks:
       - id: typos
         args: [--force-exclude]
