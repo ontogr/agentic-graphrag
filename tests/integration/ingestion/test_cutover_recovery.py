@@ -461,6 +461,7 @@ class TestCutoverRecovery:
             )
             await store.close()
 
+    @pytest.mark.neo4j_only
     async def test_write_conflict_retry_completes_commit(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:

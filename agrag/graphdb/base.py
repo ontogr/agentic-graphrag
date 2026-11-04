@@ -3,7 +3,7 @@
 from abc import ABC, abstractmethod
 from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
 from contextlib import AbstractAsyncContextManager
-from typing import Any, Protocol, TypeVar
+from typing import Any, ClassVar, Protocol, TypeVar
 from uuid import UUID
 
 from agrag.common.data_models.candidate import CandidateRecord
@@ -108,6 +108,10 @@ class GraphStoreTransaction(Protocol):
 
 class GraphStore(ABC):
     """A graph database backend: schema, writes, and native vector search."""
+
+    # True when a failed ``run_in_transaction`` callback rolls back every write
+    # it made. Only then is it safe to run the callback again from the start.
+    rolls_back_failed_transactions: ClassVar[bool] = False
 
     @abstractmethod
     async def connect(self) -> None:

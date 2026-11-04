@@ -616,9 +616,9 @@ async def _commit_pending_writes(
     relations are folded into their canonical ids in the same transaction, and
     a constraint conflict with another job's commit retries the commit.
     When ``change`` is set, its activation record is written in the same
-    transaction, after the old edges are closed. A constraint or write conflict
-    retries the commit under the held lease until one lease TTL has passed
-    since the first failure.
+    transaction, after the old edges are closed. On a backend that rolls back a
+    failed transaction, a constraint or write conflict retries the commit under
+    the held lease until one lease TTL has passed since the first failure.
     """
     job_arg = str(job_id)
     token_arg = str(token)
@@ -695,9 +695,10 @@ async def _commit_pending_writes(
     # Two jobs that commit the same new relation at once both try to give it
     # the canonical id, and the loser fails on the id constraint. A write
     # conflict with another job's row fails the same way. Neo4j rolls the
-    # attempt back. FalkorDB keeps the statements that ran, so the retry
-    # resumes a started commit instead of running its steps again. The lease
-    # is held throughout, so the retries wait for the other job to finish.
+    # attempt back, so the retry begins the commit again. The lease is held
+    # throughout, so the retries wait for the other job to finish. FalkorDB
+    # keeps the statements that ran before the failure, so a retry there could
+    # write them twice. It raises at once and recovery settles the job.
     attempt: Callable[[GraphStoreTransaction], Awaitable[int]] = begin_commit
     first_failure_at: float | None = None
     delay = _COMMIT_RETRY_INITIAL_DELAY_SECONDS
@@ -705,6 +706,8 @@ async def _commit_pending_writes(
         try:
             return await graph_store.run_in_transaction(attempt)
         except (GraphStoreConstraintViolationError, GraphStoreWriteConflictError):
+            if not graph_store.rolls_back_failed_transactions:
+                raise
             now = time.monotonic()
             if first_failure_at is None:
                 first_failure_at = now

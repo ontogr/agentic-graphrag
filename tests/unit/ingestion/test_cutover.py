@@ -355,6 +355,8 @@ class _ReplayConflictStore(_FakeCutoverStore):
     row owned by another in-flight job looks like to the commit transaction.
     """
 
+    rolls_back_failed_transactions = True
+
     async def run_in_transaction(self, work: Any) -> Any:
         """Run work, restoring the job table and nodes if it raises."""
         saved_jobs = copy.deepcopy(self.jobs)

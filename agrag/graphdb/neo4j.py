@@ -268,6 +268,8 @@ class Neo4jGraphStore(CypherGraphStore):
     driver's managed transactions with no added retry loop.
     """
 
+    rolls_back_failed_transactions = True
+
     def __init__(
         self,
         *,
