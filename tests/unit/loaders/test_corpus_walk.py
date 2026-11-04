@@ -8,8 +8,10 @@ SKIP error policies propagate or count errors without leaking partially
 yielded documents or double-counting stats.
 """
 
+import asyncio
+import time
 from collections.abc import Iterator
-from contextlib import aclosing
+from contextlib import aclosing, suppress
 from pathlib import Path
 from typing import BinaryIO
 
@@ -329,6 +331,75 @@ class _FiveDocumentLoader(Loader):
                 char_count=5,
                 record_index=index,
             )
+
+
+class _BusyLoader(Loader):
+    """A stub loader that holds the CPU for a while before it yields.
+
+    The busy loop is pure Python, so it keeps the interpreter lock the way
+    CPU-bound document conversion does.
+    """
+
+    extensions = frozenset({".txt"})
+    family = DocumentFamily.RECORD
+    busy_seconds = 0.3
+
+    def load(
+        self,
+        source: SourceRef,
+        stream: BinaryIO,
+        opts: ReadOptions,
+        *,
+        start_at: int = 0,
+    ) -> Iterator[Document]:
+        """Spin for ``busy_seconds``, then yield two documents."""
+        deadline = time.perf_counter() + self.busy_seconds
+        while time.perf_counter() < deadline:
+            pass
+        for index, text in enumerate(("first", "second")):
+            yield Document(
+                text=text,
+                title=str(index),
+                uri=source.uri,
+                source_format=SourceFormat.TXT,
+                family=DocumentFamily.RECORD,
+                content_hash=f"busy-{index}",
+                loader_name="busy",
+                char_count=len(text),
+                record_index=index,
+            )
+
+
+class TestCorpusWalkLoopResponsiveness:
+    """A busy loader must not stop other tasks on the event loop."""
+
+    async def test_event_loop_keeps_running_while_a_loader_is_busy(
+        self, tmp_path: Path
+    ) -> None:
+        """Other tasks keep ticking while one document is being loaded."""
+        source = tmp_path / "busy.txt"
+        source.write_text("unused", encoding="utf-8")
+        walk = _CorpusWalk(
+            [source], registry=registry, opts=ReadOptions(), loader=_BusyLoader()
+        )
+        ticks = 0
+
+        async def tick() -> None:
+            nonlocal ticks
+            while True:
+                ticks += 1
+                await asyncio.sleep(0.01)
+
+        ticker = asyncio.create_task(tick())
+        try:
+            docs = await _collect(walk)
+        finally:
+            ticker.cancel()
+            with suppress(asyncio.CancelledError):
+                await ticker
+
+        assert [doc.text for doc in docs] == ["first", "second"]
+        assert ticks >= 10
 
 
 def _tracing_provider() -> tuple[TracerProvider, InMemorySpanExporter]:

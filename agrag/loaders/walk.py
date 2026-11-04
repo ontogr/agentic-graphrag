@@ -5,12 +5,17 @@ Documents. Only ``normalize_inline_text`` is for use outside the loaders package
 ``Graph.add``. Nothing else here is a supported interface.
 """
 
+import asyncio
+import contextvars
 import hashlib
 import unicodedata
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator, AsyncIterator, Callable
+from concurrent.futures import ThreadPoolExecutor
+from contextlib import aclosing
 from dataclasses import replace
+from functools import partial
 from pathlib import Path
-from typing import BinaryIO
+from typing import BinaryIO, TypeVar
 
 from opentelemetry.trace import Tracer
 
@@ -49,6 +54,31 @@ def _source_ref_for(path: Path) -> SourceRef:
     )
 
 
+_T = TypeVar("_T")
+
+
+async def _run_on_executor(
+    executor: ThreadPoolExecutor, call: Callable[..., _T], *args: object
+) -> _T:
+    """Run one blocking call on ``executor`` and return its result.
+
+    The call runs in a copy of the current context, so the active trace span
+    stays current in the worker thread.
+
+    Args:
+        executor: The executor that runs the call.
+        call: The blocking callable.
+        *args: Positional arguments for ``call``.
+
+    Returns:
+        The value ``call`` returns.
+    """
+    context = contextvars.copy_context()
+    return await asyncio.get_running_loop().run_in_executor(
+        executor, partial(context.run, call, *args)
+    )
+
+
 class _CorpusWalk:
     """Walk local files in deterministic order and yield batched documents.
 
@@ -78,12 +108,37 @@ class _CorpusWalk:
         self._batch_size = batch_size
         self._tracer = tracer
 
-    async def iter_batches(  # noqa: PLR0912,PLR0915
+    async def iter_batches(
         self, *, start: LoaderCursor | None = None
     ) -> AsyncIterator[tuple[list[Document], LoaderCursor, LoadStats]]:
         """Yield (documents, cursor, stats) batches in deterministic order.
 
+        Loader work that blocks, such as document conversion, runs on one thread
+        owned by this walk. The event loop stays free while it runs.
+
         Args:
+            start: A cursor to resume from. The walk skips every source before it.
+
+        Yields:
+            One tuple per batch: the batch documents, the cursor after the batch,
+            and the running stats.
+        """
+        executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="agrag-loader")
+        batches = self._iter_batches(executor, start=start)
+        try:
+            async with aclosing(batches):
+                async for batch in batches:
+                    yield batch
+        finally:
+            executor.shutdown(wait=False, cancel_futures=True)
+
+    async def _iter_batches(  # noqa: PLR0912,PLR0915
+        self, executor: ThreadPoolExecutor, *, start: LoaderCursor | None = None
+    ) -> AsyncGenerator[tuple[list[Document], LoaderCursor, LoadStats], None]:
+        """Yield (documents, cursor, stats) batches in deterministic order.
+
+        Args:
+            executor: The worker thread that runs blocking loader calls.
             start: A cursor to resume from. The walk skips every source before it and
             resumes
                 inside the matching source at ``start.record_index``.
@@ -159,7 +214,9 @@ class _CorpusWalk:
                             # narrows cleanly -- Iterator[Document] never
                             # yields None itself.
                             try:
-                                doc = next(loader_iter, None)
+                                doc = await _run_on_executor(
+                                    executor, next, loader_iter, None
+                                )
                             except IngestionError:
                                 failed_trace_id, failed_span_id = (
                                     stage_failure_context()
