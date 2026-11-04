@@ -109,6 +109,8 @@ async def embed_resolved_entities(
 
     Raises:
         ValueError: ``pending_job_id`` is set and ``deferred`` is None.
+        GraphStoreFenceError: The job no longer holds a live lease. Raised under
+            every error policy.
     """
     if pending_job_id is not None and deferred is None:
         raise ValueError("deferred is required when pending_job_id is set")

@@ -962,7 +962,7 @@ async def _embed_and_upsert_chunks(
         graph_store: Where the embedding, and on failure the cleared
             embedding property, are written.
         error_policy: RAISE propagates the failure after clearing; any
-            other policy returns it instead.
+            other policy returns it instead. A fence error always propagates.
         pending_job_id: The in-flight job's id, written onto each chunk's
             embedding until that job commits. None writes untagged
             embeddings, for callers outside a job.
@@ -978,6 +978,8 @@ async def _embed_and_upsert_chunks(
     Raises:
         Exception: Whatever embed() or the write raised, when
             error_policy is RAISE.
+        GraphStoreFenceError: The job no longer holds a live lease. Raised under
+            every error policy.
     """
     job = str(pending_job_id) if pending_job_id is not None else None
     try:
@@ -1093,7 +1095,7 @@ async def _embed_and_upsert_survivors(
         graph_store: Where the embedding, and on failure the cleared
             embedding property, are written.
         error_policy: RAISE propagates the failure after clearing; any
-            other policy returns it instead.
+            other policy returns it instead. A fence error always propagates.
         pending_job_id: The in-flight job's id, written onto each entity's
             embedding until that job commits. None writes untagged
             embeddings, for callers outside a job.
@@ -1107,6 +1109,8 @@ async def _embed_and_upsert_survivors(
     Raises:
         Exception: Whatever embed() or the write raised, when error_policy
             is RAISE.
+        GraphStoreFenceError: The job no longer holds a live lease. Raised under
+            every error policy.
     """
     job = str(pending_job_id) if pending_job_id is not None else None
     try:

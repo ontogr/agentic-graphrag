@@ -325,6 +325,8 @@ async def write_matches_and_rebuild(
         ValueError: No decisions are supplied, a decision references a
             member outside the supplied component, or ``pending_job_id`` is
             set and ``deferred`` is None.
+        GraphStoreFenceError: The job no longer holds a live lease. Raised under
+            every error policy.
         ResolvedEntityWriteError: A job's matches were written but its
             resolved entity was not. The caller must fail the job.
     """

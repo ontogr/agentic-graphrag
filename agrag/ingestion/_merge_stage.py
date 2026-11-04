@@ -97,6 +97,10 @@ async def merge_stage(
     Raises:
         Exception: The first failed merge or rebuild, when ``error_policy`` is
             ``RAISE``.
+        GraphStoreFenceError: The job no longer holds a live lease. Raised under
+            every error policy.
+        ResolvedEntityWriteError: A job's matches were written but its resolved
+            entity was not. Raised under every error policy.
     """
     pending_job_id = str(ctx.job_id) if ctx.job_id is not None else None
     merge_failures: list[StageFailure] = list(batch.failures)
@@ -174,6 +178,10 @@ async def _merge_mention_groups(
     returned survivors. The returned counts are ``nodes_created``,
     ``nodes_updated`` and ``conflicts_resolved``. The returned
     ``created_entity_ids`` lists the survivors that had no existing entity.
+
+    Raises:
+        GraphStoreFenceError: The job no longer holds a live lease. Raised under
+            every error policy.
     """
     pending_job_id = str(ctx.job_id) if ctx.job_id is not None else None
     resolved_tracer = ctx.tracer
@@ -289,6 +297,12 @@ async def _rebuild_components(
 
     Components that raise are appended to ``merge_failures``. Returns the
     resolved-entity embedding failures from the components that rebuilt.
+
+    Raises:
+        GraphStoreFenceError: The job no longer holds a live lease. Raised under
+            every error policy.
+        ResolvedEntityWriteError: A job's matches were written but its resolved
+            entity was not. Raised under every error policy.
     """
     if batch.result is None:
         return []

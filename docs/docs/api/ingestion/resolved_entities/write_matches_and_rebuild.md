@@ -38,5 +38,7 @@ does not hold the job's lock.
 - <code>ValueError</code> – No decisions are supplied, a decision references a
   member outside the supplied component, or `pending_job_id` is
   set and `deferred` is None.
+- <code>[GraphStoreFenceError](../../graphdb/errors/GraphStoreFenceError.md)</code> – The job no longer holds a live lease. Raised under
+  every error policy.
 - <code>[ResolvedEntityWriteError](ResolvedEntityWriteError.md)</code> – A job's matches were written but its
   resolved entity was not. The caller must fail the job.

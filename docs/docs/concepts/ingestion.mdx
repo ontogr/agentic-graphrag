@@ -107,7 +107,7 @@ The job tags writes instead of holding a database transaction, because extractio
 
 Resolution runs before entity writes because the resolver needs the batch's extracted entities together to compare them. Writing after that decision avoids creating duplicate exact-name entities.
 
-The error policy applies to each source, so one bad file does not stop a run of thousands. `RAISE` stops at the first failure. `SKIP` counts the failure. `QUARANTINE` records the reason.
+The error policy applies to each source, so one bad file does not stop a run of thousands. `RAISE` stops at the first failure. `SKIP` counts the failure. `QUARANTINE` records the reason. A job that loses its lease stops under every policy.
 
 </details>
 
