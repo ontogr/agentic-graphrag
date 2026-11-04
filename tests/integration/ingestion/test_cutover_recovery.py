@@ -31,12 +31,12 @@ from agrag.ingestion.settings import CutoverJobSettings
 from tests.integration._backend import build_test_store, selected_backend
 
 
-@pytest.mark.skipif(
-    importlib.util.find_spec("neo4j") is None, reason="neo4j extra not installed"
-)
 class TestCutoverRecovery:
     """A destructive rollback requires the current token and rollback state."""
 
+    @pytest.mark.skipif(
+        importlib.util.find_spec("neo4j") is None, reason="neo4j extra not installed"
+    )
     @pytest.mark.neo4j_only
     async def test_applied_commit_with_lost_acknowledgement_finishes_cleanup(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path

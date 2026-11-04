@@ -694,13 +694,13 @@ async def _commit_pending_writes(
         return finish_commit
 
     # Two jobs that commit the same new relation at once both try to give it
-    # the canonical id, and the loser fails on the id constraint. A constraint
-    # violation leaves no partial write, because the failing statement is
-    # atomic on every backend, so the retry resumes after the recorded steps.
-    # A write conflict is raised after a replay batch has written its rows, so
-    # the retry repeats those writes. Only a backend that rolls back the whole
-    # attempt can retry a write conflict. The lease is held throughout, so the
-    # retries wait for the other job to finish.
+    # the canonical id, and the loser fails on the id constraint. The retry
+    # reads the recorded steps and resumes after them. The failing statement
+    # writes nothing, but a step without recorded progress that ran earlier in
+    # the attempt does run again, as it does in recovery. A write conflict is
+    # raised after a replay batch has written its rows, so the retry would
+    # repeat those writes unless the backend rolls back the whole attempt. The
+    # lease is held throughout, so the retries wait for the other job to finish.
     attempt: Callable[[GraphStoreTransaction], Awaitable[int]] = begin_commit
     first_failure_at: float | None = None
     delay = _COMMIT_RETRY_INITIAL_DELAY_SECONDS
@@ -720,8 +720,10 @@ async def _commit_pending_writes(
             remaining = lease_ttl_seconds - (now - first_failure_at)
             if remaining <= 0:
                 raise
-        await asyncio.sleep(min(delay, remaining))
-        delay = min(delay * 2, _COMMIT_RETRY_MAX_DELAY_SECONDS)
+            await asyncio.sleep(min(delay, remaining))
+            if time.monotonic() - first_failure_at >= lease_ttl_seconds:
+                raise
+            delay = min(delay * 2, _COMMIT_RETRY_MAX_DELAY_SECONDS)
         row = await _read_job_row(graph_store, job_id=job_id)
         applied = _applied_parts_closed(row, token)
         if applied is not None:
