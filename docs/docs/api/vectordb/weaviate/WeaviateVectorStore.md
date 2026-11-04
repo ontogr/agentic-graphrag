@@ -29,7 +29,7 @@ consistency. Each collection belongs to exactly one graph.
 - [**ensure_collection**](#agrag-vectordb-weaviate-WeaviateVectorStore-ensure_collection) – Create a collection or reject incompatible dimensions and metric.
 - [**hybrid_search**](#agrag-vectordb-weaviate-WeaviateVectorStore-hybrid_search) – Fuse dense and BM25 ranks, with exact dense and lexical endpoints.
 - [**initialize**](#agrag-vectordb-weaviate-WeaviateVectorStore-initialize) – Connect and verify readiness, raising VectorStoreError on failure.
-- [**list_ids**](#agrag-vectordb-weaviate-WeaviateVectorStore-list_ids) – Return ascending IDs strictly after the cursor, independent of scan order.
+- [**list_ids**](#agrag-vectordb-weaviate-WeaviateVectorStore-list_ids) – Return ascending IDs strictly after the cursor.
 - [**search**](#agrag-vectordb-weaviate-WeaviateVectorStore-search) – Return dense matches on the graph-native score scale, best first.
 - [**upsert**](#agrag-vectordb-weaviate-WeaviateVectorStore-upsert) – Insert or replace UUIDs in batches, checking every batch response.
 
@@ -133,10 +133,10 @@ Connect and verify readiness, raising VectorStoreError on failure.
 list_ids(kind:VectorKind, *, after:UUID | None = None, limit:int = 1000) -> list[UUID]
 ```
 
-Return ascending IDs strictly after the cursor, independent of scan order.
+Return ascending IDs strictly after the cursor.
 
-Scans all UUIDs with the server cursor and retains only the smallest
-requested page. Memory is bounded by the page size for all collections.
+Weaviate cursors walk objects in ascending UUID order, so the server
+cursor starts at `after` and each call reads about `limit` objects.
 
 ## `max_results` \{#agrag-vectordb-weaviate-WeaviateVectorStore-max_results}
 
