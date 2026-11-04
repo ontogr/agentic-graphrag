@@ -15,7 +15,7 @@ from uuid import UUID, uuid4
 import pytest
 
 from agrag.common.data_models.cutover_job import CUTOVER_JOB_LABEL
-from agrag.common.data_models.graph_record import DeferredWrites
+from agrag.common.data_models.graph_record import DeferredWrites, NodeRecord
 from agrag.common.data_models.vector_record import VectorWork
 from agrag.cypher.cutover_job_read import find_incomplete_jobs_query
 from agrag.cypher.cutover_job_write import (
@@ -27,6 +27,12 @@ from agrag.cypher.cutover_job_write import (
     renew_lease_query,
     start_cleaning_query,
 )
+from agrag.cypher.entities import (
+    MERGE_ALIAS_LABEL,
+    NODE_IDENTITY_LABEL,
+    upsert_merge_alias_query,
+)
+from agrag.graphdb.errors import GraphStoreError
 from agrag.ingestion._cutover import run_cutover_job
 from agrag.ingestion._pending_rows import rollback_job_rows
 from agrag.ingestion._resume import resume_incomplete_jobs
@@ -466,6 +472,131 @@ class TestCutoverJobLeaseLifetime:
             )
             assert rows == [{"s": "done"}]
         finally:
+            await store.execute_write(
+                "MATCH (job:CutoverJob {document_key: $key}) DETACH DELETE job",
+                {"key": key},
+            )
+            await store.close()
+
+
+@pytest.mark.skipif(neo4j_missing, reason="neo4j extra not installed")
+class TestStalledJobWrites:
+    """A worker that lost its job to a takeover can no longer write pending rows."""
+
+    @pytest.mark.parametrize("taken_over", [False, True])
+    async def test_stalled_job_writes_nothing_after_takeover(
+        self, taken_over: bool
+    ) -> None:
+        """Pending writes of a stalled job raise and leave no row behind.
+
+        Job A's lease expires while its worker is still running. Recovery
+        claims A, which keeps A's id and moves it to ``rolling_back``. With
+        ``taken_over`` the rollback also finishes and job B acquires the same
+        document, so A's node is gone. In both windows A's late writes would
+        carry A's tag, and no later rollback would remove them.
+        """
+        store = build_test_store()
+        await store.connect()
+        key = f"cutover-stalled-{uuid4().hex}"
+        stalled_job_id = uuid4()
+        stalled_token = str(uuid4())
+        rollback_token = uuid4()
+        node_id = uuid4()
+        merge_key = f"stalled-{uuid4().hex}"
+        try:
+            await store.ensure_unique_constraint(
+                label=CUTOVER_JOB_LABEL, properties=["document_key"]
+            )
+            await store.execute_write(
+                acquire_lease_query(),
+                {
+                    "job_id": str(stalled_job_id),
+                    "document_key": key,
+                    "verb": "add",
+                    "lease_token": stalled_token,
+                    "lease_expires_at": _epoch_millis(
+                        datetime.now(UTC) - timedelta(seconds=1)
+                    ),
+                    "affected_entity_ids": [],
+                    "created_at": datetime.now(UTC).isoformat(),
+                },
+            )
+            claimed = await store.execute_write(
+                claim_pending_job_query(),
+                {
+                    "job_id": str(stalled_job_id),
+                    "expected_lease_token": stalled_token,
+                    "lease_token": str(rollback_token),
+                    "lease_expires_at": _epoch_millis(
+                        datetime.now(UTC) + timedelta(seconds=60)
+                    ),
+                },
+            )
+            assert claimed == [{"id": str(stalled_job_id)}]
+            if taken_over:
+                assert await rollback_job_rows(
+                    store, job_id=stalled_job_id, token=rollback_token
+                )
+                acquired = await store.execute_write(
+                    acquire_lease_query(),
+                    {
+                        "job_id": str(uuid4()),
+                        "document_key": key,
+                        "verb": "add",
+                        "lease_token": str(uuid4()),
+                        "lease_expires_at": _epoch_millis(
+                            datetime.now(UTC) + timedelta(seconds=60)
+                        ),
+                        "affected_entity_ids": [],
+                        "created_at": datetime.now(UTC).isoformat(),
+                    },
+                )
+                assert acquired[0]["id"] != str(stalled_job_id)
+
+            with pytest.raises(GraphStoreError):
+                await store.upsert_nodes(
+                    "TestCutoverStalled",
+                    [
+                        NodeRecord(
+                            id=node_id,
+                            labels=["TestCutoverStalled"],
+                            properties={"name": "late"},
+                        )
+                    ],
+                    pending_job_id=stalled_job_id,
+                    deferred=DeferredWrites(),
+                )
+            with pytest.raises(GraphStoreError):
+                await store.execute_write(
+                    upsert_merge_alias_query(),
+                    {
+                        "merge_keys": [merge_key],
+                        "entity_id": str(node_id),
+                        "pending_job_id": str(stalled_job_id),
+                    },
+                )
+
+            nodes = await store.execute_read(
+                f"MATCH (n:{NODE_IDENTITY_LABEL} {{id: $id}}) RETURN n.id AS id",
+                {"id": str(node_id)},
+            )
+            aliases = await store.execute_read(
+                f"MATCH (a:{MERGE_ALIAS_LABEL} {{merge_key: $merge_key}}) "
+                "RETURN a.merge_key AS merge_key",
+                {"merge_key": merge_key},
+            )
+            assert nodes == []
+            assert aliases == []
+        finally:
+            await store.execute_write(
+                f"MATCH (n:{NODE_IDENTITY_LABEL} {{id: $id}}) DETACH DELETE n",
+                {"id": str(node_id)},
+            )
+            await store.execute_write(
+                f"MATCH (a:{MERGE_ALIAS_LABEL} {{merge_key: $merge_key}}) "
+                "DETACH DELETE a",
+                {"merge_key": merge_key},
+            )
             await store.execute_write(
                 "MATCH (job:CutoverJob {document_key: $key}) DETACH DELETE job",
                 {"key": key},
