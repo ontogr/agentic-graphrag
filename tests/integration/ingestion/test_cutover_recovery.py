@@ -7,7 +7,7 @@ probe rows and writes a JSON snapshot to pytest's temporary directory.
 
 import importlib.util
 import json
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
@@ -16,7 +16,12 @@ import pytest
 
 from agrag.common.data_models.cutover_job import CUTOVER_JOB_LABEL
 from agrag.common.data_models.entity import Entity
-from agrag.common.data_models.graph_record import DeferredWrites
+from agrag.common.data_models.graph_record import (
+    DeferredWrites,
+    NodeRecord,
+    RelationRecord,
+    UpsertResult,
+)
 from agrag.common.data_models.stage_failure import StageFailure
 from agrag.common.data_models.vector_record import VectorWork
 from agrag.cypher.cutover_job_write import (
@@ -39,13 +44,33 @@ from tests.integration._backend import build_test_store, selected_backend
 
 
 class _FailBefore:
-    """Raises a constraint violation once, before a named statement runs."""
+    """Wraps a transaction and raises a constraint violation once.
+
+    The violation is raised before the first ``execute_write`` of ``query``.
+    Every other call goes straight to the wrapped transaction.
+    """
 
     def __init__(self, txn: GraphStoreTransaction, query: str) -> None:
         """Arm the failure for the statement ``query``."""
         self._txn = txn
         self._query = query
         self._armed = True
+
+    def vector_value(self, expression: str) -> str:
+        """Forward to the wrapped transaction."""
+        return self._txn.vector_value(expression)
+
+    def fulltext_copy_set(
+        self, alias: str, source: str, properties: Iterable[str]
+    ) -> str:
+        """Forward to the wrapped transaction."""
+        return self._txn.fulltext_copy_set(alias, source, properties)
+
+    async def execute_read(
+        self, query: str, parameters: Mapping[str, Any] | None = None
+    ) -> list[dict[str, Any]]:
+        """Forward to the wrapped transaction."""
+        return await self._txn.execute_read(query, parameters)
 
     async def execute_write(
         self, query: str, parameters: Mapping[str, Any] | None = None
@@ -55,6 +80,40 @@ class _FailBefore:
             self._armed = False
             raise GraphStoreConstraintViolationError("injected before the statement")
         return await self._txn.execute_write(query, parameters)
+
+    async def upsert_nodes(
+        self,
+        label: str,
+        nodes: Sequence[NodeRecord],
+        *,
+        batch_size: int = 256,
+        pending_job_id: UUID | None = None,
+        deferred: DeferredWrites | None = None,
+    ) -> UpsertResult | None:
+        """Forward to the wrapped transaction."""
+        return await self._txn.upsert_nodes(
+            label,
+            nodes,
+            batch_size=batch_size,
+            pending_job_id=pending_job_id,
+            deferred=deferred,
+        )
+
+    async def upsert_relations(
+        self,
+        relations: Sequence[RelationRecord],
+        *,
+        batch_size: int = 256,
+        pending_job_id: UUID | None = None,
+        deferred: DeferredWrites | None = None,
+    ) -> UpsertResult | None:
+        """Forward to the wrapped transaction."""
+        return await self._txn.upsert_relations(
+            relations,
+            batch_size=batch_size,
+            pending_job_id=pending_job_id,
+            deferred=deferred,
+        )
 
 
 class TestCutoverRecovery:
