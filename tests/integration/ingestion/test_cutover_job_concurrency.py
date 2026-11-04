@@ -42,7 +42,7 @@ from agrag.cypher.entities import (
     validate_identifier,
 )
 from agrag.cypher.resolution_write import replace_component_resolved_entities_query
-from agrag.graphdb.errors import GraphStoreError, GraphStoreFenceError
+from agrag.graphdb.errors import GraphStoreFenceError
 from agrag.ingestion import resolved_entities
 from agrag.ingestion._cutover import run_cutover_job
 from agrag.ingestion._pending_rows import rollback_job_rows
@@ -95,7 +95,7 @@ class _FakeRenewBeforePendingClaimStore:
         return await self.store.execute_write(query, parameters)
 
 
-class _FailFirstRenewalStore:
+class _FakeFailFirstRenewalStore:
     """Raises a connection error on the first lease renewal, then delegates."""
 
     def __init__(self, store: Any) -> None:
@@ -627,14 +627,20 @@ class TestCutoverJobLeaseLifetime:
             await store.close()
 
     async def test_job_survives_a_failed_lease_renewal(self) -> None:
-        """A renewal error is retried, and the job still completes."""
+        """A job that outlives its first lease completes after a renewal error.
+
+        The pending write runs past the lease that acquiring the job set, so
+        the job reaches ``done`` only if a renewal after the failed one went
+        through.
+        """
         store = build_test_store()
         await store.connect()
-        flaky = _FailFirstRenewalStore(store)
+        flaky = _FakeFailFirstRenewalStore(store)
         key = f"cutover-renewal-retry-{uuid4().hex}"
+        ttl_seconds = 3
 
         async def slow_write(_job_id: Any) -> None:
-            await asyncio.sleep(2)
+            await asyncio.sleep(ttl_seconds * 1.5)
 
         async def cleanup(
             _: list[object],
@@ -653,7 +659,7 @@ class TestCutoverJobLeaseLifetime:
                 document_key=key,
                 affected_entity_ids=[],
                 graph_store=flaky,
-                settings=CutoverJobSettings(lease_ttl_seconds=3),
+                settings=CutoverJobSettings(lease_ttl_seconds=ttl_seconds),
                 pending_write=slow_write,
                 cleanup=cleanup,
                 deferred=DeferredWrites(),
@@ -747,7 +753,7 @@ class TestStalledJobWrites:
                 )
                 assert acquired[0]["id"] != str(stalled_job_id)
 
-            with pytest.raises(GraphStoreError):
+            with pytest.raises(GraphStoreFenceError):
                 await store.upsert_nodes(
                     "TestCutoverStalled",
                     [
@@ -760,7 +766,7 @@ class TestStalledJobWrites:
                     pending_job_id=stalled_job_id,
                     deferred=DeferredWrites(),
                 )
-            with pytest.raises(GraphStoreError):
+            with pytest.raises(GraphStoreFenceError):
                 await store.execute_write(
                     upsert_merge_alias_query(),
                     {
