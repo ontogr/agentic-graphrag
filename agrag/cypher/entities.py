@@ -234,14 +234,16 @@ def upsert_merge_alias_query() -> str:
         outside a job — null sets no property). Returns each merge_key
         alongside the entity_id that now owns it -- $entity_id when this
         call claimed or already owned it, another entity's id when a
-        different one claimed it first.
+        different one claimed it first -- and ``owner_job_id``, the pending
+        job that wrote the alias, or null once that job has committed.
     """
     return (
         f"UNWIND $merge_keys AS merge_key "
         f"MERGE (a:{MERGE_ALIAS_LABEL} {{merge_key: merge_key}}) "
         f"ON CREATE SET a.entity_id = $entity_id, "
         f"a.{PENDING_JOB_ID_PROPERTY} = $pending_job_id "
-        f"RETURN merge_key, a.entity_id AS entity_id"
+        f"RETURN merge_key, a.entity_id AS entity_id, "
+        f"a.{PENDING_JOB_ID_PROPERTY} AS owner_job_id"
     )
 
 

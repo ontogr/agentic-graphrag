@@ -1,5 +1,7 @@
 """Errors that the graph-store layer raises."""
 
+from uuid import UUID
+
 
 class GraphStoreError(Exception):
     """The base class for every graph-store error."""
@@ -65,14 +67,19 @@ class GraphStoreAliasConflictError(GraphStoreConstraintViolationError):
     Attributes:
         conflicts: Every accepted merge_key this claim found already owned,
             mapped to the entity id that owns it.
+        owner_job_ids: The Cutover Jobs whose pending aliases caused the
+            conflict. Empty when every conflicting alias is committed.
     """
 
-    def __init__(self, conflicts: dict[str, str]) -> None:
-        """Bind the conflicting merge_key -> owning-entity-id map."""
+    def __init__(
+        self, conflicts: dict[str, str], owner_job_ids: frozenset[UUID]
+    ) -> None:
+        """Bind the conflicting merge_keys and the jobs that still own them."""
         super().__init__(
             f"merge_key alias already claimed by another entity: {conflicts}"
         )
         self.conflicts = conflicts
+        self.owner_job_ids = owner_job_ids
 
 
 __all__ = [

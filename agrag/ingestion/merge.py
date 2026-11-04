@@ -669,13 +669,20 @@ async def apply_merge(
                 "pending_job_id": pending_job_id,
             },
         )
-        conflicts = {
-            row["merge_key"]: row["entity_id"]
+        conflict_rows = [
+            row
             for row in alias_rows
             if isinstance(row, dict) and row.get("entity_id") != survivor_id
-        }
-        if conflicts:
-            raise GraphStoreAliasConflictError(conflicts)
+        ]
+        if conflict_rows:
+            raise GraphStoreAliasConflictError(
+                {row["merge_key"]: row["entity_id"] for row in conflict_rows},
+                frozenset(
+                    UUID(str(row["owner_job_id"]))
+                    for row in conflict_rows
+                    if row.get("owner_job_id") is not None
+                ),
+            )
         rows = await txn.execute_write(
             survivor_query, {"records": [params], "pending_job_id": pending_job_id}
         )
