@@ -773,7 +773,7 @@ class FalkorDBGraphStore(CypherGraphStore):
             [
                 _SchemaObject(CUTOVER_JOB_LABEL, ("document_key",), unique=True),
                 _SchemaObject(CUTOVER_JOB_LABEL, ("status",)),
-                _SchemaObject(CUTOVER_JOB_LABEL, ("id",)),
+                _SchemaObject(CUTOVER_JOB_LABEL, ("id",), unique=True),
             ],
         )
         await self._ensure_once(

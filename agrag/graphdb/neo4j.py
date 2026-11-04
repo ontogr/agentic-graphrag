@@ -10,6 +10,7 @@ from uuid import UUID
 
 from opentelemetry.trace import SpanKind, Tracer
 
+from agrag.common.data_models.cutover_job import CUTOVER_JOB_LABEL
 from agrag.common.data_models.graph_record import (
     DeferredWrites,
     NodeRecord,
@@ -30,7 +31,6 @@ from agrag.cypher.schema import (
     candidate_key_index_query,
     candidate_state_index_query,
     cutover_job_document_key_constraint_query,
-    cutover_job_id_index_query,
     cutover_job_status_index_query,
     fulltext_index_name,
     fulltext_index_query,
@@ -612,10 +612,12 @@ class Neo4jGraphStore(CypherGraphStore):
             self._cutover_job_constraint_ready = True
 
     async def _ensure_cutover_job_status_index(self) -> None:
-        """Create the CutoverJob status and id indexes once.
+        """Create the CutoverJob status index and id constraint once.
 
         Recovery scans by status. Lease transitions and fenced pending writes
-        look a job up by id.
+        look a job up by id, through the index behind the id constraint. The
+        constraint is the one ``setup_constraints`` creates for every label, so
+        the two never conflict.
         """
         if self._cutover_job_status_index_ready:
             return
@@ -623,7 +625,7 @@ class Neo4jGraphStore(CypherGraphStore):
             if self._cutover_job_status_index_ready:
                 return
             await self.execute_write(cutover_job_status_index_query())
-            await self.execute_write(cutover_job_id_index_query())
+            await self.execute_write(node_id_constraint_query(CUTOVER_JOB_LABEL))
             self._cutover_job_status_index_ready = True
 
     async def _ensure_pending_tag_indexes(self) -> None:
