@@ -133,3 +133,55 @@ class TestWeaviateVectorStore:
             limit=3,
         )
         assert next_page == [UUID(int=2014), UUID(int=2016), UUID(int=2018)]
+
+    async def test_list_ids_pages_read_only_the_requested_page(
+        self,
+        weaviate_store: WeaviateVectorStore,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Each page reads no more objects than its limit, however large the set."""
+        await weaviate_store.ensure_collection(
+            VectorKind.ENTITY,
+            dimensions=2,
+            distance=Distance.EUCLID,
+        )
+        ids = sorted(uuid4() for _ in range(2500))
+        await weaviate_store.upsert(
+            VectorKind.ENTITY,
+            [
+                VectorRecord(
+                    id=id_, vector=[0.4, 0.8], labels=["Entity"], text="record"
+                )
+                for id_ in ids
+            ],
+        )
+        client = await weaviate_store._connected_client()
+        query = client.collections.use(
+            weaviate_store.collection_name(VectorKind.ENTITY)
+        ).query
+        objects_read = 0
+        original = type(query).fetch_objects
+
+        async def counting_fetch(self, *args, **kwargs):
+            nonlocal objects_read
+            response = await original(self, *args, **kwargs)
+            objects_read += len(response.objects)
+            return response
+
+        monkeypatch.setattr(type(query), "fetch_objects", counting_fetch)
+
+        seen: list[UUID] = []
+        after: UUID | None = None
+        while True:
+            objects_read = 0
+            page = await weaviate_store.list_ids(
+                VectorKind.ENTITY, after=after, limit=1000
+            )
+            if not page:
+                break
+            assert len(page) <= 1000
+            assert objects_read <= 1000
+            assert after is None or page[0] > after
+            seen.extend(page)
+            after = page[-1]
+        assert seen == ids

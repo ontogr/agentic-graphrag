@@ -1,7 +1,7 @@
 """Synchronize graph-owned embeddings with an external vector store."""
 
 from collections import defaultdict
-from collections.abc import Mapping, Sequence
+from collections.abc import AsyncIterator, Mapping, Sequence
 from typing import Any, TypeAlias
 from uuid import UUID
 
@@ -44,6 +44,36 @@ from agrag.vectordb.base import VectorStore
 VectorItem: TypeAlias = tuple[UUID, list[str], str, Mapping[str, str]]
 _BATCH_SIZE = 256
 _PAGE_SIZE = 1000
+
+
+async def _pair_sorted_ids(
+    graph_ids: AsyncIterator[UUID],
+    store_ids: AsyncIterator[UUID],
+    *,
+    store_tail: bool,
+) -> AsyncIterator[tuple[UUID | None, UUID | None]]:
+    """Merge two ascending id streams into pairs, with None for an absent side.
+
+    Both streams must sort ids the same way. A stream that ends early leaves
+    the other side's remaining ids paired with None. When ``store_tail`` is
+    false, the merge stops once the graph stream ends, so store ids past the
+    last graph id are never read.
+    """
+    graph_id = await anext(graph_ids, None)
+    store_id = await anext(store_ids, None)
+    while graph_id is not None or store_id is not None:
+        if graph_id is None and not store_tail:
+            return
+        if store_id is None or (graph_id is not None and graph_id < store_id):
+            yield graph_id, None
+            graph_id = await anext(graph_ids, None)
+        elif graph_id is None or store_id < graph_id:
+            yield None, store_id
+            store_id = await anext(store_ids, None)
+        else:
+            yield graph_id, store_id
+            graph_id = await anext(graph_ids, None)
+            store_id = await anext(store_ids, None)
 
 
 class VectorSync:
@@ -198,17 +228,28 @@ class VectorSync:
         result = VectorRepairResult()
         selected_kinds = tuple(VectorKind) if kinds is None else tuple(kinds)
         for kind in selected_kinds:
-            graph_ids = await self._graph_ids(kind)
-            store_ids = await self._store_ids(kind)
-            missing = sorted(graph_ids - store_ids, key=str)
-            counts = VectorRepairCounts(checked=len(graph_ids), missing=len(missing))
-            successes, failures = await self._sync_committed(
-                [VectorTarget(kind=kind, id=item_id) for item_id in missing]
-            )
-            counts.upserted = len(successes.get(kind, set()))
-            counts.failures.extend(failures)
+            counts = VectorRepairCounts()
+            missing: list[UUID] = []
+            orphaned: list[UUID] = []
+            async for graph_id, store_id in _pair_sorted_ids(
+                self._graph_ids(kind),
+                self._store_ids(kind),
+                store_tail=prune,
+            ):
+                if graph_id is None:
+                    if prune and store_id is not None:
+                        orphaned.append(store_id)
+                    continue
+                counts.checked += 1
+                if store_id is not None:
+                    continue
+                counts.missing += 1
+                missing.append(graph_id)
+                if len(missing) == _BATCH_SIZE:
+                    await self._repair_missing(kind, missing, counts)
+                    missing = []
+            await self._repair_missing(kind, missing, counts)
             if prune:
-                orphaned = sorted(store_ids - graph_ids, key=str)
                 for start in range(0, len(orphaned), _BATCH_SIZE):
                     batch = orphaned[start : start + _BATCH_SIZE]
                     try:
@@ -218,6 +259,21 @@ class VectorSync:
                         break
             result.kinds[kind] = counts
         return result
+
+    async def _repair_missing(
+        self,
+        kind: VectorKind,
+        item_ids: Sequence[UUID],
+        counts: VectorRepairCounts,
+    ) -> None:
+        """Sync one batch of graph ids that have no stored vector."""
+        if not item_ids:
+            return
+        successes, failures = await self._sync_committed(
+            [VectorTarget(kind=kind, id=item_id) for item_id in item_ids]
+        )
+        counts.upserted += len(successes.get(kind, set()))
+        counts.failures.extend(failures)
 
     async def _sync_committed(
         self, targets: Sequence[VectorTarget]
@@ -349,9 +405,8 @@ class VectorSync:
             )
         raise TypeError(f"Loaded model does not match vector kind {kind}")
 
-    async def _graph_ids(self, kind: VectorKind) -> set[UUID]:
-        """Read every committed graph id for a collection by keyset pages."""
-        ids: set[UUID] = set()
+    async def _graph_ids(self, kind: VectorKind) -> AsyncIterator[UUID]:
+        """Yield committed graph ids for a collection in ascending order."""
         after: UUID | None = None
         while True:
             rows = await self.graph_store.execute_read(
@@ -362,22 +417,21 @@ class VectorSync:
                 },
             )
             page = [UUID(str(row["id"])) for row in rows]
-            ids.update(page)
+            for item_id in page:
+                yield item_id
             if len(page) < _PAGE_SIZE:
-                return ids
+                return
             after = page[-1]
 
-    async def _store_ids(self, kind: VectorKind) -> set[UUID]:
-        """Read every collection id through the store's keyset interface."""
-        ids: set[UUID] = set()
+    async def _store_ids(self, kind: VectorKind) -> AsyncIterator[UUID]:
+        """Yield collection ids through the store's keyset interface in order."""
         after: UUID | None = None
         while True:
             page = await self.store.list_ids(kind, after=after, limit=_PAGE_SIZE)
-            if not page:
-                return ids
-            ids.update(page)
+            for item_id in page:
+                yield item_id
             if len(page) < _PAGE_SIZE:
-                return ids
+                return
             after = page[-1]
 
     async def _set_resolved_status(
