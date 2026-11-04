@@ -10,9 +10,10 @@ meets earlier, when both jobs claim it while pending.
 import asyncio
 import hashlib
 import importlib.util
+import time
 from collections.abc import Awaitable, Callable, Sequence
 from typing import Any
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 
@@ -126,6 +127,17 @@ def _hold_commits_until_two_jobs_claim(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(_cutover, "_commit_pending_writes", commit_after_both_claimed)
 
 
+async def _run_adds(*adds: Awaitable[Any]) -> None:
+    """Run adds together. If one raises, cancel and await the rest first."""
+    tasks = [asyncio.ensure_future(add) for add in adds]
+    try:
+        await asyncio.gather(*tasks)
+    finally:
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+
 async def _delete_run(store: GraphStore, *, keys: list[str], name: str) -> None:
     """Delete what one same-name run wrote, then close the store."""
     ids = [
@@ -196,7 +208,7 @@ class TestConcurrentAdds:
         )
         names = [first_name, second_name]
         try:
-            await asyncio.gather(
+            await _run_adds(
                 graph.add(documents=[_document(first_key, "firstdoc alpha. " * 40)]),
                 graph.add(documents=[_document(second_key, "seconddoc beta. " * 40)]),
             )
@@ -268,7 +280,7 @@ class TestConcurrentAdds:
         )
         _hold_commits_until_two_jobs_claim(monkeypatch)
         try:
-            await asyncio.gather(
+            await _run_adds(
                 graph.add(documents=[_document(keys[0], "firstdoc alpha. " * 40)]),
                 graph.add(documents=[_document(keys[1], "seconddoc beta. " * 40)]),
             )
@@ -307,7 +319,7 @@ class TestConcurrentAdds:
                 await graph.add(documents=[_document(key, "plain words. " * 40)])
             _hold_commits_until_two_jobs_claim(monkeypatch)
 
-            await asyncio.gather(
+            await _run_adds(
                 graph.update(
                     keys[0], document=_document(keys[0], "firstdoc alpha. " * 40)
                 ),
@@ -363,6 +375,7 @@ class TestConcurrentAdds:
             _cutover, "_commit_pending_writes", commit_after_loser_finished
         )
         monkeypatch.setattr(_ingest, "_ALIAS_RETRY_WINDOW_SECONDS", 2)
+        started = time.monotonic()
         adds = {
             asyncio.create_task(
                 graph.add(
@@ -377,6 +390,9 @@ class TestConcurrentAdds:
                 adds, timeout=120, return_when=asyncio.FIRST_COMPLETED
             )
             assert done, "neither add finished while the owner was held pending"
+            assert time.monotonic() - started >= _ingest._ALIAS_RETRY_WINDOW_SECONDS, (
+                "the losing add gave up before the retry window ran out"
+            )
             loser = done.pop()
             loser_finished.set()
             winner = pending.pop()
@@ -405,3 +421,71 @@ class TestConcurrentAdds:
             loser_finished.set()
             await asyncio.gather(*adds, return_exceptions=True)
             await _delete_run(store, keys=keys, name=name)
+
+    @staticmethod
+    async def test_loser_does_not_retry_over_a_document_that_changed_while_waiting(
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A retry does not overwrite a version another writer committed meanwhile."""
+        store = build_test_store()
+        await store.connect()
+        suffix = uuid4().hex[:8]
+        name = f"Concurrent Pulsar {suffix}"
+        owner_key = f"concurrent://{suffix}-one"
+        loser_key = f"concurrent://{suffix}-two"
+        graph = await Graph.open(
+            schema=DEFAULT_SCHEMA,
+            graph_store=store,
+            embedder=_SuffixEmbedder(suffix),
+            extractor=_NameByKeywordExtractor({"firstdoc": name, "seconddoc": name}),
+        )
+        conflict_seen = asyncio.Event()
+        owner_may_commit = asyncio.Event()
+        commit: Callable[..., Awaitable[int]] = _cutover._commit_pending_writes
+        check_owner: Callable[..., Awaitable[bool]] = _ingest._any_job_pending
+
+        async def note_conflict(*args: Any, **kwargs: Any) -> bool:
+            conflict_seen.set()
+            return await check_owner(*args, **kwargs)
+
+        owner_job_ids: list[UUID] = []
+
+        async def hold_owner_commit(**kwargs: Any) -> int:
+            if not owner_job_ids:
+                owner_job_ids.append(kwargs["job_id"])
+                await asyncio.wait_for(owner_may_commit.wait(), timeout=120)
+            return await commit(**kwargs)
+
+        monkeypatch.setattr(_ingest, "_any_job_pending", note_conflict)
+        monkeypatch.setattr(_cutover, "_commit_pending_writes", hold_owner_commit)
+        third_text = "thirdwriter text. " * 40
+
+        async def write_third_version() -> None:
+            await asyncio.wait_for(conflict_seen.wait(), timeout=120)
+            try:
+                await graph.add(documents=[_document(loser_key, third_text)])
+            finally:
+                owner_may_commit.set()
+
+        owner = graph.add(documents=[_document(owner_key, "firstdoc alpha. " * 40)])
+        loser = graph.add(documents=[_document(loser_key, "seconddoc beta. " * 40)])
+        try:
+            outcomes = await asyncio.gather(
+                owner, loser, write_third_version(), return_exceptions=True
+            )
+            assert isinstance(outcomes[1], GraphStoreAliasConflictError)
+            stored = await store.execute_read(
+                "MATCH (d:Document {document_key: $key}) "
+                "RETURN d.current_content_hash AS hash",
+                {"key": loser_key},
+            )
+            assert [row["hash"] for row in stored] == [
+                _document(loser_key, third_text).content_hash
+            ]
+            entities = await store.execute_read(
+                "MATCH (e:Person {name: $name}) RETURN e.id AS id", {"name": name}
+            )
+            assert len(entities) == 1
+        finally:
+            owner_may_commit.set()
+            await _delete_run(store, keys=[owner_key, loser_key], name=name)

@@ -33,7 +33,7 @@ from agrag.common.data_models.structure import version_id
 from agrag.common.data_models.update_decision import UpdateDecision
 from agrag.common.data_models.vector_record import VectorWork
 from agrag.common.schema_fingerprint import RunRecord
-from agrag.cypher.cutover_job_write import job_status_query
+from agrag.cypher.cutover_job_write import job_owner_live_query
 from agrag.cypher.documents import (
     document_cited_relation_endpoints_query,
     document_cited_relation_ids_query,
@@ -107,30 +107,47 @@ async def _any_job_pending(graph_store: GraphStore, job_ids: Iterable[UUID]) -> 
     """Return whether any of the jobs may still commit or roll back its rows.
 
     A job id with no job node counts as finished: a later job for the same
-    document takes over the node under a new id.
+    document takes over the node under a new id. A job whose lease has expired
+    also counts as finished, because it can no longer commit or roll back. Its
+    rows stay until ``Graph.open`` recovers the job.
     """
     for job_id in job_ids:
         rows = await graph_store.execute_read(
-            job_status_query(), {"job_id": str(job_id)}
+            job_owner_live_query(), {"job_id": str(job_id)}
         )
-        if rows and rows[0].get("status") in ("pending", "rolling_back"):
+        if rows and rows[0].get("live") is True:
             return True
     return False
 
 
 async def _retry_on_alias_conflict(
-    graph_store: GraphStore, attempt: Callable[[], Awaitable[_T]]
+    graph_store: GraphStore,
+    attempt: Callable[[], Awaitable[_T]],
+    *,
+    document_key: str,
+    expected_content_hash: str | None,
 ) -> _T:
     """Run one document's Cutover Job, again while another job holds a name it needs.
 
     Each call of ``attempt`` must build its job state from scratch, because a
-    failed attempt has rolled its job back.
+    failed attempt has rolled its job back. The retry window starts at the first
+    conflict. A retry does not run when the document's content hash changed
+    while the call waited, because the state the attempt was built from is then
+    stale.
+
+    Args:
+        graph_store: The store the job writes to.
+        attempt: Runs the job once.
+        document_key: The document the job writes.
+        expected_content_hash: The content hash the document had when the
+            attempt's state was read, or ``None`` for a new document.
 
     Raises:
         GraphStoreAliasConflictError: The conflict was still there when the
-            retry window ran out, or it cannot clear by waiting.
+            retry window ran out, it cannot clear by waiting, or the document
+            changed while the call waited.
     """
-    deadline = time.monotonic() + _ALIAS_RETRY_WINDOW_SECONDS
+    deadline: float | None = None
     retried_without_wait = False
     while True:
         try:
@@ -141,6 +158,8 @@ async def _retry_on_alias_conflict(
             # A conflict with no pending owner gets one immediate retry, for an
             # owner that committed after this attempt looked the name up. A
             # second one cannot clear by waiting, so it is raised.
+            if deadline is None:
+                deadline = time.monotonic() + _ALIAS_RETRY_WINDOW_SECONDS
             waited = False
             while await _any_job_pending(graph_store, conflict.owner_job_ids):
                 if time.monotonic() >= deadline:
@@ -148,6 +167,10 @@ async def _retry_on_alias_conflict(
                 waited = True
                 await asyncio.sleep(_ALIAS_RETRY_POLL_SECONDS)
             if time.monotonic() >= deadline or (retried_without_wait and not waited):
+                raise
+            current = await find_document(graph_store, document_key=document_key)
+            current_hash = current.current_content_hash if current else None
+            if current_hash != expected_content_hash:
                 raise
             retried_without_wait = not waited
 
@@ -714,6 +737,8 @@ async def _commit_batch(  # noqa: PLR0913
                         doc_dropped,
                     ),
                 ),
+                document_key=document_key,
+                expected_content_hash=previous_hashes.get(document_key),
             )
         except GraphStoreAliasConflictError as conflict:
             if error_policy is ErrorPolicy.RAISE:
@@ -1216,7 +1241,12 @@ async def update_document(  # noqa: PLR0912,PLR0913,PLR0915
 
         try:
             add_result, cleanup_failures, parts_closed = await _retry_on_alias_conflict(
-                graph_store, _attempt
+                graph_store,
+                _attempt,
+                document_key=document_key,
+                expected_content_hash=(
+                    found.current_content_hash if found is not None else None
+                ),
             )
         except GraphStoreAliasConflictError as conflict:
             if error_policy is ErrorPolicy.RAISE:

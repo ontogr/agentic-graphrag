@@ -154,6 +154,23 @@ def begin_rollback_query() -> str:
     )
 
 
+def job_owner_live_query() -> str:
+    """Check whether a Cutover Job can still commit or roll back its rows.
+
+    A pending or rolling-back job whose lease has expired can no longer commit,
+    so it reads as not live. A missing job node also reads as not live.
+
+    Returns:
+        Parameterized Cypher expecting $job_id. Returns one row with the boolean
+        ``live``.
+    """
+    return (
+        f"OPTIONAL MATCH (job:{CUTOVER_JOB_LABEL} {{id: $job_id}}) "
+        "RETURN coalesce(job.status IN ['pending', 'rolling_back'] "
+        "AND job.lease_expires_at >= timestamp(), false) AS live"
+    )
+
+
 def job_status_query() -> str:
     """Read a job's status, lease token, closed-edge count and commit progress.
 
