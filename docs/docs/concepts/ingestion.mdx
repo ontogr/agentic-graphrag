@@ -48,7 +48,7 @@ If a process stops during a call, a later `Graph.open` attempts to recover the u
 
 A new job on a document first rolls back an expired pending or rolling-back job for that document. It takes over a previous job directly only when that job is done or rolled back.
 
-A worker that loses its lease stops writing. Every pending write checks that its job is still pending with a live lease, and raises `GraphStoreFenceError` without writing when the job was claimed, rolled back, or replaced. A write to an external vector store checks the job just before it runs. If the job is taken over between that check and the write, an orphan vector can remain, and `graph.repair_vectors(prune=True)` removes it. A lease renewal that fails with an error is retried until the lease expires. A renewal that is refused because the job no longer holds the lease is not retried.
+A worker that loses its lease stops writing. Every pending write checks that its job is still pending with a live lease, and raises `GraphStoreFenceError` when the job was claimed, rolled back, or replaced. No row from such a write survives: either the write changes nothing, or its rows carry the job's tag and the rollback deletes them. A write to an external vector store checks the job just before it runs. If the job is taken over between that check and the write, an orphan vector can remain, and `graph.repair_vectors(prune=True)` removes it. A lease renewal that fails with an error is retried until the lease expires. A renewal that is refused because the job no longer holds the lease is not retried.
 
 Rollback starts only while the job is still pending under the worker's lease token. The steps are:
 
