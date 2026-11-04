@@ -1,9 +1,10 @@
-"""Concurrent adds that name one entity differently, against a real Neo4j.
+"""Concurrent adds that name one entity, against a real graph store.
 
-Runs against the Docker Compose Neo4j instance from
-``docker/docker-compose.ci.yml``. Each add resolves against committed data
-only, so the test holds both commits back until both adds have resolved. The
-pair only meets after the commits, when each job resolves what it created.
+Runs against the Docker Compose instance from ``docker/docker-compose.ci.yml``.
+Each add resolves against committed data only, so the tests hold the commits
+back until both adds have reached the point where they meet. Name variants
+meet after the commits, when each job resolves what it created. One exact name
+meets earlier, when both jobs claim it while pending.
 """
 
 import asyncio
@@ -21,7 +22,7 @@ from agrag.common.data_models.document import Document, DocumentFamily, SourceFo
 from agrag.common.data_models.extraction import ExtractedEntity, ExtractionResult
 from agrag.common.data_models.graph_schema import GraphSchema
 from agrag.embedding.base import Embedder
-from agrag.ingestion import _cutover
+from agrag.ingestion import _cutover, _merge_stage
 from agrag.ingestion.extract import Extractor
 from agrag.ingestion.graph import Graph
 from tests.conftest import FAKE_EMBEDDING_DIMENSIONS
@@ -186,5 +187,74 @@ class TestConcurrentAdds:
                 "MATCH (a:_MergeAlias) WHERE a.merge_key IN $merge_keys "
                 "DETACH DELETE a",
                 {"merge_keys": [f"Person:{name.casefold()}" for name in names]},
+            )
+            await store.close()
+
+    @staticmethod
+    async def test_same_new_name_ends_in_one_entity(
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """The add that loses a name to a pending add merges onto it later."""
+        store = build_test_store()
+        await store.connect()
+        suffix = uuid4().hex[:8]
+        name = f"Concurrent Pulsar {suffix}"
+        keys = [f"concurrent://{suffix}-one", f"concurrent://{suffix}-two"]
+        graph = await Graph.open(
+            schema=DEFAULT_SCHEMA,
+            graph_store=store,
+            embedder=_SuffixEmbedder(suffix),
+            extractor=_NameByKeywordExtractor({"firstdoc": name, "seconddoc": name}),
+        )
+        claimed_job_ids: set[str | None] = set()
+        both_claimed = asyncio.Event()
+        claim: Callable[..., Awaitable[None]] = _merge_stage.apply_merge
+        commit: Callable[..., Awaitable[int]] = _cutover._commit_pending_writes
+
+        async def record_claim(*args: Any, **kwargs: Any) -> None:
+            try:
+                await claim(*args, **kwargs)
+            finally:
+                claimed_job_ids.add(kwargs["pending_job_id"])
+                if len(claimed_job_ids) >= 2:
+                    both_claimed.set()
+
+        async def commit_after_both_claimed(**kwargs: Any) -> int:
+            await asyncio.wait_for(both_claimed.wait(), timeout=120)
+            return await commit(**kwargs)
+
+        monkeypatch.setattr(_merge_stage, "apply_merge", record_claim)
+        monkeypatch.setattr(
+            _cutover, "_commit_pending_writes", commit_after_both_claimed
+        )
+        try:
+            await asyncio.gather(
+                graph.add(documents=[_document(keys[0], "firstdoc alpha. " * 40)]),
+                graph.add(documents=[_document(keys[1], "seconddoc beta. " * 40)]),
+            )
+            entities = await store.execute_read(
+                "MATCH (e:Person {name: $name}) RETURN e.id AS id", {"name": name}
+            )
+            assert len(entities) == 1
+            mentioning_documents = await store.execute_read(
+                "MATCH (d:Document)-[:HAS_PART]->(:Chunk)-[:MENTIONED_IN]->"
+                "(:Person {name: $name}) "
+                "RETURN DISTINCT d.document_key AS key",
+                {"name": name},
+            )
+            assert sorted(row["key"] for row in mentioning_documents) == keys
+        finally:
+            await store.execute_write(
+                "MATCH (d:Document) WHERE d.document_key IN $keys "
+                "OPTIONAL MATCH (d)-[:HAS_PART]->(c:Chunk) "
+                "DETACH DELETE d, c",
+                {"keys": keys},
+            )
+            await store.execute_write(
+                "MATCH (e:Person {name: $name}) DETACH DELETE e", {"name": name}
+            )
+            await store.execute_write(
+                "MATCH (a:_MergeAlias {merge_key: $merge_key}) DETACH DELETE a",
+                {"merge_key": f"Person:{name.casefold()}"},
             )
             await store.close()
