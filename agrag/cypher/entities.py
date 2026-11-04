@@ -260,6 +260,11 @@ def upsert_survivor_query(labels: Sequence[str], *, extra_set: str = "") -> str:
     values, which only a Python-side read can gather, so making that
     atomic too is out of scope here.
 
+    A record's ``merge_write_id`` identifies one merge write. The node keeps the
+    last id it applied, and a record with that id adds no delta, so a repeated
+    write of the same merge changes the count once. A record without an id always
+    adds its delta.
+
     The Cutover Job tag is set only when the ``MERGE`` creates the node. A
     write over a row the job did not create is not applied: the row reports
     ``written`` false, and the store defers the write to the job's commit
@@ -293,14 +298,18 @@ def upsert_survivor_query(labels: Sequence[str], *, extra_set: str = "") -> str:
         f"ON CREATE SET n.{PENDING_JOB_ID_PROPERTY} = record.pending_job_id "
         f"WITH n, record, {own} AS own, "
         f"coalesce(n.source_chunk_ids, []) AS existing_source_chunk_ids, "
-        f"coalesce(n.merge_count, 0) AS existing_merge_count "
+        f"coalesce(n.merge_count, 0) AS existing_merge_count, "
+        f"record.merge_write_id IS NOT NULL "
+        f"AND n.merge_write_id = record.merge_write_id AS already_merged "
         f"FOREACH (_ IN CASE WHEN own THEN [1] ELSE [] END | "
         f"SET n:{label_expr} "
         f"SET n += record.properties "
         f"SET n.source_chunk_ids = [x IN existing_source_chunk_ids "
         f"WHERE NOT x IN record.new_source_chunk_ids] "
         f"+ record.new_source_chunk_ids "
-        f"SET n.merge_count = existing_merge_count + record.merge_count_delta "
+        f"SET n.merge_count = existing_merge_count "
+        f"+ CASE WHEN already_merged THEN 0 ELSE record.merge_count_delta END "
+        f"SET n.merge_write_id = coalesce(record.merge_write_id, n.merge_write_id) "
         f"{extra_set + ' ' if extra_set else ''}"
         f"SET n.id = record.id) "
         f"RETURN record.id AS id, own AS written"

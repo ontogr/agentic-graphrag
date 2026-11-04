@@ -1,11 +1,13 @@
-"""Rollback fencing and interrupted rollback recovery against real Neo4j.
+"""Rollback fencing, crash recovery, and commit retries on a real graph store.
 
-Set NEO4J_URI to an isolated test database. Each case removes only its own
+Run against the backend named by AGRAG_TEST_BACKENDS. Set NEO4J_URI or
+FALKORDB_URL to an isolated test database. Each case removes only its own
 probe rows and writes a JSON snapshot to pytest's temporary directory.
 """
 
 import importlib.util
 import json
+from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
@@ -13,21 +15,113 @@ from uuid import UUID, uuid4
 import pytest
 
 from agrag.common.data_models.cutover_job import CUTOVER_JOB_LABEL
-from agrag.common.data_models.graph_record import DeferredWrites
+from agrag.common.data_models.entity import Entity
+from agrag.common.data_models.graph_record import (
+    DeferredWrites,
+    NodeRecord,
+    RelationRecord,
+    UpsertResult,
+)
+from agrag.common.data_models.stage_failure import StageFailure
 from agrag.common.data_models.vector_record import VectorWork
-from agrag.cypher.cutover_job_write import begin_rollback_query, rollback_job_query
-from agrag.ingestion._cutover import run_cutover_job
+from agrag.cypher.cutover_job_write import (
+    begin_rollback_query,
+    record_parts_closed_query,
+    rollback_job_query,
+)
+from agrag.cypher.entities import upsert_survivor_query
+from agrag.graphdb.base import GraphStoreTransaction
+from agrag.graphdb.errors import (
+    GraphStoreConstraintViolationError,
+    GraphStoreWriteConflictError,
+)
+from agrag.ingestion._cutover import CommitPlan, apply_plan_after_fold, run_cutover_job
+from agrag.ingestion._document_lifecycle import DocumentChange
+from agrag.ingestion._pending_rows import clear_job_tags
 from agrag.ingestion._resume import resume_incomplete_jobs
 from agrag.ingestion.settings import CutoverJobSettings
-from tests.integration._backend import build_test_store
+from tests.integration._backend import build_test_store, selected_backend
 
 
-@pytest.mark.skipif(
-    importlib.util.find_spec("neo4j") is None, reason="neo4j extra not installed"
-)
+class _FailBefore:
+    """Wraps a transaction and raises a constraint violation once.
+
+    The violation is raised before the first ``execute_write`` of ``query``.
+    Every other call goes straight to the wrapped transaction.
+    """
+
+    def __init__(self, txn: GraphStoreTransaction, query: str) -> None:
+        """Arm the failure for the statement ``query``."""
+        self._txn = txn
+        self._query = query
+        self._armed = True
+
+    def vector_value(self, expression: str) -> str:
+        """Forward to the wrapped transaction."""
+        return self._txn.vector_value(expression)
+
+    def fulltext_copy_set(
+        self, alias: str, source: str, properties: Iterable[str]
+    ) -> str:
+        """Forward to the wrapped transaction."""
+        return self._txn.fulltext_copy_set(alias, source, properties)
+
+    async def execute_read(
+        self, query: str, parameters: Mapping[str, Any] | None = None
+    ) -> list[dict[str, Any]]:
+        """Forward to the wrapped transaction."""
+        return await self._txn.execute_read(query, parameters)
+
+    async def execute_write(
+        self, query: str, parameters: Mapping[str, Any] | None = None
+    ) -> list[dict[str, Any]]:
+        """Forward every statement, raising once before the armed one."""
+        if self._armed and query == self._query:
+            self._armed = False
+            raise GraphStoreConstraintViolationError("injected before the statement")
+        return await self._txn.execute_write(query, parameters)
+
+    async def upsert_nodes(
+        self,
+        label: str,
+        nodes: Sequence[NodeRecord],
+        *,
+        batch_size: int = 256,
+        pending_job_id: UUID | None = None,
+        deferred: DeferredWrites | None = None,
+    ) -> UpsertResult | None:
+        """Forward to the wrapped transaction."""
+        return await self._txn.upsert_nodes(
+            label,
+            nodes,
+            batch_size=batch_size,
+            pending_job_id=pending_job_id,
+            deferred=deferred,
+        )
+
+    async def upsert_relations(
+        self,
+        relations: Sequence[RelationRecord],
+        *,
+        batch_size: int = 256,
+        pending_job_id: UUID | None = None,
+        deferred: DeferredWrites | None = None,
+    ) -> UpsertResult | None:
+        """Forward to the wrapped transaction."""
+        return await self._txn.upsert_relations(
+            relations,
+            batch_size=batch_size,
+            pending_job_id=pending_job_id,
+            deferred=deferred,
+        )
+
+
 class TestCutoverRecovery:
     """A destructive rollback requires the current token and rollback state."""
 
+    @pytest.mark.skipif(
+        importlib.util.find_spec("neo4j") is None, reason="neo4j extra not installed"
+    )
     @pytest.mark.neo4j_only
     async def test_applied_commit_with_lost_acknowledgement_finishes_cleanup(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
@@ -260,6 +354,471 @@ class TestCutoverRecovery:
                 {"probe": probe},
             )
             assert aliases == [{"merge_key": merge_key, "pending_job": None}]
+        finally:
+            await store.execute_write(
+                "MATCH (n) WHERE n.probe = $probe OR n.document_key = $probe "
+                "DETACH DELETE n",
+                {"probe": probe},
+            )
+            await store.close()
+
+    async def test_recovery_passes_recorded_seeds_and_created_entities_to_cleanup(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """A commit that died before its flip hands its recorded lists to cleanup."""
+        store = build_test_store()
+        await store.connect()
+        probe, created = uuid4().hex, uuid4()
+        low, high = sorted((uuid4(), uuid4()), key=str)
+        components = [
+            (
+                [],
+                [
+                    Entity(id=high, label="Person", name="high"),
+                    Entity(id=low, label="Person", name="low"),
+                ],
+            )
+        ]
+        recorded: list[tuple[list[UUID], list[UUID], list[UUID]]] = []
+
+        async def pending(job_id: UUID) -> str:
+            return "pending"
+
+        async def cleanup(
+            _: list[UUID],
+            __: list[UUID],
+            ___: list[UUID],
+            _vector_work: VectorWork,
+        ) -> str:
+            return "cleaned"
+
+        async def roll_forward(
+            affected: list[UUID],
+            seeds: list[UUID],
+            created_ids: list[UUID],
+            _vector_work: VectorWork,
+        ) -> list[StageFailure]:
+            # Other jobs in the shared database stay in cleaning for their own open.
+            if created not in created_ids:
+                return [
+                    StageFailure(
+                        item_id=str(created),
+                        error_type="SkippedJob",
+                        error_message="belongs to another test",
+                    )
+                ]
+            recorded.append((affected, seeds, created_ids))
+            return []
+
+        async def fail_before_flip(*args: object, **kwargs: object) -> None:
+            raise RuntimeError("worker failed during commit")
+
+        try:
+            monkeypatch.setattr(
+                "agrag.ingestion._cutover.clear_job_tags", fail_before_flip
+            )
+            with pytest.raises(RuntimeError, match="worker failed during commit"):
+                await run_cutover_job(
+                    verb="add",
+                    document_key=probe,
+                    affected_entity_ids=[],
+                    graph_store=store,
+                    settings=CutoverJobSettings(),
+                    pending_write=pending,
+                    cleanup=cleanup,
+                    deferred=DeferredWrites(),
+                    components=components,
+                    created_entity_ids=[created],
+                )
+            monkeypatch.undo()
+            if selected_backend() != "neo4j":
+                # The lease is still live, so no other worker can claim the job
+                # before this read. The row must hold the lists that recovery
+                # passes on.
+                stored = await store.execute_read(
+                    f"MATCH (job:{CUTOVER_JOB_LABEL} {{document_key: $probe}}) "
+                    "RETURN job.component_seed_ids AS seeds, "
+                    "job.created_entity_ids AS created",
+                    {"probe": probe},
+                )
+                assert stored == [{"seeds": [str(low)], "created": [str(created)]}]
+            await store.execute_write(
+                f"MATCH (job:{CUTOVER_JOB_LABEL} {{document_key: $probe}}) "
+                "SET job.lease_expires_at = timestamp() - 60000",
+                {"probe": probe},
+            )
+
+            await resume_incomplete_jobs(store, roll_forward=roll_forward)
+
+            if selected_backend() == "neo4j":
+                # A Neo4j commit rolls back with its mark, so there is no
+                # commit left for recovery to finish.
+                assert recorded == []
+            else:
+                assert recorded == [([], [low], [created])]
+            cleanup_inputs = [
+                {
+                    "seeds": [str(seed) for seed in seeds],
+                    "created": [str(entity) for entity in created_ids],
+                }
+                for _, seeds, created_ids in recorded
+            ]
+            (tmp_path / "recovered-cleanup.json").write_text(json.dumps(cleanup_inputs))
+        finally:
+            await store.execute_write(
+                "MATCH (n) WHERE n.probe = $probe OR n.document_key = $probe "
+                "DETACH DELETE n",
+                {"probe": probe},
+            )
+            await store.close()
+
+    async def test_replay_not_repeated_when_commit_retries(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """A retried commit resumes after its replayed write instead of repeating it."""
+        store = build_test_store()
+        await store.connect()
+        probe = uuid4().hex
+        failed = False
+
+        async def fail_once_after_replay(
+            txn: GraphStoreTransaction, *, job_id: UUID, plan: CommitPlan
+        ) -> int:
+            nonlocal failed
+            if not failed:
+                failed = True
+                raise GraphStoreConstraintViolationError("injected after replay")
+            return await apply_plan_after_fold(txn, job_id=job_id, plan=plan)
+
+        async def pending(job_id: UUID) -> str:
+            return "pending"
+
+        async def cleanup(
+            _: list[UUID],
+            __: list[UUID],
+            ___: list[UUID],
+            _vector_work: VectorWork,
+        ) -> str:
+            return "cleaned"
+
+        # The increment accumulates, so a repeated replay step shows as a count
+        # above one.
+        deferred = DeferredWrites(
+            entries=[
+                (
+                    "MATCH (n:_Probe {probe: $probe}) "
+                    "SET n.hits = coalesce(n.hits, 0) + 1 RETURN n.probe AS probe",
+                    {"probe": probe},
+                )
+            ]
+        )
+        try:
+            await store.execute_write(
+                "CREATE (:_Probe {probe: $probe, hits: 0})", {"probe": probe}
+            )
+            monkeypatch.setattr(
+                "agrag.ingestion._cutover.apply_plan_after_fold", fail_once_after_replay
+            )
+
+            await run_cutover_job(
+                verb="add",
+                document_key=probe,
+                affected_entity_ids=[],
+                graph_store=store,
+                settings=CutoverJobSettings(),
+                pending_write=pending,
+                cleanup=cleanup,
+                deferred=deferred,
+            )
+
+            assert failed
+            rows = await store.execute_read(
+                "MATCH (n:_Probe {probe: $probe}) RETURN n.hits AS hits",
+                {"probe": probe},
+            )
+            assert rows == [{"hits": 1}]
+            (tmp_path / "replay-retry.json").write_text(json.dumps(rows))
+        finally:
+            await store.execute_write(
+                "MATCH (n) WHERE n.probe = $probe OR n.document_key = $probe "
+                "DETACH DELETE n",
+                {"probe": probe},
+            )
+            await store.close()
+
+    @pytest.mark.neo4j_only
+    async def test_write_conflict_retry_completes_commit(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """A write conflict during replay is retried under the lease until it lands."""
+        store = build_test_store()
+        await store.connect()
+        probe = uuid4().hex
+        conflicted = False
+
+        # The replayed write sets a flag, so repeating it after the conflict
+        # leaves the same graph as the uncrashed run.
+        def conflict_once(_rows: Sequence[Mapping[str, Any]]) -> None:
+            nonlocal conflicted
+            if not conflicted:
+                conflicted = True
+                raise GraphStoreWriteConflictError("injected conflict during replay")
+
+        async def pending(job_id: UUID) -> str:
+            return "pending"
+
+        async def cleanup(
+            _: list[UUID],
+            __: list[UUID],
+            ___: list[UUID],
+            _vector_work: VectorWork,
+        ) -> str:
+            return "cleaned"
+
+        deferred = DeferredWrites(
+            entries=[
+                (
+                    "MATCH (n:_Probe {probe: $probe}) "
+                    "SET n.replayed = true RETURN n.probe AS probe",
+                    {"probe": probe},
+                )
+            ]
+        )
+        try:
+            await store.execute_write(
+                "CREATE (:_Probe {probe: $probe, replayed: false})", {"probe": probe}
+            )
+            monkeypatch.setattr(
+                "agrag.ingestion._deferred._require_written", conflict_once
+            )
+
+            result = await run_cutover_job(
+                verb="add",
+                document_key=probe,
+                affected_entity_ids=[],
+                graph_store=store,
+                settings=CutoverJobSettings(),
+                pending_write=pending,
+                cleanup=cleanup,
+                deferred=deferred,
+            )
+
+            assert conflicted
+            assert result[:2] == ("pending", "cleaned")
+            jobs = await store.execute_read(
+                f"MATCH (j:{CUTOVER_JOB_LABEL} {{document_key: $probe}}) "
+                "RETURN j.status AS status",
+                {"probe": probe},
+            )
+            assert jobs == [{"status": "done"}]
+            rows = await store.execute_read(
+                "MATCH (n:_Probe {probe: $probe}) RETURN n.replayed AS replayed",
+                {"probe": probe},
+            )
+            assert rows == [{"replayed": True}]
+            (tmp_path / "write-conflict-retry.json").write_text(
+                json.dumps({"job": jobs, "replayed": rows})
+            )
+        finally:
+            await store.execute_write(
+                "MATCH (n) WHERE n.probe = $probe OR n.document_key = $probe "
+                "DETACH DELETE n",
+                {"probe": probe},
+            )
+            await store.close()
+
+    @pytest.mark.parametrize("injection", ["before_record", "before_clear"])
+    async def test_closing_writes_do_not_repeat_when_commit_retries(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, injection: str
+    ) -> None:
+        """A retried commit keeps the sequence, epoch and count."""
+        store = build_test_store()
+        await store.connect()
+        probe = uuid4().hex
+        document = uuid4()
+        failed = False
+        real_apply = apply_plan_after_fold
+
+        async def fail_before_docs_recorded(
+            txn: GraphStoreTransaction, *, job_id: UUID, plan: CommitPlan
+        ) -> int:
+            nonlocal failed
+            if failed:
+                return await real_apply(txn, job_id=job_id, plan=plan)
+            failed = True
+            guarded = _FailBefore(txn, record_parts_closed_query())
+            return await real_apply(guarded, job_id=job_id, plan=plan)
+
+        async def fail_before_tags_clear(
+            txn: GraphStoreTransaction, *, job_id: UUID
+        ) -> None:
+            nonlocal failed
+            if not failed:
+                failed = True
+                raise GraphStoreConstraintViolationError("injected before tag clear")
+            await clear_job_tags(txn, job_id=job_id)
+
+        async def pending(job_id: UUID) -> str:
+            return "pending"
+
+        async def cleanup(
+            _: list[UUID],
+            __: list[UUID],
+            ___: list[UUID],
+            _vector_work: VectorWork,
+        ) -> str:
+            return "cleaned"
+
+        try:
+            await store.execute_write(
+                "CREATE (d:_Node:Document {id: $document, probe: $probe, "
+                "document_key: $probe}) "
+                "CREATE (c:_Node:Chunk {id: $chunk, probe: $probe}) "
+                "CREATE (d)-[:HAS_PART]->(c) "
+                "CREATE (t:Task {_agrag_history_record: true, project_id: $probe, "
+                "probe: $probe}) "
+                "CREATE (dec:Decision {_agrag_history_record: true, "
+                "status: 'active', probe: $probe}) "
+                "CREATE (t)-[:MADE]->(dec) "
+                "CREATE (s:DecisionSupport {_agrag_history_record: true, "
+                "kind: 'document', current: true, recorded_activation_seq: 0, "
+                "document_node_id: $document, probe: $probe}) "
+                "CREATE (dec)-[:HAS_SUPPORT]->(s) "
+                "CREATE (:Project {_agrag_history_record: true, project_id: $probe, "
+                "review_epoch: 0, probe: $probe})",
+                {"document": str(document), "chunk": str(uuid4()), "probe": probe},
+            )
+            if injection == "before_record":
+                monkeypatch.setattr(
+                    "agrag.ingestion._cutover.apply_plan_after_fold",
+                    fail_before_docs_recorded,
+                )
+            else:
+                monkeypatch.setattr(
+                    "agrag.ingestion._cutover.clear_job_tags", fail_before_tags_clear
+                )
+
+            result = await run_cutover_job(
+                verb="update",
+                document_key=probe,
+                affected_entity_ids=[],
+                graph_store=store,
+                settings=CutoverJobSettings(),
+                pending_write=pending,
+                cleanup=cleanup,
+                deferred=DeferredWrites(),
+                close_document_node_id=document,
+                change=DocumentChange(
+                    document_node_id=document,
+                    document_key=probe,
+                    verb="update",
+                    content_hash="hash-2",
+                    previous_content_hash="hash-1",
+                    version_id=None,
+                ),
+            )
+
+            assert failed
+            assert result[2] == 1
+            rows = await store.execute_read(
+                "MATCH (d:Document {id: $document}) "
+                "MATCH (p:Project {probe: $probe}) "
+                "MATCH (j:CutoverJob {document_key: $probe}) "
+                "RETURN d.activation_seq AS activation_seq, "
+                "p.review_epoch AS review_epoch, j.parts_closed AS parts_closed, "
+                "j.status AS status",
+                {"document": str(document), "probe": probe},
+            )
+            assert rows == [
+                {
+                    "activation_seq": 1,
+                    "review_epoch": 1,
+                    "parts_closed": 1,
+                    "status": "done",
+                }
+            ]
+            (tmp_path / "closing-writes-retry.json").write_text(json.dumps(rows))
+        finally:
+            await store.execute_write(
+                "MATCH (n) WHERE n.probe = $probe OR n.document_key = $probe "
+                "DETACH DELETE n",
+                {"probe": probe},
+            )
+            await store.close()
+
+    async def test_merge_count_is_not_added_twice_when_a_replayed_step_repeats(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """A replayed survivor write adds its merge delta once."""
+        store = build_test_store()
+        await store.connect()
+        probe = uuid4().hex
+        entity = uuid4()
+        injected = False
+
+        def conflict_once(_rows: Sequence[Mapping[str, Any]]) -> None:
+            nonlocal injected
+            if not injected:
+                injected = True
+                raise GraphStoreConstraintViolationError("injected after the write")
+
+        async def pending(job_id: UUID) -> str:
+            return "pending"
+
+        async def cleanup(
+            _: list[UUID],
+            __: list[UUID],
+            ___: list[UUID],
+            _vector_work: VectorWork,
+        ) -> str:
+            return "cleaned"
+
+        survivor = {
+            "id": str(entity),
+            "pending_job_id": None,
+            "properties": {"probe": probe},
+            "new_source_chunk_ids": [],
+            "merge_count_delta": 2,
+            "merge_write_id": str(uuid4()),
+        }
+        deferred = DeferredWrites(
+            entries=[
+                (
+                    upsert_survivor_query(
+                        ("_Probe",), extra_set=store.node_write_extra_set()
+                    ),
+                    {"records": [survivor], "require_all": True},
+                )
+            ]
+        )
+        try:
+            await store.execute_write(
+                "CREATE (:_Node {id: $entity, probe: $probe, merge_count: 0, "
+                "source_chunk_ids: []})",
+                {"entity": str(entity), "probe": probe},
+            )
+            monkeypatch.setattr(
+                "agrag.ingestion._deferred._require_written", conflict_once
+            )
+
+            await run_cutover_job(
+                verb="add",
+                document_key=probe,
+                affected_entity_ids=[],
+                graph_store=store,
+                settings=CutoverJobSettings(),
+                pending_write=pending,
+                cleanup=cleanup,
+                deferred=deferred,
+            )
+
+            assert injected
+            rows = await store.execute_read(
+                "MATCH (n:_Node {id: $entity}) RETURN n.merge_count AS merge_count",
+                {"entity": str(entity)},
+            )
+            assert rows == [{"merge_count": 2}]
+            (tmp_path / "merge-count-retry.json").write_text(json.dumps(rows))
         finally:
             await store.execute_write(
                 "MATCH (n) WHERE n.probe = $probe OR n.document_key = $probe "

@@ -270,7 +270,9 @@ Filters apply after the native index picks nearest candidates. The adapter reque
 
 ### Crash recovery of a commit
 
-A document change commits in several statements. If the process stops after the commit-started marker, a later `Graph.open` attempts to finish that commit after its lease expires instead of rolling it back. Recovery resumes persisted deferred writes after their recorded progress, folds relations, and completes the document status change. A crash between a replay step and its progress record can repeat that step. Recovery does not rebuild the resolved-entity components for that interrupted change. Run `graph.reevaluate()` for the affected entities when that rebuild is needed.
+A document change commits in several statements. If the process stops after the commit-started marker, a later `Graph.open` attempts to finish that commit after its lease expires instead of rolling it back. Recovery resumes persisted deferred writes after their recorded progress, folds relations, rebuilds the resolved-entity components the change touched, and completes the document status change. A crash between a replay step and its progress record can repeat that step. Entity, relation, match, and alias writes overwrite or MERGE their values, so a repeated write leaves the same state. On a repeat, the step writes its ID again, and the counters that record merges and review changes stay the same, as long as no other commit has written the same entity or decision since the first attempt. If another commit has, a repeat adds its change to that counter a second time.
+
+On both backends, a commit that hits a constraint conflict with another job is retried under the same lease, for up to one lease TTL from the first failure. Set the TTL with `CUTOVER_JOB_LEASE_TTL_SECONDS`. After that, the error is raised. The TTL limits when a new attempt starts, not how long one database call runs. On Neo4j, a write conflict is retried the same way, because Neo4j rolls back the failed attempt. On FalkorDB, a write conflict is raised at once, and the job is left for a later `Graph.open` after its lease expires.
 
 ### Retried history and decision writes
 

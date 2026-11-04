@@ -169,6 +169,7 @@ def _job_args(
     pending_write: Any,
     cleanup: Any,
     deferred: DeferredWrites,
+    settings: CutoverJobSettings | None = None,
 ) -> dict[str, Any]:
     """Build the keyword arguments of one add job over a committed entity."""
     return {
@@ -176,7 +177,7 @@ def _job_args(
         "document_key": key,
         "affected_entity_ids": [],
         "graph_store": store,
-        "settings": CutoverJobSettings(),
+        "settings": settings or CutoverJobSettings(),
         "pending_write": pending_write,
         "cleanup": cleanup,
         "deferred": deferred,
@@ -315,6 +316,7 @@ class TestCutoverJobLeavesCommittedEntities:
                         pending_write=pending,
                         cleanup=cleanup,
                         deferred=deferred,
+                        settings=CutoverJobSettings(lease_ttl_seconds=1),
                     )
                 )
 

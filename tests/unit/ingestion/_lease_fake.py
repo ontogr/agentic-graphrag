@@ -91,7 +91,7 @@ class CutoverJobLeaseFake:
             claim_job_query(): self._claim,
             begin_rollback_query(): self._begin_rollback,
             job_status_query(): self._job_status,
-            record_parts_closed_query(): self._record_parts_closed,
+            record_parts_closed_query(): lambda p: [],
             record_replay_progress_query(): lambda p: [],
             lock_rolling_back_job_query(): self._lock_rolling_back,
             rollback_job_query(): self._rollback,
@@ -187,18 +187,27 @@ class CutoverJobLeaseFake:
             if job["id"] == str(params["job_id"])
         ]
 
-    def _record_parts_closed(self, params: dict[str, Any]) -> list[dict[str, Any]]:
-        """Persist the commit's closed-edge count on its job."""
-        for job in self._cutover_jobs.values():
-            if job["id"] == str(params["job_id"]):
-                job["parts_closed"] = params["parts_closed"]
-        return []
-
     def _close_has_part(self, params: dict[str, Any]) -> list[dict[str, Any]]:
-        """Report the configured superseded-edge count."""
-        del params
+        """Report the configured superseded-edge count, recording it on the job.
+
+        Mirrors the close statement: the first run that closes edges records the
+        count on its job, and a later run returns the recorded count.
+        """
         # A fake whose __init__ skipped the mixin's has no count yet.
-        return [{"closed": getattr(self, "closed_has_part_edges", 0)}]
+        closed = getattr(self, "closed_has_part_edges", 0)
+        job = next(
+            (
+                job
+                for job in self._cutover_jobs.values()
+                if job["id"] == str(params.get("job_id"))
+            ),
+            None,
+        )
+        if job is None:
+            return [{"closed": closed}]
+        if job.get("parts_closed") is None:
+            job["parts_closed"] = closed
+        return [{"closed": job["parts_closed"]}]
 
     def _steal(self, params: dict[str, Any]) -> list[dict[str, Any]]:
         """Take over a job only when it is done or rolled back.
@@ -217,6 +226,7 @@ class CutoverJobLeaseFake:
             job["verb"] = params["verb"]
             job["lease_token"] = str(params["lease_token"])
             job["lease_expires_at"] = params["lease_expires_at"]
+            job["parts_closed"] = None
             return [{"lease_token": job["lease_token"]}]
         return []
 

@@ -46,6 +46,10 @@ driver's managed transactions with no added retry loop.
 - [**vector_search_call**](#agrag-graphdb-neo4j-Neo4jGraphStore-vector_search_call) – Build the Cypher fragment that searches a vector index.
 - [**vector_value**](#agrag-graphdb-neo4j-Neo4jGraphStore-vector_value) – Wrap a Cypher expression that holds an embedding for a property write.
 
+**Attributes:**
+
+- [**rolls_back_failed_transactions**](#agrag-graphdb-neo4j-Neo4jGraphStore-rolls_back_failed_transactions) –
+
 **Parameters:**
 
 - **settings** (<code>[Neo4jSettings](../settings/Neo4jSettings.md) | None</code>) – Neo4j connection settings. Defaults to `Neo4jSettings()`.
@@ -249,6 +253,12 @@ Add types to this instance's known-relation-type set.
 **Raises:**
 
 - <code>ValueError</code> – Any type is not a safe identifier.
+
+## `rolls_back_failed_transactions` \{#agrag-graphdb-neo4j-Neo4jGraphStore-rolls_back_failed_transactions}
+
+```python
+rolls_back_failed_transactions = True
+```
 
 ## `run_in_transaction` \{#agrag-graphdb-neo4j-Neo4jGraphStore-run_in_transaction}
 

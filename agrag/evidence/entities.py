@@ -92,6 +92,7 @@ _INTERNAL_PROPERTIES = frozenset(
         "name",
         "merge_key",
         "merge_count",
+        "merge_write_id",
         "source_chunk_ids",
         "created_at",
         "embedding",

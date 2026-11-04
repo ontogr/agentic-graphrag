@@ -137,7 +137,12 @@ def record_activation_query() -> str:
 
 
 def flag_decisions_for_activation_query() -> str:
-    """Build a project-independent direct flag for one committed activation."""
+    """Build a project-independent direct flag for one committed activation.
+
+    Each decision records the activation that flagged it, and its project's
+    review epoch moves only on the first flag from that activation. A repeated
+    run therefore leaves the epoch as the first run left it.
+    """
     return (
         f"MATCH (doc:Document)-[:{HAS_ACTIVATION}]->"
         f"(a:{DOCUMENT_ACTIVATION_LABEL} {{id: $activation_id}}) "
@@ -153,8 +158,11 @@ def flag_decisions_for_activation_query() -> str:
         f"MATCH (t:Task {{{HISTORY_RECORD_PROPERTY}: true}})-[:MADE]->(d) "
         f"MATCH (p:Project {{{HISTORY_RECORD_PROPERTY}: true, "
         "project_id: t.project_id}) "
+        "WITH d, a, p, coalesce(d.review_activation_id, '') <> a.id AS first_flag "
         "SET p.review_incomplete = true, "
-        "p.review_epoch = coalesce(p.review_epoch, 0) + 1, "
+        "p.review_epoch = coalesce(p.review_epoch, 0) + CASE WHEN first_flag "
+        "THEN 1 ELSE 0 END, "
+        "d.review_activation_id = a.id, "
         "d.review_pending = true, d.review_state = 'needs_review', "
         "d.review_reason = CASE WHEN a.verb IN ['delete', 'purge'] "
         "THEN 'source_removed' ELSE 'source_changed' END "

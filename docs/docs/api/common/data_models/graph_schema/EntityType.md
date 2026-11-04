@@ -17,8 +17,8 @@ One kind of entity a schema recognizes.
 - [**properties**](#agrag-common-data_models-graph_schema-EntityType-properties) (<code>dict\[str, [PropertySpec](PropertySpec.md)\]</code>) – Property names mapped to their `PropertySpec`. Properties
   are not inherited from parents. `label`, `text` and the keys
   the graph writes itself (`id`, `name`, `merge_key`,
-  `merge_count`, `source_chunk_ids`, `created_at`,
-  `embedding`) are rejected as names.
+  `merge_count`, `merge_write_id`, `source_chunk_ids`,
+  `created_at`, `embedding`) are rejected as names.
 
 ## `description` \{#agrag-common-data_models-graph_schema-EntityType-description}
 

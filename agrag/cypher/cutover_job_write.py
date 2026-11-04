@@ -76,7 +76,7 @@ def steal_terminal_job_query() -> str:
         "job.affected_entity_ids = $affected_entity_ids, "
         "job.created_at = $created_at, job.commit_started = false, "
         "job.commit_docs_applied = false, job.commit_plan = null, "
-        "job.commit_replayed = 0 "
+        "job.commit_replayed = 0, job.parts_closed = null "
         "RETURN job.lease_token AS lease_token"
     )
 
@@ -159,23 +159,52 @@ def begin_rollback_query() -> str:
 
 
 def job_status_query() -> str:
-    """Read a job's status, lease token, and recorded closed-edge count."""
+    """Read a job's status, lease token, closed-edge count and commit progress.
+
+    The commit fields tell a retry whether the commit mark persisted and how
+    far the commit got. A missing mark reads as false and zero.
+    """
     return (
         f"MATCH (job:{CUTOVER_JOB_LABEL} {{id: $job_id}}) "
         "RETURN job.status AS status, job.lease_token AS lease_token, "
-        "job.parts_closed AS parts_closed"
+        "job.parts_closed AS parts_closed, "
+        "coalesce(job.commit_started, false) AS commit_started, "
+        "coalesce(job.commit_replayed, 0) AS commit_replayed, "
+        "coalesce(job.commit_docs_applied, false) AS commit_docs_applied"
+    )
+
+
+def resume_commit_fence_query() -> str:
+    """Build Cypher confirming a started commit still belongs to this worker.
+
+    A resumed commit keeps the mark its first attempt set, so the fence
+    checks the lease and the pending state without writing to the job.
+
+    Returns:
+        Parameterized Cypher expecting $job_id and $lease_token. Returns the
+        job id when the lease is live and the commit has started, no row
+        otherwise.
+    """
+    return (
+        f"MATCH (job:{CUTOVER_JOB_LABEL} {{id: $job_id}}) "
+        f"{_job_lock_clause()}"
+        "WHERE job.lease_token = $lease_token "
+        "AND job.lease_expires_at >= timestamp() "
+        "AND job.status = 'pending' AND job.commit_started = true "
+        "RETURN job.id AS id"
     )
 
 
 def record_parts_closed_query() -> str:
-    """Record the number of document edges closed by a job commit.
+    """Mark a job's document writes applied.
 
-    This is the last of the commit's document writes, so it also marks them
-    applied: crash recovery skips the document writes of a job that has the mark.
+    This is the last of the commit's document writes. Crash recovery skips the
+    document writes of a job that has the mark. The closed-edge count is
+    recorded by the close statement itself.
     """
     return (
         f"MATCH (job:{CUTOVER_JOB_LABEL} {{id: $job_id}}) "
-        "SET job.parts_closed = $parts_closed, job.commit_docs_applied = true"
+        "SET job.commit_docs_applied = true"
     )
 
 
@@ -201,12 +230,15 @@ def begin_commit_query() -> str:
     (roll it back) from one that died part way through the commit (finish it).
     It applies only under the same fence as ``commit_job_query``. It also
     stores ``$commit_plan``, the serialized document writes of the commit, so
-    recovery can repeat the ones that had not finished.
+    recovery can repeat the ones that had not finished. The component seeds
+    and created entities are stored here too, so recovery can run the same
+    cleanup when the worker dies before the flip.
 
     Returns:
-        Parameterized Cypher expecting $job_id, $lease_token and $commit_plan
-        (a JSON string). Returns the
-        job id when the mark was set, no row on fencing failure.
+        Parameterized Cypher expecting $job_id, $lease_token, $commit_plan
+        (a JSON string), $component_seed_ids and $created_entity_ids (lists
+        of string ids). Returns the job id when the mark was set, no row on
+        fencing failure.
     """
     return (
         f"MATCH (job:{CUTOVER_JOB_LABEL} {{id: $job_id}}) "
@@ -215,7 +247,9 @@ def begin_commit_query() -> str:
         "AND job.lease_expires_at >= timestamp() "
         "AND job.status = 'pending' "
         "SET job.commit_started = true, job.commit_plan = $commit_plan, "
-        "job.commit_replayed = 0 "
+        "job.commit_replayed = 0, "
+        "job.component_seed_ids = $component_seed_ids, "
+        "job.created_entity_ids = $created_entity_ids "
         "RETURN job.id AS id"
     )
 

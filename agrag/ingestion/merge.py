@@ -630,6 +630,7 @@ async def apply_merge(
     for stored_label in stored_labels:
         validate_identifier(stored_label)
     survivor_id = str(plan.survivor.id)
+    merge_write_id = str(uuid4())
     survivor_query = upsert_survivor_query(
         stored_labels, extra_set=graph_store.node_write_extra_set()
     )
@@ -651,6 +652,7 @@ async def apply_merge(
         )
         params["new_source_chunk_ids"] = [str(cid) for cid in plan.new_source_chunk_ids]
         params["merge_count_delta"] = plan.merge_count_delta
+        params["merge_write_id"] = merge_write_id
         accepted_merge_keys = plan.accepted_merge_keys or [plan.survivor.merge_key]
         # The alias claim runs first: a conflicting claim then stops the merge
         # before any survivor row is written, even on a backend that cannot undo

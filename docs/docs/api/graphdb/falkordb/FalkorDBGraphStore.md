@@ -46,6 +46,10 @@ rollback, so callers keep every statement of such a group safe to repeat.
 - [**vector_search_call**](#agrag-graphdb-falkordb-FalkorDBGraphStore-vector_search_call) – Build the Cypher fragment that searches a vector index.
 - [**vector_value**](#agrag-graphdb-falkordb-FalkorDBGraphStore-vector_value) – Wrap a float-list expression so FalkorDB stores it as a vector.
 
+**Attributes:**
+
+- [**rolls_back_failed_transactions**](#agrag-graphdb-falkordb-FalkorDBGraphStore-rolls_back_failed_transactions) (<code>bool</code>) –
+
 **Parameters:**
 
 - **settings** (<code>[FalkorDBSettings](../settings/FalkorDBSettings.md) | None</code>) – Connection settings. Defaults to `FalkorDBSettings()`.
@@ -240,6 +244,12 @@ Add types to this instance's known-relation-type set.
 **Raises:**
 
 - <code>ValueError</code> – Any type is not a safe identifier.
+
+## `rolls_back_failed_transactions` \{#agrag-graphdb-falkordb-FalkorDBGraphStore-rolls_back_failed_transactions}
+
+```python
+rolls_back_failed_transactions: bool = False
+```
 
 ## `run_in_transaction` \{#agrag-graphdb-falkordb-FalkorDBGraphStore-run_in_transaction}
 
