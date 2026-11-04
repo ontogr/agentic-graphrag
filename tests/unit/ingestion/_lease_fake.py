@@ -226,6 +226,7 @@ class CutoverJobLeaseFake:
             job["verb"] = params["verb"]
             job["lease_token"] = str(params["lease_token"])
             job["lease_expires_at"] = params["lease_expires_at"]
+            job["parts_closed"] = None
             return [{"lease_token": job["lease_token"]}]
         return []
 

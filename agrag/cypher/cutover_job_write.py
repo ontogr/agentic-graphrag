@@ -76,7 +76,7 @@ def steal_terminal_job_query() -> str:
         "job.affected_entity_ids = $affected_entity_ids, "
         "job.created_at = $created_at, job.commit_started = false, "
         "job.commit_docs_applied = false, job.commit_plan = null, "
-        "job.commit_replayed = 0 "
+        "job.commit_replayed = 0, job.parts_closed = null "
         "RETURN job.lease_token AS lease_token"
     )
 
