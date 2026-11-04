@@ -40,6 +40,7 @@ from agrag.cypher.resolution_write import (
 )
 from agrag.graphdb.base import GraphStore, GraphStoreTransaction
 from agrag.graphdb.entities import load_entities
+from agrag.graphdb.errors import GraphStoreFenceError
 from agrag.graphdb.serialize import parse_entity_node
 from agrag.ingestion._deferred import run_staged_transaction
 from agrag.ingestion.merge import compute_merge
@@ -104,6 +105,15 @@ class ResolvedEntityWriteError(Exception):
     whose resolved entity is missing, so the job must fail as a whole under
     every error policy.
     """
+
+
+# A job that hits one of these can no longer commit consistently, so a
+# pending-phase handler re-raises it under every error policy instead of
+# recording a stage failure and letting the job commit.
+JOB_LEVEL_ERRORS: tuple[type[Exception], ...] = (
+    GraphStoreFenceError,
+    ResolvedEntityWriteError,
+)
 
 
 class MatchDecision(BaseModel):
@@ -429,6 +439,8 @@ async def write_matches_and_rebuild(
             result = await run_staged_transaction(
                 graph_store, write_resolved, deferred=deferred
             )
+        except GraphStoreFenceError:
+            raise
         except Exception as exc:
             raise ResolvedEntityWriteError(
                 f"Job {pending_job_id} wrote matches but not their resolved entity"

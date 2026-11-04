@@ -69,7 +69,7 @@ from agrag.ingestion.resolve.zone_classifier import (
     DEFAULT_LLM_CONCURRENCY,
     MAX_LLM_PAIRS,
 )
-from agrag.ingestion.resolved_entities import MatchComponent
+from agrag.ingestion.resolved_entities import JOB_LEVEL_ERRORS, MatchComponent
 from agrag.ingestion.settings import ExtractionSettings, effective_mode
 from agrag.ingestion.stats import (
     ExtractionStats,
@@ -1036,7 +1036,7 @@ async def _embed_and_upsert_chunks(
                     "pending_job_id": job,
                 },
             )
-        if error_policy is ErrorPolicy.RAISE:
+        if error_policy is ErrorPolicy.RAISE or isinstance(exc, JOB_LEVEL_ERRORS):
             raise
         trace_id, span_id = record_stage_failure(exc)
         return [
@@ -1156,7 +1156,7 @@ async def _embed_and_upsert_survivors(
                     "pending_job_id": job,
                 },
             )
-        if error_policy is ErrorPolicy.RAISE:
+        if error_policy is ErrorPolicy.RAISE or isinstance(exc, JOB_LEVEL_ERRORS):
             raise
         trace_id, span_id = record_stage_failure(exc)
         return [

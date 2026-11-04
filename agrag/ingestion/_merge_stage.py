@@ -29,8 +29,8 @@ from agrag.ingestion.merge import (
 from agrag.ingestion.resolve.resolution import BatchResolution
 from agrag.ingestion.resolved_embeddings import embed_resolved_entities
 from agrag.ingestion.resolved_entities import (
+    JOB_LEVEL_ERRORS,
     MatchComponent,
-    ResolvedEntityWriteError,
     decisions_by_component,
     write_matches_and_rebuild,
 )
@@ -238,7 +238,9 @@ async def _merge_mention_groups(
                     deferred=ctx.deferred,
                 )
             except Exception as exc:  # noqa: BLE001
-                if ctx.error_policy is ErrorPolicy.RAISE:
+                if ctx.error_policy is ErrorPolicy.RAISE or isinstance(
+                    exc, JOB_LEVEL_ERRORS
+                ):
                     raise
                 trace_id, span_id = record_stage_failure(exc)
                 merge_failures.append(
@@ -317,7 +319,7 @@ async def _rebuild_components(
                 )
             except Exception as exc:  # noqa: BLE001
                 if ctx.error_policy is ErrorPolicy.RAISE or isinstance(
-                    exc, ResolvedEntityWriteError
+                    exc, JOB_LEVEL_ERRORS
                 ):
                     raise
                 trace_id, span_id = record_stage_failure(exc)
