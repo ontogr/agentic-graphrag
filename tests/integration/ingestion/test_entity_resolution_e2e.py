@@ -22,8 +22,11 @@ from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.extraction import ExtractedEntity, ExtractionResult
 from agrag.common.data_models.graph_schema import GraphSchema
 from agrag.embedding.base import Embedder
+from agrag.ingestion import resolved_entities
 from agrag.ingestion.extract import Extractor
 from agrag.ingestion.graph import Graph
+from agrag.ingestion.resolved_entities import ResolvedEntityWriteError
+from agrag.loaders.types import ErrorPolicy
 from tests.conftest import FAKE_EMBEDDING_DIMENSIONS
 from tests.integration._backend import build_test_store
 
@@ -240,6 +243,82 @@ class TestEntityResolutionEndToEnd:
                         for name in (first, second, third)
                     ]
                 },
+            )
+            await store.close()
+
+    async def test_skip_fails_the_document_when_its_resolved_entity_is_not_written(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A resolved entity that cannot be written fails the document under SKIP.
+
+        The job writes its match edges, then the resolved entity in a second
+        transaction. When that second write fails, committing the job would
+        publish matches with no resolved entity, so the document is rolled
+        back instead of being skipped past.
+        """
+        store = build_test_store()
+        await store.connect()
+        suffix = uuid4().hex[:8]
+        first, second = f"E2e Quasar {suffix}", f"E2e Quasars {suffix}"
+        names = [first, second]
+        key = f"e2e://{suffix}-unwritten"
+
+        async def fail_write(*_args: object, **_kwargs: object) -> None:
+            raise RuntimeError("injected resolved entity write failure")
+
+        monkeypatch.setattr(resolved_entities, "_write_resolved_entity", fail_write)
+        graph = await Graph.open(
+            schema=DEFAULT_SCHEMA,
+            graph_store=store,
+            embedder=_SuffixEmbedder(suffix),
+            extractor=_ProbeExtractor({"batchone": names}),
+        )
+        try:
+            with pytest.raises(ResolvedEntityWriteError):
+                await graph.add(
+                    documents=[_document(key, "batchone alpha. " * 60)],
+                    error_policy=ErrorPolicy.SKIP,
+                )
+
+            persons = await store.execute_read(
+                "MATCH (e:Person) WHERE e.name IN $names RETURN e.id AS id",
+                {"names": names},
+            )
+            matches = await store.execute_read(
+                "MATCH (a:Person)-[:MATCHES]->(b:Person) "
+                "WHERE a.name IN $names AND b.name IN $names RETURN a.name AS a",
+                {"names": names},
+            )
+            documents = await store.execute_read(
+                "MATCH (d:Document {document_key: $key}) RETURN d.id AS id",
+                {"key": key},
+            )
+            jobs = await store.execute_read(
+                "MATCH (job:CutoverJob {document_key: $key}) RETURN job.status AS s",
+                {"key": key},
+            )
+            assert persons == []
+            assert matches == []
+            assert documents == []
+            assert jobs == []
+        finally:
+            await store.execute_write(
+                "MATCH (d:Document {document_key: $key}) "
+                "OPTIONAL MATCH (d)-[:HAS_PART]->(c:Chunk) DETACH DELETE d, c",
+                {"key": key},
+            )
+            await store.execute_write(
+                "MATCH (e:Person) WHERE e.name IN $names DETACH DELETE e",
+                {"names": names},
+            )
+            await store.execute_write(
+                "MATCH (a:_MergeAlias) WHERE a.merge_key IN $merge_keys "
+                "DETACH DELETE a",
+                {"merge_keys": [f"Person:{name.strip().casefold()}" for name in names]},
+            )
+            await store.execute_write(
+                "MATCH (job:CutoverJob {document_key: $key}) DETACH DELETE job",
+                {"key": key},
             )
             await store.close()
 

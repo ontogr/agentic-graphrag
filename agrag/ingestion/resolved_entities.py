@@ -97,6 +97,15 @@ async def fetch_active_component_members(
     ]
 
 
+class ResolvedEntityWriteError(Exception):
+    """A job wrote its match edges but not the resolved entity built from them.
+
+    The edges carry the job's tag. Committing the job would publish matches
+    whose resolved entity is missing, so the job must fail as a whole under
+    every error policy.
+    """
+
+
 class MatchDecision(BaseModel):
     """A confirmed non-exact entity match ready to persist.
 
@@ -287,8 +296,7 @@ async def write_matches_and_rebuild(
     Outside a job, the matches and the resolved entity are written in one
     transaction. For a job's writes they are written in two transactions, and
     the summary of the resolved entity runs between them, so a slow summary
-    does not hold the job's lock. A failure after the first transaction raises
-    and leaves that transaction's match edges in place, tagged with the job.
+    does not hold the job's lock.
 
     Args:
         decisions: The confirmed matches to persist.
@@ -307,6 +315,8 @@ async def write_matches_and_rebuild(
         ValueError: No decisions are supplied, a decision references a
             member outside the supplied component, or ``pending_job_id`` is
             set and ``deferred`` is None.
+        ResolvedEntityWriteError: A job's matches were written but its
+            resolved entity was not. The caller must fail the job.
     """
     if not decisions:
         raise ValueError("At least one match decision is required")
@@ -399,25 +409,30 @@ async def write_matches_and_rebuild(
         component_members = await run_staged_transaction(
             graph_store, write_matches, deferred=deferred
         )
-        resolved = await compute_resolved_entity(
-            component_members, schema, tracer=tracer
-        )
-
-        async def write_resolved(
-            transaction: GraphStoreTransaction, staged: DeferredWrites | None
-        ) -> RebuildResult:
-            return await _write_resolved_entity(
-                transaction,
-                resolved,
-                component_members,
-                pending_job_id=pending_job_id,
-                decided_at=decided_at,
-                deferred=staged,
+        try:
+            resolved = await compute_resolved_entity(
+                component_members, schema, tracer=tracer
             )
 
-        result = await run_staged_transaction(
-            graph_store, write_resolved, deferred=deferred
-        )
+            async def write_resolved(
+                transaction: GraphStoreTransaction, staged: DeferredWrites | None
+            ) -> RebuildResult:
+                return await _write_resolved_entity(
+                    transaction,
+                    resolved,
+                    component_members,
+                    pending_job_id=pending_job_id,
+                    decided_at=decided_at,
+                    deferred=staged,
+                )
+
+            result = await run_staged_transaction(
+                graph_store, write_resolved, deferred=deferred
+            )
+        except Exception as exc:
+            raise ResolvedEntityWriteError(
+                f"Job {pending_job_id} wrote matches but not their resolved entity"
+            ) from exc
     if vector_sync is not None:
         await vector_sync.delete_absent(
             VectorKind.RESOLVED_ENTITY, result.removed_entity_ids
