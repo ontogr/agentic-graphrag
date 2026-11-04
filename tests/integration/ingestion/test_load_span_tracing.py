@@ -101,7 +101,6 @@ def _ancestors(span: ReadableSpan, by_id: dict[int, ReadableSpan]) -> set[int]:
     return found
 
 
-@pytest.mark.skipif(neo4j_missing, reason="neo4j extra not installed")
 class _SlowTextLoader(Loader):
     """Holds the CPU for a fixed time, then yields one text document.
 
@@ -144,6 +143,7 @@ class _SlowTextLoader(Loader):
         )
 
 
+@pytest.mark.skipif(neo4j_missing, reason="neo4j extra not installed")
 class TestGraphAddLoopResponsiveness:
     """Graph.add leaves the event loop free while a loader holds the CPU."""
 
@@ -191,6 +191,7 @@ class TestGraphAddLoopResponsiveness:
         assert len(inside) >= 5, "the event loop did not run during the loader's work"
 
 
+@pytest.mark.skipif(neo4j_missing, reason="neo4j extra not installed")
 class TestLoadSpanTracing:
     """Graph.add emits load spans that never parent chunk spans."""
 
