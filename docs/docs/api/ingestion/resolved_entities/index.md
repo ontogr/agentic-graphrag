@@ -13,6 +13,7 @@ Non-destructive match persistence and resolved-entity computation.
 - [**MatchDecision**](MatchDecision.md) – A confirmed non-exact entity match ready to persist.
 - [**PruningResult**](PruningResult.md) – Ids removed and clusters rebuilt by deletion-triggered pruning.
 - [**RebuildResult**](RebuildResult.md) – The derived entity created and prior derived ids it replaced.
+- [**ResolvedEntityWriteError**](ResolvedEntityWriteError.md) – A job wrote its match edges but not the resolved entity built from them.
 
 **Functions:**
 
