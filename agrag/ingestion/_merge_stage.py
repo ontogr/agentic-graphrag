@@ -18,6 +18,7 @@ from agrag.common.data_models.relation import Relation
 from agrag.common.data_models.stage_failure import StageFailure, cap_failures
 from agrag.cypher.entities import fetch_relations_between_query
 from agrag.graphdb.base import GraphStore
+from agrag.graphdb.errors import GraphStoreAliasConflictError
 from agrag.ingestion._stage_context import StageContext
 from agrag.ingestion.merge import (
     apply_merge,
@@ -95,6 +96,8 @@ async def merge_stage(
         The survivors, relation records, merge counts and mention-to-entity map.
 
     Raises:
+        GraphStoreAliasConflictError: A merge found one of its names claimed by
+            another entity, under every ``error_policy``.
         Exception: The first failed merge or rebuild, when ``error_policy`` is
             ``RAISE``.
         GraphStoreFenceError: The job no longer holds a live lease. Raised under
@@ -246,8 +249,10 @@ async def _merge_mention_groups(
                     deferred=ctx.deferred,
                 )
             except Exception as exc:  # noqa: BLE001
+                # The document's whole job is retried on a name conflict, so it
+                # must fail the job under every policy instead of being skipped.
                 if ctx.error_policy is ErrorPolicy.RAISE or isinstance(
-                    exc, _JOB_LEVEL_ERRORS
+                    exc, (*_JOB_LEVEL_ERRORS, GraphStoreAliasConflictError)
                 ):
                     raise
                 trace_id, span_id = record_stage_failure(exc)

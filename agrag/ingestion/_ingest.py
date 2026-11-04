@@ -8,8 +8,10 @@ definition.
 import asyncio
 import contextlib
 import logging
+import time
 from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
 from functools import partial as bind
+from typing import TypeVar
 from uuid import UUID
 
 from opentelemetry.trace import Tracer
@@ -31,6 +33,7 @@ from agrag.common.data_models.structure import version_id
 from agrag.common.data_models.update_decision import UpdateDecision
 from agrag.common.data_models.vector_record import VectorWork
 from agrag.common.schema_fingerprint import RunRecord
+from agrag.cypher.cutover_job_write import job_status_query
 from agrag.cypher.documents import (
     document_cited_relation_endpoints_query,
     document_cited_relation_ids_query,
@@ -42,6 +45,7 @@ from agrag.cypher.documents import (
 from agrag.cypher.relations import entities_in_documents_query
 from agrag.embedding.base import Embedder
 from agrag.graphdb.base import GraphStore, GraphStoreTransaction
+from agrag.graphdb.errors import GraphStoreAliasConflictError
 from agrag.ingestion._cutover import InPlaceRefresh, run_cutover_job
 from agrag.ingestion._document_lifecycle import (
     DocumentChange,
@@ -78,6 +82,9 @@ from agrag.vectordb.base import VectorStore
 
 logger = logging.getLogger(__name__)
 _PURGE_RECORD_LIMIT = 10_000
+_ALIAS_RETRY_WINDOW_SECONDS = 300
+_ALIAS_RETRY_POLL_SECONDS = 1.0
+_T = TypeVar("_T")
 
 CleanupStep = Callable[
     [list[UUID], list[UUID], list[UUID], VectorWork], Awaitable[list[StageFailure]]
@@ -93,6 +100,55 @@ def _placements_of(
         for chunked in chunked_documents
         for chunk_id, placement in placement_map(chunked).items()
     }
+
+
+async def _any_job_pending(graph_store: GraphStore, job_ids: Iterable[UUID]) -> bool:
+    """Return whether any of the jobs may still commit or roll back its rows.
+
+    A job id with no job node counts as finished: a later job for the same
+    document takes over the node under a new id.
+    """
+    for job_id in job_ids:
+        rows = await graph_store.execute_read(
+            job_status_query(), {"job_id": str(job_id)}
+        )
+        if rows and rows[0].get("status") in ("pending", "rolling_back"):
+            return True
+    return False
+
+
+async def _retry_on_alias_conflict(
+    graph_store: GraphStore, attempt: Callable[[], Awaitable[_T]]
+) -> _T:
+    """Run one document's Cutover Job, again while another job holds a name it needs.
+
+    Each call of ``attempt`` must build its job state from scratch, because a
+    failed attempt has rolled its job back.
+
+    Raises:
+        GraphStoreAliasConflictError: The conflict was still there when the
+            retry window ran out, or it cannot clear by waiting.
+    """
+    deadline = time.monotonic() + _ALIAS_RETRY_WINDOW_SECONDS
+    retried_without_wait = False
+    while True:
+        try:
+            return await attempt()
+        except GraphStoreAliasConflictError as conflict:
+            # Another document's job claimed one of this document's names. Once
+            # that job leaves pending, a new attempt resolves onto its entity.
+            # A conflict with no pending owner gets one immediate retry, for an
+            # owner that committed after this attempt looked the name up. A
+            # second one cannot clear by waiting, so it is raised.
+            waited = False
+            while await _any_job_pending(graph_store, conflict.owner_job_ids):
+                if time.monotonic() >= deadline:
+                    raise
+                waited = True
+                await asyncio.sleep(_ALIAS_RETRY_POLL_SECONDS)
+            if time.monotonic() >= deadline or (retried_without_wait and not waited):
+                raise
+            retried_without_wait = not waited
 
 
 async def _no_pending_write(job_id: UUID) -> None:
@@ -516,6 +572,89 @@ async def _commit_batch(  # noqa: PLR0913
     Returns:
         One AddResult per document, in document order.
     """
+
+    async def _add_one(
+        document_key: str,
+        added: Document,
+        document_slice: tuple[
+            list[Chunk],
+            list[Document],
+            list[ExtractedEntity],
+            list[ExtractedRelation],
+            list[CandidateRecord],
+            list[StageFailure],
+            list[DroppedCount],
+        ],
+    ) -> tuple[AddResult, list[StageFailure], int]:
+        (
+            slice_chunks,
+            slice_documents,
+            slice_entities,
+            slice_relations,
+            slice_candidates,
+            slice_failures,
+            slice_dropped,
+        ) = document_slice
+        components: list[MatchComponent] = []
+        deferred = DeferredWrites()
+        created_entity_ids: list[UUID] = []
+
+        async def _pending(job_id: UUID) -> AddResult:
+            ingested = await ingest_chunks(
+                slice_chunks,
+                slice_documents,
+                slice_entities,
+                slice_relations,
+                slice_failures,
+                graph_store=graph_store,
+                embedder=embedder,
+                graph_schema=schema,
+                error_policy=error_policy,
+                ingestion=IngestStats(documents=1),
+                return_chunks=return_chunks,
+                job_id=job_id,
+                rebuilt_components=components,
+                placements=placements_by_id,
+                tracer=tracer,
+                embed_heading_path=embed_heading_path,
+                max_llm_pairs=max_llm_pairs,
+                llm_concurrency=llm_concurrency,
+                on_progress=on_progress,
+                candidates=slice_candidates,
+                dropped=slice_dropped,
+                write_candidates=write_candidates,
+                deferred=deferred,
+                vector_store=vector_store,
+                vector_sync=vector_sync,
+            )
+            created_entity_ids.extend(ingested.created_entity_ids)
+            return ingested.add_result
+
+        document_node_id = Document.node_id_for(document_key=document_key)
+        return await run_cutover_job(
+            verb="add",
+            document_key=document_key,
+            affected_entity_ids=[],
+            graph_store=graph_store,
+            settings=cutover_settings,
+            pending_write=_pending,
+            cleanup=cleanup,
+            components=components,
+            deferred=deferred,
+            created_entity_ids=created_entity_ids,
+            candidate_document_node_id=document_node_id,
+            change=DocumentChange(
+                document_node_id=document_node_id,
+                document_key=document_key,
+                verb="add",
+                content_hash=added.content_hash,
+                previous_content_hash=previous_hashes.get(document_key),
+                version_id=version_id(added),
+            ),
+            tracer=tracer,
+            vector_sync=vector_sync,
+        )
+
     partials: list[AddResult] = []
     for (
         document_key,
@@ -540,98 +679,22 @@ async def _commit_batch(  # noqa: PLR0913
             if doc_failures
             else (doc_chunks, doc_documents)
         )
-        components: list[MatchComponent] = []
-        deferred = DeferredWrites()
-        created_entity_ids: list[UUID] = []
-
-        async def _pending(
-            job_id: UUID,
-            *,
-            created_ids: list[UUID],
-            _components: list[MatchComponent] = components,
-            _deferred: DeferredWrites = deferred,
-            _slice: tuple[
-                list[Chunk],
-                list[Document],
-                list[ExtractedEntity],
-                list[ExtractedRelation],
-                list[CandidateRecord],
-                list[StageFailure],
-                list[DroppedCount],
-            ] = (
-                written_chunks,
-                written_documents,
-                doc_entities,
-                doc_relations,
-                doc_candidates,
-                doc_failures,
-                doc_dropped,
+        partial, cleanup_failures, _ = await _retry_on_alias_conflict(
+            graph_store,
+            bind(
+                _add_one,
+                document_key,
+                doc_documents[0],
+                (
+                    written_chunks,
+                    written_documents,
+                    doc_entities,
+                    doc_relations,
+                    doc_candidates,
+                    doc_failures,
+                    doc_dropped,
+                ),
             ),
-        ) -> AddResult:
-            (
-                slice_chunks,
-                slice_documents,
-                slice_entities,
-                slice_relations,
-                slice_candidates,
-                slice_failures,
-                slice_dropped,
-            ) = _slice
-            ingested = await ingest_chunks(
-                slice_chunks,
-                slice_documents,
-                slice_entities,
-                slice_relations,
-                slice_failures,
-                graph_store=graph_store,
-                embedder=embedder,
-                graph_schema=schema,
-                error_policy=error_policy,
-                ingestion=IngestStats(documents=1),
-                return_chunks=return_chunks,
-                job_id=job_id,
-                rebuilt_components=_components,
-                placements=placements_by_id,
-                tracer=tracer,
-                embed_heading_path=embed_heading_path,
-                max_llm_pairs=max_llm_pairs,
-                llm_concurrency=llm_concurrency,
-                on_progress=on_progress,
-                candidates=slice_candidates,
-                dropped=slice_dropped,
-                write_candidates=write_candidates,
-                deferred=_deferred,
-                vector_store=vector_store,
-                vector_sync=vector_sync,
-            )
-            created_ids.extend(ingested.created_entity_ids)
-            return ingested.add_result
-
-        pending_write = bind(_pending, created_ids=created_entity_ids)
-        added = doc_documents[0]
-        document_node_id = Document.node_id_for(document_key=document_key)
-        partial, cleanup_failures, _ = await run_cutover_job(
-            verb="add",
-            document_key=document_key,
-            affected_entity_ids=[],
-            graph_store=graph_store,
-            settings=cutover_settings,
-            pending_write=pending_write,
-            cleanup=cleanup,
-            components=components,
-            deferred=deferred,
-            created_entity_ids=created_entity_ids,
-            candidate_document_node_id=document_node_id,
-            change=DocumentChange(
-                document_node_id=document_node_id,
-                document_key=document_key,
-                verb="add",
-                content_hash=added.content_hash,
-                previous_content_hash=previous_hashes.get(document_key),
-                version_id=version_id(added),
-            ),
-            tracer=tracer,
-            vector_sync=vector_sync,
         )
         partials.append(_with_cleanup_failures(partial, cleanup_failures))
     return partials
@@ -1025,45 +1088,6 @@ async def update_document(  # noqa: PLR0913
         if failed_chunk_ids:
             chunks, [document] = _without_extraction_stamps(chunks, [document])
 
-        components: list[MatchComponent] = []
-        deferred = DeferredWrites()
-        # The pending write fills the structure ids, and run_cutover_job reads
-        # them only after that write, so the list is shared rather than copied.
-        keep_node_ids: list[UUID] = [
-            chunk.id for chunk in chunks if chunk.id is not None
-        ]
-
-        async def _pending(job_id: UUID) -> AddResult:
-            batch = await ingest_chunks(
-                chunks,
-                [document],
-                entities,
-                relations,
-                extraction_failures,
-                graph_store=graph_store,
-                embedder=embedder,
-                graph_schema=schema,
-                error_policy=error_policy,
-                ingestion=IngestStats(documents=1),
-                return_chunks=False,
-                job_id=job_id,
-                rebuilt_components=components,
-                placements=placements,
-                tracer=tracer,
-                embed_heading_path=embed_heading_path,
-                max_llm_pairs=max_llm_pairs,
-                llm_concurrency=llm_concurrency,
-                candidates=extracted.candidates,
-                dropped=extracted.dropped,
-                write_candidates=write_candidates,
-                deferred=deferred,
-                reuse_chunks=in_place,
-                vector_store=vector_store,
-                vector_sync=vector_sync,
-            )
-            keep_node_ids.extend(batch.structure_node_ids)
-            return batch.add_result
-
         change = (
             None
             if in_place
@@ -1078,46 +1102,93 @@ async def update_document(  # noqa: PLR0913
                 version_id=version_id(document),
             )
         )
-        add_result, cleanup_failures, parts_closed = await run_cutover_job(
-            verb="update",
-            document_key=document_key,
-            affected_entity_ids=candidates,
-            graph_store=graph_store,
-            settings=cutover_settings,
-            pending_write=_pending,
-            cleanup=cleanup,
-            components=components,
-            deferred=deferred,
-            # The node id depends on the key only, so the close also reaches a
-            # version that a racing writer committed after the lookup above.
-            close_document_node_id=(
-                None if in_place else Document.node_id_for(document_key=document_key)
-            ),
-            keep_node_ids=keep_node_ids,
-            tracer=tracer,
-            in_place=(
-                InPlaceRefresh(
-                    document_node_id=found.document_node_id,
-                    chunk_ids=[
-                        chunk.id
-                        for chunk in chunks
-                        if chunk.id is not None
-                        and str(chunk.id) not in failed_chunk_ids
-                    ],
-                    extraction_fingerprint=(
-                        run.extraction_fingerprint if not failed_chunk_ids else None
-                    ),
+        in_place_refresh = (
+            InPlaceRefresh(
+                document_node_id=found.document_node_id,
+                chunk_ids=[
+                    chunk.id
+                    for chunk in chunks
+                    if chunk.id is not None and str(chunk.id) not in failed_chunk_ids
+                ],
+                extraction_fingerprint=(
+                    run.extraction_fingerprint if not failed_chunk_ids else None
+                ),
+            )
+            if in_place and found is not None
+            else None
+        )
+
+        async def _attempt() -> tuple[AddResult, list[StageFailure], int]:
+            components: list[MatchComponent] = []
+            deferred = DeferredWrites()
+            # The pending write fills the structure ids, and run_cutover_job reads
+            # them only after that write, so the list is shared rather than copied.
+            keep_node_ids: list[UUID] = [
+                chunk.id for chunk in chunks if chunk.id is not None
+            ]
+
+            async def _pending(job_id: UUID) -> AddResult:
+                batch = await ingest_chunks(
+                    chunks,
+                    [document],
+                    entities,
+                    relations,
+                    extraction_failures,
+                    graph_store=graph_store,
+                    embedder=embedder,
+                    graph_schema=schema,
+                    error_policy=error_policy,
+                    ingestion=IngestStats(documents=1),
+                    return_chunks=False,
+                    job_id=job_id,
+                    rebuilt_components=components,
+                    placements=placements,
+                    tracer=tracer,
+                    embed_heading_path=embed_heading_path,
+                    max_llm_pairs=max_llm_pairs,
+                    llm_concurrency=llm_concurrency,
+                    candidates=extracted.candidates,
+                    dropped=extracted.dropped,
+                    write_candidates=write_candidates,
+                    deferred=deferred,
+                    reuse_chunks=in_place,
+                    vector_store=vector_store,
+                    vector_sync=vector_sync,
                 )
-                if in_place and found is not None
-                else None
-            ),
-            candidate_document_node_id=(
-                found.document_node_id
-                if found is not None
-                else Document.node_id_for(document_key=document_key)
-            ),
-            change=change,
-            vector_sync=vector_sync,
+                keep_node_ids.extend(batch.structure_node_ids)
+                return batch.add_result
+
+            return await run_cutover_job(
+                verb="update",
+                document_key=document_key,
+                affected_entity_ids=candidates,
+                graph_store=graph_store,
+                settings=cutover_settings,
+                pending_write=_pending,
+                cleanup=cleanup,
+                components=components,
+                deferred=deferred,
+                # The node id depends on the key only, so the close also reaches a
+                # version that a racing writer committed after the lookup above.
+                close_document_node_id=(
+                    None
+                    if in_place
+                    else Document.node_id_for(document_key=document_key)
+                ),
+                keep_node_ids=keep_node_ids,
+                tracer=tracer,
+                in_place=in_place_refresh,
+                candidate_document_node_id=(
+                    found.document_node_id
+                    if found is not None
+                    else Document.node_id_for(document_key=document_key)
+                ),
+                change=change,
+                vector_sync=vector_sync,
+            )
+
+        add_result, cleanup_failures, parts_closed = await _retry_on_alias_conflict(
+            graph_store, _attempt
         )
         return UpdateResult(
             document_key=document_key,

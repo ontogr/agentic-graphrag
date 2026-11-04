@@ -22,9 +22,12 @@ from agrag.common.data_models.document import Document, DocumentFamily, SourceFo
 from agrag.common.data_models.extraction import ExtractedEntity, ExtractionResult
 from agrag.common.data_models.graph_schema import GraphSchema
 from agrag.embedding.base import Embedder
-from agrag.ingestion import _cutover, _merge_stage
+from agrag.graphdb.base import GraphStore
+from agrag.graphdb.errors import GraphStoreAliasConflictError
+from agrag.ingestion import _cutover, _ingest, _merge_stage
 from agrag.ingestion.extract import Extractor
 from agrag.ingestion.graph import Graph
+from agrag.loaders.types import ErrorPolicy
 from tests.conftest import FAKE_EMBEDDING_DIMENSIONS
 from tests.integration._backend import build_test_store
 
@@ -94,6 +97,63 @@ def _document(key: str, text: str) -> Document:
         char_count=len(text),
         line_count=text.count("\n") + 1,
     )
+
+
+def _hold_commits_until_two_jobs_claim(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Hold every commit until two jobs have each tried to claim their names.
+
+    Both jobs are then pending when the second claim runs, so one of them meets
+    the other's pending alias.
+    """
+    claimed_job_ids: set[str | None] = set()
+    both_claimed = asyncio.Event()
+    claim: Callable[..., Awaitable[None]] = _merge_stage.apply_merge
+    commit: Callable[..., Awaitable[int]] = _cutover._commit_pending_writes
+
+    async def record_claim(*args: Any, **kwargs: Any) -> None:
+        try:
+            await claim(*args, **kwargs)
+        finally:
+            claimed_job_ids.add(kwargs["pending_job_id"])
+            if len(claimed_job_ids) >= 2:
+                both_claimed.set()
+
+    async def commit_after_both_claimed(**kwargs: Any) -> int:
+        await asyncio.wait_for(both_claimed.wait(), timeout=120)
+        return await commit(**kwargs)
+
+    monkeypatch.setattr(_merge_stage, "apply_merge", record_claim)
+    monkeypatch.setattr(_cutover, "_commit_pending_writes", commit_after_both_claimed)
+
+
+async def _delete_run(store: GraphStore, *, keys: list[str], name: str) -> None:
+    """Delete what one same-name run wrote, then close the store."""
+    ids = [
+        str(row["id"])
+        for row in await store.execute_read(
+            "MATCH (e:Person {name: $name}) RETURN e.id AS id", {"name": name}
+        )
+    ]
+    await store.execute_write(
+        "MATCH (d:Document) WHERE d.document_key IN $keys "
+        "OPTIONAL MATCH (d)-[:HAS_PART]->(c:Chunk) "
+        "DETACH DELETE d, c",
+        {"keys": keys},
+    )
+    await store.execute_write(
+        "MATCH (e:Person {name: $name}) DETACH DELETE e", {"name": name}
+    )
+    await store.execute_write(
+        "MATCH (node:ResolvedEntity) "
+        "WHERE any(member_id IN node.member_ids WHERE member_id IN $ids) "
+        "DETACH DELETE node",
+        {"ids": ids or ["none"]},
+    )
+    await store.execute_write(
+        "MATCH (a:_MergeAlias {merge_key: $merge_key}) DETACH DELETE a",
+        {"merge_key": f"Person:{name.casefold()}"},
+    )
+    await store.close()
 
 
 @pytest.mark.skipif(neo4j_missing, reason="neo4j extra not installed")
@@ -206,27 +266,7 @@ class TestConcurrentAdds:
             embedder=_SuffixEmbedder(suffix),
             extractor=_NameByKeywordExtractor({"firstdoc": name, "seconddoc": name}),
         )
-        claimed_job_ids: set[str | None] = set()
-        both_claimed = asyncio.Event()
-        claim: Callable[..., Awaitable[None]] = _merge_stage.apply_merge
-        commit: Callable[..., Awaitable[int]] = _cutover._commit_pending_writes
-
-        async def record_claim(*args: Any, **kwargs: Any) -> None:
-            try:
-                await claim(*args, **kwargs)
-            finally:
-                claimed_job_ids.add(kwargs["pending_job_id"])
-                if len(claimed_job_ids) >= 2:
-                    both_claimed.set()
-
-        async def commit_after_both_claimed(**kwargs: Any) -> int:
-            await asyncio.wait_for(both_claimed.wait(), timeout=120)
-            return await commit(**kwargs)
-
-        monkeypatch.setattr(_merge_stage, "apply_merge", record_claim)
-        monkeypatch.setattr(
-            _cutover, "_commit_pending_writes", commit_after_both_claimed
-        )
+        _hold_commits_until_two_jobs_claim(monkeypatch)
         try:
             await asyncio.gather(
                 graph.add(documents=[_document(keys[0], "firstdoc alpha. " * 40)]),
@@ -244,17 +284,112 @@ class TestConcurrentAdds:
             )
             assert sorted(row["key"] for row in mentioning_documents) == keys
         finally:
-            await store.execute_write(
+            await _delete_run(store, keys=keys, name=name)
+
+    @staticmethod
+    async def test_same_new_name_in_concurrent_updates_ends_in_one_entity(
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Two updates that add one new name end with both documents on one entity."""
+        store = build_test_store()
+        await store.connect()
+        suffix = uuid4().hex[:8]
+        name = f"Concurrent Magnetar {suffix}"
+        keys = [f"concurrent://{suffix}-one", f"concurrent://{suffix}-two"]
+        graph = await Graph.open(
+            schema=DEFAULT_SCHEMA,
+            graph_store=store,
+            embedder=_SuffixEmbedder(suffix),
+            extractor=_NameByKeywordExtractor({"firstdoc": name, "seconddoc": name}),
+        )
+        try:
+            for key in keys:
+                await graph.add(documents=[_document(key, "plain words. " * 40)])
+            _hold_commits_until_two_jobs_claim(monkeypatch)
+
+            await asyncio.gather(
+                graph.update(
+                    keys[0], document=_document(keys[0], "firstdoc alpha. " * 40)
+                ),
+                graph.update(
+                    keys[1], document=_document(keys[1], "seconddoc beta. " * 40)
+                ),
+            )
+
+            entities = await store.execute_read(
+                "MATCH (e:Person {name: $name}) RETURN e.id AS id", {"name": name}
+            )
+            assert len(entities) == 1
+            mentioning_documents = await store.execute_read(
+                "MATCH (d:Document)-[:HAS_PART]->(:Chunk)-[:MENTIONED_IN]->"
+                "(:Person {name: $name}) "
+                "RETURN DISTINCT d.document_key AS key",
+                {"name": name},
+            )
+            assert sorted(row["key"] for row in mentioning_documents) == keys
+        finally:
+            await _delete_run(store, keys=keys, name=name)
+
+    @staticmethod
+    @pytest.mark.parametrize("error_policy", [ErrorPolicy.RAISE, ErrorPolicy.SKIP])
+    async def test_same_new_name_raises_when_owner_outlasts_window(
+        monkeypatch: pytest.MonkeyPatch, error_policy: ErrorPolicy
+    ) -> None:
+        """The losing add raises the conflict when the owner stays pending too long."""
+        store = build_test_store()
+        await store.connect()
+        suffix = uuid4().hex[:8]
+        name = f"Concurrent Nebula {suffix}"
+        keys = [f"concurrent://{suffix}-one", f"concurrent://{suffix}-two"]
+        graph = await Graph.open(
+            schema=DEFAULT_SCHEMA,
+            graph_store=store,
+            embedder=_SuffixEmbedder(suffix),
+            extractor=_NameByKeywordExtractor({"firstdoc": name, "seconddoc": name}),
+        )
+        loser_finished = asyncio.Event()
+        commit: Callable[..., Awaitable[int]] = _cutover._commit_pending_writes
+
+        async def commit_after_loser_finished(**kwargs: Any) -> int:
+            await asyncio.wait_for(loser_finished.wait(), timeout=120)
+            return await commit(**kwargs)
+
+        monkeypatch.setattr(
+            _cutover, "_commit_pending_writes", commit_after_loser_finished
+        )
+        monkeypatch.setattr(_ingest, "_ALIAS_RETRY_WINDOW_SECONDS", 2)
+        adds = {
+            asyncio.create_task(
+                graph.add(
+                    documents=[_document(key, f"{keyword} text. " * 40)],
+                    error_policy=error_policy,
+                )
+            ): key
+            for key, keyword in zip(keys, ["firstdoc", "seconddoc"], strict=True)
+        }
+        try:
+            done, pending = await asyncio.wait(
+                adds, timeout=120, return_when=asyncio.FIRST_COMPLETED
+            )
+            assert done, "neither add finished while the owner was held pending"
+            loser = done.pop()
+            loser_finished.set()
+            winner = pending.pop()
+            await asyncio.wait_for(winner, timeout=120)
+
+            with pytest.raises(GraphStoreAliasConflictError):
+                loser.result()
+            stored = await store.execute_read(
                 "MATCH (d:Document) WHERE d.document_key IN $keys "
-                "OPTIONAL MATCH (d)-[:HAS_PART]->(c:Chunk) "
-                "DETACH DELETE d, c",
+                "RETURN d.document_key AS key",
                 {"keys": keys},
             )
-            await store.execute_write(
-                "MATCH (e:Person {name: $name}) DETACH DELETE e", {"name": name}
+            assert [row["key"] for row in stored] == [adds[winner]]
+            entities = await store.execute_read(
+                "MATCH (e:Person {name: $name}) RETURN e.id AS id", {"name": name}
             )
-            await store.execute_write(
-                "MATCH (a:_MergeAlias {merge_key: $merge_key}) DETACH DELETE a",
-                {"merge_key": f"Person:{name.casefold()}"},
-            )
-            await store.close()
+            assert len(entities) == 1
+        finally:
+            loser_finished.set()
+            await asyncio.gather(*adds, return_exceptions=True)
+            await _delete_run(store, keys=keys, name=name)
