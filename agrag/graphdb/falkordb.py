@@ -66,8 +66,8 @@ from agrag.embedding.errors import EmbeddingDimensionMismatchError
 from agrag.graphdb.base import GraphStoreTransaction
 from agrag.graphdb.cypher_store import (
     CypherGraphStore,
+    _run_fenced_write,
     query_parameter_attributes,
-    run_fenced_write,
 )
 from agrag.graphdb.errors import (
     GraphStoreConstraintViolationError,
@@ -528,7 +528,7 @@ class FalkorDBGraphStore(CypherGraphStore):
             attributes=attributes,
         ):
             try:
-                return await run_fenced_write(
+                return await _run_fenced_write(
                     lambda statement, params: self._run(
                         statement, params, read_only=False, timeout=None
                     ),

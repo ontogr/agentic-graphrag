@@ -52,9 +52,9 @@ from agrag.embedding.errors import EmbeddingDimensionMismatchError
 from agrag.graphdb.base import GraphStoreTransaction
 from agrag.graphdb.cypher_store import (
     CypherGraphStore,
+    _run_fenced_write,
     query_parameter_attributes,
     require_deferred,
-    run_fenced_write,
 )
 from agrag.graphdb.errors import (
     GraphStoreConstraintViolationError,
@@ -112,7 +112,7 @@ async def _run_write(
         result = await tx.run(scoped_subqueries(statement), params)
         return await result.data()
 
-    return await run_fenced_write(run, query, parameters)
+    return await _run_fenced_write(run, query, parameters)
 
 
 def _settle_transaction_rows(

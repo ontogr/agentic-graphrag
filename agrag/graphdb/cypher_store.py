@@ -158,7 +158,7 @@ def require_deferred(
         raise ValueError("deferred is required when pending_job_id is set")
 
 
-async def run_fenced_write(
+async def _run_fenced_write(
     run: Callable[[str, Mapping[str, Any]], Awaitable[list[dict[str, Any]]]],
     query: str,
     parameters: Mapping[str, Any],
