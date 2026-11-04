@@ -15,7 +15,14 @@ from uuid import UUID, uuid4
 import pytest
 
 from agrag.common.data_models.cutover_job import CUTOVER_JOB_LABEL
+from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.graph_record import DeferredWrites, NodeRecord
+from agrag.common.data_models.graph_schema import EntityType, GraphSchema
+from agrag.common.data_models.resolved_entity import (
+    RESOLVED_AS_RELATION,
+    RESOLVED_ENTITY_LABEL,
+    ResolvedEntity,
+)
 from agrag.common.data_models.vector_record import VectorWork
 from agrag.cypher.cutover_job_read import find_incomplete_jobs_query
 from agrag.cypher.cutover_job_write import (
@@ -32,12 +39,15 @@ from agrag.cypher.entities import (
     NODE_IDENTITY_LABEL,
     set_embedding_query,
     upsert_merge_alias_query,
+    validate_identifier,
 )
 from agrag.cypher.resolution_write import replace_component_resolved_entities_query
 from agrag.graphdb.errors import GraphStoreError, GraphStoreFenceError
+from agrag.ingestion import resolved_entities
 from agrag.ingestion._cutover import run_cutover_job
 from agrag.ingestion._pending_rows import rollback_job_rows
 from agrag.ingestion._resume import resume_incomplete_jobs
+from agrag.ingestion.resolved_entities import MatchDecision
 from agrag.ingestion.settings import CutoverJobSettings
 from tests.integration._backend import build_test_store
 from tests.integration._cutover_job import create_live_job
@@ -497,6 +507,119 @@ class TestCutoverJobLeaseLifetime:
             )
             assert rows == [{"s": "done"}]
         finally:
+            await store.execute_write(
+                "MATCH (job:CutoverJob {document_key: $key}) DETACH DELETE job",
+                {"key": key},
+            )
+            await store.close()
+
+    async def test_slow_resolved_entity_summary_keeps_the_lease(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A summary longer than the TTL does not cost a job its lease.
+
+        The summary of a resolved entity can call an LLM. The job writes its
+        match decisions and its resolved entity under its fence, and a renewal
+        must still get through while the summary runs.
+        """
+        store = build_test_store()
+        await store.connect()
+        tag = uuid4().hex
+        key = f"cutover-slow-summary-{tag}"
+        label = validate_identifier(f"SlowSummary{tag[:12]}")
+        schema = GraphSchema(
+            name="slow-summary-probe",
+            version="1",
+            entities=[EntityType(label=label, description="Probe entity.")],
+            relations=[],
+        )
+        first, second = (
+            Entity(id=uuid4(), label=label, name=name, properties={"probe": tag})
+            for name in ("Ada", "Ada Lovelace")
+        )
+        decision = MatchDecision(
+            entity_a_id=first.id,
+            entity_b_id=second.id,
+            comparator="FuzzyMatch",
+            score=0.98,
+            decided_at=datetime.now(UTC),
+        )
+        ttl_seconds = 2
+        compute = resolved_entities.compute_resolved_entity
+
+        async def slow_compute(*args: Any, **kwargs: Any) -> ResolvedEntity:
+            await asyncio.sleep(ttl_seconds * 1.5)
+            return await compute(*args, **kwargs)
+
+        monkeypatch.setattr(resolved_entities, "compute_resolved_entity", slow_compute)
+        deferred = DeferredWrites()
+
+        async def pending(job_id: UUID) -> None:
+            await store.upsert_nodes(
+                label,
+                [first.to_node_record(), second.to_node_record()],
+                pending_job_id=job_id,
+                deferred=deferred,
+            )
+            await resolved_entities.write_matches_and_rebuild(
+                [decision],
+                graph_store=store,
+                schema=schema,
+                members=[first, second],
+                pending_job_id=str(job_id),
+                deferred=deferred,
+            )
+
+        async def cleanup(
+            _: list[object],
+            __: list[object],
+            ___: list[object],
+            _vector_work: VectorWork,
+        ) -> None:
+            return None
+
+        try:
+            await store.ensure_unique_constraint(
+                label=CUTOVER_JOB_LABEL, properties=["document_key"]
+            )
+            await run_cutover_job(
+                verb="add",
+                document_key=key,
+                affected_entity_ids=[],
+                graph_store=store,
+                settings=CutoverJobSettings(lease_ttl_seconds=ttl_seconds),
+                pending_write=pending,
+                cleanup=cleanup,
+                deferred=deferred,
+            )
+
+            jobs = await store.execute_read(
+                "MATCH (job:CutoverJob {document_key: $key}) RETURN job.status AS s",
+                {"key": key},
+            )
+            resolved = await store.execute_read(
+                f"MATCH (:{NODE_IDENTITY_LABEL} {{id: $id}})"
+                f"-[:{RESOLVED_AS_RELATION}]->(r:{RESOLVED_ENTITY_LABEL}) "
+                "RETURN r._pending_job_id AS pending",
+                {"id": str(first.id)},
+            )
+            assert jobs == [{"s": "done"}]
+            assert resolved == [{"pending": None}]
+        finally:
+            await store.execute_write(
+                f"MATCH (:{NODE_IDENTITY_LABEL} {{probe: $tag}})"
+                f"-[:{RESOLVED_AS_RELATION}]->(r:{RESOLVED_ENTITY_LABEL}) "
+                "DETACH DELETE r",
+                {"tag": tag},
+            )
+            await store.execute_write(
+                "MATCH (n {probe: $tag}) DETACH DELETE n", {"tag": tag}
+            )
+            await store.execute_write(
+                f"MATCH (a:{MERGE_ALIAS_LABEL}) WHERE a.merge_key STARTS WITH $prefix "
+                "DELETE a",
+                {"prefix": f"{label}:"},
+            )
             await store.execute_write(
                 "MATCH (job:CutoverJob {document_key: $key}) DETACH DELETE job",
                 {"key": key},
