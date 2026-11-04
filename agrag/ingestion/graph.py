@@ -595,8 +595,10 @@ class Graph:
         committed, the document merges onto the entity it created. If it rolled
         back, the document writes the entity itself. Each conflicting document
         waits at most five minutes, so a batch can wait longer in total. If the
-        name is still claimed after that, the document is not written. A document
-        that changed while it waited is not retried. Under ``RAISE`` the call
+        name is still claimed after that, the document is not written. A job whose
+        lease has expired no longer counts as pending, so the wait ends early. Its
+        tagged rows stay until ``Graph.open`` recovers the job. A document that
+        changed while it waited is not retried. Under ``RAISE`` the call
         raises ``GraphStoreAliasConflictError``. Under ``SKIP`` and
         ``QUARANTINE`` the call continues, and the document is reported in
         ``AddResult.storage.failures``.
@@ -734,8 +736,10 @@ class Graph:
         update merges onto the entity it created. If it rolled back, the update
         writes the entity itself. The wait lasts at most five minutes. If the name
         is still claimed after that, the update is not written and the committed
-        version stays in place. An update does not retry if the document changed
-        while it waited.
+        version stays in place. A job whose lease has expired no longer counts as
+        pending, so the wait ends early. Its tagged rows stay until ``Graph.open``
+        recovers the job. An update does not retry if the document changed while it
+        waited.
         Under ``RAISE`` the call raises ``GraphStoreAliasConflictError``. Under
         ``SKIP`` and ``QUARANTINE`` it returns an ``UpdateResult`` with
         ``new_content_hash`` set to ``None`` and the failure in

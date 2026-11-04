@@ -13,7 +13,7 @@ import importlib.util
 import time
 from collections.abc import Awaitable, Callable, Sequence
 from typing import Any
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 import pytest
 
@@ -28,6 +28,7 @@ from agrag.graphdb.errors import GraphStoreAliasConflictError
 from agrag.ingestion import _cutover, _ingest, _merge_stage
 from agrag.ingestion.extract import Extractor
 from agrag.ingestion.graph import Graph
+from agrag.ingestion.settings import CutoverJobSettings
 from agrag.loaders.types import ErrorPolicy
 from tests.conftest import FAKE_EMBEDDING_DIMENSIONS
 from tests.integration._backend import build_test_store
@@ -125,6 +126,36 @@ def _hold_commits_until_two_jobs_claim(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr(_merge_stage, "apply_merge", record_claim)
     monkeypatch.setattr(_cutover, "_commit_pending_writes", commit_after_both_claimed)
+
+
+def _hold_first_claimant_commit(
+    monkeypatch: pytest.MonkeyPatch, release: asyncio.Event
+) -> asyncio.Event:
+    """Hold the commit of the job that first claims its name, until ``release``.
+
+    Every other commit runs at once. The returned event is set when the first
+    claim succeeds, so a test can start a conflicting add while the owner is
+    still pending.
+    """
+    owner_job_ids: list[str] = []
+    claimed = asyncio.Event()
+    claim: Callable[..., Awaitable[None]] = _merge_stage.apply_merge
+    commit: Callable[..., Awaitable[int]] = _cutover._commit_pending_writes
+
+    async def record_first_claim(*args: Any, **kwargs: Any) -> None:
+        await claim(*args, **kwargs)
+        if not owner_job_ids:
+            owner_job_ids.append(str(kwargs["pending_job_id"]))
+            claimed.set()
+
+    async def hold_owner_commit(**kwargs: Any) -> int:
+        if owner_job_ids and str(kwargs["job_id"]) == owner_job_ids[0]:
+            await asyncio.wait_for(release.wait(), timeout=120)
+        return await commit(**kwargs)
+
+    monkeypatch.setattr(_merge_stage, "apply_merge", record_first_claim)
+    monkeypatch.setattr(_cutover, "_commit_pending_writes", hold_owner_commit)
+    return claimed
 
 
 async def _run_adds(*adds: Awaitable[Any]) -> None:
@@ -441,23 +472,14 @@ class TestConcurrentAdds:
         )
         conflict_seen = asyncio.Event()
         owner_may_commit = asyncio.Event()
-        commit: Callable[..., Awaitable[int]] = _cutover._commit_pending_writes
         check_owner: Callable[..., Awaitable[bool]] = _ingest._any_job_pending
 
         async def note_conflict(*args: Any, **kwargs: Any) -> bool:
             conflict_seen.set()
             return await check_owner(*args, **kwargs)
 
-        owner_job_ids: list[UUID] = []
-
-        async def hold_owner_commit(**kwargs: Any) -> int:
-            if not owner_job_ids:
-                owner_job_ids.append(kwargs["job_id"])
-                await asyncio.wait_for(owner_may_commit.wait(), timeout=120)
-            return await commit(**kwargs)
-
+        _hold_first_claimant_commit(monkeypatch, owner_may_commit)
         monkeypatch.setattr(_ingest, "_any_job_pending", note_conflict)
-        monkeypatch.setattr(_cutover, "_commit_pending_writes", hold_owner_commit)
         third_text = "thirdwriter text. " * 40
 
         async def write_third_version() -> None:
@@ -489,3 +511,115 @@ class TestConcurrentAdds:
         finally:
             owner_may_commit.set()
             await _delete_run(store, keys=[owner_key, loser_key], name=name)
+
+    @staticmethod
+    async def test_expired_owner_does_not_block_a_conflicting_add(
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A conflict whose owner lease has expired fails without the full window.
+
+        The owner's worker stops renewing its lease and its commit stays held.
+        Once the lease runs out the owner no longer counts as pending, so the
+        losing add raises well before the retry window ends.
+        """
+        store = build_test_store()
+        await store.connect()
+        suffix = uuid4().hex[:8]
+        name = f"Concurrent Comet {suffix}"
+        owner_key = f"concurrent://{suffix}-one"
+        loser_key = f"concurrent://{suffix}-two"
+        graph = await Graph.open(
+            schema=DEFAULT_SCHEMA,
+            graph_store=store,
+            embedder=_SuffixEmbedder(suffix),
+            extractor=_NameByKeywordExtractor({"firstdoc": name, "seconddoc": name}),
+            cutover_settings=CutoverJobSettings(lease_ttl_seconds=3),
+        )
+        release_owner = asyncio.Event()
+        owner_claimed = _hold_first_claimant_commit(monkeypatch, release_owner)
+        monkeypatch.setattr(_ingest, "_ALIAS_RETRY_WINDOW_SECONDS", 20)
+
+        async def renewal_never_extends(**kwargs: Any) -> None:
+            await kwargs["stop_event"].wait()
+            kwargs["stopped_event"].set()
+
+        monkeypatch.setattr(_cutover, "_renew_periodically", renewal_never_extends)
+        owner = asyncio.ensure_future(
+            graph.add(documents=[_document(owner_key, "firstdoc alpha. " * 40)])
+        )
+        try:
+            await asyncio.wait_for(owner_claimed.wait(), timeout=120)
+            started = time.monotonic()
+            with pytest.raises(GraphStoreAliasConflictError):
+                await graph.add(
+                    documents=[_document(loser_key, "seconddoc beta. " * 40)]
+                )
+            assert time.monotonic() - started < 15
+            stored = await store.execute_read(
+                "MATCH (d:Document {document_key: $key}) RETURN d.document_key AS key",
+                {"key": loser_key},
+            )
+            assert stored == []
+        finally:
+            release_owner.set()
+            await asyncio.gather(owner, return_exceptions=True)
+            await _delete_run(store, keys=[owner_key, loser_key], name=name)
+
+    @staticmethod
+    async def test_update_after_window_reports_the_document_under_skip(
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """An update that loses a name past the window reports it and keeps its hash.
+
+        The document keeps the content it had before the update, and the failure
+        names the document under SKIP.
+        """
+        store = build_test_store()
+        await store.connect()
+        suffix = uuid4().hex[:8]
+        name = f"Concurrent Quasar {suffix}"
+        doc_key = f"concurrent://{suffix}-one"
+        owner_key = f"concurrent://{suffix}-two"
+        graph = await Graph.open(
+            schema=DEFAULT_SCHEMA,
+            graph_store=store,
+            embedder=_SuffixEmbedder(suffix),
+            extractor=_NameByKeywordExtractor({"firstdoc": name, "seconddoc": name}),
+        )
+        release_owner = asyncio.Event()
+        owner: asyncio.Future[Any] | None = None
+        try:
+            await graph.add(documents=[_document(doc_key, "plain words. " * 40)])
+            before = await store.execute_read(
+                "MATCH (d:Document {document_key: $key}) "
+                "RETURN d.current_content_hash AS hash",
+                {"key": doc_key},
+            )
+            owner_claimed = _hold_first_claimant_commit(monkeypatch, release_owner)
+            monkeypatch.setattr(_ingest, "_ALIAS_RETRY_WINDOW_SECONDS", 2)
+            owner = asyncio.ensure_future(
+                graph.add(documents=[_document(owner_key, "firstdoc alpha. " * 40)])
+            )
+            await asyncio.wait_for(owner_claimed.wait(), timeout=120)
+
+            result = await graph.update(
+                doc_key, text="seconddoc beta. " * 40, error_policy=ErrorPolicy.SKIP
+            )
+
+            failures = result.add_result.storage.failures
+            assert [failure.item_id for failure in failures] == [doc_key]
+            assert [failure.error_type for failure in failures] == [
+                GraphStoreAliasConflictError.__name__
+            ]
+            assert result.new_content_hash is None
+            after = await store.execute_read(
+                "MATCH (d:Document {document_key: $key}) "
+                "RETURN d.current_content_hash AS hash",
+                {"key": doc_key},
+            )
+            assert after == before
+        finally:
+            release_owner.set()
+            if owner is not None:
+                await asyncio.gather(owner, return_exceptions=True)
+            await _delete_run(store, keys=[doc_key, owner_key], name=name)

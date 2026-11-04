@@ -13,7 +13,9 @@ class UpdateResult(BaseModel):
         document_key: Stable identity used for the document node.
         no_op: Whether no graph changes were needed.
         previous_content_hash: Hash stored before the operation, if present.
-        new_content_hash: Hash written by an update, or ``None`` on deletion.
+        new_content_hash: Hash written by an update. ``None`` on deletion, and
+            when a name conflict left the update unwritten under SKIP or
+            QUARANTINE.
         parts_closed: Number of open HAS_PART edges closed.
         add_result: Ingestion details for changed content, if any.
         decision: The outcome selected for an update, or ``None`` on deletion.
