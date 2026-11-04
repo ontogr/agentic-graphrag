@@ -9,9 +9,11 @@ yielded documents or double-counting stats.
 """
 
 import asyncio
+import threading
 import time
 from collections.abc import Iterator
 from contextlib import aclosing, suppress
+from contextvars import ContextVar
 from pathlib import Path
 from typing import BinaryIO
 
@@ -333,12 +335,30 @@ class _FiveDocumentLoader(Loader):
             )
 
 
-class _BusyLoader(Loader):
-    """A stub loader that holds the CPU for a while before it yields.
+def _stub_document(source: SourceRef, text: str, index: int) -> Document:
+    """Build a record document for a stub loader."""
+    return Document(
+        text=text,
+        title=str(index),
+        uri=source.uri,
+        source_format=SourceFormat.TXT,
+        family=DocumentFamily.RECORD,
+        content_hash=f"stub-{text}",
+        loader_name="stub",
+        char_count=len(text),
+        record_index=index,
+    )
 
-    The busy loop is pure Python, so it keeps the interpreter lock the way
-    CPU-bound document conversion does.
-    """
+
+def _spin(seconds: float) -> None:
+    """Hold the CPU in pure Python, as CPU-bound document conversion does."""
+    deadline = time.perf_counter() + seconds
+    while time.perf_counter() < deadline:
+        pass
+
+
+class _BusyLoader(Loader):
+    """A stub loader that holds the CPU for a while before it yields."""
 
     extensions = frozenset({".txt"})
     family = DocumentFamily.RECORD
@@ -353,21 +373,93 @@ class _BusyLoader(Loader):
         start_at: int = 0,
     ) -> Iterator[Document]:
         """Spin for ``busy_seconds``, then yield two documents."""
-        deadline = time.perf_counter() + self.busy_seconds
-        while time.perf_counter() < deadline:
-            pass
+        _spin(self.busy_seconds)
         for index, text in enumerate(("first", "second")):
-            yield Document(
-                text=text,
-                title=str(index),
-                uri=source.uri,
-                source_format=SourceFormat.TXT,
-                family=DocumentFamily.RECORD,
-                content_hash=f"busy-{index}",
-                loader_name="busy",
-                char_count=len(text),
-                record_index=index,
-            )
+            yield _stub_document(source, text, index)
+
+
+class _SpinningLoader(Loader):
+    """A stub loader that records how many of its loads run at the same time."""
+
+    extensions = frozenset({".txt"})
+    family = DocumentFamily.RECORD
+
+    def __init__(self) -> None:
+        """Start with no loads running."""
+        self.active = 0
+        self.peak = 0
+        self._lock = threading.Lock()
+
+    def load(
+        self,
+        source: SourceRef,
+        stream: BinaryIO,
+        opts: ReadOptions,
+        *,
+        start_at: int = 0,
+    ) -> Iterator[Document]:
+        """Spin while counted as active, then yield one document."""
+        with self._lock:
+            self.active += 1
+            self.peak = max(self.peak, self.active)
+        try:
+            _spin(0.2)
+        finally:
+            with self._lock:
+                self.active -= 1
+        yield _stub_document(source, "spun", 0)
+
+
+class _ReadingLoader(Loader):
+    """A stub loader that reads its stream after a spin, then yields."""
+
+    extensions = frozenset({".txt"})
+    family = DocumentFamily.RECORD
+
+    def __init__(self) -> None:
+        """Start with nothing read."""
+        self.reads: list[bytes] = []
+        self.errors: list[str] = []
+
+    def load(
+        self,
+        source: SourceRef,
+        stream: BinaryIO,
+        opts: ReadOptions,
+        *,
+        start_at: int = 0,
+    ) -> Iterator[Document]:
+        """Spin, read one byte from the stream, then yield one document."""
+        _spin(0.2)
+        try:
+            self.reads.append(stream.read(1))
+        except ValueError as exc:
+            self.errors.append(str(exc))
+        yield _stub_document(source, "read", 0)
+
+
+_HELD_VALUE: ContextVar[str] = ContextVar("held_value")
+
+
+class _HoldingLoader(Loader):
+    """A stub loader that sets a context variable and resets it after a yield."""
+
+    extensions = frozenset({".txt"})
+    family = DocumentFamily.RECORD
+
+    def load(
+        self,
+        source: SourceRef,
+        stream: BinaryIO,
+        opts: ReadOptions,
+        *,
+        start_at: int = 0,
+    ) -> Iterator[Document]:
+        """Yield two documents with the variable set between them."""
+        token = _HELD_VALUE.set("held")
+        yield _stub_document(source, "before", 0)
+        _HELD_VALUE.reset(token)
+        yield _stub_document(source, "after", 1)
 
 
 class TestCorpusWalkLoopResponsiveness:
@@ -400,6 +492,62 @@ class TestCorpusWalkLoopResponsiveness:
 
         assert [doc.text for doc in docs] == ["first", "second"]
         assert ticks >= 10
+
+
+class TestCorpusWalkLoaderCalls:
+    """Loader calls share one worker and keep their context across steps."""
+
+    async def test_concurrent_walks_never_run_loader_calls_at_the_same_time(
+        self, tmp_path: Path
+    ) -> None:
+        """Two walks that share a loader take turns on one worker."""
+        first = tmp_path / "first.txt"
+        second = tmp_path / "second.txt"
+        first.write_text("a", encoding="utf-8")
+        second.write_text("b", encoding="utf-8")
+        loader = _SpinningLoader()
+        walks = [
+            _CorpusWalk([path], registry=registry, opts=ReadOptions(), loader=loader)
+            for path in (first, second)
+        ]
+
+        await asyncio.gather(*(_collect(walk) for walk in walks))
+
+        assert loader.peak == 1
+
+    async def test_cancelled_walk_finishes_reading_before_its_stream_closes(
+        self, tmp_path: Path
+    ) -> None:
+        """A cancelled walk waits for a running load before closing the file."""
+        source = tmp_path / "read.txt"
+        source.write_text("x", encoding="utf-8")
+        loader = _ReadingLoader()
+        walk = _CorpusWalk(
+            [source], registry=registry, opts=ReadOptions(), loader=loader
+        )
+        task = asyncio.create_task(_collect(walk))
+        await asyncio.sleep(0.05)
+
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+        assert loader.reads == [b"x"]
+        assert loader.errors == []
+
+    async def test_context_variable_held_across_a_yield_resets_cleanly(
+        self, tmp_path: Path
+    ) -> None:
+        """A loader can set a context variable, yield, and reset it later."""
+        source = tmp_path / "held.txt"
+        source.write_text("unused", encoding="utf-8")
+        walk = _CorpusWalk(
+            [source], registry=registry, opts=ReadOptions(), loader=_HoldingLoader()
+        )
+
+        docs = await _collect(walk)
+
+        assert [doc.text for doc in docs] == ["before", "after"]
 
 
 def _tracing_provider() -> tuple[TracerProvider, InMemorySpanExporter]:

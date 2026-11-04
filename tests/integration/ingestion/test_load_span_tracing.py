@@ -5,13 +5,19 @@ through a real Neo4j store, so ``_CorpusWalk``'s default ``batch_size=100``
 flushes mid-source. A real SDK ``TracerProvider`` with an in-memory exporter
 records the run. The captured span tree goes to a JSON artifact for hand
 inspection.
+
+The same module also checks that a slow loader leaves the event loop free
+during ``Graph.add()``.
 """
 
+import asyncio
 import importlib.util
 import json
-from collections.abc import Sequence
+import time
+from collections.abc import Iterator, Sequence
+from contextlib import suppress
 from pathlib import Path
-from typing import Any
+from typing import Any, BinaryIO
 from uuid import uuid4
 
 import pytest
@@ -23,11 +29,15 @@ from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
 
 from agrag.common.data_models.chunk import Chunk as ChunkModel
 from agrag.common.data_models.default_schema import DEFAULT_SCHEMA
+from agrag.common.data_models.document import Document, DocumentFamily, SourceFormat
 from agrag.common.data_models.extraction import ExtractionResult
 from agrag.common.data_models.graph_schema import GraphSchema
 from agrag.embedding.base import Embedder
 from agrag.ingestion.extract import Extractor
 from agrag.ingestion.graph import Graph
+from agrag.loaders.base import Loader
+from agrag.loaders.common import build_prose_document, text_sections
+from agrag.loaders.types import ReadOptions, SourceRef
 from tests.conftest import FAKE_EMBEDDING_DIMENSIONS
 from tests.integration._backend import build_test_store
 
@@ -92,6 +102,95 @@ def _ancestors(span: ReadableSpan, by_id: dict[int, ReadableSpan]) -> set[int]:
 
 
 @pytest.mark.skipif(neo4j_missing, reason="neo4j extra not installed")
+class _SlowTextLoader(Loader):
+    """Holds the CPU for a fixed time, then yields one text document.
+
+    The window in which the CPU is held is recorded, so the test can compare it
+    with the event loop's activity during the same period.
+    """
+
+    extensions = frozenset({".txt"})
+    family = DocumentFamily.PROSE
+    busy_seconds = 0.3
+
+    def __init__(self) -> None:
+        """Start with no recorded window."""
+        self.window: tuple[float, float] | None = None
+
+    def load(
+        self,
+        source: SourceRef,
+        stream: BinaryIO,
+        opts: ReadOptions,
+        *,
+        start_at: int = 0,
+    ) -> Iterator[Document]:
+        """Spin for ``busy_seconds``, record the window, then yield the document."""
+        started = time.perf_counter()
+        deadline = started + self.busy_seconds
+        while time.perf_counter() < deadline:
+            pass
+        self.window = (started, time.perf_counter())
+        text = "slow loader row " + ("content " * 20)
+        yield build_prose_document(
+            source=source,
+            text=text,
+            encoding="utf-8",
+            source_format=SourceFormat.TXT,
+            loader_name="slow",
+            opts=opts,
+            title=source.uri,
+            sections=text_sections(text),
+        )
+
+
+class TestGraphAddLoopResponsiveness:
+    """Graph.add leaves the event loop free while a loader holds the CPU."""
+
+    async def test_event_loop_ticks_during_a_slow_loader_in_graph_add(
+        self, tmp_path: Path
+    ) -> None:
+        """Other tasks tick inside the loader's busy window."""
+        fixture = tmp_path / f"slow-loader-{uuid4().hex}.txt"
+        fixture.write_text("unused", encoding="utf-8")
+        source_uri = str(fixture.resolve())
+        loader = _SlowTextLoader()
+        ticks: list[float] = []
+
+        async def tick() -> None:
+            while True:
+                ticks.append(time.perf_counter())
+                await asyncio.sleep(0.01)
+
+        store = build_test_store()
+        await store.connect()
+        graph = await Graph.open(
+            schema=DEFAULT_SCHEMA,
+            graph_store=store,
+            embedder=_MockEmbedder(),
+            extractor=_MockExtractor(),
+        )
+        ticker = asyncio.create_task(tick())
+        try:
+            await graph.add(source=fixture, loader=loader)
+        finally:
+            ticker.cancel()
+            with suppress(asyncio.CancelledError):
+                await ticker
+            await store.execute_write(
+                "MATCH (d:Document) WHERE d.uri = $uri "
+                "OPTIONAL MATCH (d)-[:HAS_PART]->(c:Chunk) "
+                "DETACH DELETE d, c",
+                {"uri": source_uri},
+            )
+            await store.close()
+
+        assert loader.window is not None, "the loader never ran"
+        start, end = loader.window
+        inside = [moment for moment in ticks if start < moment < end]
+        assert len(inside) >= 5, "the event loop did not run during the loader's work"
+
+
 class TestLoadSpanTracing:
     """Graph.add emits load spans that never parent chunk spans."""
 
