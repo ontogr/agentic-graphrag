@@ -59,7 +59,11 @@ class GraphStoreTransaction(Protocol):
     async def execute_write(
         self, query: str, parameters: Mapping[str, Any] | None = None
     ) -> list[dict[str, Any]]:
-        """Run a write inside the surrounding transaction."""
+        """Run a write inside the surrounding transaction.
+
+        A non-null ``pending_job_id`` parameter fences the write by its job,
+        as ``GraphStore.execute_write`` does.
+        """
         ...
 
     async def upsert_nodes(
@@ -158,12 +162,20 @@ class GraphStore(ABC):
     ) -> list[dict[str, Any]]:
         """Run a write transaction.
 
+        A write whose parameters carry a non-null ``pending_job_id`` is a
+        Cutover Job's pending write. It runs only while that job is pending
+        with a live lease.
+
         Args:
             query: The Cypher query to run.
             parameters: The query parameters.
 
         Returns:
             The result rows as dicts.
+
+        Raises:
+            GraphStoreFenceError: The job named by ``pending_job_id`` is no
+                longer pending with a live lease.
         """
 
     @abstractmethod

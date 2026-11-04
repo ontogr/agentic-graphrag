@@ -155,6 +155,7 @@ async def embed_resolved_entities(
             ),
             records,
             deferred=deferred,
+            pending_job_id=job_id,
         )
         applied_ids = _applied_ids(rows)
         synced_entities = [entity for entity in entities if entity.id in applied_ids]
@@ -203,7 +204,8 @@ async def embed_resolved_entities(
                 {
                     "records": [
                         _embedding_record(entity, [], job_id) for entity in entities
-                    ]
+                    ],
+                    "pending_job_id": job_id,
                 },
             )
             cleared_ids = _applied_ids(cleared_rows)

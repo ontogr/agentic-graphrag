@@ -5,6 +5,7 @@ from enum import StrEnum
 
 CUTOVER_JOB_LABEL = "CutoverJob"
 CUTOVER_JOB_STATUS_INDEX = "cutover_job_status_index"
+CUTOVER_JOB_ID_INDEX = "cutover_job_id_index"
 
 
 class CutoverJobStatus(StrEnum):

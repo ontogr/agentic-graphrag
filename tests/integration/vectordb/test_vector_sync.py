@@ -19,6 +19,7 @@ from agrag.graphdb.base import GraphStore, GraphStoreTransaction
 from agrag.ingestion._deferred import replay_deferred
 from agrag.ingestion.vector_sync import VectorSync
 from tests.integration._backend import build_test_store
+from tests.integration._cutover_job import create_live_job
 from tests.integration._fake_vector_store import FakeVectorStore
 from tests.integration._vector_backend import build_vector_store, selected_vector_stores
 
@@ -243,7 +244,7 @@ class TestVectorSync:
         graph_store = build_test_store()
         vector_store = FakeVectorStore(collection_prefix=uuid4().hex[:8])
         entity_id = uuid4()
-        job_id = uuid4()
+        job_key = f"vector-sync-{entity_id}"
         old_entity = _entity(entity_id, "original description")
         updated_entity = _entity(entity_id, "updated description")
         deferred = DeferredWrites()
@@ -270,6 +271,7 @@ class TestVectorSync:
                 deferred=None,
             )
 
+            job_id = await create_live_job(graph_store, job_key)
             await graph_store.upsert_nodes(
                 _ENTITY_LABEL,
                 [updated_entity.to_node_record()],
@@ -319,6 +321,10 @@ class TestVectorSync:
             assert after_commit[0].score == 1.0
         finally:
             await _remove_entity(graph_store, entity_id)
+            await graph_store.execute_write(
+                "MATCH (job:CutoverJob {document_key: $key}) DELETE job",
+                {"key": job_key},
+            )
             await vector_store.close()
             await graph_store.close()
 

@@ -672,7 +672,9 @@ async def apply_merge(
         }
         if conflicts:
             raise GraphStoreAliasConflictError(conflicts)
-        rows = await txn.execute_write(survivor_query, {"records": [params]})
+        rows = await txn.execute_write(
+            survivor_query, {"records": [params], "pending_job_id": pending_job_id}
+        )
         if staged is not None:
             staged.add_unwritten(survivor_query, [params], rows)
 

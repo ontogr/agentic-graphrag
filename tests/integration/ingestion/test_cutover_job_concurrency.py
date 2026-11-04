@@ -30,14 +30,17 @@ from agrag.cypher.cutover_job_write import (
 from agrag.cypher.entities import (
     MERGE_ALIAS_LABEL,
     NODE_IDENTITY_LABEL,
+    set_embedding_query,
     upsert_merge_alias_query,
 )
-from agrag.graphdb.errors import GraphStoreError
+from agrag.cypher.resolution_write import replace_component_resolved_entities_query
+from agrag.graphdb.errors import GraphStoreError, GraphStoreFenceError
 from agrag.ingestion._cutover import run_cutover_job
 from agrag.ingestion._pending_rows import rollback_job_rows
 from agrag.ingestion._resume import resume_incomplete_jobs
 from agrag.ingestion.settings import CutoverJobSettings
 from tests.integration._backend import build_test_store
+from tests.integration._cutover_job import create_live_job
 
 
 def _epoch_millis(moment: datetime) -> int:
@@ -596,6 +599,66 @@ class TestStalledJobWrites:
                 f"MATCH (a:{MERGE_ALIAS_LABEL} {{merge_key: $merge_key}}) "
                 "DETACH DELETE a",
                 {"merge_key": merge_key},
+            )
+            await store.execute_write(
+                "MATCH (job:CutoverJob {document_key: $key}) DETACH DELETE job",
+                {"key": key},
+            )
+            await store.close()
+
+    @pytest.mark.parametrize("live", [True, False])
+    async def test_fence_follows_the_job_state_not_the_returned_rows(
+        self, live: bool
+    ) -> None:
+        """A write for a live job passes and a write for an unknown job raises.
+
+        The two writes cover both ways a row count misleads: an empty batch
+        returns no row for a live job, and a query that ends in an aggregate
+        returns a row even when the guard matched no job.
+        """
+        store = build_test_store()
+        await store.connect()
+        key = f"cutover-fence-{uuid4().hex}"
+        node_id = uuid4()
+        try:
+            job_id = await create_live_job(store, key) if live else uuid4()
+            writes = [
+                store.upsert_nodes(
+                    "TestCutoverFence",
+                    [
+                        NodeRecord(
+                            id=node_id, labels=["TestCutoverFence"], properties={}
+                        )
+                    ],
+                    pending_job_id=job_id,
+                    deferred=DeferredWrites(),
+                ),
+                store.execute_write(
+                    set_embedding_query("embedding"),
+                    {"records": [], "pending_job_id": str(job_id)},
+                ),
+                store.execute_write(
+                    replace_component_resolved_entities_query(),
+                    {"member_ids": [str(node_id)], "pending_job_id": str(job_id)},
+                ),
+            ]
+
+            for write in writes:
+                if live:
+                    await write
+                else:
+                    with pytest.raises(GraphStoreFenceError):
+                        await write
+
+            nodes = await store.execute_read(
+                f"MATCH (n:{NODE_IDENTITY_LABEL} {{id: $id}}) RETURN n.id AS id",
+                {"id": str(node_id)},
+            )
+            assert nodes == ([{"id": str(node_id)}] if live else [])
+        finally:
+            await store.execute_write(
+                f"MATCH (n:{NODE_IDENTITY_LABEL} {{id: $id}}) DETACH DELETE n",
+                {"id": str(node_id)},
             )
             await store.execute_write(
                 "MATCH (job:CutoverJob {document_key: $key}) DETACH DELETE job",

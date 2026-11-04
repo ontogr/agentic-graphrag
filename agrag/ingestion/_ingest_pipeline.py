@@ -1018,6 +1018,7 @@ async def _embed_and_upsert_chunks(
             ),
             records,
             deferred=deferred,
+            pending_job_id=job,
         )
     except Exception as exc:  # noqa: BLE001
         with contextlib.suppress(Exception):
@@ -1031,7 +1032,8 @@ async def _embed_and_upsert_chunks(
                             "expected_text": ch.text,
                         }
                         for ch in chunks
-                    ]
+                    ],
+                    "pending_job_id": job,
                 },
             )
         if error_policy is ErrorPolicy.RAISE:
@@ -1139,6 +1141,7 @@ async def _embed_and_upsert_survivors(
             ),
             records,
             deferred=deferred,
+            pending_job_id=job,
         )
     except Exception as exc:  # noqa: BLE001
         # Best-effort: a failure here must not mask error_policy.
@@ -1149,7 +1152,8 @@ async def _embed_and_upsert_survivors(
                     "records": [
                         {**_embedding_guard_fields(ent), "pending_job_id": job}
                         for ent in survivors.values()
-                    ]
+                    ],
+                    "pending_job_id": job,
                 },
             )
         if error_policy is ErrorPolicy.RAISE:

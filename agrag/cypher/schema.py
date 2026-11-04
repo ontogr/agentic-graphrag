@@ -9,6 +9,7 @@ from typing import Any
 
 from agrag.common.data_models.candidate import CANDIDATE_LABEL
 from agrag.common.data_models.cutover_job import (
+    CUTOVER_JOB_ID_INDEX,
     CUTOVER_JOB_LABEL,
     CUTOVER_JOB_STATUS_INDEX,
 )
@@ -217,6 +218,19 @@ def cutover_job_status_index_query() -> str:
     return (
         f"CREATE INDEX {CUTOVER_JOB_STATUS_INDEX} IF NOT EXISTS "
         f"FOR (job:{CUTOVER_JOB_LABEL}) ON (job.status)"
+    )
+
+
+def cutover_job_id_index_query() -> str:
+    """Build an index for the CutoverJob lookups by id.
+
+    Every lease transition and every fenced pending write matches its job by
+    id, and finished jobs stay in the table, so without the index each lookup
+    scans every job node.
+    """
+    return (
+        f"CREATE INDEX {CUTOVER_JOB_ID_INDEX} IF NOT EXISTS "
+        f"FOR (job:{CUTOVER_JOB_LABEL}) ON (job.id)"
     )
 
 

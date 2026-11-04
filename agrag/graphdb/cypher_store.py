@@ -5,7 +5,7 @@ import json
 import numbers
 from abc import abstractmethod
 from collections import defaultdict
-from collections.abc import Mapping, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from typing import Any
 from uuid import UUID
 
@@ -25,6 +25,7 @@ from agrag.common.data_models.graph_record import (
 )
 from agrag.common.data_models.vector_record import VectorHit
 from agrag.common.validation import require_positive_batch_size
+from agrag.cypher._job_fence import fenced_write_query, job_live_query
 from agrag.cypher.candidates import (
     blocked_candidate_keys_query,
     upsert_candidates_query,
@@ -39,6 +40,7 @@ from agrag.cypher.entities import (
 from agrag.cypher.relations import upsert_relation_query
 from agrag.cypher.schema import list_relation_types_query, vector_search_query
 from agrag.graphdb.base import GraphStore
+from agrag.graphdb.errors import GraphStoreFenceError
 from agrag.graphdb.serialize import candidate_params, node_params, relation_params
 from agrag.observability import (
     DB_COLLECTION_NAME,
@@ -154,6 +156,46 @@ def require_deferred(
     """Reject a job write that has nowhere to put deferred writes."""
     if pending_job_id is not None and deferred is None:
         raise ValueError("deferred is required when pending_job_id is set")
+
+
+async def run_fenced_write(
+    run: Callable[[str, Mapping[str, Any]], Awaitable[list[dict[str, Any]]]],
+    query: str,
+    parameters: Mapping[str, Any],
+) -> list[dict[str, Any]]:
+    """Run a write, fenced by its Cutover Job when the parameters name one.
+
+    A write whose parameters carry a non-null ``pending_job_id`` runs behind
+    ``fenced_write_query``'s guard. A read of the job in the same unit of work
+    then decides whether the guard held. The returned rows cannot decide it: a
+    live job's write can return no rows, and a query that ends in an aggregate
+    returns a row even when the guard matched nothing. A job that stops being
+    live never becomes live again under the same id, so a failed read means
+    the job is lost, whichever way the guard went.
+
+    Args:
+        run: Runs one statement in the caller's unit of work and returns its
+            rows. A Neo4j caller passes its transaction, so the lock that the
+            guard takes is held until the read.
+        query: The write query.
+        parameters: The query parameters.
+
+    Returns:
+        The rows of the write.
+
+    Raises:
+        GraphStoreFenceError: The job named by ``pending_job_id`` is no longer
+            pending with a live lease.
+    """
+    job_id = parameters.get("pending_job_id")
+    if job_id is None:
+        return await run(query, parameters)
+    rows = await run(fenced_write_query(query), parameters)
+    if not await run(job_live_query(), {"pending_job_id": job_id}):
+        raise GraphStoreFenceError(
+            f"Cutover Job {job_id} no longer holds a live pending lease"
+        )
+    return rows
 
 
 # The vector search procedure selects its top-k candidates before a WHERE
@@ -351,7 +393,11 @@ class CypherGraphStore(GraphStore):
             for labels, records in groups.items():
                 query = upsert_node_query(labels, extra_set=self.node_write_extra_set())
                 batch_result = await self._batch_write(
-                    query, records, batch_size, deferred=deferred
+                    query,
+                    records,
+                    batch_size,
+                    deferred=deferred,
+                    pending_job_id=pending_job_id,
                 )
                 outcome.written += batch_result.written
                 outcome.failures.extend(batch_result.failures)
@@ -430,6 +476,7 @@ class CypherGraphStore(GraphStore):
                     batch_size,
                     require_returned_ids=True,
                     deferred=deferred,
+                    pending_job_id=pending_job_id,
                 )
                 outcome.written += batch_result.written
                 outcome.failures.extend(batch_result.failures)
@@ -476,6 +523,7 @@ class CypherGraphStore(GraphStore):
                 records,
                 batch_size,
                 require_returned_ids=True,
+                pending_job_id=pending_job_id,
             )
             outcome.written += batch_outcome.written
             outcome.failures.extend(batch_outcome.failures)
@@ -578,19 +626,26 @@ class CypherGraphStore(GraphStore):
         *,
         require_returned_ids: bool = False,
         deferred: DeferredWrites | None = None,
+        pending_job_id: UUID | None = None,
     ) -> UpsertResult:
-        """Run batched writes, isolating failures that belong to one record."""
+        """Run batched writes, isolating failures that belong to one record.
+
+        With ``pending_job_id`` every statement is fenced by that job.
+        """
         outcome = UpsertResult()
+        fence = {"pending_job_id": str(pending_job_id)} if pending_job_id else {}
         for start in range(0, len(records), batch_size):
             batch = records[start : start + batch_size]
             try:
-                rows = await self.execute_write(query, {"records": batch})
+                rows = await self.execute_write(query, {"records": batch, **fence})
             except Exception as exc:  # noqa: BLE001
                 if not self._is_record_specific_error(exc):
                     raise
                 for record in batch:
                     try:
-                        rows = await self.execute_write(query, {"records": [record]})
+                        rows = await self.execute_write(
+                            query, {"records": [record], **fence}
+                        )
                     except Exception as item_exc:  # noqa: BLE001
                         if not self._is_record_specific_error(item_exc):
                             raise
