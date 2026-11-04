@@ -544,7 +544,7 @@ class TestCutoverJobLeaseLifetime:
             score=0.98,
             decided_at=datetime.now(UTC),
         )
-        ttl_seconds = 2
+        ttl_seconds = 3
         compute = resolved_entities.compute_resolved_entity
 
         async def slow_compute(*args: Any, **kwargs: Any) -> ResolvedEntity:
