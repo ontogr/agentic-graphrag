@@ -18,6 +18,7 @@ from agrag.common.data_models.graph_record import DeferredWrites
 from agrag.graphdb.base import GraphStore
 from agrag.graphdb.entities import load_entities
 from tests.integration._backend import build_test_store
+from tests.integration._cutover_job import create_live_job
 
 
 neo4j_missing = importlib.util.find_spec("neo4j") is None
@@ -72,11 +73,12 @@ class TestLoadEntitiesIntegration:
         committed = Entity(id=uuid4(), label=label, name="Ada")
         pending = Entity(id=uuid4(), label=label, name="Bob")
         try:
+            job_id = await create_live_job(store, label)
             await store.upsert_nodes(label, [committed.to_node_record()])
             await store.upsert_nodes(
                 label,
                 [pending.to_node_record()],
-                pending_job_id=uuid4(),
+                pending_job_id=job_id,
                 deferred=DeferredWrites(),
             )
 
@@ -87,4 +89,8 @@ class TestLoadEntitiesIntegration:
             await store.execute_write(
                 "MATCH (n) WHERE n.id IN $ids DETACH DELETE n",
                 {"ids": [str(committed.id), str(pending.id)]},
+            )
+            await store.execute_write(
+                "MATCH (job:CutoverJob {document_key: $key}) DELETE job",
+                {"key": label},
             )

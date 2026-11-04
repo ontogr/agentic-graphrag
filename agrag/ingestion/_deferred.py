@@ -27,6 +27,7 @@ async def write_or_defer(
     records: Sequence[Mapping[str, Any]],
     *,
     deferred: DeferredWrites | None,
+    pending_job_id: str | None,
 ) -> list[dict[str, Any]]:
     """Run a batched guarded write and defer the records it did not apply.
 
@@ -37,11 +38,18 @@ async def write_or_defer(
             ``pending_job_id`` the query compares against.
         deferred: Where the unapplied records go. None when there is no job,
             in which case no record can be reported unwritten.
+        pending_job_id: The job the write belongs to, which fences it, or
+            None outside a job.
 
     Returns:
         The rows the query returned, so callers can read the matched ids.
+
+    Raises:
+        GraphStoreFenceError: The job no longer holds a live pending lease.
     """
-    rows = await executor.execute_write(query, {"records": list(records)})
+    rows = await executor.execute_write(
+        query, {"records": list(records), "pending_job_id": pending_job_id}
+    )
     if deferred is not None:
         deferred.add_unwritten(query, records, rows, require_all=False)
     return rows

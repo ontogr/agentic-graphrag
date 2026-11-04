@@ -23,8 +23,10 @@ without its alias remains.
 - **schema** (<code>[GraphSchema](../../common/data_models/graph_schema/GraphSchema.md)</code>) – The schema the survivor's label belongs to. Its hierarchy
   decides the ancestor labels the node is stored with.
 - **pending_job_id** (<code>str | None</code>) – The in-flight Cutover Job's id, tagging the
-  survivor node and its aliases until that job commits. None
-  writes untagged, for callers outside a job.
+  survivor node and its aliases until that job commits. It also
+  fences the alias and survivor writes, so they run only while the
+  job is pending with a live lease. None writes untagged and
+  unfenced, for callers outside a job.
 - **deferred** (<code>[DeferredWrites](../../common/data_models/graph_record/DeferredWrites.md) | None</code>) – Receives the survivor write when it reaches a committed
   entity. Required when `pending_job_id` is set.
 
@@ -35,3 +37,5 @@ without its alias remains.
   by a live entity outside this merge's own survivor id -- a
   concurrent writer accepted that name as an alias of, or
   created it as the canonical name of, a different entity.
+- <code>GraphStoreFenceError</code> – `pending_job_id` is set and the job is no
+  longer pending with a live lease.

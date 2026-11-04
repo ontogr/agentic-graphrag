@@ -14,6 +14,11 @@ Persist matches and rebuild their supplied connected component.
 Callers fetch the bounded affected component before invoking this function.
 The resolved node is always recomputed from that current membership.
 
+Outside a job, the matches and the resolved entity are written in one
+transaction. For a job's writes they are written in two transactions, and
+the summary of the resolved entity runs between them, so a slow summary
+does not hold the job's lock.
+
 **Parameters:**
 
 - **decisions** (<code>list\[[MatchDecision](MatchDecision.md)\]</code>) – The confirmed matches to persist.
@@ -33,3 +38,7 @@ The resolved node is always recomputed from that current membership.
 - <code>ValueError</code> – No decisions are supplied, a decision references a
   member outside the supplied component, or `pending_job_id` is
   set and `deferred` is None.
+- <code>[GraphStoreFenceError](../../graphdb/errors/GraphStoreFenceError.md)</code> – The job no longer holds a live lease. Raised under
+  every error policy.
+- <code>[ResolvedEntityWriteError](ResolvedEntityWriteError.md)</code> – A job's matches were written but its
+  resolved entity was not. The caller must fail the job.

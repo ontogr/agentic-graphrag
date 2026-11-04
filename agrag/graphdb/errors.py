@@ -29,6 +29,15 @@ class GraphStoreWriteConflictError(GraphStoreError):
     """
 
 
+class GraphStoreFenceError(GraphStoreError):
+    """A pending write ran for a Cutover Job that no longer holds a live lease.
+
+    The job's lease expired and recovery claimed it, rolled it back, or gave
+    the document to a new job. Any row the write tagged is removed by that
+    rollback, and the job cannot commit.
+    """
+
+
 class GraphStoreConstraintViolationError(GraphStoreError):
     """A write violated a uniqueness constraint the backend enforces.
 
@@ -70,6 +79,7 @@ __all__ = [
     "GraphStoreAliasConflictError",
     "GraphStoreConstraintViolationError",
     "GraphStoreError",
+    "GraphStoreFenceError",
     "GraphStoreMissingExtraError",
     "GraphStoreWriteConflictError",
 ]

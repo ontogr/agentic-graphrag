@@ -18,6 +18,7 @@ from agrag.cypher.entities import NODE_IDENTITY_LABEL
 from agrag.graphdb.base import GraphStore, GraphStoreTransaction
 from agrag.ingestion._pending_rows import clear_job_tags, rollback_job_rows
 from tests.integration._backend import build_test_store
+from tests.integration._cutover_job import create_live_job
 
 
 neo4j_missing = importlib.util.find_spec("neo4j") is None
@@ -152,7 +153,9 @@ class TestCandidateStore:
     ) -> None:
         """Committed tagged rows stay; rolled-back tagged rows disappear."""
         committed_chunk, rollback_chunk = uuid4(), uuid4()
-        commit_job, rollback_job = uuid4(), uuid4()
+        job_key = f"candidate-jobs-{uuid4().hex}"
+        commit_job = await create_live_job(store, f"{job_key}-commit")
+        rollback_job = await create_live_job(store, f"{job_key}-rollback")
         records = [
             CandidateRecord(
                 kind="entity",
@@ -206,9 +209,8 @@ class TestCandidateStore:
 
             lease_token = str(uuid4())
             await store.execute_write(
-                "CREATE (:CutoverJob {id: $job_id, status: 'rolling_back', "
-                "lease_token: $lease_token, "
-                "lease_expires_at: timestamp() + 300000})",
+                "MATCH (job:CutoverJob {id: $job_id}) "
+                "SET job.status = 'rolling_back', job.lease_token = $lease_token",
                 {"job_id": str(rollback_job), "lease_token": lease_token},
             )
             assert await rollback_job_rows(
@@ -224,6 +226,11 @@ class TestCandidateStore:
             await store.execute_write(
                 "MATCH (n:Chunk) WHERE n.id IN $ids DETACH DELETE n",
                 {"ids": [str(committed_chunk), str(rollback_chunk)]},
+            )
+            await store.execute_write(
+                "MATCH (job:CutoverJob) WHERE job.document_key STARTS WITH $key "
+                "DELETE job",
+                {"key": job_key},
             )
 
     @staticmethod

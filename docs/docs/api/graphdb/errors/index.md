@@ -12,5 +12,6 @@ Errors that the graph-store layer raises.
 - [**GraphStoreAliasConflictError**](GraphStoreAliasConflictError.md) – A merge-key alias a merge tried to claim already names another entity.
 - [**GraphStoreConstraintViolationError**](GraphStoreConstraintViolationError.md) – A write violated a uniqueness constraint the backend enforces.
 - [**GraphStoreError**](GraphStoreError.md) – The base class for every graph-store error.
+- [**GraphStoreFenceError**](GraphStoreFenceError.md) – A pending write ran for a Cutover Job that no longer holds a live lease.
 - [**GraphStoreMissingExtraError**](GraphStoreMissingExtraError.md) – A graph store exists, but its package extra is not installed.
 - [**GraphStoreWriteConflictError**](GraphStoreWriteConflictError.md) – A write reached a row that an in-flight job owns and no job can defer it.

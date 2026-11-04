@@ -25,3 +25,5 @@ committed node is deferred to the commit and is not written yet.
 **Raises:**
 
 - <code>ValueError</code> – `pending_job_id` is set and `deferred` is None.
+- <code>GraphStoreFenceError</code> – The job no longer holds a live lease. Raised under
+  every error policy.

@@ -10,6 +10,7 @@ from uuid import UUID
 
 from opentelemetry.trace import SpanKind, Tracer
 
+from agrag.common.data_models.cutover_job import CUTOVER_JOB_LABEL
 from agrag.common.data_models.graph_record import (
     DeferredWrites,
     NodeRecord,
@@ -51,6 +52,7 @@ from agrag.embedding.errors import EmbeddingDimensionMismatchError
 from agrag.graphdb.base import GraphStoreTransaction
 from agrag.graphdb.cypher_store import (
     CypherGraphStore,
+    _run_fenced_write,
     query_parameter_attributes,
     require_deferred,
 )
@@ -99,6 +101,18 @@ def scoped_subqueries(query: str) -> str:
         The query with each such subquery in scoped form.
     """
     return _IMPORTING_SUBQUERY.sub(r"CALL (\1) {", query)
+
+
+async def _run_write(
+    tx: Any, query: str, parameters: Mapping[str, Any]
+) -> list[dict[str, Any]]:
+    """Run a write inside a managed transaction, fenced by its job if any."""
+
+    async def run(statement: str, params: Mapping[str, Any]) -> list[dict[str, Any]]:
+        result = await tx.run(scoped_subqueries(statement), params)
+        return await result.data()
+
+    return await _run_fenced_write(run, query, parameters)
 
 
 def _settle_transaction_rows(
@@ -168,7 +182,12 @@ class _Neo4jTransaction(GraphStoreTransaction):
     async def execute_write(
         self, query: str, parameters: Mapping[str, Any] | None = None
     ) -> list[dict[str, Any]]:
-        """Run a write against this transaction and return its rows."""
+        """Run a write against this transaction and return its rows.
+
+        Raises:
+            GraphStoreFenceError: ``parameters`` name a Cutover Job in
+                ``pending_job_id`` that is no longer pending with a live lease.
+        """
         attributes = {
             DB_SYSTEM_NAME: "neo4j",
             DB_QUERY_TEXT: query,
@@ -180,8 +199,7 @@ class _Neo4jTransaction(GraphStoreTransaction):
             kind=SpanKind.CLIENT,
             attributes=attributes,
         ):
-            result = await self._tx.run(scoped_subqueries(query), parameters or {})
-            return await result.data()
+            return await _run_write(self._tx, query, parameters or {})
 
     async def upsert_nodes(
         self,
@@ -206,6 +224,7 @@ class _Neo4jTransaction(GraphStoreTransaction):
         """
         require_deferred(pending_job_id, deferred)
         require_positive_batch_size(batch_size)
+        fence = {"pending_job_id": str(pending_job_id)} if pending_job_id else {}
         await self._store.register_labels([label])
         groups: dict[tuple[str, ...], list[NodeRecord]] = defaultdict(list)
         for node in nodes:
@@ -219,7 +238,7 @@ class _Neo4jTransaction(GraphStoreTransaction):
             ]
             for start in range(0, len(records), batch_size):
                 batch = records[start : start + batch_size]
-                rows = await self.execute_write(query, {"records": batch})
+                rows = await self.execute_write(query, {"records": batch, **fence})
                 _settle_transaction_rows(query, batch, rows, deferred=deferred)
 
     async def upsert_relations(
@@ -244,6 +263,7 @@ class _Neo4jTransaction(GraphStoreTransaction):
         """
         require_deferred(pending_job_id, deferred)
         require_positive_batch_size(batch_size)
+        fence = {"pending_job_id": str(pending_job_id)} if pending_job_id else {}
         by_type: dict[str, list[dict[str, Any]]] = defaultdict(list)
         for rel in relations:
             validate_identifier(rel.type)
@@ -256,7 +276,7 @@ class _Neo4jTransaction(GraphStoreTransaction):
             query = upsert_relation_query(rel_type)
             for start in range(0, len(params), batch_size):
                 batch = params[start : start + batch_size]
-                rows = await self.execute_write(query, {"records": batch})
+                rows = await self.execute_write(query, {"records": batch, **fence})
                 _settle_transaction_rows(query, batch, rows, deferred=deferred)
 
 
@@ -422,6 +442,8 @@ class Neo4jGraphStore(CypherGraphStore):
             GraphStoreConstraintViolationError: The write violated a uniqueness
                 constraint, translated from the driver's own exception so
                 callers do not need a hard dependency on it.
+            GraphStoreFenceError: ``parameters`` name a Cutover Job in
+                ``pending_job_id`` that is no longer pending with a live lease.
         """
         from neo4j.exceptions import ConstraintError  # noqa: PLC0415
 
@@ -438,9 +460,7 @@ class Neo4jGraphStore(CypherGraphStore):
         ):
             async with self.session() as s:
                 try:
-                    return await s.execute_write(
-                        self._run, scoped_subqueries(query), parameters or {}
-                    )
+                    return await s.execute_write(_run_write, query, parameters or {})
                 except ConstraintError as exc:
                     raise GraphStoreConstraintViolationError(str(exc)) from exc
 
@@ -592,13 +612,20 @@ class Neo4jGraphStore(CypherGraphStore):
             self._cutover_job_constraint_ready = True
 
     async def _ensure_cutover_job_status_index(self) -> None:
-        """Create the CutoverJob status index once for recovery scans."""
+        """Create the CutoverJob status index and id constraint once.
+
+        Recovery scans by status. Lease transitions and fenced pending writes
+        look a job up by id, through the index behind the id constraint. The
+        constraint is the one ``setup_constraints`` creates for every label, so
+        the two never conflict.
+        """
         if self._cutover_job_status_index_ready:
             return
         async with self._cutover_job_status_index_lock:
             if self._cutover_job_status_index_ready:
                 return
             await self.execute_write(cutover_job_status_index_query())
+            await self.execute_write(node_id_constraint_query(CUTOVER_JOB_LABEL))
             self._cutover_job_status_index_ready = True
 
     async def _ensure_pending_tag_indexes(self) -> None:

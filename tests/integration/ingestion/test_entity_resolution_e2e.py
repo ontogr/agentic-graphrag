@@ -11,6 +11,7 @@ import hashlib
 import importlib.util
 import unicodedata
 from collections.abc import Sequence
+from types import ModuleType
 from uuid import uuid4
 
 import pytest
@@ -22,8 +23,12 @@ from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.extraction import ExtractedEntity, ExtractionResult
 from agrag.common.data_models.graph_schema import GraphSchema
 from agrag.embedding.base import Embedder
+from agrag.graphdb.errors import GraphStoreFenceError
+from agrag.ingestion import _ingest_pipeline, _merge_stage, resolved_entities
 from agrag.ingestion.extract import Extractor
 from agrag.ingestion.graph import Graph
+from agrag.ingestion.resolved_entities import ResolvedEntityWriteError
+from agrag.loaders.types import ErrorPolicy
 from tests.conftest import FAKE_EMBEDDING_DIMENSIONS
 from tests.integration._backend import build_test_store
 
@@ -240,6 +245,166 @@ class TestEntityResolutionEndToEnd:
                         for name in (first, second, third)
                     ]
                 },
+            )
+            await store.close()
+
+    @pytest.mark.parametrize(
+        ("module", "stage"),
+        [
+            (_ingest_pipeline, "write_nodes_stage"),
+            (_ingest_pipeline, "write_relations_stage"),
+            (_merge_stage, "apply_merge"),
+            (_merge_stage, "write_matches_and_rebuild"),
+            (_merge_stage, "embed_resolved_entities"),
+            (_ingest_pipeline, "_embed_and_upsert_chunks"),
+            (_ingest_pipeline, "_embed_and_upsert_survivors"),
+        ],
+    )
+    async def test_skip_fails_the_document_when_its_job_loses_the_lease(
+        self, monkeypatch: pytest.MonkeyPatch, module: ModuleType, stage: str
+    ) -> None:
+        """A write after recovery claimed the job fails the document under SKIP.
+
+        Recovery claims the job just before one pending stage writes. That
+        stage's fenced write must raise out of ``Graph.add`` instead of being
+        recorded as a stage failure, because the job can no longer commit.
+        """
+        store = build_test_store()
+        await store.connect()
+        suffix = uuid4().hex[:8]
+        first, second = f"E2e Quasar {suffix}", f"E2e Quasars {suffix}"
+        names = [first, second]
+        key = f"e2e://{suffix}-claimed"
+        original = getattr(module, stage)
+        claimed: list[bool] = []
+
+        async def claim_then_run(*args: object, **kwargs: object) -> object:
+            if not claimed:
+                claimed.append(True)
+                await store.execute_write(
+                    "MATCH (job:CutoverJob {document_key: $key}) "
+                    "SET job.status = 'rolling_back'",
+                    {"key": key},
+                )
+            return await original(*args, **kwargs)
+
+        monkeypatch.setattr(module, stage, claim_then_run)
+        graph = await Graph.open(
+            schema=DEFAULT_SCHEMA,
+            graph_store=store,
+            embedder=_SuffixEmbedder(suffix),
+            extractor=_ProbeExtractor({"batchone": names}),
+        )
+        try:
+            with pytest.raises(GraphStoreFenceError):
+                await graph.add(
+                    documents=[_document(key, "batchone alpha. " * 60)],
+                    error_policy=ErrorPolicy.SKIP,
+                )
+
+            jobs = await store.execute_read(
+                "MATCH (job:CutoverJob {document_key: $key}) RETURN job.status AS s",
+                {"key": key},
+            )
+            assert claimed == [True]
+            assert jobs == [{"s": "rolling_back"}]
+        finally:
+            job_rows = await store.execute_read(
+                "MATCH (job:CutoverJob {document_key: $key}) RETURN job.id AS id",
+                {"key": key},
+            )
+            for row in job_rows:
+                await store.execute_write(
+                    "MATCH ()-[r]->() WHERE r._pending_job_id = $id DELETE r",
+                    {"id": row["id"]},
+                )
+                await store.execute_write(
+                    "MATCH (n) WHERE n._pending_job_id = $id DETACH DELETE n",
+                    {"id": row["id"]},
+                )
+            await store.execute_write(
+                "MATCH (job:CutoverJob {document_key: $key}) DETACH DELETE job",
+                {"key": key},
+            )
+            await store.execute_write(
+                "MATCH (e:Person) WHERE e.name IN $names DETACH DELETE e",
+                {"names": names},
+            )
+            await store.close()
+
+    async def test_skip_fails_the_document_when_its_resolved_entity_is_not_written(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A resolved entity that cannot be written fails the document under SKIP.
+
+        The job writes its match edges, then the resolved entity in a second
+        transaction. When that second write fails, committing the job would
+        publish matches with no resolved entity, so the document is rolled
+        back instead of being skipped past.
+        """
+        store = build_test_store()
+        await store.connect()
+        suffix = uuid4().hex[:8]
+        first, second = f"E2e Quasar {suffix}", f"E2e Quasars {suffix}"
+        names = [first, second]
+        key = f"e2e://{suffix}-unwritten"
+
+        async def fail_write(*_args: object, **_kwargs: object) -> None:
+            raise RuntimeError("injected resolved entity write failure")
+
+        monkeypatch.setattr(resolved_entities, "_write_resolved_entity", fail_write)
+        graph = await Graph.open(
+            schema=DEFAULT_SCHEMA,
+            graph_store=store,
+            embedder=_SuffixEmbedder(suffix),
+            extractor=_ProbeExtractor({"batchone": names}),
+        )
+        try:
+            with pytest.raises(ResolvedEntityWriteError):
+                await graph.add(
+                    documents=[_document(key, "batchone alpha. " * 60)],
+                    error_policy=ErrorPolicy.SKIP,
+                )
+
+            persons = await store.execute_read(
+                "MATCH (e:Person) WHERE e.name IN $names RETURN e.id AS id",
+                {"names": names},
+            )
+            matches = await store.execute_read(
+                "MATCH (a:Person)-[:MATCHES]->(b:Person) "
+                "WHERE a.name IN $names AND b.name IN $names RETURN a.name AS a",
+                {"names": names},
+            )
+            documents = await store.execute_read(
+                "MATCH (d:Document {document_key: $key}) RETURN d.id AS id",
+                {"key": key},
+            )
+            jobs = await store.execute_read(
+                "MATCH (job:CutoverJob {document_key: $key}) RETURN job.status AS s",
+                {"key": key},
+            )
+            assert persons == []
+            assert matches == []
+            assert documents == []
+            assert jobs == []
+        finally:
+            await store.execute_write(
+                "MATCH (d:Document {document_key: $key}) "
+                "OPTIONAL MATCH (d)-[:HAS_PART]->(c:Chunk) DETACH DELETE d, c",
+                {"key": key},
+            )
+            await store.execute_write(
+                "MATCH (e:Person) WHERE e.name IN $names DETACH DELETE e",
+                {"names": names},
+            )
+            await store.execute_write(
+                "MATCH (a:_MergeAlias) WHERE a.merge_key IN $merge_keys "
+                "DETACH DELETE a",
+                {"merge_keys": [f"Person:{name.strip().casefold()}" for name in names]},
+            )
+            await store.execute_write(
+                "MATCH (job:CutoverJob {document_key: $key}) DETACH DELETE job",
+                {"key": key},
             )
             await store.close()
 

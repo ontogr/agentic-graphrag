@@ -48,6 +48,8 @@ If a process stops during a call, a later `Graph.open` attempts to recover the u
 
 A new job on a document first rolls back an expired pending or rolling-back job for that document. It takes over a previous job directly only when that job is done or rolled back.
 
+A worker that loses its lease stops writing. Every pending write checks that its job is still pending with a live lease, and raises `GraphStoreFenceError` when the job was claimed, rolled back, or replaced. This guarantee covers the rows that the job's writes tag with the job: a fenced write either changes nothing, or its rows carry the job's tag and the rollback deletes them. A change to a row that is not tagged with the job is not rolled back. A write to an external vector store checks the job just before it runs. If the job is taken over between that check and the write, an orphan vector can remain, and `graph.repair_vectors(prune=True)` removes it. A lease renewal that fails with an error is retried until the lease expires. A renewal that is refused because the job no longer holds the lease is not retried.
+
 Rollback starts only while the job is still pending under the worker's lease token. The steps are:
 
 1. The job enters `rolling_back` before its staged vectors and graph rows are deleted.
@@ -105,7 +107,7 @@ The job tags writes instead of holding a database transaction, because extractio
 
 Resolution runs before entity writes because the resolver needs the batch's extracted entities together to compare them. Writing after that decision avoids creating duplicate exact-name entities.
 
-The error policy applies to each source, so one bad file does not stop a run of thousands. `RAISE` stops at the first failure. `SKIP` counts the failure. `QUARANTINE` records the reason.
+The error policy applies to each source, so one bad file does not stop a run of thousands. `RAISE` stops at the first failure. `SKIP` counts the failure. `QUARANTINE` records the reason. A job that loses its lease stops under every policy.
 
 </details>
 

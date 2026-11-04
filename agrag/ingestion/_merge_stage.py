@@ -29,6 +29,7 @@ from agrag.ingestion.merge import (
 from agrag.ingestion.resolve.resolution import BatchResolution
 from agrag.ingestion.resolved_embeddings import embed_resolved_entities
 from agrag.ingestion.resolved_entities import (
+    _JOB_LEVEL_ERRORS,
     MatchComponent,
     decisions_by_component,
     write_matches_and_rebuild,
@@ -96,6 +97,10 @@ async def merge_stage(
     Raises:
         Exception: The first failed merge or rebuild, when ``error_policy`` is
             ``RAISE``.
+        GraphStoreFenceError: The job no longer holds a live lease. Raised under
+            every error policy.
+        ResolvedEntityWriteError: A job's matches were written but its resolved
+            entity was not. Raised under every error policy.
     """
     pending_job_id = str(ctx.job_id) if ctx.job_id is not None else None
     merge_failures: list[StageFailure] = list(batch.failures)
@@ -173,6 +178,10 @@ async def _merge_mention_groups(
     returned survivors. The returned counts are ``nodes_created``,
     ``nodes_updated`` and ``conflicts_resolved``. The returned
     ``created_entity_ids`` lists the survivors that had no existing entity.
+
+    Raises:
+        GraphStoreFenceError: The job no longer holds a live lease. Raised under
+            every error policy.
     """
     pending_job_id = str(ctx.job_id) if ctx.job_id is not None else None
     resolved_tracer = ctx.tracer
@@ -237,7 +246,9 @@ async def _merge_mention_groups(
                     deferred=ctx.deferred,
                 )
             except Exception as exc:  # noqa: BLE001
-                if ctx.error_policy is ErrorPolicy.RAISE:
+                if ctx.error_policy is ErrorPolicy.RAISE or isinstance(
+                    exc, _JOB_LEVEL_ERRORS
+                ):
                     raise
                 trace_id, span_id = record_stage_failure(exc)
                 merge_failures.append(
@@ -286,6 +297,12 @@ async def _rebuild_components(
 
     Components that raise are appended to ``merge_failures``. Returns the
     resolved-entity embedding failures from the components that rebuilt.
+
+    Raises:
+        GraphStoreFenceError: The job no longer holds a live lease. Raised under
+            every error policy.
+        ResolvedEntityWriteError: A job's matches were written but its resolved
+            entity was not. Raised under every error policy.
     """
     if batch.result is None:
         return []
@@ -315,7 +332,9 @@ async def _rebuild_components(
                     tracer=ctx.tracer,
                 )
             except Exception as exc:  # noqa: BLE001
-                if ctx.error_policy is ErrorPolicy.RAISE:
+                if ctx.error_policy is ErrorPolicy.RAISE or isinstance(
+                    exc, _JOB_LEVEL_ERRORS
+                ):
                     raise
                 trace_id, span_id = record_stage_failure(exc)
                 merge_failures.append(

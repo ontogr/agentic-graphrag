@@ -39,6 +39,9 @@ execute_write(query:str, parameters:Mapping[str, Any] | None = None) -> list[dic
 
 Run a write inside the surrounding transaction.
 
+A non-null `pending_job_id` parameter fences the write by its job,
+as `GraphStore.execute_write` does.
+
 ## `fulltext_copy_set` \{#agrag-graphdb-base-GraphStoreTransaction-fulltext_copy_set}
 
 ```python

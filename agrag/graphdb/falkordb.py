@@ -64,7 +64,11 @@ from agrag.cypher.schema import (
 from agrag.cypher.schema import fulltext_copy_set as fulltext_copy_set_clauses
 from agrag.embedding.errors import EmbeddingDimensionMismatchError
 from agrag.graphdb.base import GraphStoreTransaction
-from agrag.graphdb.cypher_store import CypherGraphStore, query_parameter_attributes
+from agrag.graphdb.cypher_store import (
+    CypherGraphStore,
+    _run_fenced_write,
+    query_parameter_attributes,
+)
 from agrag.graphdb.errors import (
     GraphStoreConstraintViolationError,
     GraphStoreError,
@@ -509,6 +513,8 @@ class FalkorDBGraphStore(CypherGraphStore):
         Raises:
             GraphStoreConstraintViolationError: The write violated a uniqueness
                 constraint.
+            GraphStoreFenceError: ``parameters`` name a Cutover Job in
+                ``pending_job_id`` that is no longer pending with a live lease.
         """
         attributes: dict[str, Any] = {
             DB_SYSTEM_NAME: "falkordb",
@@ -522,7 +528,13 @@ class FalkorDBGraphStore(CypherGraphStore):
             attributes=attributes,
         ):
             try:
-                return await self._run(query, parameters, read_only=False, timeout=None)
+                return await _run_fenced_write(
+                    lambda statement, params: self._run(
+                        statement, params, read_only=False, timeout=None
+                    ),
+                    query,
+                    parameters or {},
+                )
             except Exception as exc:
                 if _is_constraint_violation(exc):
                     raise GraphStoreConstraintViolationError(str(exc)) from exc
@@ -761,6 +773,7 @@ class FalkorDBGraphStore(CypherGraphStore):
             [
                 _SchemaObject(CUTOVER_JOB_LABEL, ("document_key",), unique=True),
                 _SchemaObject(CUTOVER_JOB_LABEL, ("status",)),
+                _SchemaObject(CUTOVER_JOB_LABEL, ("id",), unique=True),
             ],
         )
         await self._ensure_once(

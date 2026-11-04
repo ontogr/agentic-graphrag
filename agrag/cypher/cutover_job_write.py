@@ -2,12 +2,8 @@
 
 from agrag.common.data_models.cutover_job import CUTOVER_JOB_LABEL
 from agrag.common.data_models.graph_record import PENDING_JOB_ID_PROPERTY
+from agrag.cypher._job_fence import job_lock_clause
 from agrag.cypher.entities import validate_identifier, validate_identifier_syntax
-
-
-def _job_lock_clause() -> str:
-    """Build Cypher that locks a job before its fencing guard runs."""
-    return "SET job.lease_token = job.lease_token + '' WITH job "
 
 
 def acquire_lease_query() -> str:
@@ -67,7 +63,7 @@ def steal_terminal_job_query() -> str:
     """
     return (
         f"MATCH (job:{CUTOVER_JOB_LABEL} {{document_key: $document_key}}) "
-        f"{_job_lock_clause()}"
+        f"{job_lock_clause()}"
         "WHERE job.lease_token = $expected_lease_token "
         "AND job.status IN ['done', 'rolled_back'] "
         "SET job.id = $job_id, job.status = 'pending', job.verb = $verb, "
@@ -104,7 +100,7 @@ def claim_job_query() -> str:
     """
     return (
         f"MATCH (job:{CUTOVER_JOB_LABEL} {{id: $job_id}}) "
-        f"{_job_lock_clause()}"
+        f"{job_lock_clause()}"
         "WHERE job.status IN ['committed', 'cleaning'] "
         "AND job.lease_token = $expected_lease_token "
         "AND job.lease_expires_at < timestamp() "
@@ -130,7 +126,7 @@ def claim_pending_job_query() -> str:
     """
     return (
         f"MATCH (job:{CUTOVER_JOB_LABEL} {{id: $job_id}}) "
-        f"{_job_lock_clause()}"
+        f"{job_lock_clause()}"
         "WHERE job.status IN ['pending', 'rolling_back'] "
         "AND coalesce(job.commit_started, false) = false "
         "AND job.lease_token = $expected_lease_token "
@@ -150,7 +146,7 @@ def begin_rollback_query() -> str:
     """
     return (
         f"MATCH (job:{CUTOVER_JOB_LABEL} {{id: $job_id}}) "
-        f"{_job_lock_clause()}"
+        f"{job_lock_clause()}"
         "WHERE job.lease_token = $lease_token AND job.status = 'pending' "
         "AND coalesce(job.commit_started, false) = false "
         "SET job.status = 'rolling_back' "
@@ -187,7 +183,7 @@ def resume_commit_fence_query() -> str:
     """
     return (
         f"MATCH (job:{CUTOVER_JOB_LABEL} {{id: $job_id}}) "
-        f"{_job_lock_clause()}"
+        f"{job_lock_clause()}"
         "WHERE job.lease_token = $lease_token "
         "AND job.lease_expires_at >= timestamp() "
         "AND job.status = 'pending' AND job.commit_started = true "
@@ -242,7 +238,7 @@ def begin_commit_query() -> str:
     """
     return (
         f"MATCH (job:{CUTOVER_JOB_LABEL} {{id: $job_id}}) "
-        f"{_job_lock_clause()}"
+        f"{job_lock_clause()}"
         "WHERE job.lease_token = $lease_token "
         "AND job.lease_expires_at >= timestamp() "
         "AND job.status = 'pending' "
@@ -269,7 +265,7 @@ def claim_commit_query() -> str:
     """
     return (
         f"MATCH (job:{CUTOVER_JOB_LABEL} {{id: $job_id}}) "
-        f"{_job_lock_clause()}"
+        f"{job_lock_clause()}"
         "WHERE job.status = 'pending' AND job.commit_started = true "
         "AND job.lease_token = $expected_lease_token "
         "AND job.lease_expires_at < timestamp() "
@@ -302,7 +298,7 @@ def commit_job_query() -> str:
     """
     return (
         f"MATCH (job:{CUTOVER_JOB_LABEL} {{id: $job_id}}) "
-        f"{_job_lock_clause()}"
+        f"{job_lock_clause()}"
         "WHERE job.lease_token = $lease_token "
         "AND job.lease_expires_at >= timestamp() "
         "AND job.status = 'pending' "
@@ -492,7 +488,7 @@ def start_cleaning_query() -> str:
     """
     return (
         f"MATCH (job:{CUTOVER_JOB_LABEL} {{id: $job_id}}) "
-        f"{_job_lock_clause()}"
+        f"{job_lock_clause()}"
         "WHERE job.lease_token = $lease_token "
         "AND job.lease_expires_at >= timestamp() "
         "AND job.status = 'committed' "
@@ -516,7 +512,7 @@ def renew_lease_query() -> str:
     """
     return (
         f"MATCH (job:{CUTOVER_JOB_LABEL} {{id: $job_id}}) "
-        f"{_job_lock_clause()}"
+        f"{job_lock_clause()}"
         "WHERE job.lease_token = $lease_token "
         "AND job.lease_expires_at >= timestamp() "
         "AND job.status IN ['pending', 'rolling_back', 'committed', 'cleaning'] "
@@ -537,7 +533,7 @@ def finish_cleaning_query() -> str:
     """
     return (
         f"MATCH (job:{CUTOVER_JOB_LABEL} {{id: $job_id}}) "
-        f"{_job_lock_clause()}"
+        f"{job_lock_clause()}"
         "WHERE job.lease_token = $lease_token "
         "AND job.lease_expires_at >= timestamp() "
         "AND job.status = 'cleaning' "
@@ -560,7 +556,7 @@ def lock_rolling_back_job_query() -> str:
     """
     return (
         f"MATCH (job:{CUTOVER_JOB_LABEL} {{id: $job_id}}) "
-        f"{_job_lock_clause()}"
+        f"{job_lock_clause()}"
         "WHERE job.lease_token = $lease_token AND job.status = 'rolling_back' "
         "RETURN job.id AS id"
     )

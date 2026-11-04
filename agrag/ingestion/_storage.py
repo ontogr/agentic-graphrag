@@ -36,6 +36,7 @@ from agrag.ingestion._lexical_backbone import (
 )
 from agrag.ingestion._stage_context import StageContext
 from agrag.ingestion._structure import StructureRecords, build_document_structure
+from agrag.ingestion.resolved_entities import _JOB_LEVEL_ERRORS
 from agrag.loaders.types import ErrorPolicy
 from agrag.observability import record_stage_failure, stage_failure_context
 
@@ -117,7 +118,7 @@ async def write_nodes(
     Every write finishes before this returns, even when one of them fails. The
     error policy then decides: ``RAISE`` re-raises the first failure in the order
     chunks, structure, documents, and any other policy records it as a failure
-    named after the write.
+    named after the write. A fence error always propagates.
 
     Args:
         graph_store: The store to write to.
@@ -135,6 +136,8 @@ async def write_nodes(
 
     Raises:
         Exception: The first failed write, when ``error_policy`` is ``RAISE``.
+        GraphStoreFenceError: The job no longer holds a live lease. Raised under
+            every error policy.
     """
     chunks, structure_outcome, documents = await asyncio.gather(
         _write_chunk_nodes(
@@ -189,6 +192,8 @@ async def write_relations(
 
     Raises:
         Exception: The write failed and ``error_policy`` is ``RAISE``.
+        GraphStoreFenceError: The job no longer holds a live lease. Raised under
+            every error policy.
     """
     with tracer.start_as_current_span(
         span_name, attributes={"agrag.record_count": len(records)}
@@ -205,7 +210,7 @@ async def write_relations(
                 failures=upsert_stage_failures(write_result),
             )
         except Exception as exc:
-            if error_policy is ErrorPolicy.RAISE:
+            if error_policy is ErrorPolicy.RAISE or isinstance(exc, _JOB_LEVEL_ERRORS):
                 raise
             return WriteOutcome(failures=[_failure(item_id, exc)])
 
@@ -361,7 +366,11 @@ def _settle(
 ) -> WriteOutcome:
     if not isinstance(outcome, BaseException):
         return outcome
-    if error_policy is ErrorPolicy.RAISE or not isinstance(outcome, Exception):
+    if (
+        error_policy is ErrorPolicy.RAISE
+        or not isinstance(outcome, Exception)
+        or isinstance(outcome, _JOB_LEVEL_ERRORS)
+    ):
         raise outcome
     return WriteOutcome(failures=[_failure(item_id, outcome)])
 

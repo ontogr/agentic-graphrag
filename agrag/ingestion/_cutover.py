@@ -5,6 +5,7 @@ every dependency explicitly rather than reaching into ``Graph``.
 """
 
 import asyncio
+import logging
 import time
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -73,6 +74,9 @@ from agrag.ingestion.resolved_entities import MatchComponent
 from agrag.ingestion.settings import CutoverJobSettings
 from agrag.ingestion.vector_sync import VectorSync
 from agrag.observability import get_tracer
+
+
+logger = logging.getLogger(__name__)
 
 
 class CutoverJobLeaseError(Exception):
@@ -228,31 +232,48 @@ async def _renew_periodically(
 ) -> None:
     """Extend the job's lease every third of the TTL until finalization.
 
+    A renewal that raises is tried again every ``min(1 s, TTL / 10)`` until the
+    last lease it set expires. A renewal that the fence refuses is not retried.
+
     Raises:
-        CutoverJobLeaseError: The job no longer holds its lease.
+        CutoverJobLeaseError: The job no longer holds its lease, or every
+            renewal failed until the lease expired.
     """
+    lease_expires_at = datetime.now(UTC) + timedelta(seconds=ttl_seconds)
+    retry_delay = min(1.0, ttl_seconds / 10)
     try:
+        delay = ttl_seconds / 3
         while True:
             try:
-                await asyncio.wait_for(stop_event.wait(), timeout=ttl_seconds / 3)
+                await asyncio.wait_for(stop_event.wait(), timeout=delay)
             except TimeoutError:
                 pass
             else:
                 return
-            renewed = await graph_store.execute_write(
-                renew_lease_query(),
-                {
-                    "job_id": str(job_id),
-                    "lease_token": str(token),
-                    "lease_expires_at": lease_expiry_millis(
-                        datetime.now(UTC) + timedelta(seconds=ttl_seconds)
-                    ),
-                },
-            )
+            next_expiry = datetime.now(UTC) + timedelta(seconds=ttl_seconds)
+            try:
+                renewed = await graph_store.execute_write(
+                    renew_lease_query(),
+                    {
+                        "job_id": str(job_id),
+                        "lease_token": str(token),
+                        "lease_expires_at": lease_expiry_millis(next_expiry),
+                    },
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Lease renewal for job %s failed: %r", job_id, exc)
+                if datetime.now(UTC) >= lease_expires_at:
+                    raise CutoverJobLeaseError(
+                        f"Job {job_id} could not renew its lease before it expired."
+                    ) from exc
+                delay = retry_delay
+                continue
             if not renewed:
                 raise CutoverJobLeaseError(
                     f"Job {job_id} lost its lease during renewal."
                 )
+            lease_expires_at = next_expiry
+            delay = ttl_seconds / 3
     finally:
         stopped_event.set()
 

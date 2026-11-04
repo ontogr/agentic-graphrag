@@ -23,6 +23,7 @@ from agrag.common.data_models.vector_record import (
     VectorTarget,
 )
 from agrag.common.graph_rows import node_properties
+from agrag.cypher._job_fence import job_live_query
 from agrag.cypher.community_read import hydrate_communities_by_id_query
 from agrag.cypher.entities import load_chunks_by_id_query
 from agrag.cypher.resolution_read import load_resolved_entities_for_sync_query
@@ -36,6 +37,7 @@ from agrag.cypher.vector_targets import (
 from agrag.embedding.base import Embedder
 from agrag.graphdb.base import GraphStore
 from agrag.graphdb.entities import load_entities
+from agrag.graphdb.errors import GraphStoreFenceError
 from agrag.observability import get_tracer, record_stage_failure
 from agrag.retrieval.chunking import parse_chunk_node
 from agrag.vectordb.base import VectorStore
@@ -111,6 +113,10 @@ class VectorSync:
         Rows are rechecked against their graph ownership and embedding text
         before embedding. Committed rows reached by a job are recorded for
         post-commit synchronization instead of being written early.
+
+        Raises:
+            GraphStoreFenceError: ``job_id`` is set and the job is no longer
+                pending with a live lease.
         """
         if job_id is not None and deferred is None:
             raise ValueError("deferred is required when job_id is set")
@@ -147,6 +153,15 @@ class VectorSync:
             if not eligible:
                 continue
             vectors = await self.embedder.embed([item[2] for item in eligible])
+            # A vector write cannot carry the graph fence, so the job is checked
+            # just before it. A claim that lands between this read and the write
+            # leaves an orphan vector, which repair(prune=True) removes.
+            if job_id_value is not None and not await self.graph_store.execute_read(
+                job_live_query(), {"pending_job_id": job_id_value}
+            ):
+                raise GraphStoreFenceError(
+                    f"Cutover Job {job_id_value} no longer holds a live pending lease"
+                )
             vector_records = [
                 VectorRecord(
                     id=item_id,

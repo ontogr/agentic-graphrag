@@ -16,6 +16,7 @@ from agrag.cypher.resolution_write import set_resolved_entity_sync_status_query
 from agrag.embedding.base import Embedder
 from agrag.graphdb.base import GraphStore
 from agrag.ingestion._deferred import write_or_defer
+from agrag.ingestion.resolved_entities import _JOB_LEVEL_ERRORS
 from agrag.ingestion.vector_sync import VectorSync
 from agrag.loaders.types import ErrorPolicy
 from agrag.observability import record_stage_failure
@@ -108,6 +109,8 @@ async def embed_resolved_entities(
 
     Raises:
         ValueError: ``pending_job_id`` is set and ``deferred`` is None.
+        GraphStoreFenceError: The job no longer holds a live lease. Raised under
+            every error policy.
     """
     if pending_job_id is not None and deferred is None:
         raise ValueError("deferred is required when pending_job_id is set")
@@ -155,6 +158,7 @@ async def embed_resolved_entities(
             ),
             records,
             deferred=deferred,
+            pending_job_id=job_id,
         )
         applied_ids = _applied_ids(rows)
         synced_entities = [entity for entity in entities if entity.id in applied_ids]
@@ -182,7 +186,7 @@ async def embed_resolved_entities(
                     status="failed",
                     error=str(exc),
                 )
-            if error_policy is ErrorPolicy.RAISE:
+            if error_policy is ErrorPolicy.RAISE or isinstance(exc, _JOB_LEVEL_ERRORS):
                 raise
             trace_id, span_id = record_stage_failure(exc)
             return [
@@ -203,7 +207,8 @@ async def embed_resolved_entities(
                 {
                     "records": [
                         _embedding_record(entity, [], job_id) for entity in entities
-                    ]
+                    ],
+                    "pending_job_id": job_id,
                 },
             )
             cleared_ids = _applied_ids(cleared_rows)
@@ -216,7 +221,7 @@ async def embed_resolved_entities(
                     status="failed",
                     error=str(exc),
                 )
-        if error_policy is ErrorPolicy.RAISE:
+        if error_policy is ErrorPolicy.RAISE or isinstance(exc, _JOB_LEVEL_ERRORS):
             raise
         trace_id, span_id = record_stage_failure(exc)
         return [

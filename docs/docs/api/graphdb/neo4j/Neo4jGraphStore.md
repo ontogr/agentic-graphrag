@@ -171,6 +171,8 @@ Run a write transaction and return its rows.
 - <code>[GraphStoreConstraintViolationError](../errors/GraphStoreConstraintViolationError.md)</code> – The write violated a uniqueness
   constraint, translated from the driver's own exception so
   callers do not need a hard dependency on it.
+- <code>GraphStoreFenceError</code> – `parameters` name a Cutover Job in
+  `pending_job_id` that is no longer pending with a live lease.
 
 ## `fulltext_copy_set` \{#agrag-graphdb-neo4j-Neo4jGraphStore-fulltext_copy_set}
 

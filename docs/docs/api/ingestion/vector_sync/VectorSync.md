@@ -105,3 +105,8 @@ Embed and upsert eligible rows, deferring committed rows in a job.
 Rows are rechecked against their graph ownership and embedding text
 before embedding. Committed rows reached by a job are recorded for
 post-commit synchronization instead of being written early.
+
+**Raises:**
+
+- <code>[GraphStoreFenceError](../../graphdb/errors/GraphStoreFenceError.md)</code> – `job_id` is set and the job is no longer
+  pending with a live lease.

@@ -40,6 +40,7 @@ from agrag.cypher.resolution_write import (
 )
 from agrag.graphdb.base import GraphStore, GraphStoreTransaction
 from agrag.graphdb.entities import load_entities
+from agrag.graphdb.errors import GraphStoreFenceError
 from agrag.graphdb.serialize import parse_entity_node
 from agrag.ingestion._deferred import run_staged_transaction
 from agrag.ingestion.merge import compute_merge
@@ -95,6 +96,24 @@ async def fetch_active_component_members(
         for seed_id, members in reached.items()
         for member_id in sorted(members)
     ]
+
+
+class ResolvedEntityWriteError(Exception):
+    """A job wrote its match edges but not the resolved entity built from them.
+
+    The edges carry the job's tag. Committing the job would publish matches
+    whose resolved entity is missing, so the job must fail as a whole under
+    every error policy.
+    """
+
+
+# A job that hits one of these can no longer commit consistently, so a
+# pending-phase handler re-raises it under every error policy instead of
+# recording a stage failure and letting the job commit.
+_JOB_LEVEL_ERRORS: tuple[type[Exception], ...] = (
+    GraphStoreFenceError,
+    ResolvedEntityWriteError,
+)
 
 
 class MatchDecision(BaseModel):
@@ -284,6 +303,11 @@ async def write_matches_and_rebuild(
     Callers fetch the bounded affected component before invoking this function.
     The resolved node is always recomputed from that current membership.
 
+    Outside a job, the matches and the resolved entity are written in one
+    transaction. For a job's writes they are written in two transactions, and
+    the summary of the resolved entity runs between them, so a slow summary
+    does not hold the job's lock.
+
     Args:
         decisions: The confirmed matches to persist.
         graph_store: Where matches and resolved entities are written.
@@ -301,6 +325,10 @@ async def write_matches_and_rebuild(
         ValueError: No decisions are supplied, a decision references a
             member outside the supplied component, or ``pending_job_id`` is
             set and ``deferred`` is None.
+        GraphStoreFenceError: The job no longer holds a live lease. Raised under
+            every error policy.
+        ResolvedEntityWriteError: A job's matches were written but its
+            resolved entity was not. The caller must fail the job.
     """
     if not decisions:
         raise ValueError("At least one match decision is required")
@@ -316,9 +344,11 @@ async def write_matches_and_rebuild(
             "Every match decision must reference a supplied component member"
         )
 
-    async def write(
+    decided_at = max(decision.decided_at for decision in decisions)
+
+    async def write_matches(
         transaction: GraphStoreTransaction, staged: DeferredWrites | None
-    ) -> RebuildResult:
+    ) -> list[Entity]:
         component_members = members
         for decision in decisions:
             first_id, second_id = sorted(
@@ -363,17 +393,60 @@ async def write_matches_and_rebuild(
                 component_members = sorted(
                     persisted_members.values(), key=lambda member: str(member.id)
                 )
-        return await _replace_resolved_entity(
-            transaction,
-            component_members,
-            schema=schema,
-            pending_job_id=pending_job_id,
-            decided_at=max(decision.decided_at for decision in decisions),
-            deferred=staged,
-            tracer=tracer,
-        )
+        return component_members
 
-    result = await run_staged_transaction(graph_store, write, deferred=deferred)
+    if pending_job_id is None:
+
+        async def write(
+            transaction: GraphStoreTransaction, staged: DeferredWrites | None
+        ) -> RebuildResult:
+            component_members = await write_matches(transaction, staged)
+            resolved = await compute_resolved_entity(
+                component_members, schema, tracer=tracer
+            )
+            return await _write_resolved_entity(
+                transaction,
+                resolved,
+                component_members,
+                pending_job_id=None,
+                decided_at=decided_at,
+                deferred=staged,
+            )
+
+        result = await run_staged_transaction(graph_store, write, deferred=deferred)
+    else:
+        # A job's fenced writes hold the job's lock until their transaction
+        # ends, and lease renewal waits for that lock. The summary can call an
+        # LLM, so it runs between two transactions instead of inside one.
+        component_members = await run_staged_transaction(
+            graph_store, write_matches, deferred=deferred
+        )
+        try:
+            resolved = await compute_resolved_entity(
+                component_members, schema, tracer=tracer
+            )
+
+            async def write_resolved(
+                transaction: GraphStoreTransaction, staged: DeferredWrites | None
+            ) -> RebuildResult:
+                return await _write_resolved_entity(
+                    transaction,
+                    resolved,
+                    component_members,
+                    pending_job_id=pending_job_id,
+                    decided_at=decided_at,
+                    deferred=staged,
+                )
+
+            result = await run_staged_transaction(
+                graph_store, write_resolved, deferred=deferred
+            )
+        except GraphStoreFenceError:
+            raise
+        except Exception as exc:
+            raise ResolvedEntityWriteError(
+                f"Job {pending_job_id} wrote matches but not their resolved entity"
+            ) from exc
     if vector_sync is not None:
         await vector_sync.delete_absent(
             VectorKind.RESOLVED_ENTITY, result.removed_entity_ids
@@ -443,13 +516,13 @@ async def rebuild_resolved_entities(
                 for row in decided_at_rows
                 if row.get("decided_at") is not None
             ]
-            result = await _replace_resolved_entity(
+            resolved = await compute_resolved_entity(members, schema, tracer=tracer)
+            result = await _write_resolved_entity(
                 transaction,
+                resolved,
                 members,
-                schema=schema,
                 pending_job_id=None,
                 decided_at=max(decided_at_values, default=None),
-                tracer=tracer,
             )
             return result, members
 
@@ -464,34 +537,31 @@ async def rebuild_resolved_entities(
     return results
 
 
-async def _replace_resolved_entity(
+async def _write_resolved_entity(
     transaction: GraphStoreTransaction,
+    resolved: ResolvedEntity,
     members: list[Entity],
     *,
-    schema: GraphSchema,
     pending_job_id: str | None,
     decided_at: datetime | None,
     deferred: DeferredWrites | None = None,
-    tracer: Tracer | None,
 ) -> RebuildResult:
     """Replace the resolved entity of one component inside an open transaction.
 
     Args:
         transaction: The transaction the writes join.
+        resolved: The resolved entity computed from ``members``.
         members: The component's current members.
-        schema: The schema the members belong to.
         pending_job_id: The in-flight Cutover Job's id, or None outside a job.
         decided_at: When the newest match was decided, stored on each
             membership edge. None stores no timestamp.
         deferred: Receives the writes over committed rows. Required when
             ``pending_job_id`` is set.
-        tracer: Passed to description summarization.
 
     Returns:
         The new resolved entity and the resolved ids it replaced.
     """
     job_uuid = UUID(pending_job_id) if pending_job_id is not None else None
-    resolved = await compute_resolved_entity(members, schema, tracer=tracer)
     removed_rows = await transaction.execute_write(
         replace_component_resolved_entities_query(),
         {

@@ -69,7 +69,7 @@ from agrag.ingestion.resolve.zone_classifier import (
     DEFAULT_LLM_CONCURRENCY,
     MAX_LLM_PAIRS,
 )
-from agrag.ingestion.resolved_entities import MatchComponent
+from agrag.ingestion.resolved_entities import _JOB_LEVEL_ERRORS, MatchComponent
 from agrag.ingestion.settings import ExtractionSettings, effective_mode
 from agrag.ingestion.stats import (
     ExtractionStats,
@@ -962,7 +962,7 @@ async def _embed_and_upsert_chunks(
         graph_store: Where the embedding, and on failure the cleared
             embedding property, are written.
         error_policy: RAISE propagates the failure after clearing; any
-            other policy returns it instead.
+            other policy returns it instead. A fence error always propagates.
         pending_job_id: The in-flight job's id, written onto each chunk's
             embedding until that job commits. None writes untagged
             embeddings, for callers outside a job.
@@ -978,6 +978,8 @@ async def _embed_and_upsert_chunks(
     Raises:
         Exception: Whatever embed() or the write raised, when
             error_policy is RAISE.
+        GraphStoreFenceError: The job no longer holds a live lease. Raised under
+            every error policy.
     """
     job = str(pending_job_id) if pending_job_id is not None else None
     try:
@@ -1018,6 +1020,7 @@ async def _embed_and_upsert_chunks(
             ),
             records,
             deferred=deferred,
+            pending_job_id=job,
         )
     except Exception as exc:  # noqa: BLE001
         with contextlib.suppress(Exception):
@@ -1031,10 +1034,11 @@ async def _embed_and_upsert_chunks(
                             "expected_text": ch.text,
                         }
                         for ch in chunks
-                    ]
+                    ],
+                    "pending_job_id": job,
                 },
             )
-        if error_policy is ErrorPolicy.RAISE:
+        if error_policy is ErrorPolicy.RAISE or isinstance(exc, _JOB_LEVEL_ERRORS):
             raise
         trace_id, span_id = record_stage_failure(exc)
         return [
@@ -1091,7 +1095,7 @@ async def _embed_and_upsert_survivors(
         graph_store: Where the embedding, and on failure the cleared
             embedding property, are written.
         error_policy: RAISE propagates the failure after clearing; any
-            other policy returns it instead.
+            other policy returns it instead. A fence error always propagates.
         pending_job_id: The in-flight job's id, written onto each entity's
             embedding until that job commits. None writes untagged
             embeddings, for callers outside a job.
@@ -1105,6 +1109,8 @@ async def _embed_and_upsert_survivors(
     Raises:
         Exception: Whatever embed() or the write raised, when error_policy
             is RAISE.
+        GraphStoreFenceError: The job no longer holds a live lease. Raised under
+            every error policy.
     """
     job = str(pending_job_id) if pending_job_id is not None else None
     try:
@@ -1139,6 +1145,7 @@ async def _embed_and_upsert_survivors(
             ),
             records,
             deferred=deferred,
+            pending_job_id=job,
         )
     except Exception as exc:  # noqa: BLE001
         # Best-effort: a failure here must not mask error_policy.
@@ -1149,10 +1156,11 @@ async def _embed_and_upsert_survivors(
                     "records": [
                         {**_embedding_guard_fields(ent), "pending_job_id": job}
                         for ent in survivors.values()
-                    ]
+                    ],
+                    "pending_job_id": job,
                 },
             )
-        if error_policy is ErrorPolicy.RAISE:
+        if error_policy is ErrorPolicy.RAISE or isinstance(exc, _JOB_LEVEL_ERRORS):
             raise
         trace_id, span_id = record_stage_failure(exc)
         return [

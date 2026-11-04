@@ -546,7 +546,7 @@ class TestRunCutoverJobLeaseRenewal:
         assert store.jobs == {}
 
     async def test_renewal_error_cancels_pending_write_and_rolls_back(self) -> None:
-        """A renewal error propagates after stopping and rolling back pending work."""
+        """Renewal errors that last until the lease expires stop and roll back."""
         store = _FakeCutoverStore()
         store.fail_on.add(renew_lease_query())
         pending_cancelled = False
@@ -559,7 +559,7 @@ class TestRunCutoverJobLeaseRenewal:
             finally:
                 pending_cancelled = True
 
-        with pytest.raises(RuntimeError, match="injected failure"):
+        with pytest.raises(CutoverJobLeaseError, match="before it expired"):
             await asyncio.wait_for(
                 run_cutover_job(
                     **_write_job(
@@ -568,7 +568,7 @@ class TestRunCutoverJobLeaseRenewal:
                         settings=CutoverJobSettings(lease_ttl_seconds=1),
                     )
                 ),
-                timeout=2,
+                timeout=3,
             )
 
         assert pending_cancelled

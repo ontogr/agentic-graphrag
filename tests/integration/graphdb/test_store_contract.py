@@ -27,6 +27,7 @@ from tests.integration._backend import (
     build_test_store,
     selected_backend,
 )
+from tests.integration._cutover_job import create_live_job
 
 
 pytestmark = pytest.mark.asyncio(loop_scope="module")
@@ -61,6 +62,11 @@ async def remove_test_nodes(store: GraphStore) -> AsyncIterator[None]:
     while _created_labels:
         label = _created_labels.pop()
         await store.execute_write(f"MATCH (n:{label}) DETACH DELETE n")
+        await store.execute_write(
+            "MATCH (job:CutoverJob) WHERE job.document_key STARTS WITH $label "
+            "DELETE job",
+            {"label": label},
+        )
 
 
 def _node(label: str, **properties: object) -> NodeRecord:
@@ -166,14 +172,16 @@ class TestStoreContract:
         """A job write to a row the job did not create is held, not applied."""
         label = _label("Owned")
         node = _node(label, name="original")
+        owner = await create_live_job(store, f"{label}-owner")
+        job = await create_live_job(store, f"{label}-job")
         await store.upsert_nodes(
-            label, [node], pending_job_id=uuid4(), deferred=DeferredWrites()
+            label, [node], pending_job_id=owner, deferred=DeferredWrites()
         )
         deferred = DeferredWrites()
 
         changed = node.model_copy(update={"properties": {"name": "changed"}})
         await store.upsert_nodes(
-            label, [changed], pending_job_id=uuid4(), deferred=deferred
+            label, [changed], pending_job_id=job, deferred=deferred
         )
         rows = await store.execute_read(f"MATCH (n:{label}) RETURN n.name AS name")
 

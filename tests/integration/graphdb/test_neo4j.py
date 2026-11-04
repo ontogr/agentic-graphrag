@@ -39,6 +39,7 @@ from agrag.graphdb.errors import GraphStoreConstraintViolationError
 from agrag.graphdb.neo4j import Neo4jGraphStore
 from agrag.graphdb.settings import Neo4jSettings
 from tests.integration._backend import build_test_store
+from tests.integration._cutover_job import create_live_job
 from tests.integration._schema_cleanup import drop_schema_for
 from tests.integration._vector_hit import assert_is_usable_vector_hit
 
@@ -555,7 +556,7 @@ class TestNeo4jGraphStoreIntegration:
         await store.connect()
         label = validate_identifier(f"Chunk_{uuid4().hex[:8]}")
         try:
-            job_id = uuid4()
+            job_id = await create_live_job(store, label)
             deferred = DeferredWrites()
             committed_id, new_id = uuid4(), uuid4()
             await store.upsert_nodes(
@@ -620,6 +621,10 @@ class TestNeo4jGraphStoreIntegration:
             assert edges == []
         finally:
             await store.execute_write(f"MATCH (n:{label}) DETACH DELETE n")
+            await store.execute_write(
+                "MATCH (job:CutoverJob {document_key: $key}) DELETE job",
+                {"key": label},
+            )
             await store.close()
 
     async def test_label_addition_does_not_duplicate_node(self) -> None:

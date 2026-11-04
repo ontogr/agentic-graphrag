@@ -44,6 +44,7 @@ from agrag.ingestion.resolved_entities import (
     write_matches_and_rebuild,
 )
 from tests.integration._backend import build_test_store
+from tests.integration._cutover_job import create_live_job
 
 
 neo4j_missing = importlib.util.find_spec("neo4j") is None
@@ -108,6 +109,10 @@ async def _drop(store: GraphStore, tag: str, label: str) -> None:
     )
     await store.execute_write("MATCH (n {probe: $tag}) DETACH DELETE n", {"tag": tag})
     await store.execute_write(
+        "MATCH (job:CutoverJob) WHERE job.document_key ENDS WITH $tag DELETE job",
+        {"tag": tag},
+    )
+    await store.execute_write(
         f"MATCH (a:{MERGE_ALIAS_LABEL}) WHERE a.merge_key STARTS WITH $prefix DELETE a",
         {"prefix": f"{label}:"},
     )
@@ -142,7 +147,8 @@ class TestJobsNeverChangeCommittedRows:
         self, store: GraphStore
     ) -> None:
         """A node upsert from a job applies its property at commit, not before."""
-        tag, job, node_id = uuid4().hex, uuid4(), uuid4()
+        tag, node_id = uuid4().hex, uuid4()
+        job = await create_live_job(store, f"job-{tag}")
         label = _label(tag)
         deferred = DeferredWrites()
         try:
@@ -183,7 +189,8 @@ class TestJobsNeverChangeCommittedRows:
         self, store: GraphStore
     ) -> None:
         """source_chunk_ids and merge_count of a merged entity move at commit."""
-        tag, job = uuid4().hex, uuid4()
+        tag = uuid4().hex
+        job = await create_live_job(store, f"job-{tag}")
         label = _label(tag)
         schema = _schema(label)
         first_chunk, second_chunk = uuid4(), uuid4()
@@ -231,7 +238,8 @@ class TestJobsNeverChangeCommittedRows:
         self, store: GraphStore
     ) -> None:
         """Evidence a job adds to a committed relationship lands at commit."""
-        tag, job, rel_id = uuid4().hex, uuid4(), uuid4()
+        tag, rel_id = uuid4().hex, uuid4()
+        job = await create_live_job(store, f"job-{tag}")
         label = _label(tag)
         rel_type = validate_identifier(f"IsoKnows{tag[:12]}")
         first_chunk, second_chunk = uuid4(), uuid4()
@@ -285,7 +293,8 @@ class TestJobsNeverChangeCommittedRows:
         self, store: GraphStore
     ) -> None:
         """A job that re-confirms a deactivated match reactivates it at commit."""
-        tag, job = uuid4().hex, uuid4()
+        tag = uuid4().hex
+        job = await create_live_job(store, f"job-{tag}")
         label = _label(tag)
         schema = _schema(label)
         first, second = (
@@ -337,7 +346,8 @@ class TestJobsNeverChangeCommittedRows:
         self, store: GraphStore
     ) -> None:
         """A vector computed from a job's new description lands after that text."""
-        tag, job = uuid4().hex, uuid4()
+        tag = uuid4().hex
+        job = await create_live_job(store, f"job-{tag}")
         label = _label(tag)
         schema = _schema(label)
         chunk = uuid4()
@@ -381,6 +391,7 @@ class TestJobsNeverChangeCommittedRows:
                     }
                 ],
                 deferred=deferred,
+                pending_job_id=str(job),
             )
 
             before = await _props(store, entity.id)
@@ -399,7 +410,9 @@ class TestJobsNeverChangeCommittedRows:
         self, store: GraphStore
     ) -> None:
         """A deferred write whose row another job now owns cannot be replayed."""
-        tag, owner, job = uuid4().hex, uuid4(), uuid4()
+        tag = uuid4().hex
+        owner = await create_live_job(store, f"owner-{tag}")
+        job = await create_live_job(store, f"job-{tag}")
         label = _label(tag)
         node_id = uuid4()
         deferred = DeferredWrites()
@@ -443,7 +456,8 @@ class TestJobsNeverChangeCommittedRows:
         self, store: GraphStore
     ) -> None:
         """A maintenance write reports a conflict instead of changing a pending row."""
-        tag, owner = uuid4().hex, uuid4()
+        tag = uuid4().hex
+        owner = await create_live_job(store, f"owner-{tag}")
         label = _label(tag)
         node_id = uuid4()
         try:
