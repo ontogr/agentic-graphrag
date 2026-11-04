@@ -85,6 +85,28 @@ class _FakeRenewBeforePendingClaimStore:
         return await self.store.execute_write(query, parameters)
 
 
+class _FailFirstRenewalStore:
+    """Raises a connection error on the first lease renewal, then delegates."""
+
+    def __init__(self, store: Any) -> None:
+        """Wrap a store."""
+        self.store = store
+        self.renewal_failed = False
+
+    def __getattr__(self, name: str) -> Any:
+        """Delegate everything this wrapper does not override."""
+        return getattr(self.store, name)
+
+    async def execute_write(
+        self, query: str, parameters: dict[str, Any] | None = None
+    ) -> list[dict[str, Any]]:
+        """Fail the first renewal, as a dropped connection would."""
+        if query == renew_lease_query() and not self.renewal_failed:
+            self.renewal_failed = True
+            raise ConnectionError("injected renewal failure")
+        return await self.store.execute_write(query, parameters)
+
+
 @pytest.mark.skipif(neo4j_missing, reason="neo4j extra not installed")
 class TestCutoverJobConcurrency:
     """Concurrent lease acquisition against real Neo4j."""
@@ -473,6 +495,52 @@ class TestCutoverJobLeaseLifetime:
                 "MATCH (job:CutoverJob {document_key: $key}) RETURN job.status AS s",
                 {"key": key},
             )
+            assert rows == [{"s": "done"}]
+        finally:
+            await store.execute_write(
+                "MATCH (job:CutoverJob {document_key: $key}) DETACH DELETE job",
+                {"key": key},
+            )
+            await store.close()
+
+    async def test_job_survives_a_failed_lease_renewal(self) -> None:
+        """A renewal error is retried, and a job longer than the TTL completes."""
+        store = build_test_store()
+        await store.connect()
+        flaky = _FailFirstRenewalStore(store)
+        key = f"cutover-renewal-retry-{uuid4().hex}"
+
+        async def slow_write(_job_id: Any) -> None:
+            await asyncio.sleep(1.5)
+
+        async def cleanup(
+            _: list[object],
+            __: list[object],
+            ___: list[object],
+            _vector_work: VectorWork,
+        ) -> None:
+            return None
+
+        try:
+            await store.ensure_unique_constraint(
+                label=CUTOVER_JOB_LABEL, properties=["document_key"]
+            )
+            await run_cutover_job(
+                verb="add",
+                document_key=key,
+                affected_entity_ids=[],
+                graph_store=flaky,
+                settings=CutoverJobSettings(lease_ttl_seconds=1),
+                pending_write=slow_write,
+                cleanup=cleanup,
+                deferred=DeferredWrites(),
+            )
+
+            rows = await store.execute_read(
+                "MATCH (job:CutoverJob {document_key: $key}) RETURN job.status AS s",
+                {"key": key},
+            )
+            assert flaky.renewal_failed
             assert rows == [{"s": "done"}]
         finally:
             await store.execute_write(

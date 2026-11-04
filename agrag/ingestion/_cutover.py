@@ -228,31 +228,47 @@ async def _renew_periodically(
 ) -> None:
     """Extend the job's lease every third of the TTL until finalization.
 
+    A renewal that raises is tried again every ``min(1 s, TTL / 10)`` until the
+    last lease it set expires. A renewal that the fence refuses is not retried.
+
     Raises:
-        CutoverJobLeaseError: The job no longer holds its lease.
+        CutoverJobLeaseError: The job no longer holds its lease, or every
+            renewal failed until the lease expired.
     """
+    lease_expires_at = datetime.now(UTC) + timedelta(seconds=ttl_seconds)
+    retry_delay = min(1.0, ttl_seconds / 10)
     try:
+        delay = ttl_seconds / 3
         while True:
             try:
-                await asyncio.wait_for(stop_event.wait(), timeout=ttl_seconds / 3)
+                await asyncio.wait_for(stop_event.wait(), timeout=delay)
             except TimeoutError:
                 pass
             else:
                 return
-            renewed = await graph_store.execute_write(
-                renew_lease_query(),
-                {
-                    "job_id": str(job_id),
-                    "lease_token": str(token),
-                    "lease_expires_at": lease_expiry_millis(
-                        datetime.now(UTC) + timedelta(seconds=ttl_seconds)
-                    ),
-                },
-            )
+            next_expiry = datetime.now(UTC) + timedelta(seconds=ttl_seconds)
+            try:
+                renewed = await graph_store.execute_write(
+                    renew_lease_query(),
+                    {
+                        "job_id": str(job_id),
+                        "lease_token": str(token),
+                        "lease_expires_at": lease_expiry_millis(next_expiry),
+                    },
+                )
+            except Exception as exc:  # noqa: BLE001
+                if datetime.now(UTC) >= lease_expires_at:
+                    raise CutoverJobLeaseError(
+                        f"Job {job_id} could not renew its lease before it expired."
+                    ) from exc
+                delay = retry_delay
+                continue
             if not renewed:
                 raise CutoverJobLeaseError(
                     f"Job {job_id} lost its lease during renewal."
                 )
+            lease_expires_at = next_expiry
+            delay = ttl_seconds / 3
     finally:
         stopped_event.set()
 
