@@ -160,8 +160,9 @@ execute_write(query:str, parameters:Mapping[str, Any] | None = None) -> list[dic
 Run a write transaction.
 
 A write whose parameters carry a non-null `pending_job_id` is a
-Cutover Job's pending write. It runs only while that job is pending
-with a live lease.
+Cutover Job's pending write. A store must reject such a write when
+that job is no longer pending with a live lease. The built-in stores
+do. This base class does not enforce it.
 
 **Parameters:**
 
