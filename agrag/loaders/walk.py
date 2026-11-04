@@ -5,13 +5,20 @@ Documents. Only ``normalize_inline_text`` is for use outside the loaders package
 ``Graph.add``. Nothing else here is a supported interface.
 """
 
+import asyncio
+import contextvars
 import hashlib
+import os
 import unicodedata
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator, AsyncIterator, Callable, Generator, Iterator
+from concurrent.futures import Future, ThreadPoolExecutor
+from contextlib import asynccontextmanager
 from dataclasses import replace
+from functools import partial
 from pathlib import Path
-from typing import BinaryIO
+from typing import Any, BinaryIO, TypeVar
 
+from opentelemetry import context as otel_context
 from opentelemetry.trace import Tracer
 
 from agrag.common.data_models.document import Document, DocumentFamily, SourceFormat
@@ -47,6 +54,102 @@ def _source_ref_for(path: Path) -> SourceRef:
         byte_size=stat.st_size,
         modified_at=None,
     )
+
+
+_T = TypeVar("_T")
+
+
+class _LoaderWorker:
+    """Own the one thread that runs loader calls in a process.
+
+    One thread for all walks keeps document conversions from overlapping. Before
+    loaders ran off the event loop, conversions never overlapped either, so this
+    keeps that guarantee. After a fork, the child creates its own thread, because a
+    thread that exists only in the parent cannot run work in the child.
+    """
+
+    def __init__(self) -> None:
+        """Start without a worker. The first call creates one."""
+        self._executor: ThreadPoolExecutor | None = None
+        self._process_id: int | None = None
+
+    def executor(self) -> ThreadPoolExecutor:
+        """Return the executor for the current process, creating it if needed.
+
+        Returns:
+            An executor with a single worker thread.
+        """
+        process_id = os.getpid()
+        if self._executor is None or self._process_id != process_id:
+            self._executor = ThreadPoolExecutor(
+                max_workers=1, thread_name_prefix="agrag-loader"
+            )
+            self._process_id = process_id
+        return self._executor
+
+
+_LOADER_WORKER = _LoaderWorker()
+
+
+def _call_in_trace_context(
+    trace_context: otel_context.Context, call: Callable[..., Any], *args: object
+) -> Any:
+    """Call ``call`` with ``trace_context`` attached as the current context.
+
+    The attach and the detach run in the same context object, so the detach can
+    reset the token even when the call left context variables set.
+
+    Args:
+        trace_context: The OpenTelemetry context to attach for the call.
+        call: The callable to run.
+        *args: Positional arguments for ``call``.
+
+    Returns:
+        The value ``call`` returns.
+    """
+    token = otel_context.attach(trace_context)
+    try:
+        return call(*args)
+    finally:
+        otel_context.detach(token)
+
+
+async def _run_loader_call(
+    loader_context: contextvars.Context, call: Callable[..., _T], *args: object
+) -> _T:
+    """Run one loader call on the shared worker and return its result.
+
+    Every call for one source runs in ``loader_context``, so context variables a
+    loader sets before a yield are still set when it resumes. The caller's
+    OpenTelemetry context is attached for the call, so spans the loader creates
+    have the current span as their parent.
+
+    If the caller is cancelled while the call is still queued, the call is
+    cancelled and never runs. A call that is already running cannot be stopped, so
+    the caller waits for it to finish. The source stream is closed only after the
+    loader stops reading it.
+
+    Args:
+        loader_context: The context shared by every call for one source.
+        call: The loader callable to run.
+        *args: Positional arguments for ``call``.
+
+    Returns:
+        The value ``call`` returns.
+    """
+    trace_context = otel_context.get_current()
+    future: Future[Any] = _LOADER_WORKER.executor().submit(
+        loader_context.run, _call_in_trace_context, trace_context, call, *args
+    )
+    awaited = asyncio.wrap_future(future)
+    try:
+        return await asyncio.shield(awaited)
+    except asyncio.CancelledError:
+        if not future.cancel():
+            await asyncio.wait([awaited])
+            if not awaited.cancelled():
+                awaited.exception()
+        raise
 
 
 class _CorpusWalk:
@@ -133,15 +236,10 @@ class _CorpusWalk:
             failed_trace_id: str | None = None
             failed_span_id: str | None = None
             try:
-                with self._open(path) as stream:
-                    # Calling the loader does no real work before the first
-                    # item is requested: every current loader only yields
-                    # documents once iterated. The iter call below is
-                    # defensive for a loader that returns something already
-                    # iterator-shaped.
-                    loader_iter = iter(
-                        loader.load(source, stream, self._opts, start_at=resume_index)
-                    )
+                loader_context = contextvars.copy_context()
+                async with self._open_loader_iter(
+                    path, loader, source, resume_index, loader_context
+                ) as loader_iter:
                     tracer = get_tracer(self._tracer)
                     while True:
                         with tracer.start_as_current_span(
@@ -159,7 +257,9 @@ class _CorpusWalk:
                             # narrows cleanly -- Iterator[Document] never
                             # yields None itself.
                             try:
-                                doc = next(loader_iter, None)
+                                doc = await _run_loader_call(
+                                    loader_context, next, loader_iter, None
+                                )
                             except IngestionError:
                                 failed_trace_id, failed_span_id = (
                                     stage_failure_context()
@@ -227,6 +327,47 @@ class _CorpusWalk:
                     batch = []
 
         yield batch, cursor, stats
+
+    @asynccontextmanager
+    async def _open_loader_iter(
+        self,
+        path: Path,
+        loader: Loader,
+        source: SourceRef,
+        start_at: int,
+        loader_context: contextvars.Context,
+    ) -> AsyncGenerator[Iterator[Document], None]:
+        """Open a source and yield an iterator over its documents.
+
+        The loader is created and advanced on the shared worker. On exit, a loader
+        generator that is still open is closed in the same context, before the
+        source file is closed.
+
+        Args:
+            path: The file to open.
+            loader: The loader that reads the file.
+            source: The source reference passed to the loader.
+            start_at: The record index to resume from.
+            loader_context: The context shared by every loader call for this source.
+
+        Yields:
+            The iterator of documents the loader produces.
+        """
+        with self._open(path) as stream:
+            loader_iter = iter(
+                await _run_loader_call(
+                    loader_context,
+                    partial(loader.load, start_at=start_at),
+                    source,
+                    stream,
+                    self._opts,
+                )
+            )
+            try:
+                yield loader_iter
+            finally:
+                if isinstance(loader_iter, Generator):
+                    await _run_loader_call(loader_context, loader_iter.close)
 
     @staticmethod
     def _open(path: Path) -> BinaryIO:

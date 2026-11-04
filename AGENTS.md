@@ -85,10 +85,11 @@ thoughts/     # shared plans and research notes, do not edit unless asked
 - Do not manually edit generated BAML client files under
   `agrag/llm/baml_client/`.
 - Do not commit secrets, `.env`, API keys, tokens, or credentials.
-- Do not put patient, customer, partner, or private organization names in code,
-  docs, issues, PRs, commit messages, or tests unless they are already public
-  fixture data approved for that use.
 - Do not commit unless the user explicitly asks.
+- Keep things in one function unless composable or reusable
+- Validate unknown values once at the boundary that owns them. Pass typed values inward instead. Do not defensively revalidate values already guaranteed by a schema, constructor, or internal type.
+- Do not extract single-use helpers preemptively. Inline the logic at the call site unless the helper is reused, hides a genuinely complex boundary, or has a clear independent name that improves the caller.
+- Before adding complexity for a speculative or vanishingly unlikely race or security edge case, explain the concrete failure mode, likelihood, and complexity cost to the user and get their buy-in. Do not silently expand scope for theoretical robustness.
 
 ## Development commands
 
