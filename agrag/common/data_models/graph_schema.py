@@ -237,8 +237,8 @@ class EntityType(BaseModel):
         properties: Property names mapped to their ``PropertySpec``. Properties
             are not inherited from parents. ``label``, ``text`` and the keys
             the graph writes itself (``id``, ``name``, ``merge_key``,
-            ``merge_count``, ``source_chunk_ids``, ``created_at``,
-            ``embedding``) are rejected as names.
+            ``merge_count``, ``merge_write_id``, ``source_chunk_ids``,
+            ``created_at``, ``embedding``) are rejected as names.
     """
 
     model_config = ConfigDict(extra="forbid")
