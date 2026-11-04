@@ -37,6 +37,10 @@ A graph database backend: schema, writes, and native vector search.
 - [**vector_search_call**](#agrag-graphdb-base-GraphStore-vector_search_call) – Build the Cypher fragment that searches a vector index.
 - [**vector_value**](#agrag-graphdb-base-GraphStore-vector_value) – Wrap a Cypher expression that holds an embedding for a property write.
 
+**Attributes:**
+
+- [**rolls_back_failed_transactions**](#agrag-graphdb-base-GraphStore-rolls_back_failed_transactions) (<code>bool</code>) –
+
 ## `blocked_candidate_keys` \{#agrag-graphdb-base-GraphStore-blocked_candidate_keys}
 
 ```python
@@ -278,6 +282,12 @@ docstring for why this exists.
 **Raises:**
 
 - <code>ValueError</code> – Any type is not a safe identifier.
+
+## `rolls_back_failed_transactions` \{#agrag-graphdb-base-GraphStore-rolls_back_failed_transactions}
+
+```python
+rolls_back_failed_transactions: bool = False
+```
 
 ## `run_in_transaction` \{#agrag-graphdb-base-GraphStore-run_in_transaction}
 

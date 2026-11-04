@@ -45,6 +45,10 @@ connection, query execution, schema statements and error classification.
 - [**vector_search_call**](#agrag-graphdb-cypher_store-CypherGraphStore-vector_search_call) – Build the Cypher fragment that searches a vector index.
 - [**vector_value**](#agrag-graphdb-cypher_store-CypherGraphStore-vector_value) – Wrap a Cypher expression that holds an embedding for a property write.
 
+**Attributes:**
+
+- [**rolls_back_failed_transactions**](#agrag-graphdb-cypher_store-CypherGraphStore-rolls_back_failed_transactions) (<code>bool</code>) –
+
 **Parameters:**
 
 - **tracer** (<code>Tracer | None</code>) – Opens every span this store's methods produce.
@@ -281,6 +285,12 @@ Add types to this instance's known-relation-type set.
 **Raises:**
 
 - <code>ValueError</code> – Any type is not a safe identifier.
+
+## `rolls_back_failed_transactions` \{#agrag-graphdb-cypher_store-CypherGraphStore-rolls_back_failed_transactions}
+
+```python
+rolls_back_failed_transactions: bool = False
+```
 
 ## `run_in_transaction` \{#agrag-graphdb-cypher_store-CypherGraphStore-run_in_transaction}
 
