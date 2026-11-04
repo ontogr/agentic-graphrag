@@ -272,7 +272,7 @@ Filters apply after the native index picks nearest candidates. The adapter reque
 
 A document change commits in several statements. If the process stops after the commit-started marker, a later `Graph.open` attempts to finish that commit after its lease expires instead of rolling it back. Recovery resumes persisted deferred writes after their recorded progress, folds relations, rebuilds the resolved-entity components the change touched, and completes the document status change. A crash between a replay step and its progress record can repeat that step.
 
-On Neo4j, a commit that hits a constraint conflict or a write conflict with another job is retried under the same lease, for up to one lease TTL from the first failure. Set the TTL with `CUTOVER_JOB_LEASE_TTL_SECONDS`. After that, the error is raised. Neo4j rolls the commit back before each retry. On FalkorDB, the error is raised at once, and the job is left for recovery on the next open.
+A commit that hits a constraint conflict with another job is retried under the same lease, for up to one lease TTL from the first failure. Set the TTL with `CUTOVER_JOB_LEASE_TTL_SECONDS`. After that, the error is raised. On Neo4j, a write conflict with another job is retried the same way, because Neo4j rolls back the failed attempt. On FalkorDB, a write conflict is raised at once and the job is left for recovery on the next open.
 
 ### Retried history and decision writes
 

@@ -110,7 +110,8 @@ class GraphStore(ABC):
     """A graph database backend: schema, writes, and native vector search."""
 
     # True when a failed ``run_in_transaction`` callback rolls back every write
-    # it made. Only then is it safe to run the callback again from the start.
+    # it made. A write conflict can be retried only on such a backend, because
+    # its rows would otherwise be written again.
     rolls_back_failed_transactions: ClassVar[bool] = False
 
     @abstractmethod
