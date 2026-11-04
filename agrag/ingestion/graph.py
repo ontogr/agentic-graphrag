@@ -589,6 +589,20 @@ class Graph:
         written without the extraction stamp, so the next ``update`` extracts
         them again instead of returning a no-op.
 
+        Two calls that run at the same time can each create an entity with the
+        same name. The document that claims the name second waits until the
+        other document's write finishes, then is written again. If that write
+        committed, the document merges onto the entity it created. If it rolled
+        back, the document writes the entity itself. Each conflicting document
+        waits at most five minutes, so a batch can wait longer in total. If the
+        name is still claimed after that, the document is not written. A job whose
+        lease has expired no longer counts as pending, so the wait ends early. Its
+        tagged rows stay until ``Graph.open`` recovers the job. A document that
+        changed while it waited is not retried. Under ``RAISE`` the call
+        raises ``GraphStoreAliasConflictError``. Under ``SKIP`` and
+        ``QUARANTINE`` the call continues, and the document is reported in
+        ``AddResult.storage.failures``.
+
         Args:
             source: A file path, a directory, a glob, or a list of these.
             text: Raw text to add as one document.
@@ -600,7 +614,8 @@ class Graph:
             on_progress: A callback the call runs after each batch and once more
                 at the end with the fully-populated result. During entity
                 resolution it also receives progress snapshots with resolver
-                batch counts and elapsed time.
+                batch counts and elapsed time. A document that is retried after
+                an alias conflict reports its progress again from the start.
             return_chunks: Whether to include the produced chunks in the
                 returned AddResult. False by default to avoid holding full text
                 for a large corpus when not needed. Chunks of a document that
@@ -638,6 +653,8 @@ class Graph:
                 instead of always stopping the call.
             ValueError: The input contains multiple documents with the same
                 ``document_key``.
+            GraphStoreAliasConflictError: Under ``RAISE``, a name this call
+                created still belonged to another entity after the wait.
         """
         result = await add_documents(
             source,
@@ -713,6 +730,21 @@ class Graph:
         are pruned after the commit, so replacement mentions count as evidence.
         A source must resolve to exactly one document.
 
+        An update and another call that run at the same time can each create an
+        entity with the same name. The update waits until the other document's
+        write finishes, then is written again. If that write committed, the
+        update merges onto the entity it created. If it rolled back, the update
+        writes the entity itself. The wait lasts at most five minutes. If the name
+        is still claimed after that, the update is not written and the committed
+        version stays in place. A job whose lease has expired no longer counts as
+        pending, so the wait ends early. Its tagged rows stay until ``Graph.open``
+        recovers the job. An update does not retry if the document changed while it
+        waited.
+        Under ``RAISE`` the call raises ``GraphStoreAliasConflictError``. Under
+        ``SKIP`` and ``QUARANTINE`` it returns an ``UpdateResult`` with
+        ``new_content_hash`` set to ``None`` and the failure in
+        ``add_result.storage.failures``.
+
         Args:
             document_key: The stable key of the document to replace.
             text: Replacement text. Give exactly one of ``text``, ``source``, and
@@ -724,8 +756,10 @@ class Graph:
                 Its ``resolved_document_key`` must equal ``document_key``.
             loader: A loader override for a single-file ``source``.
             error_policy: RAISE propagates a stage failure. Any other
-                policy records it and continues. Candidate storage failures
-                always abort replacement to preserve committed evidence.
+                policy records it and continues. A same-name conflict that
+                outlasts the wait is recorded under the same rule. Candidate
+                storage failures always abort replacement to preserve committed
+                evidence.
             read_options: How loaders read the replacement, including the
                 normalization of its text. None uses ``ReadOptions()`` defaults.
             force: Extract the entities again on the same chunks, even when the
@@ -746,6 +780,8 @@ class Graph:
                 ``document`` is given, a loader override targets multiple sources, a
                 source resolves to any number of documents other than one, or the
                 ``document`` key differs from ``document_key``.
+            GraphStoreAliasConflictError: Under ``RAISE``, a name this update
+                created still belonged to another entity after the wait.
 
         Note:
             The fresh-content path shares ``ingest_chunks()`` with

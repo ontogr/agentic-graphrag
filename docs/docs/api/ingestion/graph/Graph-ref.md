@@ -96,6 +96,20 @@ If an extraction fails for a chunk, the document and its chunks are
 written without the extraction stamp, so the next `update` extracts
 them again instead of returning a no-op.
 
+Two calls that run at the same time can each create an entity with the
+same name. The document that claims the name second waits until the
+other document's write finishes, then is written again. If that write
+committed, the document merges onto the entity it created. If it rolled
+back, the document writes the entity itself. Each conflicting document
+waits at most five minutes, so a batch can wait longer in total. If the
+name is still claimed after that, the document is not written. A job whose
+lease has expired no longer counts as pending, so the wait ends early. Its
+tagged rows stay until `Graph.open` recovers the job. A document that
+changed while it waited is not retried. Under `RAISE` the call
+raises `GraphStoreAliasConflictError`. Under `SKIP` and
+`QUARANTINE` the call continues, and the document is reported in
+`AddResult.storage.failures`.
+
 **Parameters:**
 
 - **source** (<code>SourcesType | None</code>) – A file path, a directory, a glob, or a list of these.
@@ -108,7 +122,8 @@ them again instead of returning a no-op.
 - **on_progress** (<code>Callable\[\[[AddResult](../reports/add_result/AddResult.md)\], None\] | None</code>) – A callback the call runs after each batch and once more
   at the end with the fully-populated result. During entity
   resolution it also receives progress snapshots with resolver
-  batch counts and elapsed time.
+  batch counts and elapsed time. A document that is retried after
+  an alias conflict reports its progress again from the start.
 - **return_chunks** (<code>bool</code>) – Whether to include the produced chunks in the
   returned AddResult. False by default to avoid holding full text
   for a large corpus when not needed. Chunks of a document that
@@ -148,6 +163,8 @@ them again instead of returning a no-op.
   instead of always stopping the call.
 - <code>ValueError</code> – The input contains multiple documents with the same
   `document_key`.
+- <code>GraphStoreAliasConflictError</code> – Under `RAISE`, a name this call
+  created still belonged to another entity after the wait.
 
 ## `chunker` \{#agrag-ingestion-graph-Graph-chunker}
 
@@ -551,6 +568,21 @@ replacement including cleanup. Entities that lose their last evidence
 are pruned after the commit, so replacement mentions count as evidence.
 A source must resolve to exactly one document.
 
+An update and another call that run at the same time can each create an
+entity with the same name. The update waits until the other document's
+write finishes, then is written again. If that write committed, the
+update merges onto the entity it created. If it rolled back, the update
+writes the entity itself. The wait lasts at most five minutes. If the name
+is still claimed after that, the update is not written and the committed
+version stays in place. A job whose lease has expired no longer counts as
+pending, so the wait ends early. Its tagged rows stay until `Graph.open`
+recovers the job. An update does not retry if the document changed while it
+waited.
+Under `RAISE` the call raises `GraphStoreAliasConflictError`. Under
+`SKIP` and `QUARANTINE` it returns an `UpdateResult` with
+`new_content_hash` set to `None` and the failure in
+`add_result.storage.failures`.
+
 **Parameters:**
 
 - **document_key** (<code>str</code>) – The stable key of the document to replace.
@@ -563,8 +595,10 @@ A source must resolve to exactly one document.
   Its `resolved_document_key` must equal `document_key`.
 - **loader** (<code>[Loader](../../loaders/base/Loader.md) | None</code>) – A loader override for a single-file `source`.
 - **error_policy** (<code>[ErrorPolicy](../../loaders/types/ErrorPolicy.md)</code>) – RAISE propagates a stage failure. Any other
-  policy records it and continues. Candidate storage failures
-  always abort replacement to preserve committed evidence.
+  policy records it and continues. A same-name conflict that
+  outlasts the wait is recorded under the same rule. Candidate
+  storage failures always abort replacement to preserve committed
+  evidence.
 - **read_options** (<code>[ReadOptions](../../loaders/types/ReadOptions.md) | None</code>) – How loaders read the replacement, including the
   normalization of its text. None uses `ReadOptions()` defaults.
 - **force** (<code>bool</code>) – Extract the entities again on the same chunks, even when the
@@ -587,6 +621,8 @@ A source must resolve to exactly one document.
   `document` is given, a loader override targets multiple sources, a
   source resolves to any number of documents other than one, or the
   `document` key differs from `document_key`.
+- <code>GraphStoreAliasConflictError</code> – Under `RAISE`, a name this update
+  created still belonged to another entity after the wait.
 
 <details open>
 <summary>Note</summary>
