@@ -98,7 +98,7 @@ module-name = "agrag"
 
 [tool.uv]
 default-groups = ["dev"]
-required-version = "==0.12.23"
+required-version = "==0.13.7"
 
 # PyPI serves a PyTorch build with several GB of CUDA libraries on Linux. The
 # lock takes torch and torchvision from the CPU index instead. uv applies a
@@ -124,7 +124,7 @@ dev = [
   "pytest-rerunfailures>=16.2",
   "pytest-socket>=0.7.0",
   "pytest-xdist>=3.8.0",
-  "ruff>=0.16.10",
+  "ruff>=0.17.3",
   "ty>=0.0.32",
   "typos>=1.51.1",
 ]
