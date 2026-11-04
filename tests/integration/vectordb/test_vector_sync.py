@@ -3,6 +3,8 @@
 from collections.abc import Sequence
 from uuid import UUID, uuid4
 
+import pytest
+
 from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.graph_record import DeferredWrites
 from agrag.common.data_models.vector_record import (
@@ -18,6 +20,7 @@ from agrag.ingestion._deferred import replay_deferred
 from agrag.ingestion.vector_sync import VectorSync
 from tests.integration._backend import build_test_store
 from tests.integration._fake_vector_store import FakeVectorStore
+from tests.integration._vector_backend import build_vector_store, selected_vector_stores
 
 
 _ENTITY_LABEL = "VectorSyncProbe"
@@ -138,6 +141,75 @@ class TestVectorSync:
         finally:
             await _remove_entity(graph_store, existing_id)
             await _remove_entity(graph_store, missing_id)
+            await vector_store.close()
+            await graph_store.close()
+
+    @pytest.mark.parametrize("store_name", selected_vector_stores())
+    async def test_repair_restores_last_graph_id_and_prunes_last_store_id(
+        self, store_name: str
+    ) -> None:
+        """Repair pages past one page and handles both ends of the id merge.
+
+        The graph's largest id has no vector, so it must be restored after the
+        store stream ends. The store's largest id has no graph node, so it must
+        be pruned after the graph stream ends.
+        """
+        graph_store = build_test_store()
+        vector_store = build_vector_store(
+            store_name, collection_prefix=f"repair_{uuid4().hex}"
+        )
+        sync = VectorSync(
+            store=vector_store,
+            embedder=_DescriptionEmbedder(),
+            graph_store=graph_store,
+        )
+        present_ids = [uuid4() for _ in range(1049)]
+        missing_id = UUID(int=2**128 - 2)
+        orphan_id = UUID(int=2**128 - 1)
+        entity_ids = [*present_ids, missing_id]
+        await graph_store.connect()
+        await vector_store.initialize()
+        try:
+            await vector_store.ensure_collection(
+                VectorKind.ENTITY,
+                dimensions=2,
+                distance=Distance.COSINE,
+            )
+            await graph_store.upsert_nodes(
+                _ENTITY_LABEL,
+                [
+                    _entity(entity_id, "original description").to_node_record()
+                    for entity_id in entity_ids
+                ],
+            )
+            await vector_store.upsert(
+                VectorKind.ENTITY,
+                [
+                    VectorRecord(
+                        id=item_id,
+                        vector=[1.0, 0.0],
+                        labels=[_ENTITY_LABEL],
+                        text="original description",
+                    )
+                    for item_id in [*present_ids, orphan_id]
+                ],
+            )
+
+            result = await sync.repair(kinds=[VectorKind.ENTITY], prune=True)
+
+            counts = result.kinds[VectorKind.ENTITY]
+            assert counts.missing >= 1
+            assert counts.pruned >= 1
+            assert await vector_store.list_ids(
+                VectorKind.ENTITY, after=UUID(int=2**128 - 3), limit=10
+            ) == [missing_id]
+        finally:
+            await graph_store.execute_write(
+                f"UNWIND $ids AS id MATCH (node:{NODE_IDENTITY_LABEL} {{id: id}}) "
+                "DETACH DELETE node",
+                {"ids": [str(entity_id) for entity_id in entity_ids]},
+            )
+            await vector_store.delete_collection(VectorKind.ENTITY)
             await vector_store.close()
             await graph_store.close()
 
