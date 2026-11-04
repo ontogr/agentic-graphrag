@@ -16,7 +16,7 @@ from agrag.cypher.resolution_write import set_resolved_entity_sync_status_query
 from agrag.embedding.base import Embedder
 from agrag.graphdb.base import GraphStore
 from agrag.ingestion._deferred import write_or_defer
-from agrag.ingestion.resolved_entities import JOB_LEVEL_ERRORS
+from agrag.ingestion.resolved_entities import _JOB_LEVEL_ERRORS
 from agrag.ingestion.vector_sync import VectorSync
 from agrag.loaders.types import ErrorPolicy
 from agrag.observability import record_stage_failure
@@ -184,7 +184,7 @@ async def embed_resolved_entities(
                     status="failed",
                     error=str(exc),
                 )
-            if error_policy is ErrorPolicy.RAISE or isinstance(exc, JOB_LEVEL_ERRORS):
+            if error_policy is ErrorPolicy.RAISE or isinstance(exc, _JOB_LEVEL_ERRORS):
                 raise
             trace_id, span_id = record_stage_failure(exc)
             return [
@@ -219,7 +219,7 @@ async def embed_resolved_entities(
                     status="failed",
                     error=str(exc),
                 )
-        if error_policy is ErrorPolicy.RAISE or isinstance(exc, JOB_LEVEL_ERRORS):
+        if error_policy is ErrorPolicy.RAISE or isinstance(exc, _JOB_LEVEL_ERRORS):
             raise
         trace_id, span_id = record_stage_failure(exc)
         return [

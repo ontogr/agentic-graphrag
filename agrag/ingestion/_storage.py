@@ -36,7 +36,7 @@ from agrag.ingestion._lexical_backbone import (
 )
 from agrag.ingestion._stage_context import StageContext
 from agrag.ingestion._structure import StructureRecords, build_document_structure
-from agrag.ingestion.resolved_entities import JOB_LEVEL_ERRORS
+from agrag.ingestion.resolved_entities import _JOB_LEVEL_ERRORS
 from agrag.loaders.types import ErrorPolicy
 from agrag.observability import record_stage_failure, stage_failure_context
 
@@ -206,7 +206,7 @@ async def write_relations(
                 failures=upsert_stage_failures(write_result),
             )
         except Exception as exc:
-            if error_policy is ErrorPolicy.RAISE or isinstance(exc, JOB_LEVEL_ERRORS):
+            if error_policy is ErrorPolicy.RAISE or isinstance(exc, _JOB_LEVEL_ERRORS):
                 raise
             return WriteOutcome(failures=[_failure(item_id, exc)])
 
@@ -365,7 +365,7 @@ def _settle(
     if (
         error_policy is ErrorPolicy.RAISE
         or not isinstance(outcome, Exception)
-        or isinstance(outcome, JOB_LEVEL_ERRORS)
+        or isinstance(outcome, _JOB_LEVEL_ERRORS)
     ):
         raise outcome
     return WriteOutcome(failures=[_failure(item_id, outcome)])

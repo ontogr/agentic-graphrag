@@ -110,7 +110,7 @@ class ResolvedEntityWriteError(Exception):
 # A job that hits one of these can no longer commit consistently, so a
 # pending-phase handler re-raises it under every error policy instead of
 # recording a stage failure and letting the job commit.
-JOB_LEVEL_ERRORS: tuple[type[Exception], ...] = (
+_JOB_LEVEL_ERRORS: tuple[type[Exception], ...] = (
     GraphStoreFenceError,
     ResolvedEntityWriteError,
 )

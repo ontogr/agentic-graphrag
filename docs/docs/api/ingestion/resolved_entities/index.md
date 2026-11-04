@@ -29,5 +29,4 @@ Non-destructive match persistence and resolved-entity computation.
 
 **Attributes:**
 
-- [**JOB_LEVEL_ERRORS**](JOB_LEVEL_ERRORS.md) (<code>tuple\[type\[Exception\], ...\]</code>) –
 - [**MatchComponent**](MatchComponent.md) – One connected component: its match decisions and its raw member entities.
