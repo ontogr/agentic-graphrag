@@ -608,6 +608,7 @@ class TestRelationsEvidenceEquivalence:
                 "document_node_id": new_document,
                 "keep_node_ids": new_keep,
                 "closed_at": closed_at,
+                "job_id": None,
             },
         )
         old_values = await self._closed_values(old_document)
