@@ -139,7 +139,7 @@ class TestWeaviateVectorStore:
         weaviate_store: WeaviateVectorStore,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """Each page costs a bounded number of requests regardless of size."""
+        """Each page reads no more objects than its limit, however large the set."""
         await weaviate_store.ensure_collection(
             VectorKind.ENTITY,
             dimensions=2,
@@ -159,26 +159,29 @@ class TestWeaviateVectorStore:
         query = client.collections.use(
             weaviate_store.collection_name(VectorKind.ENTITY)
         ).query
-        calls = 0
+        objects_read = 0
         original = type(query).fetch_objects
 
         async def counting_fetch(self, *args, **kwargs):
-            nonlocal calls
-            calls += 1
-            return await original(self, *args, **kwargs)
+            nonlocal objects_read
+            response = await original(self, *args, **kwargs)
+            objects_read += len(response.objects)
+            return response
 
         monkeypatch.setattr(type(query), "fetch_objects", counting_fetch)
 
         seen: list[UUID] = []
         after: UUID | None = None
         while True:
-            calls = 0
+            objects_read = 0
             page = await weaviate_store.list_ids(
                 VectorKind.ENTITY, after=after, limit=1000
             )
-            assert calls <= 2
             if not page:
                 break
+            assert len(page) <= 1000
+            assert objects_read <= 1000
+            assert after is None or page[0] > after
             seen.extend(page)
             after = page[-1]
         assert seen == ids

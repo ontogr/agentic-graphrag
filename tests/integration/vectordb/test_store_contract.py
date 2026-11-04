@@ -264,6 +264,8 @@ class TestVectorStoreContract:
             page = await vector_store.list_ids(VectorKind.CHUNK, after=after, limit=500)
             if not page:
                 break
+            assert len(page) <= 500
+            assert after is None or page[0] > after
             listed.extend(page)
             after = page[-1]
 
