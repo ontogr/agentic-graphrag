@@ -96,6 +96,12 @@ If an extraction fails for a chunk, the document and its chunks are
 written without the extraction stamp, so the next `update` extracts
 them again instead of returning a no-op.
 
+Two calls that run at the same time can each create an entity with the
+same name. The document that claims the name second waits until the
+other document's write finishes, then is written again and merges onto
+that entity. The wait lasts at most five minutes. After that, the call
+raises `GraphStoreAliasConflictError` under every `error_policy`.
+
 **Parameters:**
 
 - **source** (<code>SourcesType | None</code>) – A file path, a directory, a glob, or a list of these.
@@ -148,6 +154,8 @@ them again instead of returning a no-op.
   instead of always stopping the call.
 - <code>ValueError</code> – The input contains multiple documents with the same
   `document_key`.
+- <code>GraphStoreAliasConflictError</code> – A name this call created still
+  belonged to another entity after the wait.
 
 ## `chunker` \{#agrag-ingestion-graph-Graph-chunker}
 
@@ -551,6 +559,13 @@ replacement including cleanup. Entities that lose their last evidence
 are pruned after the commit, so replacement mentions count as evidence.
 A source must resolve to exactly one document.
 
+An update and another call that run at the same time can each create an
+entity with the same name. The document that claims the name second
+waits until the other document's write finishes, then is written again
+and merges onto that entity. The wait lasts at most five minutes. After
+that, the update raises `GraphStoreAliasConflictError` under every
+`error_policy`.
+
 **Parameters:**
 
 - **document_key** (<code>str</code>) – The stable key of the document to replace.
@@ -563,8 +578,9 @@ A source must resolve to exactly one document.
   Its `resolved_document_key` must equal `document_key`.
 - **loader** (<code>[Loader](../../loaders/base/Loader.md) | None</code>) – A loader override for a single-file `source`.
 - **error_policy** (<code>[ErrorPolicy](../../loaders/types/ErrorPolicy.md)</code>) – RAISE propagates a stage failure. Any other
-  policy records it and continues. Candidate storage failures
-  always abort replacement to preserve committed evidence.
+  policy records it and continues, except a same-name conflict,
+  which raises after the wait described above. Candidate storage
+  failures always abort replacement to preserve committed evidence.
 - **read_options** (<code>[ReadOptions](../../loaders/types/ReadOptions.md) | None</code>) – How loaders read the replacement, including the
   normalization of its text. None uses `ReadOptions()` defaults.
 - **force** (<code>bool</code>) – Extract the entities again on the same chunks, even when the
@@ -587,6 +603,8 @@ A source must resolve to exactly one document.
   `document` is given, a loader override targets multiple sources, a
   source resolves to any number of documents other than one, or the
   `document` key differs from `document_key`.
+- <code>GraphStoreAliasConflictError</code> – A name this update created still
+  belonged to another entity after the wait.
 
 <details open>
 <summary>Note</summary>

@@ -1,4 +1,4 @@
-"""Concurrent adds that name one entity, against a real graph store.
+"""Concurrent adds and updates that name one entity, against a real graph store.
 
 Runs against the Docker Compose instance from ``docker/docker-compose.ci.yml``.
 Each add resolves against committed data only, so the tests hold the commits

@@ -6,7 +6,7 @@ sidebar_label: GraphStoreAliasConflictError
 # `agrag.graphdb.errors.GraphStoreAliasConflictError` \{#agrag-graphdb-errors-GraphStoreAliasConflictError}
 
 ```python
-GraphStoreAliasConflictError(conflicts:dict[str, str]) -> None
+GraphStoreAliasConflictError(conflicts:dict[str, str], owner_job_ids:frozenset[UUID]) -> None
 ```
 
 Bases: <code>[GraphStoreConstraintViolationError](GraphStoreConstraintViolationError.md)</code>
@@ -27,9 +27,17 @@ not from a constraint violation.
 
 - [**conflicts**](#agrag-graphdb-errors-GraphStoreAliasConflictError-conflicts) – Every accepted merge_key this claim found already owned,
   mapped to the entity id that owns it.
+- [**owner_job_ids**](#agrag-graphdb-errors-GraphStoreAliasConflictError-owner_job_ids) – The Cutover Jobs whose pending aliases caused the
+  conflict. Empty when every conflicting alias is committed.
 
 ## `conflicts` \{#agrag-graphdb-errors-GraphStoreAliasConflictError-conflicts}
 
 ```python
 conflicts = conflicts
+```
+
+## `owner_job_ids` \{#agrag-graphdb-errors-GraphStoreAliasConflictError-owner_job_ids}
+
+```python
+owner_job_ids = owner_job_ids
 ```
