@@ -145,14 +145,23 @@ class TestVectorSync:
             await graph_store.close()
 
     @pytest.mark.parametrize("store_name", selected_vector_stores())
-    async def test_repair_restores_last_graph_id_and_prunes_last_store_id(
-        self, store_name: str
+    @pytest.mark.parametrize(
+        ("prune", "missing_int", "orphan_int"),
+        [
+            pytest.param(True, 2**128 - 1, 2**128 - 2, id="prune-graph-tail"),
+            pytest.param(True, 2**128 - 2, 2**128 - 1, id="prune-store-tail"),
+            pytest.param(False, 2**128 - 1, 2**128 - 2, id="keep-orphan-below-head"),
+        ],
+    )
+    async def test_repair_merges_both_id_streams_to_the_end(
+        self, store_name: str, prune: bool, missing_int: int, orphan_int: int
     ) -> None:
-        """Repair pages past one page and handles both ends of the id merge.
+        """Repair restores a graph-only id and handles a store-only id.
 
-        The graph's largest id has no vector, so it must be restored after the
-        store stream ends. The store's largest id has no graph node, so it must
-        be pruned after the graph stream ends.
+        In each case one stream ends before the other, so the merge must drain
+        the remaining ids of whichever side is left. With pruning off, a
+        store-only id below the last graph id is kept, and it must not stop the
+        merge before the graph-only id is restored.
         """
         graph_store = build_test_store()
         vector_store = build_vector_store(
@@ -164,8 +173,8 @@ class TestVectorSync:
             graph_store=graph_store,
         )
         present_ids = [uuid4() for _ in range(1049)]
-        missing_id = UUID(int=2**128 - 2)
-        orphan_id = UUID(int=2**128 - 1)
+        missing_id = UUID(int=missing_int)
+        orphan_id = UUID(int=orphan_int)
         entity_ids = [*present_ids, missing_id]
         await graph_store.connect()
         await vector_store.initialize()
@@ -195,14 +204,30 @@ class TestVectorSync:
                 ],
             )
 
-            result = await sync.repair(kinds=[VectorKind.ENTITY], prune=True)
+            result = await sync.repair(kinds=[VectorKind.ENTITY], prune=prune)
 
             counts = result.kinds[VectorKind.ENTITY]
             assert counts.missing >= 1
-            assert counts.pruned >= 1
-            assert await vector_store.list_ids(
-                VectorKind.ENTITY, after=UUID(int=2**128 - 3), limit=10
-            ) == [missing_id]
+            assert counts.pruned == (1 if prune else 0)
+            store_ids: list[UUID] = []
+            after: UUID | None = None
+            while True:
+                page = await vector_store.list_ids(
+                    VectorKind.ENTITY, after=after, limit=500
+                )
+                if not page:
+                    break
+                store_ids.extend(page)
+                after = page[-1]
+            assert {*present_ids, missing_id} <= set(store_ids)
+            assert (orphan_id in store_ids) is not prune
+            expected_tail = [missing_id] if prune else sorted([orphan_id, missing_id])
+            assert (
+                await vector_store.list_ids(
+                    VectorKind.ENTITY, after=UUID(int=2**128 - 3), limit=10
+                )
+                == expected_tail
+            )
         finally:
             await graph_store.execute_write(
                 f"UNWIND $ids AS id MATCH (node:{NODE_IDENTITY_LABEL} {{id: id}}) "

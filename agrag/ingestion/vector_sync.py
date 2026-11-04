@@ -47,16 +47,23 @@ _PAGE_SIZE = 1000
 
 
 async def _pair_sorted_ids(
-    graph_ids: AsyncIterator[UUID], store_ids: AsyncIterator[UUID]
+    graph_ids: AsyncIterator[UUID],
+    store_ids: AsyncIterator[UUID],
+    *,
+    store_tail: bool,
 ) -> AsyncIterator[tuple[UUID | None, UUID | None]]:
     """Merge two ascending id streams into pairs, with None for an absent side.
 
     Both streams must sort ids the same way. A stream that ends early leaves
-    the other side's remaining ids paired with None.
+    the other side's remaining ids paired with None. When ``store_tail`` is
+    false, the merge stops once the graph stream ends, so store ids past the
+    last graph id are never read.
     """
     graph_id = await anext(graph_ids, None)
     store_id = await anext(store_ids, None)
     while graph_id is not None or store_id is not None:
+        if graph_id is None and not store_tail:
+            return
         if store_id is None or (graph_id is not None and graph_id < store_id):
             yield graph_id, None
             graph_id = await anext(graph_ids, None)
@@ -225,7 +232,9 @@ class VectorSync:
             missing: list[UUID] = []
             orphaned: list[UUID] = []
             async for graph_id, store_id in _pair_sorted_ids(
-                self._graph_ids(kind), self._store_ids(kind)
+                self._graph_ids(kind),
+                self._store_ids(kind),
+                store_tail=prune,
             ):
                 if graph_id is None:
                     if prune and store_id is not None:
