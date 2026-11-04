@@ -99,8 +99,11 @@ them again instead of returning a no-op.
 Two calls that run at the same time can each create an entity with the
 same name. The document that claims the name second waits until the
 other document's write finishes, then is written again and merges onto
-that entity. The wait lasts at most five minutes. After that, the call
-raises `GraphStoreAliasConflictError` under every `error_policy`.
+that entity. The wait lasts at most five minutes. If the name is still
+claimed after that, the document is not written. Under `RAISE` the
+call raises `GraphStoreAliasConflictError`. Under `SKIP` and
+`QUARANTINE` the call continues, and the document is reported in
+`AddResult.storage.failures`.
 
 **Parameters:**
 
@@ -154,8 +157,8 @@ raises `GraphStoreAliasConflictError` under every `error_policy`.
   instead of always stopping the call.
 - <code>ValueError</code> – The input contains multiple documents with the same
   `document_key`.
-- <code>GraphStoreAliasConflictError</code> – A name this call created still
-  belonged to another entity after the wait.
+- <code>GraphStoreAliasConflictError</code> – Under `RAISE`, a name this call
+  created still belonged to another entity after the wait.
 
 ## `chunker` \{#agrag-ingestion-graph-Graph-chunker}
 
@@ -560,11 +563,14 @@ are pruned after the commit, so replacement mentions count as evidence.
 A source must resolve to exactly one document.
 
 An update and another call that run at the same time can each create an
-entity with the same name. The document that claims the name second
-waits until the other document's write finishes, then is written again
-and merges onto that entity. The wait lasts at most five minutes. After
-that, the update raises `GraphStoreAliasConflictError` under every
-`error_policy`.
+entity with the same name. The update waits until the other document's
+write finishes, then is written again and merges onto that entity. The
+wait lasts at most five minutes. If the name is still claimed after that,
+the update is not written and the committed version stays in place.
+Under `RAISE` the call raises `GraphStoreAliasConflictError`. Under
+`SKIP` and `QUARANTINE` it returns an `UpdateResult` with
+`new_content_hash` set to `None` and the failure in
+`add_result.storage.failures`.
 
 **Parameters:**
 
@@ -578,9 +584,10 @@ that, the update raises `GraphStoreAliasConflictError` under every
   Its `resolved_document_key` must equal `document_key`.
 - **loader** (<code>[Loader](../../loaders/base/Loader.md) | None</code>) – A loader override for a single-file `source`.
 - **error_policy** (<code>[ErrorPolicy](../../loaders/types/ErrorPolicy.md)</code>) – RAISE propagates a stage failure. Any other
-  policy records it and continues, except a same-name conflict,
-  which raises after the wait described above. Candidate storage
-  failures always abort replacement to preserve committed evidence.
+  policy records it and continues. A same-name conflict that
+  outlasts the wait is recorded under the same rule. Candidate
+  storage failures always abort replacement to preserve committed
+  evidence.
 - **read_options** (<code>[ReadOptions](../../loaders/types/ReadOptions.md) | None</code>) – How loaders read the replacement, including the
   normalization of its text. None uses `ReadOptions()` defaults.
 - **force** (<code>bool</code>) – Extract the entities again on the same chunks, even when the
@@ -603,8 +610,8 @@ that, the update raises `GraphStoreAliasConflictError` under every
   `document` is given, a loader override targets multiple sources, a
   source resolves to any number of documents other than one, or the
   `document` key differs from `document_key`.
-- <code>GraphStoreAliasConflictError</code> – A name this update created still
-  belonged to another entity after the wait.
+- <code>GraphStoreAliasConflictError</code> – Under `RAISE`, a name this update
+  created still belonged to another entity after the wait.
 
 <details open>
 <summary>Note</summary>

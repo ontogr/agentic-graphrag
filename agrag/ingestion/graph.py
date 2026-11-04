@@ -592,8 +592,11 @@ class Graph:
         Two calls that run at the same time can each create an entity with the
         same name. The document that claims the name second waits until the
         other document's write finishes, then is written again and merges onto
-        that entity. The wait lasts at most five minutes. After that, the call
-        raises ``GraphStoreAliasConflictError`` under every ``error_policy``.
+        that entity. The wait lasts at most five minutes. If the name is still
+        claimed after that, the document is not written. Under ``RAISE`` the
+        call raises ``GraphStoreAliasConflictError``. Under ``SKIP`` and
+        ``QUARANTINE`` the call continues, and the document is reported in
+        ``AddResult.storage.failures``.
 
         Args:
             source: A file path, a directory, a glob, or a list of these.
@@ -644,8 +647,8 @@ class Graph:
                 instead of always stopping the call.
             ValueError: The input contains multiple documents with the same
                 ``document_key``.
-            GraphStoreAliasConflictError: A name this call created still
-                belonged to another entity after the wait.
+            GraphStoreAliasConflictError: Under ``RAISE``, a name this call
+                created still belonged to another entity after the wait.
         """
         result = await add_documents(
             source,
@@ -722,11 +725,14 @@ class Graph:
         A source must resolve to exactly one document.
 
         An update and another call that run at the same time can each create an
-        entity with the same name. The document that claims the name second
-        waits until the other document's write finishes, then is written again
-        and merges onto that entity. The wait lasts at most five minutes. After
-        that, the update raises ``GraphStoreAliasConflictError`` under every
-        ``error_policy``.
+        entity with the same name. The update waits until the other document's
+        write finishes, then is written again and merges onto that entity. The
+        wait lasts at most five minutes. If the name is still claimed after that,
+        the update is not written and the committed version stays in place.
+        Under ``RAISE`` the call raises ``GraphStoreAliasConflictError``. Under
+        ``SKIP`` and ``QUARANTINE`` it returns an ``UpdateResult`` with
+        ``new_content_hash`` set to ``None`` and the failure in
+        ``add_result.storage.failures``.
 
         Args:
             document_key: The stable key of the document to replace.
@@ -739,9 +745,10 @@ class Graph:
                 Its ``resolved_document_key`` must equal ``document_key``.
             loader: A loader override for a single-file ``source``.
             error_policy: RAISE propagates a stage failure. Any other
-                policy records it and continues, except a same-name conflict,
-                which raises after the wait described above. Candidate storage
-                failures always abort replacement to preserve committed evidence.
+                policy records it and continues. A same-name conflict that
+                outlasts the wait is recorded under the same rule. Candidate
+                storage failures always abort replacement to preserve committed
+                evidence.
             read_options: How loaders read the replacement, including the
                 normalization of its text. None uses ``ReadOptions()`` defaults.
             force: Extract the entities again on the same chunks, even when the
@@ -762,8 +769,8 @@ class Graph:
                 ``document`` is given, a loader override targets multiple sources, a
                 source resolves to any number of documents other than one, or the
                 ``document`` key differs from ``document_key``.
-            GraphStoreAliasConflictError: A name this update created still
-                belonged to another entity after the wait.
+            GraphStoreAliasConflictError: Under ``RAISE``, a name this update
+                created still belonged to another entity after the wait.
 
         Note:
             The fresh-content path shares ``ingest_chunks()`` with

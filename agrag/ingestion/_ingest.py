@@ -77,6 +77,7 @@ from agrag.loaders.common import build_prose_document, text_sections
 from agrag.loaders.loader_registry import LoaderRegistry
 from agrag.loaders.types import ErrorPolicy, LoadStats, ReadOptions, SourceRef
 from agrag.loaders.walk import normalize_inline_text
+from agrag.observability import record_stage_failure
 from agrag.vectordb.base import VectorStore
 
 
@@ -149,6 +150,23 @@ async def _retry_on_alias_conflict(
             if time.monotonic() >= deadline or (retried_without_wait and not waited):
                 raise
             retried_without_wait = not waited
+
+
+def _alias_conflict_failure(
+    item_id: str, exc: GraphStoreAliasConflictError
+) -> StageFailure:
+    """Return the failure that reports a document left unwritten on a name clash.
+
+    Call from inside the ``except`` block that caught ``exc``.
+    """
+    trace_id, span_id = record_stage_failure(exc)
+    return StageFailure(
+        item_id=item_id,
+        error_type=type(exc).__name__,
+        error_message=str(exc),
+        trace_id=trace_id,
+        span_id=span_id,
+    )
 
 
 async def _no_pending_write(job_id: UUID) -> None:
@@ -679,23 +697,32 @@ async def _commit_batch(  # noqa: PLR0913
             if doc_failures
             else (doc_chunks, doc_documents)
         )
-        partial, cleanup_failures, _ = await _retry_on_alias_conflict(
-            graph_store,
-            bind(
-                _add_one,
-                document_key,
-                doc_documents[0],
-                (
-                    written_chunks,
-                    written_documents,
-                    doc_entities,
-                    doc_relations,
-                    doc_candidates,
-                    doc_failures,
-                    doc_dropped,
+        try:
+            partial, cleanup_failures, _ = await _retry_on_alias_conflict(
+                graph_store,
+                bind(
+                    _add_one,
+                    document_key,
+                    doc_documents[0],
+                    (
+                        written_chunks,
+                        written_documents,
+                        doc_entities,
+                        doc_relations,
+                        doc_candidates,
+                        doc_failures,
+                        doc_dropped,
+                    ),
                 ),
-            ),
-        )
+            )
+        except GraphStoreAliasConflictError as conflict:
+            if error_policy is ErrorPolicy.RAISE:
+                raise
+            failure = _alias_conflict_failure(document_key, conflict)
+            partials.append(
+                AddResult(storage=StorageStats(failures=[failure], failures_total=1))
+            )
+            continue
         partials.append(_with_cleanup_failures(partial, cleanup_failures))
     return partials
 
@@ -927,7 +954,7 @@ async def add_documents(  # noqa: PLR0912,PLR0915,PLR0913
         return result
 
 
-async def update_document(  # noqa: PLR0913
+async def update_document(  # noqa: PLR0912,PLR0913,PLR0915
     document_key: str,
     *,
     text: str | None,
@@ -1187,9 +1214,24 @@ async def update_document(  # noqa: PLR0913
                 vector_sync=vector_sync,
             )
 
-        add_result, cleanup_failures, parts_closed = await _retry_on_alias_conflict(
-            graph_store, _attempt
-        )
+        try:
+            add_result, cleanup_failures, parts_closed = await _retry_on_alias_conflict(
+                graph_store, _attempt
+            )
+        except GraphStoreAliasConflictError as conflict:
+            if error_policy is ErrorPolicy.RAISE:
+                raise
+            failure = _alias_conflict_failure(document_key, conflict)
+            return UpdateResult(
+                document_key=document_key,
+                no_op=False,
+                previous_content_hash=(found.current_content_hash if found else None),
+                new_content_hash=None,
+                decision=decision,
+                add_result=AddResult(
+                    storage=StorageStats(failures=[failure], failures_total=1)
+                ),
+            )
         return UpdateResult(
             document_key=document_key,
             no_op=False,

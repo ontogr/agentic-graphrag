@@ -331,11 +331,16 @@ class TestConcurrentAdds:
             await _delete_run(store, keys=keys, name=name)
 
     @staticmethod
-    @pytest.mark.parametrize("error_policy", [ErrorPolicy.RAISE, ErrorPolicy.SKIP])
-    async def test_same_new_name_raises_when_owner_outlasts_window(
+    @pytest.mark.parametrize(
+        "error_policy", [ErrorPolicy.RAISE, ErrorPolicy.SKIP, ErrorPolicy.QUARANTINE]
+    )
+    async def test_same_new_name_fails_the_losing_add_when_owner_outlasts_window(
         monkeypatch: pytest.MonkeyPatch, error_policy: ErrorPolicy
     ) -> None:
-        """The losing add raises the conflict when the owner stays pending too long."""
+        """The losing add raises under RAISE and reports its document otherwise.
+
+        The document is not written, and the owner's entity is untouched.
+        """
         store = build_test_store()
         await store.connect()
         suffix = uuid4().hex[:8]
@@ -377,8 +382,15 @@ class TestConcurrentAdds:
             winner = pending.pop()
             await asyncio.wait_for(winner, timeout=120)
 
-            with pytest.raises(GraphStoreAliasConflictError):
-                loser.result()
+            if error_policy is ErrorPolicy.RAISE:
+                with pytest.raises(GraphStoreAliasConflictError):
+                    loser.result()
+            else:
+                failures = loser.result().storage.failures
+                assert [failure.item_id for failure in failures] == [adds[loser]]
+                assert [failure.error_type for failure in failures] == [
+                    GraphStoreAliasConflictError.__name__
+                ]
             stored = await store.execute_read(
                 "MATCH (d:Document) WHERE d.document_key IN $keys "
                 "RETURN d.document_key AS key",
