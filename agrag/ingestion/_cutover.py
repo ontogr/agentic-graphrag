@@ -5,6 +5,7 @@ every dependency explicitly rather than reaching into ``Graph``.
 """
 
 import asyncio
+import logging
 import time
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -73,6 +74,9 @@ from agrag.ingestion.resolved_entities import MatchComponent
 from agrag.ingestion.settings import CutoverJobSettings
 from agrag.ingestion.vector_sync import VectorSync
 from agrag.observability import get_tracer
+
+
+logger = logging.getLogger(__name__)
 
 
 class CutoverJobLeaseError(Exception):
@@ -257,6 +261,7 @@ async def _renew_periodically(
                     },
                 )
             except Exception as exc:  # noqa: BLE001
+                logger.warning("Lease renewal for job %s failed: %r", job_id, exc)
                 if datetime.now(UTC) >= lease_expires_at:
                     raise CutoverJobLeaseError(
                         f"Job {job_id} could not renew its lease before it expired."
