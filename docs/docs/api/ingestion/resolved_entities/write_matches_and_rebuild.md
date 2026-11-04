@@ -14,6 +14,12 @@ Persist matches and rebuild their supplied connected component.
 Callers fetch the bounded affected component before invoking this function.
 The resolved node is always recomputed from that current membership.
 
+Outside a job, the matches and the resolved entity are written in one
+transaction. For a job's writes they are written in two transactions, and
+the summary of the resolved entity runs between them, so a slow summary
+does not hold the job's lock. A failure after the first transaction raises
+and leaves that transaction's match edges in place, tagged with the job.
+
 **Parameters:**
 
 - **decisions** (<code>list\[[MatchDecision](MatchDecision.md)\]</code>) – The confirmed matches to persist.

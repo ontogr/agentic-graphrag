@@ -159,6 +159,10 @@ execute_write(query:str, parameters:Mapping[str, Any] | None = None) -> list[dic
 
 Run a write transaction.
 
+A write whose parameters carry a non-null `pending_job_id` is a
+Cutover Job's pending write. It runs only while that job is pending
+with a live lease.
+
 **Parameters:**
 
 - **query** (<code>str</code>) – The Cypher query to run.
@@ -167,6 +171,11 @@ Run a write transaction.
 **Returns:**
 
 - <code>list\[dict\[str, Any\]\]</code> – The result rows as dicts.
+
+**Raises:**
+
+- <code>GraphStoreFenceError</code> – The job named by `pending_job_id` is no
+  longer pending with a live lease.
 
 ## `fulltext_copy_set` \{#agrag-graphdb-base-GraphStore-fulltext_copy_set}
 

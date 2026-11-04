@@ -15,3 +15,4 @@ Write and bookkeeping logic shared by graph stores that speak Cypher.
 
 - [**query_parameter_attributes**](query_parameter_attributes.md) – Build `db.query.parameter.<key>` span attributes.
 - [**require_deferred**](require_deferred.md) – Reject a job write that has nowhere to put deferred writes.
+- [**run_fenced_write**](run_fenced_write.md) – Run a write, fenced by its Cutover Job when the parameters name one.
