@@ -196,14 +196,15 @@ def resume_commit_fence_query() -> str:
 
 
 def record_parts_closed_query() -> str:
-    """Record the number of document edges closed by a job commit.
+    """Mark a job's document writes applied.
 
-    This is the last of the commit's document writes, so it also marks them
-    applied: crash recovery skips the document writes of a job that has the mark.
+    This is the last of the commit's document writes. Crash recovery skips the
+    document writes of a job that has the mark. The closed-edge count is
+    recorded by the close statement itself.
     """
     return (
         f"MATCH (job:{CUTOVER_JOB_LABEL} {{id: $job_id}}) "
-        "SET job.parts_closed = $parts_closed, job.commit_docs_applied = true"
+        "SET job.commit_docs_applied = true"
     )
 
 

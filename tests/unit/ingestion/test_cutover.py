@@ -103,7 +103,7 @@ class _FakeCutoverStore:
             begin_rollback_query(): self._begin_rollback,
             claim_pending_job_query(): self._claim_pending_rollback,
             job_status_query(): self._job_status,
-            record_parts_closed_query(): self._record_parts_closed,
+            record_parts_closed_query(): lambda p: [],
             record_replay_progress_query(): lambda p: [],
             lock_rolling_back_job_query(): self._lock_rolling_back,
             rollback_job_query(): self._rollback,
@@ -273,13 +273,16 @@ class _FakeCutoverStore:
             }
         ]
 
-    def _record_parts_closed(self, params: dict[str, Any]) -> list[dict[str, Any]]:
+    def _close_edges(self, params: dict[str, Any]) -> list[dict[str, Any]]:
+        """Close no edges, and record the job's count on the first close only."""
         job = next(
             (job for job in self.jobs.values() if job["id"] == params["job_id"]), None
         )
-        if job is not None:
-            job["parts_closed"] = params["parts_closed"]
-        return []
+        if job is None:
+            return [{"closed": 0}]
+        if job.get("parts_closed") is None:
+            job["parts_closed"] = 0
+        return [{"closed": job["parts_closed"]}]
 
     async def run_in_transaction(self, work: Any) -> Any:
         """Run work with a handle that records writes and joins this store."""
@@ -296,7 +299,7 @@ class _FakeCutoverStore:
             ) -> list[dict[str, Any]]:
                 runner.transactions[-1].append((query, parameters or {}))
                 if query == close_has_part_query():
-                    return [{"closed": 0}]
+                    return runner._close_edges(parameters or {})
                 return await runner.execute_write(query, parameters)
 
         runner.transactions.append([])
@@ -335,7 +338,7 @@ class _CommitBlockingStore(_FakeCutoverStore):
             ) -> list[dict[str, Any]]:
                 runner.transactions[-1].append((query, parameters or {}))
                 if query == close_has_part_query():
-                    return [{"closed": 0}]
+                    return runner._close_edges(parameters or {})
                 return await runner.execute_write(query, parameters)
 
         runner.transactions.append([])
@@ -814,7 +817,6 @@ class TestAmbiguousCommit:
         result = await run_cutover_job(**_write_job(pending, graph_store=store))
 
         assert result[2] == 0
-        assert store.jobs["doc-1"]["parts_closed"] == 0
         assert store.jobs["doc-1"]["status"] == "done"
         assert rollback_job_query() not in store.executed
 

@@ -59,7 +59,7 @@ Commit and rollback find a job's rows through an index on the pending tag, so th
 
 Workers that share a graph must run the same version during an upgrade. Use the new version to recover any `rolling_back` jobs before you downgrade.
 
-On FalkorDB, a job with a commit-started marker is finished rather than rolled back after its lease expires. Recovery resumes persisted deferred writes, but a crash between a replay step and its progress record can repeat that step. The interrupted commit's resolved-entity component rebuild does not run. See [commit recovery](../guides/configure-storage-backends.mdx#crash-recovery-of-a-commit).
+On FalkorDB, a job with a commit-started marker is finished rather than rolled back after its lease expires. Recovery resumes persisted deferred writes. A replay step that a crash repeats leaves the same graph, because its writes are idempotent. The interrupted commit's resolved-entity component rebuild does not run. See [commit recovery](../guides/configure-storage-backends.mdx#crash-recovery-of-a-commit).
 
 ## How Agentic GraphRAG decides a document is unchanged
 

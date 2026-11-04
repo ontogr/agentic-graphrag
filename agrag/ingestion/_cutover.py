@@ -512,10 +512,7 @@ async def apply_plan_after_fold(
                 retire_document_version_query(),
                 {"document_node_id": str(change.document_node_id)},
             )
-    await txn.execute_write(
-        record_parts_closed_query(),
-        {"job_id": str(job_id), "parts_closed": parts_closed},
-    )
+    await txn.execute_write(record_parts_closed_query(), {"job_id": str(job_id)})
     return parts_closed
 
 

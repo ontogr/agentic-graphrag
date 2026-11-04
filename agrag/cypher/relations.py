@@ -8,6 +8,7 @@ from collections.abc import Sequence
 from typing import Any, Literal
 
 from agrag.common.data_models.candidate import CANDIDATE_EDGE_TYPES
+from agrag.common.data_models.cutover_job import CUTOVER_JOB_LABEL
 from agrag.common.data_models.graph_record import PENDING_JOB_ID_PROPERTY
 from agrag.common.data_models.structure import (
     DOCUMENT_ACTIVATION_LABEL,
@@ -91,11 +92,15 @@ def close_has_part_query() -> str:
     figure with the id of a committed one reuses its edge without tagging it,
     and the edge must outlive the close.
 
+    The first run that closes edges also records the count on the job, in the
+    same statement. A repeated run closes nothing, so it returns the recorded
+    count instead of zero.
+
     Returns:
         Parameterized Cypher expecting $document_node_id, $keep_node_ids
-        (a list of node id strings) and $closed_at (an ISO-8601 string that
-        becomes each closed edge's ``invalid_at``). Returns the number of
-        committed edges closed.
+        (a list of node id strings), $closed_at (an ISO-8601 string that
+        becomes each closed edge's ``invalid_at``) and $job_id. Returns the
+        number of edges closed by the first run, or the recorded count.
     """
     # The caller supplies the close time so the query does not depend on a
     # server-side clock function.
@@ -104,7 +109,12 @@ def close_has_part_query() -> str:
         f"-[r:{HAS_PART}]->(c) "
         f"WHERE r.invalid_at IS NULL AND {pending_filter_clause('r')} "
         "AND NOT c.id IN $keep_node_ids "
-        "SET r.invalid_at = $closed_at RETURN count(r) AS closed"
+        "SET r.invalid_at = $closed_at "
+        "WITH count(r) AS closed "
+        f"OPTIONAL MATCH (job:{CUTOVER_JOB_LABEL} {{id: $job_id}}) "
+        "FOREACH (_ IN CASE WHEN job IS NULL OR job.parts_closed IS NOT NULL "
+        "THEN [] ELSE [1] END | SET job.parts_closed = closed) "
+        "RETURN coalesce(job.parts_closed, closed) AS closed"
     )
 
 

@@ -19,16 +19,41 @@ from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.graph_record import DeferredWrites
 from agrag.common.data_models.stage_failure import StageFailure
 from agrag.common.data_models.vector_record import VectorWork
-from agrag.cypher.cutover_job_write import begin_rollback_query, rollback_job_query
+from agrag.cypher.cutover_job_write import (
+    begin_rollback_query,
+    record_parts_closed_query,
+    rollback_job_query,
+)
+from agrag.cypher.entities import upsert_survivor_query
 from agrag.graphdb.base import GraphStoreTransaction
 from agrag.graphdb.errors import (
     GraphStoreConstraintViolationError,
     GraphStoreWriteConflictError,
 )
 from agrag.ingestion._cutover import CommitPlan, apply_plan_after_fold, run_cutover_job
+from agrag.ingestion._document_lifecycle import DocumentChange
 from agrag.ingestion._resume import resume_incomplete_jobs
 from agrag.ingestion.settings import CutoverJobSettings
 from tests.integration._backend import build_test_store, selected_backend
+
+
+class _FailBefore:
+    """Raises a constraint violation once, before a named statement runs."""
+
+    def __init__(self, txn: GraphStoreTransaction, query: str) -> None:
+        """Arm the failure for the statement ``query``."""
+        self._txn = txn
+        self._query = query
+        self._armed = True
+
+    async def execute_write(
+        self, query: str, parameters: Mapping[str, Any] | None = None
+    ) -> list[dict[str, Any]]:
+        """Forward every statement, raising once before the armed one."""
+        if self._armed and query == self._query:
+            self._armed = False
+            raise GraphStoreConstraintViolationError("injected before the statement")
+        return await self._txn.execute_write(query, parameters)
 
 
 class TestCutoverRecovery:
@@ -534,6 +559,191 @@ class TestCutoverRecovery:
             (tmp_path / "write-conflict-retry.json").write_text(
                 json.dumps({"job": jobs, "replayed": rows})
             )
+        finally:
+            await store.execute_write(
+                "MATCH (n) WHERE n.probe = $probe OR n.document_key = $probe "
+                "DETACH DELETE n",
+                {"probe": probe},
+            )
+            await store.close()
+
+    async def test_closing_writes_do_not_repeat_when_commit_retries(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """A retry after the closing writes keeps the sequence, epoch and count."""
+        store = build_test_store()
+        await store.connect()
+        probe = uuid4().hex
+        document = uuid4()
+        failed = False
+        real_apply = apply_plan_after_fold
+
+        async def fail_before_docs_recorded(
+            txn: GraphStoreTransaction, *, job_id: UUID, plan: CommitPlan
+        ) -> int:
+            nonlocal failed
+            if failed:
+                return await real_apply(txn, job_id=job_id, plan=plan)
+            failed = True
+            guarded = _FailBefore(txn, record_parts_closed_query())
+            return await real_apply(guarded, job_id=job_id, plan=plan)
+
+        async def pending(job_id: UUID) -> str:
+            return "pending"
+
+        async def cleanup(
+            _: list[UUID],
+            __: list[UUID],
+            ___: list[UUID],
+            _vector_work: VectorWork,
+        ) -> str:
+            return "cleaned"
+
+        try:
+            await store.execute_write(
+                "CREATE (d:_Node:Document {id: $document, probe: $probe, "
+                "document_key: $probe}) "
+                "CREATE (c:_Node:Chunk {id: $chunk, probe: $probe}) "
+                "CREATE (d)-[:HAS_PART]->(c) "
+                "CREATE (t:Task {_agrag_history_record: true, project_id: $probe, "
+                "probe: $probe}) "
+                "CREATE (dec:Decision {_agrag_history_record: true, "
+                "status: 'active', probe: $probe}) "
+                "CREATE (t)-[:MADE]->(dec) "
+                "CREATE (s:DecisionSupport {_agrag_history_record: true, "
+                "kind: 'document', current: true, recorded_activation_seq: 0, "
+                "document_node_id: $document, probe: $probe}) "
+                "CREATE (dec)-[:HAS_SUPPORT]->(s) "
+                "CREATE (:Project {_agrag_history_record: true, project_id: $probe, "
+                "review_epoch: 0, probe: $probe})",
+                {"document": str(document), "chunk": str(uuid4()), "probe": probe},
+            )
+            monkeypatch.setattr(
+                "agrag.ingestion._cutover.apply_plan_after_fold",
+                fail_before_docs_recorded,
+            )
+
+            result = await run_cutover_job(
+                verb="update",
+                document_key=probe,
+                affected_entity_ids=[],
+                graph_store=store,
+                settings=CutoverJobSettings(),
+                pending_write=pending,
+                cleanup=cleanup,
+                deferred=DeferredWrites(),
+                close_document_node_id=document,
+                change=DocumentChange(
+                    document_node_id=document,
+                    document_key=probe,
+                    verb="update",
+                    content_hash="hash-2",
+                    previous_content_hash="hash-1",
+                    version_id=None,
+                ),
+            )
+
+            assert failed
+            assert result[2] == 1
+            rows = await store.execute_read(
+                "MATCH (d:Document {id: $document}) "
+                "MATCH (p:Project {probe: $probe}) "
+                "MATCH (j:CutoverJob {document_key: $probe}) "
+                "RETURN d.activation_seq AS activation_seq, "
+                "p.review_epoch AS review_epoch, j.parts_closed AS parts_closed, "
+                "j.status AS status",
+                {"document": str(document), "probe": probe},
+            )
+            assert rows == [
+                {
+                    "activation_seq": 1,
+                    "review_epoch": 1,
+                    "parts_closed": 1,
+                    "status": "done",
+                }
+            ]
+            (tmp_path / "closing-writes-retry.json").write_text(json.dumps(rows))
+        finally:
+            await store.execute_write(
+                "MATCH (n) WHERE n.probe = $probe OR n.document_key = $probe "
+                "DETACH DELETE n",
+                {"probe": probe},
+            )
+            await store.close()
+
+    async def test_merge_count_is_not_added_twice_when_a_replayed_step_repeats(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """A replayed survivor write adds its merge delta once."""
+        store = build_test_store()
+        await store.connect()
+        probe = uuid4().hex
+        entity = uuid4()
+        injected = False
+
+        def conflict_once(_rows: Sequence[Mapping[str, Any]]) -> None:
+            nonlocal injected
+            if not injected:
+                injected = True
+                raise GraphStoreConstraintViolationError("injected after the write")
+
+        async def pending(job_id: UUID) -> str:
+            return "pending"
+
+        async def cleanup(
+            _: list[UUID],
+            __: list[UUID],
+            ___: list[UUID],
+            _vector_work: VectorWork,
+        ) -> str:
+            return "cleaned"
+
+        survivor = {
+            "id": str(entity),
+            "pending_job_id": None,
+            "properties": {"probe": probe},
+            "new_source_chunk_ids": [],
+            "merge_count_delta": 2,
+            "merge_write_id": str(uuid4()),
+        }
+        deferred = DeferredWrites(
+            entries=[
+                (
+                    upsert_survivor_query(
+                        ("_Probe",), extra_set=store.node_write_extra_set()
+                    ),
+                    {"records": [survivor], "require_all": True},
+                )
+            ]
+        )
+        try:
+            await store.execute_write(
+                "CREATE (:_Node {id: $entity, probe: $probe, merge_count: 0, "
+                "source_chunk_ids: []})",
+                {"entity": str(entity), "probe": probe},
+            )
+            monkeypatch.setattr(
+                "agrag.ingestion._deferred._require_written", conflict_once
+            )
+
+            await run_cutover_job(
+                verb="add",
+                document_key=probe,
+                affected_entity_ids=[],
+                graph_store=store,
+                settings=CutoverJobSettings(),
+                pending_write=pending,
+                cleanup=cleanup,
+                deferred=deferred,
+            )
+
+            assert injected
+            rows = await store.execute_read(
+                "MATCH (n:_Node {id: $entity}) RETURN n.merge_count AS merge_count",
+                {"entity": str(entity)},
+            )
+            assert rows == [{"merge_count": 2}]
+            (tmp_path / "merge-count-retry.json").write_text(json.dumps(rows))
         finally:
             await store.execute_write(
                 "MATCH (n) WHERE n.probe = $probe OR n.document_key = $probe "
