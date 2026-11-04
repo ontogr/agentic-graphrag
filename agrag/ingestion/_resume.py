@@ -22,7 +22,6 @@ from uuid import UUID, uuid4
 from opentelemetry.trace import Tracer
 
 from agrag.common.data_models.cutover_job import CutoverJobStatus
-from agrag.common.data_models.graph_record import DeferredWrites
 from agrag.common.data_models.stage_failure import StageFailure
 from agrag.common.data_models.vector_record import VectorWork
 from agrag.cypher.cutover_job_read import find_incomplete_jobs_query
@@ -30,25 +29,17 @@ from agrag.cypher.cutover_job_write import (
     claim_commit_query,
     claim_job_query,
     claim_pending_job_query,
-    commit_job_query,
     finish_cleaning_query,
     start_cleaning_query,
 )
 from agrag.graphdb.base import GraphStore, GraphStoreTransaction
 from agrag.ingestion._cutover import (
-    CutoverJobLeaseError,
     _renew_periodically,
-    apply_plan_after_fold,
-    apply_plan_before_replay,
+    apply_commit_steps,
     lease_expiry_millis,
     parse_commit_plan,
 )
-from agrag.ingestion._deferred import replay_deferred
-from agrag.ingestion._pending_rows import (
-    clear_job_tags,
-    fold_job_relations,
-    rollback_job_rows,
-)
+from agrag.ingestion._pending_rows import rollback_job_rows
 from agrag.ingestion.settings import CutoverJobSettings
 from agrag.ingestion.vector_sync import VectorSync
 from agrag.observability import get_tracer, record_swallowed_exception
@@ -167,6 +158,8 @@ async def _recover_unfinished(
             graph_store,
             job_id=job_id,
             affected_entity_ids=_uuid_list(row, "affected_entity_ids"),
+            component_seed_ids=_uuid_list(row, "component_seed_ids"),
+            created_entity_ids=_uuid_list(row, "created_entity_ids"),
             roll_forward=roll_forward,
             expected_lease_token=expected_lease_token,
             lease_ttl_seconds=lease_ttl_seconds,
@@ -273,6 +266,8 @@ async def _finish_commit(
     *,
     job_id: str,
     affected_entity_ids: list[UUID],
+    component_seed_ids: list[UUID],
+    created_entity_ids: list[UUID],
     roll_forward: Callable[
         [list[UUID], list[UUID], list[UUID], VectorWork], Awaitable[list[StageFailure]]
     ]
@@ -296,9 +291,8 @@ async def _finish_commit(
     recovery continues after them, so a write that accumulates, such as a merge
     count, is not applied twice. A crash between one step and its record can
     repeat that one step. Recovery then clears the pending tags, flips to committed
-    and runs the usual cleanup. The component seeds and created entities that
-    the dead worker would have recorded at the flip are not available here, so
-    the rebuild of those components does not run.
+    and runs the usual cleanup over the component seeds and created entities
+    that the job row recorded when the commit started.
 
     Returns:
         Whether this open finished the commit and the cleanup.
@@ -333,34 +327,16 @@ async def _finish_commit(
             return False
 
         async def finish(txn: GraphStoreTransaction) -> None:
-            if plan is not None and not docs_applied:
-                # The retraction runs once, before the first replay step; a
-                # repeat after a step would delete the evidence that step wrote.
-                if replayed == 0:
-                    await apply_plan_before_replay(txn, plan)
-                await replay_deferred(
-                    txn,
-                    DeferredWrites(entries=list(plan.deferred)),
-                    job_id=job_uuid,
-                    skip=replayed,
-                )
-            await fold_job_relations(txn, job_id=job_uuid)
-            if plan is not None and not docs_applied:
-                await apply_plan_after_fold(txn, job_id=job_uuid, plan=plan)
-            await clear_job_tags(txn, job_id=job_uuid)
-            flipped = await txn.execute_write(
-                commit_job_query(),
-                {
-                    "job_id": job_id,
-                    "lease_token": token,
-                    "component_seed_ids": [],
-                    "created_entity_ids": [],
-                },
+            await apply_commit_steps(
+                txn,
+                plan=plan,
+                job_id=job_uuid,
+                token=UUID(token),
+                skip=replayed,
+                docs_applied=docs_applied,
+                component_seed_ids=component_seed_ids,
+                created_entity_ids=created_entity_ids,
             )
-            if not flipped:
-                raise CutoverJobLeaseError(
-                    f"Job {job_id} lost its lease during recovery."
-                )
 
         await graph_store.run_in_transaction(finish)
         started = await graph_store.execute_write(
@@ -375,8 +351,8 @@ async def _finish_commit(
         graph_store,
         job_id=job_id,
         affected_entity_ids=affected_entity_ids,
-        component_seed_ids=[],
-        created_entity_ids=[],
+        component_seed_ids=component_seed_ids,
+        created_entity_ids=created_entity_ids,
         vector_work=vector_work,
         roll_forward=roll_forward,
         token=token,

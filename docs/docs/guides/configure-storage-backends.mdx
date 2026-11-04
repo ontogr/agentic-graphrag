@@ -270,7 +270,9 @@ Filters apply after the native index picks nearest candidates. The adapter reque
 
 ### Crash recovery of a commit
 
-A document change commits in several statements. If the process stops after the commit-started marker, a later `Graph.open` attempts to finish that commit after its lease expires instead of rolling it back. Recovery resumes persisted deferred writes after their recorded progress, folds relations, and completes the document status change. A crash between a replay step and its progress record can repeat that step. Recovery does not rebuild the resolved-entity components for that interrupted change. Run `graph.reevaluate()` for the affected entities when that rebuild is needed.
+A document change commits in several statements. If the process stops after the commit-started marker, a later `Graph.open` attempts to finish that commit after its lease expires instead of rolling it back. Recovery resumes persisted deferred writes after their recorded progress, folds relations, rebuilds the resolved-entity components the change touched, and completes the document status change. A crash between a replay step and its progress record can repeat that step.
+
+A commit that hits a constraint conflict or a write conflict with another job is retried under the same lease, for up to one lease TTL from the first failure. Set the TTL with `CUTOVER_JOB_LEASE_TTL_SECONDS`. After that, the error is raised. Neo4j rolls the commit back, and FalkorDB leaves the job for recovery on the next open.
 
 ### Retried history and decision writes
 

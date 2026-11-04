@@ -708,7 +708,12 @@ class TestRunCutoverJobReplay:
 
         with pytest.raises(GraphStoreWriteConflictError):
             await run_cutover_job(
-                **_write_job(pending, graph_store=store, deferred=deferred)
+                **_write_job(
+                    pending,
+                    graph_store=store,
+                    deferred=deferred,
+                    settings=CutoverJobSettings(lease_ttl_seconds=1),
+                )
             )
 
         assert store.nodes == []

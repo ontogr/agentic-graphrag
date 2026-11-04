@@ -5,7 +5,8 @@ every dependency explicitly rather than reaching into ``Graph``.
 """
 
 import asyncio
-from collections.abc import Awaitable, Callable, Sequence
+import time
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal, TypeVar
@@ -35,6 +36,7 @@ from agrag.cypher.cutover_job_write import (
     job_status_query,
     record_parts_closed_query,
     renew_lease_query,
+    resume_commit_fence_query,
     start_cleaning_query,
     steal_terminal_job_query,
 )
@@ -53,7 +55,10 @@ from agrag.cypher.relations import (
 )
 from agrag.cypher.vector_cleanup import document_chunk_ids_query
 from agrag.graphdb.base import GraphStore, GraphStoreTransaction
-from agrag.graphdb.errors import GraphStoreConstraintViolationError
+from agrag.graphdb.errors import (
+    GraphStoreConstraintViolationError,
+    GraphStoreWriteConflictError,
+)
 from agrag.ingestion._deferred import replay_deferred
 from agrag.ingestion._document_lifecycle import (
     DocumentChange,
@@ -98,7 +103,8 @@ class InPlaceRefresh:
 T = TypeVar("T")
 S = TypeVar("S")
 
-_COMMIT_ATTEMPTS = 3
+_COMMIT_RETRY_INITIAL_DELAY_SECONDS = 0.1
+_COMMIT_RETRY_MAX_DELAY_SECONDS = 2.0
 
 
 def lease_expiry_millis(expires_at: datetime) -> int:
@@ -284,25 +290,41 @@ async def _rollback(
         return False
 
 
+async def _read_job_row(graph_store: GraphStore, *, job_id: UUID) -> dict[str, Any]:
+    """Read one job's status row through the write-routed database path.
+
+    The write path sees the effects of a failed attempt that a replica
+    could still miss. Returns an empty dict when the job node is absent.
+    """
+    rows = await graph_store.execute_write(job_status_query(), {"job_id": str(job_id)})
+    return rows[0] if rows else {}
+
+
+def _applied_parts_closed(row: Mapping[str, Any], token: UUID) -> int | None:
+    """Return the recorded closed-edge count when a job row shows the commit applied.
+
+    The commit is applied when recovery moved the job to cleaning or done, or
+    when this token committed it. None means the commit is not applied.
+    """
+    if row.get("status") in {"cleaning", "done"}:
+        return int(row.get("parts_closed") or 0)
+    if row.get("status") == "committed" and row.get("lease_token") == str(token):
+        return int(row.get("parts_closed") or 0)
+    return None
+
+
 async def _commit_applied(
     *, graph_store: GraphStore, job_id: UUID, token: UUID
 ) -> int | None:
-    """Read the committed result through the write-routed database path.
+    """Return the recorded closed-edge count when the commit is applied.
 
     Returns:
         The recorded parts-closed count when this token committed the job
         or recovery has advanced it to cleaning or done. None when the job
         is absent, uncommitted, or still committed under another token.
     """
-    rows = await graph_store.execute_write(job_status_query(), {"job_id": str(job_id)})
-    if not rows:
-        return None
-    row = rows[0]
-    if row.get("status") in {"cleaning", "done"}:
-        return int(row.get("parts_closed") or 0)
-    if row.get("status") == "committed" and row.get("lease_token") == str(token):
-        return int(row.get("parts_closed") or 0)
-    return None
+    row = await _read_job_row(graph_store, job_id=job_id)
+    return _applied_parts_closed(row, token)
 
 
 async def _settle_failed_commit(
@@ -497,6 +519,75 @@ async def apply_plan_after_fold(
     return parts_closed
 
 
+async def apply_commit_steps(
+    txn: GraphStoreTransaction,
+    *,
+    plan: CommitPlan | None,
+    job_id: UUID,
+    token: UUID,
+    skip: int,
+    docs_applied: bool,
+    component_seed_ids: Sequence[UUID],
+    created_entity_ids: Sequence[UUID],
+) -> int:
+    """Run the commit steps that have not run yet, then flip the job to committed.
+
+    The live commit and crash recovery both call this, so the step order is
+    defined once. The retraction runs only with the first replay step. Running
+    it again after a replay step had already written evidence would delete
+    that evidence.
+
+    Args:
+        txn: The transaction the steps run in.
+        plan: The stored commit plan, or None for a commit with no document
+            writes. Its deferred writes are the replay steps.
+        job_id: The job to commit.
+        token: The lease token the caller holds.
+        skip: How many deferred steps already ran.
+        docs_applied: Whether the closing document writes already ran.
+        component_seed_ids: Components the cleanup rebuilds.
+        created_entity_ids: Entities the cleanup reconciles.
+
+    Returns:
+        The number of HAS_PART edges closed by the closing writes, or 0 when
+        they ran in an earlier attempt.
+
+    Raises:
+        CutoverJobLeaseError: The flip found the lease lost.
+    """
+    if plan is not None and not docs_applied:
+        if skip == 0:
+            # The retraction must precede the replay, which writes back the
+            # relations the new run finds again. It reads the MENTIONED_IN
+            # edges, so it runs before the replay can recreate them.
+            await apply_plan_before_replay(txn, plan)
+        await replay_deferred(
+            txn,
+            DeferredWrites(entries=list(plan.deferred)),
+            job_id=job_id,
+            skip=skip,
+        )
+    await fold_job_relations(txn, job_id=job_id)
+    parts_closed = 0
+    if plan is not None and not docs_applied:
+        # The close runs before the tag clear so it can tell the superseded
+        # version's edges from the ones this job just wrote.
+        parts_closed = await apply_plan_after_fold(txn, job_id=job_id, plan=plan)
+    await clear_job_tags(txn, job_id=job_id)
+    committed = await txn.execute_write(
+        commit_job_query(),
+        {
+            "job_id": str(job_id),
+            "lease_token": str(token),
+            "component_seed_ids": [str(seed_id) for seed_id in component_seed_ids],
+            "created_entity_ids": [str(entity_id) for entity_id in created_entity_ids],
+        },
+    )
+    if not committed:
+        raise CutoverJobLeaseError(f"Job {job_id} lost its lease before commit.")
+    return parts_closed
+
+
 async def _commit_pending_writes(
     *,
     job_id: UUID,
@@ -511,23 +602,28 @@ async def _commit_pending_writes(
     vector_work: VectorWork,
     in_place: InPlaceRefresh | None,
     change: DocumentChange | None,
+    lease_ttl_seconds: int,
 ) -> int:
     """Expose pending writes, close old edges and replace pending candidates.
 
     The deferred writes over committed rows run right after the flip, so a
-    replay that hits a row another job owns rolls the whole commit back.
+    replay that hits a row another job owns fails the commit.
     When ``in_place`` is set, the committed evidence of its chunk ids is
     retracted before the replay: those chunk ids leave the relations they
     evidence, relations left with no evidence are deleted, and their committed
     MENTIONED_IN edges are dropped. The refreshed chunks are then stamped with
     the new extraction fingerprint, unless it is ``None``. The job's new
     relations are folded into their canonical ids in the same transaction, and
-    the commit is retried when two jobs promote one relation at the same moment.
+    a constraint conflict with another job's commit retries the commit.
     When ``change`` is set, its activation record is written in the same
-    transaction, after the old edges are closed.
+    transaction, after the old edges are closed. A constraint or write conflict
+    retries the commit under the held lease until one lease TTL has passed
+    since the first failure.
     """
     job_arg = str(job_id)
     token_arg = str(token)
+    seed_args = [str(seed_id) for seed_id in component_seed_ids]
+    created_args = [str(entity_id) for entity_id in created_entity_ids]
     plan = CommitPlan(
         close_document_node_id=close_document_node_id,
         candidate_document_node_id=candidate_document_node_id,
@@ -540,54 +636,88 @@ async def _commit_pending_writes(
     )
     plan_json = _PLAN_ADAPTER.dump_json(plan).decode()
 
-    async def commit(txn: GraphStoreTransaction) -> int:
+    async def begin_commit(txn: GraphStoreTransaction) -> int:
         started = await txn.execute_write(
             begin_commit_query(),
-            {"job_id": job_arg, "lease_token": token_arg, "commit_plan": plan_json},
-        )
-        if not started:
-            raise CutoverJobLeaseError(f"Job {job_arg} lost its lease before commit.")
-        # The delete must precede the replay: the replay re-creates the edges
-        # the new run found again. It only matches committed edges, so the
-        # job's own new edges, still tagged, survive.
-        # Relations the new run finds again are deferred writes over committed
-        # rows. The replay writes them back, including one deleted here, and
-        # the relations it does not find stay gone. The retraction reads the
-        # MENTIONED_IN edges, so it runs before they are deleted. Recovery
-        # repeats this order from the stored plan, so a retraction is never
-        # left without its replay.
-        await apply_plan_before_replay(txn, plan)
-        await replay_deferred(txn, deferred, job_id=job_id)
-        await fold_job_relations(txn, job_id=job_id)
-        # The close runs before the tag clear so it can tell the
-        # superseded version's edges from the ones this job just
-        # wrote; both land in the same transaction as the flip.
-        parts_closed = await apply_plan_after_fold(txn, job_id=job_id, plan=plan)
-        await clear_job_tags(txn, job_id=job_id)
-        committed = await txn.execute_write(
-            commit_job_query(),
             {
                 "job_id": job_arg,
                 "lease_token": token_arg,
-                "component_seed_ids": [str(seed_id) for seed_id in component_seed_ids],
-                "created_entity_ids": [
-                    str(entity_id) for entity_id in created_entity_ids
-                ],
+                "commit_plan": plan_json,
+                "component_seed_ids": seed_args,
+                "created_entity_ids": created_args,
             },
         )
-        if not committed:
+        if not started:
             raise CutoverJobLeaseError(f"Job {job_arg} lost its lease before commit.")
-        return parts_closed
+        return await apply_commit_steps(
+            txn,
+            plan=plan,
+            job_id=job_id,
+            token=token,
+            skip=0,
+            docs_applied=False,
+            component_seed_ids=component_seed_ids,
+            created_entity_ids=created_entity_ids,
+        )
+
+    # A started commit keeps the steps it recorded as done, so the retry resumes
+    # after them instead of running the whole commit again.
+    def resume_commit(
+        row: Mapping[str, Any],
+    ) -> Callable[[GraphStoreTransaction], Awaitable[int]]:
+        skip = int(row.get("commit_replayed") or 0)
+        docs_applied = bool(row.get("commit_docs_applied"))
+        recorded_parts_closed = int(row.get("parts_closed") or 0)
+
+        async def finish_commit(txn: GraphStoreTransaction) -> int:
+            fenced = await txn.execute_write(
+                resume_commit_fence_query(),
+                {"job_id": job_arg, "lease_token": token_arg},
+            )
+            if not fenced:
+                raise CutoverJobLeaseError(
+                    f"Job {job_arg} lost its lease before commit."
+                )
+            parts_closed = await apply_commit_steps(
+                txn,
+                plan=plan,
+                job_id=job_id,
+                token=token,
+                skip=skip,
+                docs_applied=docs_applied,
+                component_seed_ids=component_seed_ids,
+                created_entity_ids=created_entity_ids,
+            )
+            return recorded_parts_closed if docs_applied else parts_closed
+
+        return finish_commit
 
     # Two jobs that commit the same new relation at once both try to give it
-    # the canonical id. The loser's transaction fails on the id constraint and
-    # rolls back whole, so a second attempt finds the winner's edge and folds.
-    for _ in range(_COMMIT_ATTEMPTS - 1):
+    # the canonical id, and the loser fails on the id constraint. A write
+    # conflict with another job's row fails the same way. Neo4j rolls the
+    # attempt back. FalkorDB keeps the statements that ran, so the retry
+    # resumes a started commit instead of running its steps again. The lease
+    # is held throughout, so the retries wait for the other job to finish.
+    attempt: Callable[[GraphStoreTransaction], Awaitable[int]] = begin_commit
+    first_failure_at: float | None = None
+    delay = _COMMIT_RETRY_INITIAL_DELAY_SECONDS
+    while True:
         try:
-            return await graph_store.run_in_transaction(commit)
-        except GraphStoreConstraintViolationError:
-            continue
-    return await graph_store.run_in_transaction(commit)
+            return await graph_store.run_in_transaction(attempt)
+        except (GraphStoreConstraintViolationError, GraphStoreWriteConflictError):
+            now = time.monotonic()
+            if first_failure_at is None:
+                first_failure_at = now
+            remaining = lease_ttl_seconds - (now - first_failure_at)
+            if remaining <= 0:
+                raise
+        await asyncio.sleep(min(delay, remaining))
+        delay = min(delay * 2, _COMMIT_RETRY_MAX_DELAY_SECONDS)
+        row = await _read_job_row(graph_store, job_id=job_id)
+        applied = _applied_parts_closed(row, token)
+        if applied is not None:
+            return applied
+        attempt = resume_commit(row) if row.get("commit_started") else begin_commit
 
 
 async def _build_vector_work(
@@ -715,6 +845,7 @@ async def run_cutover_job(
                 change=change,
                 stop_renewal=stop_renewal,
                 renewal_stopped=renewal_stopped,
+                lease_ttl_seconds=settings.lease_ttl_seconds,
             )
         )
         try:
@@ -756,6 +887,7 @@ async def _run_leased(
     change: DocumentChange | None,
     stop_renewal: asyncio.Event,
     renewal_stopped: asyncio.Event,
+    lease_ttl_seconds: int,
 ) -> tuple[T, S, int]:
     """Run the pending, commit, and cleanup phases under a held lease."""
     try:
@@ -794,6 +926,7 @@ async def _run_leased(
             vector_work=vector_work,
             in_place=in_place,
             change=change,
+            lease_ttl_seconds=lease_ttl_seconds,
         )
     )
     try:
