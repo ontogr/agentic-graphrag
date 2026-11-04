@@ -1,7 +1,6 @@
 """Weaviate collections with self-provided vectors and native BM25 fusion."""
 
 import asyncio
-import heapq
 import json
 import logging
 from collections.abc import AsyncIterator, Sequence
@@ -444,10 +443,10 @@ class WeaviateVectorStore(VectorStore):
         after: UUID | None = None,
         limit: int = 1000,
     ) -> list[UUID]:
-        """Return ascending IDs strictly after the cursor, independent of scan order.
+        """Return ascending IDs strictly after the cursor.
 
-        Scans all UUIDs with the server cursor and retains only the smallest
-        requested page. Memory is bounded by the page size for all collections.
+        Weaviate cursors walk objects in ascending UUID order, so the server
+        cursor starts at ``after`` and each call reads about ``limit`` objects.
         """
         if limit < 0:
             raise ValueError("limit must be nonnegative")
@@ -459,24 +458,19 @@ class WeaviateVectorStore(VectorStore):
             if not await client.collections.exists(name):
                 return []
             collection = client.collections.use(name)
-            cursor = None
-            smallest: list[int] = []
-            while True:
+            cursor = str(after) if after is not None else None
+            collected: list[UUID] = []
+            while len(collected) < limit:
                 response = await collection.query.fetch_objects(
-                    limit=1000,
+                    limit=min(1000, limit - len(collected)),
                     after=cursor,
                     return_properties=[],
                 )
                 if not response.objects:
                     break
-                for obj in response.objects:
-                    id_ = UUID(str(obj.uuid))
-                    if after is None or id_ > after:
-                        heapq.heappush(smallest, -id_.int)
-                        if len(smallest) > limit:
-                            heapq.heappop(smallest)
-                cursor = response.objects[-1].uuid
-            return [UUID(int=-value) for value in sorted(smallest, reverse=True)]
+                collected.extend(UUID(str(obj.uuid)) for obj in response.objects)
+                cursor = str(response.objects[-1].uuid)
+            return collected
 
     async def _collection_metadata(
         self, kind: VectorKind
