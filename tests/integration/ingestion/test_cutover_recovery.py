@@ -32,6 +32,7 @@ from agrag.graphdb.errors import (
 )
 from agrag.ingestion._cutover import CommitPlan, apply_plan_after_fold, run_cutover_job
 from agrag.ingestion._document_lifecycle import DocumentChange
+from agrag.ingestion._pending_rows import clear_job_tags
 from agrag.ingestion._resume import resume_incomplete_jobs
 from agrag.ingestion.settings import CutoverJobSettings
 from tests.integration._backend import build_test_store, selected_backend
@@ -567,10 +568,11 @@ class TestCutoverRecovery:
             )
             await store.close()
 
+    @pytest.mark.parametrize("injection", ["before_record", "before_clear"])
     async def test_closing_writes_do_not_repeat_when_commit_retries(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, injection: str
     ) -> None:
-        """A retry after the closing writes keeps the sequence, epoch and count."""
+        """A retried commit keeps the sequence, epoch and count."""
         store = build_test_store()
         await store.connect()
         probe = uuid4().hex
@@ -587,6 +589,15 @@ class TestCutoverRecovery:
             failed = True
             guarded = _FailBefore(txn, record_parts_closed_query())
             return await real_apply(guarded, job_id=job_id, plan=plan)
+
+        async def fail_before_tags_clear(
+            txn: GraphStoreTransaction, *, job_id: UUID
+        ) -> None:
+            nonlocal failed
+            if not failed:
+                failed = True
+                raise GraphStoreConstraintViolationError("injected before tag clear")
+            await clear_job_tags(txn, job_id=job_id)
 
         async def pending(job_id: UUID) -> str:
             return "pending"
@@ -618,10 +629,15 @@ class TestCutoverRecovery:
                 "review_epoch: 0, probe: $probe})",
                 {"document": str(document), "chunk": str(uuid4()), "probe": probe},
             )
-            monkeypatch.setattr(
-                "agrag.ingestion._cutover.apply_plan_after_fold",
-                fail_before_docs_recorded,
-            )
+            if injection == "before_record":
+                monkeypatch.setattr(
+                    "agrag.ingestion._cutover.apply_plan_after_fold",
+                    fail_before_docs_recorded,
+                )
+            else:
+                monkeypatch.setattr(
+                    "agrag.ingestion._cutover.clear_job_tags", fail_before_tags_clear
+                )
 
             result = await run_cutover_job(
                 verb="update",
