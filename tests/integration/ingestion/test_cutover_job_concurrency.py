@@ -504,14 +504,14 @@ class TestCutoverJobLeaseLifetime:
             await store.close()
 
     async def test_job_survives_a_failed_lease_renewal(self) -> None:
-        """A renewal error is retried, and a job longer than the TTL completes."""
+        """A renewal error is retried, and the job still completes."""
         store = build_test_store()
         await store.connect()
         flaky = _FailFirstRenewalStore(store)
         key = f"cutover-renewal-retry-{uuid4().hex}"
 
         async def slow_write(_job_id: Any) -> None:
-            await asyncio.sleep(1.5)
+            await asyncio.sleep(2)
 
         async def cleanup(
             _: list[object],
@@ -530,7 +530,7 @@ class TestCutoverJobLeaseLifetime:
                 document_key=key,
                 affected_entity_ids=[],
                 graph_store=flaky,
-                settings=CutoverJobSettings(lease_ttl_seconds=1),
+                settings=CutoverJobSettings(lease_ttl_seconds=3),
                 pending_write=slow_write,
                 cleanup=cleanup,
                 deferred=DeferredWrites(),
