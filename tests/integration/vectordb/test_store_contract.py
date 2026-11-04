@@ -245,6 +245,30 @@ class TestVectorStoreContract:
         await vector_store.delete_collection(VectorKind.CHUNK)
         assert await vector_store.collection_info(VectorKind.CHUNK) is None
 
+    async def test_keyset_pages_list_every_id_once_in_ascending_uuid_order(
+        self, vector_store
+    ) -> None:
+        """Pages of 500 walk every stored id once, sorted by UUID string."""
+        await vector_store.ensure_collection(
+            VectorKind.CHUNK, dimensions=2, distance=Distance.COSINE
+        )
+        ids = [uuid4() for _ in range(2000)]
+        await vector_store.upsert(
+            VectorKind.CHUNK,
+            [_record([1.0, 0.0], record_id=record_id) for record_id in ids],
+        )
+
+        listed: list[UUID] = []
+        after: UUID | None = None
+        while True:
+            page = await vector_store.list_ids(VectorKind.CHUNK, after=after, limit=500)
+            if not page:
+                break
+            listed.extend(page)
+            after = page[-1]
+
+        assert listed == sorted(ids, key=str)
+
     async def test_missing_collection_reads_and_deletes_are_empty(
         self, vector_store
     ) -> None:
