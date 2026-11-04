@@ -602,8 +602,10 @@ async def apply_merge(
         schema: The schema the survivor's label belongs to. Its hierarchy
             decides the ancestor labels the node is stored with.
         pending_job_id: The in-flight Cutover Job's id, tagging the
-            survivor node and its aliases until that job commits. None
-            writes untagged, for callers outside a job.
+            survivor node and its aliases until that job commits. It also
+            fences the alias and survivor writes, so they run only while the
+            job is pending with a live lease. None writes untagged and
+            unfenced, for callers outside a job.
         deferred: Receives the survivor write when it reaches a committed
             entity. Required when ``pending_job_id`` is set.
 
@@ -613,6 +615,8 @@ async def apply_merge(
             by a live entity outside this merge's own survivor id -- a
             concurrent writer accepted that name as an alias of, or
             created it as the canonical name of, a different entity.
+        GraphStoreFenceError: ``pending_job_id`` is set and the job is no
+            longer pending with a live lease.
     """
     from agrag.common.data_models.graph_record import NodeRecord  # noqa: PLC0415
     from agrag.cypher.entities import (  # noqa: PLC0415
