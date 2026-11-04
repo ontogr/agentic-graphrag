@@ -16,6 +16,7 @@ from agrag.common.data_models.vector_record import (
 from agrag.cypher.entities import NODE_IDENTITY_LABEL
 from agrag.embedding.base import Embedder
 from agrag.graphdb.base import GraphStore, GraphStoreTransaction
+from agrag.graphdb.errors import GraphStoreFenceError
 from agrag.ingestion._deferred import replay_deferred
 from agrag.ingestion.vector_sync import VectorSync
 from tests.integration._backend import build_test_store
@@ -321,6 +322,58 @@ class TestVectorSync:
             assert after_commit[0].score == 1.0
         finally:
             await _remove_entity(graph_store, entity_id)
+            await graph_store.execute_write(
+                "MATCH (job:CutoverJob {document_key: $key}) DELETE job",
+                {"key": job_key},
+            )
+            await vector_store.close()
+            await graph_store.close()
+
+    async def test_job_that_lost_its_lease_writes_no_owned_vector(self) -> None:
+        """A job claimed by recovery stores no vector for the rows it still tags.
+
+        The claim leaves the job's tagged node in place until the rollback, so
+        the ownership check alone would still let the vector through.
+        """
+        graph_store = build_test_store()
+        vector_store = FakeVectorStore(collection_prefix=uuid4().hex[:8])
+        entity = _entity(uuid4(), "original description")
+        job_key = f"vector-sync-lost-{entity.id}"
+        sync = VectorSync(
+            store=vector_store,
+            embedder=_DescriptionEmbedder(),
+            graph_store=graph_store,
+        )
+        await graph_store.connect()
+        try:
+            await vector_store.ensure_collection(
+                VectorKind.ENTITY,
+                dimensions=2,
+                distance=Distance.COSINE,
+            )
+            job_id = await create_live_job(graph_store, job_key)
+            await graph_store.upsert_nodes(
+                _ENTITY_LABEL,
+                [entity.to_node_record()],
+                pending_job_id=job_id,
+                deferred=DeferredWrites(),
+            )
+            await graph_store.execute_write(
+                "MATCH (job:CutoverJob {id: $id}) SET job.status = 'rolling_back'",
+                {"id": str(job_id)},
+            )
+
+            with pytest.raises(GraphStoreFenceError):
+                await sync.upsert_owned(
+                    VectorKind.ENTITY,
+                    [_vector_item(entity)],
+                    job_id=job_id,
+                    deferred=DeferredWrites(),
+                )
+
+            assert await vector_store.list_ids(VectorKind.ENTITY) == []
+        finally:
+            await _remove_entity(graph_store, entity.id)
             await graph_store.execute_write(
                 "MATCH (job:CutoverJob {document_key: $key}) DELETE job",
                 {"key": job_key},
