@@ -16,6 +16,7 @@ An exclusive vector index on Qdrant 1.17 or newer.
 BM25 inference runs locally through FastEmbed, not Qdrant Cloud. Hybrid
 queries use weighted reciprocal rank fusion. Dense scores have graph-native
 scale; hybrid scores are ranks only. Searches accept at most 16384 results.
+Use and close each store instance on the event loop that initializes it.
 
 **Parameters:**
 
@@ -24,7 +25,7 @@ scale; hybrid scores are ranks only. Searches accept at most 16384 results.
 
 **Functions:**
 
-- [**close**](#agrag-vectordb-qdrant-QdrantVectorStore-close) – Release connections; a later initialize can reconnect.
+- [**close**](#agrag-vectordb-qdrant-QdrantVectorStore-close) – Release connections; reinitialize on the same loop to reconnect.
 - [**collection_info**](#agrag-vectordb-qdrant-QdrantVectorStore-collection_info) – Return count and dense configuration, or None when absent.
 - [**collection_name**](#agrag-vectordb-qdrant-QdrantVectorStore-collection_name) – Return the prefixed collection name for a kind.
 - [**delete**](#agrag-vectordb-qdrant-QdrantVectorStore-delete) – Delete in batches of 256 and wait for the changes to become visible.
@@ -48,7 +49,7 @@ scale; hybrid scores are ranks only. Searches accept at most 16384 results.
 close() -> None
 ```
 
-Release connections; a later initialize can reconnect.
+Release connections; reinitialize on the same loop to reconnect.
 
 ## `collection_info` \{#agrag-vectordb-qdrant-QdrantVectorStore-collection_info}
 

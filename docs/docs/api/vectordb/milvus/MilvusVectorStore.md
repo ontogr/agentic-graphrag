@@ -16,10 +16,11 @@ Store UUID-keyed vectors with server-generated BM25 sparse vectors.
 Dense scores match graph-native cosine and Euclidean scores. Hybrid scores
 use Milvus's normalized weighted ranking; alpha endpoints use a single search
 path so a zero-weight path cannot add hits. All reads use Strong consistency.
+Use and close each store instance on the event loop that initializes it.
 
 **Functions:**
 
-- [**close**](#agrag-vectordb-milvus-MilvusVectorStore-close) – Release the connection; a later initialize reconnects.
+- [**close**](#agrag-vectordb-milvus-MilvusVectorStore-close) – Release the connection; reinitialize on the same loop to reconnect.
 - [**collection_info**](#agrag-vectordb-milvus-MilvusVectorStore-collection_info) – Return schema metadata and the record count, or None when absent.
 - [**collection_name**](#agrag-vectordb-milvus-MilvusVectorStore-collection_name) – Return the prefixed collection name for a kind.
 - [**delete**](#agrag-vectordb-milvus-MilvusVectorStore-delete) – Delete in batches, ignoring absent IDs and collections.
@@ -44,7 +45,7 @@ path so a zero-weight path cannot add hits. All reads use Strong consistency.
 close() -> None
 ```
 
-Release the connection; a later initialize reconnects.
+Release the connection; reinitialize on the same loop to reconnect.
 
 ## `collection_info` \{#agrag-vectordb-milvus-MilvusVectorStore-collection_info}
 

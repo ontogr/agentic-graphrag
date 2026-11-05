@@ -6,12 +6,14 @@ from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, ClassVar
 from urllib.parse import urlsplit
 from uuid import UUID
+from weakref import WeakKeyDictionary
 
 from opentelemetry.trace import SpanKind, Tracer
 from opentelemetry.util.types import AttributeValue
 from pydantic import SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from agrag.common._asyncio_locks import _get_loop_lock, _LoopLockRegistry
 from agrag.common.data_models.vector_record import (
     CollectionInfo,
     Distance,
@@ -38,7 +40,7 @@ if TYPE_CHECKING:
     from qdrant_client import AsyncQdrantClient, models
 
 
-_COLLECTION_LOCKS: dict[tuple[str, str], asyncio.Lock] = {}
+_COLLECTION_LOCKS: _LoopLockRegistry = WeakKeyDictionary()
 
 
 def _batch_attributes(size: int) -> dict[str, AttributeValue]:
@@ -101,6 +103,7 @@ class QdrantVectorStore(VectorStore):
     BM25 inference runs locally through FastEmbed, not Qdrant Cloud. Hybrid
     queries use weighted reciprocal rank fusion. Dense scores have graph-native
     scale; hybrid scores are ranks only. Searches accept at most 16384 results.
+    Use and close each store instance on the event loop that initializes it.
 
     Args:
         settings: Connection settings and the required per-graph prefix.
@@ -122,6 +125,7 @@ class QdrantVectorStore(VectorStore):
 
     async def initialize(self) -> None:
         """Connect once, authenticate and check that the server is reachable."""
+        self._check_event_loop(bind=True)
         async with self._client_lock:
             if self._client is not None:
                 return
@@ -149,7 +153,9 @@ class QdrantVectorStore(VectorStore):
             self._client = client
 
     async def close(self) -> None:
-        """Release connections; a later initialize can reconnect."""
+        """Release connections; reinitialize on the same loop to reconnect."""
+        if not self._check_event_loop():
+            return
         async with self._client_lock:
             if self._client is not None:
                 async with self._errors("close"):
@@ -168,7 +174,7 @@ class QdrantVectorStore(VectorStore):
         from qdrant_client import models  # noqa: PLC0415
 
         name = self.collection_name(kind)
-        lock = _COLLECTION_LOCKS.setdefault((self._settings.url, name), asyncio.Lock())
+        lock = _get_loop_lock(_COLLECTION_LOCKS, (self._settings.url, name))
         async with lock, self._errors("ensure_collection", kind=kind):
             if not await client.collection_exists(name):
                 try:

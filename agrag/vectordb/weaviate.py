@@ -8,11 +8,13 @@ from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Any, ClassVar, Literal
 from urllib.parse import urlparse
 from uuid import UUID
+from weakref import WeakKeyDictionary
 
 from opentelemetry.trace import SpanKind, Tracer
 from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from agrag.common._asyncio_locks import _get_loop_lock, _LoopLockRegistry
 from agrag.common.data_models.vector_record import (
     CollectionInfo,
     Distance,
@@ -39,7 +41,7 @@ if TYPE_CHECKING:
 
 
 _METRICS = {Distance.COSINE: "cosine", Distance.EUCLID: "l2-squared"}
-_COLLECTION_LOCKS: dict[tuple[str, str], asyncio.Lock] = {}
+_COLLECTION_LOCKS: _LoopLockRegistry = WeakKeyDictionary()
 _DESCRIPTION_PREFIX = "agrag-vector-v1:"
 _logger = logging.getLogger(__name__)
 
@@ -110,7 +112,8 @@ class WeaviateVectorStore(VectorStore):
     Changing that description outside this adapter invalidates the collection.
     Dense scores use the graph-native scale. Hybrid scores are rank-only.
     Server-side asynchronous indexing must be disabled for read-after-write
-    consistency. Each collection belongs to exactly one graph.
+    consistency. Each collection belongs to exactly one graph. Use and close
+    each store instance on the event loop that initializes it.
     """
 
     name: ClassVar[str] = "weaviate"
@@ -145,6 +148,8 @@ class WeaviateVectorStore(VectorStore):
         The caller owns request lifetimes and must await active operations
         before closing the store. Repeated calls are harmless.
         """
+        if not self._check_event_loop():
+            return
         async with self._connect_lock:
             if self._client is not None:
                 client, self._client = self._client, None
@@ -180,9 +185,10 @@ class WeaviateVectorStore(VectorStore):
             Tokenization,
             VectorDistances,
         )
+        from weaviate.exceptions import UnexpectedStatusCodeError  # noqa: PLC0415
 
         name = self.collection_name(kind)
-        lock = _COLLECTION_LOCKS.setdefault((self._settings.url, name), asyncio.Lock())
+        lock = _get_loop_lock(_COLLECTION_LOCKS, (self._settings.url, name))
         async with lock, self._operation("ensure_collection", kind):
             if not await client.collections.exists(name):
                 description = _DESCRIPTION_PREFIX + json.dumps(
@@ -191,25 +197,34 @@ class WeaviateVectorStore(VectorStore):
                         "prefix": self.collection_prefix,
                     }
                 )
-                await client.collections.create(
-                    name=name,
-                    description=description,
-                    vector_config=Configure.Vectors.self_provided(
-                        name="vector",
-                        vector_index_config=Configure.VectorIndex.hnsw(
-                            distance_metric=VectorDistances(_METRICS[distance]),
+                try:
+                    await client.collections.create(
+                        name=name,
+                        description=description,
+                        vector_config=Configure.Vectors.self_provided(
+                            name="vector",
+                            vector_index_config=Configure.VectorIndex.hnsw(
+                                distance_metric=VectorDistances(_METRICS[distance]),
+                            ),
                         ),
-                    ),
-                    properties=[
-                        Property(
-                            name="labels",
-                            data_type=DataType.TEXT_ARRAY,
-                            tokenization=Tokenization.FIELD,
-                            index_searchable=False,
-                        ),
-                        Property(name="text", data_type=DataType.TEXT),
-                    ],
-                )
+                        properties=[
+                            Property(
+                                name="labels",
+                                data_type=DataType.TEXT_ARRAY,
+                                tokenization=Tokenization.FIELD,
+                                index_searchable=False,
+                            ),
+                            Property(name="text", data_type=DataType.TEXT),
+                        ],
+                    )
+                except UnexpectedStatusCodeError as error:
+                    duplicate_message = "class already exists"
+                    if (
+                        error.status_code != 422
+                        or duplicate_message not in str(error.error).lower()
+                        or not await client.collections.exists(name)
+                    ):
+                        raise
             info = await self.collection_info(kind, exact_count=False)
             if info is None or (info.dimensions, info.distance) != (
                 dimensions,
@@ -506,6 +521,7 @@ class WeaviateVectorStore(VectorStore):
 
     async def _connected_client(self) -> "WeaviateAsyncClient":
         """Import the optional SDK lazily and serialize connection creation."""
+        self._check_event_loop(bind=True)
         async with self._connect_lock:
             if self._client is not None:
                 return self._client

@@ -478,7 +478,7 @@ class TestConcurrentAdds:
             conflict_seen.set()
             return await check_owner(*args, **kwargs)
 
-        _hold_first_claimant_commit(monkeypatch, owner_may_commit)
+        owner_claimed = _hold_first_claimant_commit(monkeypatch, owner_may_commit)
         monkeypatch.setattr(_ingest, "_any_job_pending", note_conflict)
         third_text = "thirdwriter text. " * 40
 
@@ -489,9 +489,15 @@ class TestConcurrentAdds:
             finally:
                 owner_may_commit.set()
 
-        owner = graph.add(documents=[_document(owner_key, "firstdoc alpha. " * 40)])
-        loser = graph.add(documents=[_document(loser_key, "seconddoc beta. " * 40)])
+        owner = asyncio.create_task(
+            graph.add(documents=[_document(owner_key, "firstdoc alpha. " * 40)])
+        )
+        loser: asyncio.Task[Any] | None = None
         try:
+            await asyncio.wait_for(owner_claimed.wait(), timeout=120)
+            loser = asyncio.create_task(
+                graph.add(documents=[_document(loser_key, "seconddoc beta. " * 40)])
+            )
             outcomes = await asyncio.gather(
                 owner, loser, write_third_version(), return_exceptions=True
             )
@@ -510,6 +516,10 @@ class TestConcurrentAdds:
             assert len(entities) == 1
         finally:
             owner_may_commit.set()
+            if loser is None:
+                await asyncio.gather(owner, return_exceptions=True)
+            else:
+                await asyncio.gather(owner, loser, return_exceptions=True)
             await _delete_run(store, keys=[owner_key, loser_key], name=name)
 
     @staticmethod

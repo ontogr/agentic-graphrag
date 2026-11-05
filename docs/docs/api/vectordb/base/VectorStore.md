@@ -15,6 +15,7 @@ deletes of missing collections return empty results. Dense scores use
 rank-only, with alpha one selecting dense order and zero lexical order.
 Lexical-only search omits records that do not match the query text.
 Labels filter by any overlap. Search limits above max_results are rejected.
+Client-backed stores bind to the loop that first initializes them.
 
 **Functions:**
 

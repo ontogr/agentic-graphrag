@@ -17,7 +17,8 @@ Collections persist dimensions in their description, including when empty.
 Changing that description outside this adapter invalidates the collection.
 Dense scores use the graph-native scale. Hybrid scores are rank-only.
 Server-side asynchronous indexing must be disabled for read-after-write
-consistency. Each collection belongs to exactly one graph.
+consistency. Each collection belongs to exactly one graph. Use and close
+each store instance on the event loop that initializes it.
 
 **Functions:**
 
