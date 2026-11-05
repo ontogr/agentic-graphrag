@@ -218,7 +218,7 @@ class WeaviateVectorStore(VectorStore):
                         ],
                     )
                 except UnexpectedStatusCodeError as error:
-                    duplicate_message = f"class name {name} already exists".lower()
+                    duplicate_message = "class already exists"
                     if (
                         error.status_code != 422
                         or duplicate_message not in str(error.error).lower()

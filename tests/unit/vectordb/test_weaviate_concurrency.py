@@ -77,7 +77,7 @@ class _FakeCollections:
             if self._state.exists:
                 raise _UnexpectedStatusCodeError(
                     422,
-                    {"error": [{"message": f"class name {name} already exists"}]},
+                    {"error": [{"message": "class already exists"}]},
                 )
             self._state.exists = True
             self._state.description = description
