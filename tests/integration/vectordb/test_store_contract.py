@@ -4,6 +4,7 @@ import asyncio
 import json
 import threading
 from collections.abc import AsyncIterator, Iterator
+from concurrent.futures import ThreadPoolExecutor
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from uuid import UUID, uuid4
 
@@ -51,21 +52,24 @@ class TestVectorStoreContract:
     """Exercise all storage, ranking, filtering, and missing-data guarantees."""
 
     @pytest.mark.parametrize("store_name", selected_vector_stores())
-    def test_collection_setup_lock_is_reused_only_within_its_event_loop(
+    def test_collection_setup_handles_overlapping_event_loops(
         self, store_name: str
     ) -> None:
-        """Concurrent setup works across loops for the same collection key."""
-        collection_prefix = f"contract_{uuid4().hex}"
+        """Adapter instances set up one shared collection from separate loops."""
+        if store_name == "fake":
+            pytest.skip("The in-memory store does not exercise adapter locking")
 
-        async def ensure_collection() -> None:
+        collection_prefix = f"contract_{uuid4().hex}"
+        start = threading.Barrier(2)
+
+        async def ensure_collection() -> list[tuple[int, Distance] | None]:
             stores = [
                 build_vector_store(store_name, collection_prefix=collection_prefix)
                 for _ in range(2)
             ]
-            initialized = False
             try:
                 await asyncio.gather(*(store.initialize() for store in stores))
-                initialized = True
+                start.wait(timeout=10)
                 await asyncio.gather(
                     *(
                         store.ensure_collection(
@@ -76,26 +80,38 @@ class TestVectorStoreContract:
                         for store in stores
                     )
                 )
-                infos = await asyncio.gather(
-                    *(
-                        store.collection_info(VectorKind.ENTITY, exact_count=False)
-                        for store in stores
+                return [
+                    None if info is None else (info.dimensions, info.distance)
+                    for info in await asyncio.gather(
+                        *(
+                            store.collection_info(VectorKind.ENTITY, exact_count=False)
+                            for store in stores
+                        )
                     )
-                )
-                assert all(
-                    info is not None
-                    and (info.dimensions, info.distance) == (2, Distance.COSINE)
-                    for info in infos
-                )
+                ]
             finally:
-                try:
-                    if initialized:
-                        await stores[0].delete_collection(VectorKind.ENTITY)
-                finally:
-                    await asyncio.gather(*(store.close() for store in stores))
+                await asyncio.gather(*(store.close() for store in stores))
 
-        asyncio.run(ensure_collection())
-        asyncio.run(ensure_collection())
+        def run() -> list[tuple[int, Distance] | None]:
+            return asyncio.run(ensure_collection())
+
+        async def cleanup() -> None:
+            store = build_vector_store(store_name, collection_prefix=collection_prefix)
+            await store.initialize()
+            try:
+                await store.delete_collection(VectorKind.ENTITY)
+            finally:
+                await store.close()
+
+        try:
+            with ThreadPoolExecutor(max_workers=2) as executor:
+                futures = [executor.submit(run) for _ in range(2)]
+                infos = [future.result(timeout=60) for future in futures]
+            assert all(
+                info == [(2, Distance.COSINE), (2, Distance.COSINE)] for info in infos
+            )
+        finally:
+            asyncio.run(cleanup())
 
     async def test_collection_shape_is_fixed_after_creation(self, vector_store) -> None:
         """Collections are created once and reject dimension or metric changes."""

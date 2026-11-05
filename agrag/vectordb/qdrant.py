@@ -103,6 +103,7 @@ class QdrantVectorStore(VectorStore):
     BM25 inference runs locally through FastEmbed, not Qdrant Cloud. Hybrid
     queries use weighted reciprocal rank fusion. Dense scores have graph-native
     scale; hybrid scores are ranks only. Searches accept at most 16384 results.
+    Use and close each store instance on the event loop that initializes it.
 
     Args:
         settings: Connection settings and the required per-graph prefix.
@@ -124,6 +125,7 @@ class QdrantVectorStore(VectorStore):
 
     async def initialize(self) -> None:
         """Connect once, authenticate and check that the server is reachable."""
+        self._check_event_loop(bind=True)
         async with self._client_lock:
             if self._client is not None:
                 return
@@ -152,6 +154,8 @@ class QdrantVectorStore(VectorStore):
 
     async def close(self) -> None:
         """Release connections; a later initialize can reconnect."""
+        if not self._check_event_loop():
+            return
         async with self._client_lock:
             if self._client is not None:
                 async with self._errors("close"):

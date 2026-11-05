@@ -1,10 +1,13 @@
 """The asynchronous contract for an exclusive external vector index."""
 
+import asyncio
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
+from threading import Lock
 from types import TracebackType
 from typing import ClassVar, Self
 from uuid import UUID
+from weakref import WeakKeyDictionary
 
 from agrag.common.data_models.vector_record import (
     CollectionInfo,
@@ -13,6 +16,11 @@ from agrag.common.data_models.vector_record import (
     VectorKind,
     VectorRecord,
 )
+from agrag.vectordb.errors import VectorStoreError
+
+
+_STORE_LOOPS: WeakKeyDictionary[object, asyncio.AbstractEventLoop] = WeakKeyDictionary()
+_STORE_LOOPS_GUARD = Lock()
 
 
 class VectorStore(ABC):
@@ -24,11 +32,27 @@ class VectorStore(ABC):
     rank-only, with alpha one selecting dense order and zero lexical order.
     Lexical-only search omits records that do not match the query text.
     Labels filter by any overlap. Search limits above max_results are rejected.
+    Client-backed stores bind to the loop that first initializes them.
     """
 
     name: ClassVar[str]
     collection_prefix: str
     max_results: int
+
+    def _check_event_loop(self, *, bind: bool = False) -> bool:
+        """Bind or check the event loop that owns this store instance."""
+        loop = asyncio.get_running_loop()
+        with _STORE_LOOPS_GUARD:
+            owner_loop = _STORE_LOOPS.get(self)
+            if owner_loop is None:
+                if bind:
+                    _STORE_LOOPS[self] = loop
+                return bind
+            if owner_loop is not loop:
+                raise VectorStoreError(
+                    "Vector store instances must stay on their initializing event loop"
+                )
+            return True
 
     @abstractmethod
     async def initialize(self) -> None:

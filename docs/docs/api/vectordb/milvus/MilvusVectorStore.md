@@ -16,6 +16,7 @@ Store UUID-keyed vectors with server-generated BM25 sparse vectors.
 Dense scores match graph-native cosine and Euclidean scores. Hybrid scores
 use Milvus's normalized weighted ranking; alpha endpoints use a single search
 path so a zero-weight path cannot add hits. All reads use Strong consistency.
+Use and close each store instance on the event loop that initializes it.
 
 **Functions:**
 

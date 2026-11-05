@@ -4,6 +4,7 @@ import asyncio
 import importlib.util
 import logging
 from collections.abc import Awaitable, Callable, Sequence
+from concurrent.futures import Future
 from threading import Lock
 from typing import Any, cast
 
@@ -20,8 +21,8 @@ Reranker = Callable[[str, Sequence[str]], Awaitable[Sequence[float]]]
 MAX_PASSAGE_CHARS = 2000
 
 _MODEL_CACHE: dict[str, Any] = {}
-_MODEL_LOAD_LOCKS: dict[str, Lock] = {}
-_MODEL_LOAD_LOCKS_GUARD = Lock()
+_MODEL_LOADS: dict[str, Future[Any]] = {}
+_MODEL_LOADS_GUARD = Lock()
 
 
 def _build_cross_encoder(model: str) -> Any:
@@ -34,30 +35,29 @@ def _build_cross_encoder(model: str) -> Any:
     return CrossEncoder(model)
 
 
-def _cached_cross_encoder(model: str) -> Any:
-    """Return one cached model instance, loading it once across event loops."""
-    with _MODEL_LOAD_LOCKS_GUARD:
-        lock = _MODEL_LOAD_LOCKS.get(model)
-        if lock is None:
-            lock = Lock()
-            _MODEL_LOAD_LOCKS[model] = lock
+def _finish_cross_encoder_load(model: str, load: Future[Any]) -> None:
+    """Build a model and publish its result to callers on any event loop."""
+    try:
+        instance = _build_cross_encoder(model)
+    except BaseException as error:
+        with _MODEL_LOADS_GUARD:
+            if _MODEL_LOADS.get(model) is load:
+                del _MODEL_LOADS[model]
+        load.set_exception(error)
+        return
 
-    with lock:
-        if model not in _MODEL_CACHE:
-            _MODEL_CACHE[model] = _build_cross_encoder(model)
-        return _MODEL_CACHE[model]
+    with _MODEL_LOADS_GUARD:
+        _MODEL_CACHE[model] = instance
+        _MODEL_LOADS.pop(model, None)
+    load.set_result(instance)
 
 
 async def _load_cross_encoder(model: str) -> Any:
     """Return a cached CrossEncoder instance, loading it once per model name.
 
-    Construction runs via ``asyncio.to_thread`` because it can do real
-    filesystem or network work (downloading weights) that would otherwise
-    block the event loop on a cache miss. Concurrent first loads of the same
-    model share one construction behind a per-model thread lock, even when
-    callers use different event loops. Instances are cached per name so
-    switching models does not evict whatever was already loaded for a
-    different name.
+    Construction runs in the default executor because it can download model
+    weights. Callers share one thread-safe future per model, so waiters do not
+    occupy executor threads. Instances are cached per name across event loops.
 
     Args:
         model: The sentence-transformers CrossEncoder model name/path.
@@ -65,7 +65,22 @@ async def _load_cross_encoder(model: str) -> Any:
     Returns:
         The cached CrossEncoder instance for the model name.
     """
-    return await asyncio.to_thread(_cached_cross_encoder, model)
+    with _MODEL_LOADS_GUARD:
+        if model in _MODEL_CACHE:
+            return _MODEL_CACHE[model]
+        load = _MODEL_LOADS.get(model)
+        if load is None:
+            load = Future()
+            _MODEL_LOADS[model] = load
+            try:
+                asyncio.get_running_loop().run_in_executor(
+                    None, _finish_cross_encoder_load, model, load
+                )
+            except BaseException as error:
+                del _MODEL_LOADS[model]
+                load.set_exception(error)
+                raise
+    return await asyncio.shield(asyncio.wrap_future(load))
 
 
 class CrossEncoderReranker:

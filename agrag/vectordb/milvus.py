@@ -107,6 +107,7 @@ class MilvusVectorStore(VectorStore):
     Dense scores match graph-native cosine and Euclidean scores. Hybrid scores
     use Milvus's normalized weighted ranking; alpha endpoints use a single search
     path so a zero-weight path cannot add hits. All reads use Strong consistency.
+    Use and close each store instance on the event loop that initializes it.
     """
 
     name: ClassVar[str] = "milvus"
@@ -124,6 +125,7 @@ class MilvusVectorStore(VectorStore):
 
     async def initialize(self) -> None:
         """Connect and authenticate, reporting failures without credential values."""
+        self._check_event_loop(bind=True)
         async with self._connect_lock:
             if self._client is not None:
                 return
@@ -154,6 +156,8 @@ class MilvusVectorStore(VectorStore):
 
     async def close(self) -> None:
         """Release the connection; a later initialize reconnects."""
+        if not self._check_event_loop():
+            return
         async with self._connect_lock:
             if self._client is not None:
                 client, self._client = self._client, None

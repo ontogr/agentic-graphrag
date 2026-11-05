@@ -16,6 +16,7 @@ An exclusive vector index on Qdrant 1.17 or newer.
 BM25 inference runs locally through FastEmbed, not Qdrant Cloud. Hybrid
 queries use weighted reciprocal rank fusion. Dense scores have graph-native
 scale; hybrid scores are ranks only. Searches accept at most 16384 results.
+Use and close each store instance on the event loop that initializes it.
 
 **Parameters:**
 

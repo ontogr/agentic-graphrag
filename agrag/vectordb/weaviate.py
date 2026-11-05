@@ -112,7 +112,8 @@ class WeaviateVectorStore(VectorStore):
     Changing that description outside this adapter invalidates the collection.
     Dense scores use the graph-native scale. Hybrid scores are rank-only.
     Server-side asynchronous indexing must be disabled for read-after-write
-    consistency. Each collection belongs to exactly one graph.
+    consistency. Each collection belongs to exactly one graph. Use and close
+    each store instance on the event loop that initializes it.
     """
 
     name: ClassVar[str] = "weaviate"
@@ -147,6 +148,8 @@ class WeaviateVectorStore(VectorStore):
         The caller owns request lifetimes and must await active operations
         before closing the store. Repeated calls are harmless.
         """
+        if not self._check_event_loop():
+            return
         async with self._connect_lock:
             if self._client is not None:
                 client, self._client = self._client, None
@@ -193,25 +196,29 @@ class WeaviateVectorStore(VectorStore):
                         "prefix": self.collection_prefix,
                     }
                 )
-                await client.collections.create(
-                    name=name,
-                    description=description,
-                    vector_config=Configure.Vectors.self_provided(
-                        name="vector",
-                        vector_index_config=Configure.VectorIndex.hnsw(
-                            distance_metric=VectorDistances(_METRICS[distance]),
+                try:
+                    await client.collections.create(
+                        name=name,
+                        description=description,
+                        vector_config=Configure.Vectors.self_provided(
+                            name="vector",
+                            vector_index_config=Configure.VectorIndex.hnsw(
+                                distance_metric=VectorDistances(_METRICS[distance]),
+                            ),
                         ),
-                    ),
-                    properties=[
-                        Property(
-                            name="labels",
-                            data_type=DataType.TEXT_ARRAY,
-                            tokenization=Tokenization.FIELD,
-                            index_searchable=False,
-                        ),
-                        Property(name="text", data_type=DataType.TEXT),
-                    ],
-                )
+                        properties=[
+                            Property(
+                                name="labels",
+                                data_type=DataType.TEXT_ARRAY,
+                                tokenization=Tokenization.FIELD,
+                                index_searchable=False,
+                            ),
+                            Property(name="text", data_type=DataType.TEXT),
+                        ],
+                    )
+                except Exception:
+                    if not await client.collections.exists(name):
+                        raise
             info = await self.collection_info(kind, exact_count=False)
             if info is None or (info.dimensions, info.distance) != (
                 dimensions,
@@ -508,6 +515,7 @@ class WeaviateVectorStore(VectorStore):
 
     async def _connected_client(self) -> "WeaviateAsyncClient":
         """Import the optional SDK lazily and serialize connection creation."""
+        self._check_event_loop(bind=True)
         async with self._connect_lock:
             if self._client is not None:
                 return self._client
