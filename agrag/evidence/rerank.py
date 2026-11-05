@@ -4,6 +4,7 @@ import asyncio
 import importlib.util
 import logging
 from collections.abc import Awaitable, Callable, Sequence
+from threading import Lock
 from typing import Any, cast
 
 from agrag.embedding.errors import EmbeddingMissingExtraError
@@ -19,10 +20,8 @@ Reranker = Callable[[str, Sequence[str]], Awaitable[Sequence[float]]]
 MAX_PASSAGE_CHARS = 2000
 
 _MODEL_CACHE: dict[str, Any] = {}
-
-# One asyncio lock per model name; created inside _load_cross_encoder, which
-# always runs on the event loop, so the dict itself needs no thread safety.
-_MODEL_LOAD_LOCKS: dict[str, asyncio.Lock] = {}
+_MODEL_LOAD_LOCKS: dict[str, Lock] = {}
+_MODEL_LOAD_LOCKS_GUARD = Lock()
 
 
 def _build_cross_encoder(model: str) -> Any:
@@ -35,14 +34,28 @@ def _build_cross_encoder(model: str) -> Any:
     return CrossEncoder(model)
 
 
+def _cached_cross_encoder(model: str) -> Any:
+    """Return one cached model instance, loading it once across event loops."""
+    with _MODEL_LOAD_LOCKS_GUARD:
+        lock = _MODEL_LOAD_LOCKS.get(model)
+        if lock is None:
+            lock = Lock()
+            _MODEL_LOAD_LOCKS[model] = lock
+
+    with lock:
+        if model not in _MODEL_CACHE:
+            _MODEL_CACHE[model] = _build_cross_encoder(model)
+        return _MODEL_CACHE[model]
+
+
 async def _load_cross_encoder(model: str) -> Any:
     """Return a cached CrossEncoder instance, loading it once per model name.
 
     Construction runs via ``asyncio.to_thread`` because it can do real
     filesystem or network work (downloading weights) that would otherwise
     block the event loop on a cache miss. Concurrent first loads of the same
-    model share one construction behind the per-model lock, so only one
-    instance (and one download) occurs. Instances are cached per name so
+    model share one construction behind a per-model thread lock, even when
+    callers use different event loops. Instances are cached per name so
     switching models does not evict whatever was already loaded for a
     different name.
 
@@ -52,11 +65,7 @@ async def _load_cross_encoder(model: str) -> Any:
     Returns:
         The cached CrossEncoder instance for the model name.
     """
-    lock = _MODEL_LOAD_LOCKS.setdefault(model, asyncio.Lock())
-    async with lock:
-        if model not in _MODEL_CACHE:
-            _MODEL_CACHE[model] = await asyncio.to_thread(_build_cross_encoder, model)
-    return _MODEL_CACHE[model]
+    return await asyncio.to_thread(_cached_cross_encoder, model)
 
 
 class CrossEncoderReranker:

@@ -1,5 +1,6 @@
 """The in-memory store satisfies the public external-vector contract."""
 
+import asyncio
 import json
 import threading
 from collections.abc import AsyncIterator, Iterator
@@ -48,6 +49,53 @@ def _record(
 
 class TestVectorStoreContract:
     """Exercise all storage, ranking, filtering, and missing-data guarantees."""
+
+    @pytest.mark.parametrize("store_name", selected_vector_stores())
+    def test_collection_setup_lock_is_reused_only_within_its_event_loop(
+        self, store_name: str
+    ) -> None:
+        """Concurrent setup works across loops for the same collection key."""
+        collection_prefix = f"contract_{uuid4().hex}"
+
+        async def ensure_collection() -> None:
+            stores = [
+                build_vector_store(store_name, collection_prefix=collection_prefix)
+                for _ in range(2)
+            ]
+            initialized = False
+            try:
+                await asyncio.gather(*(store.initialize() for store in stores))
+                initialized = True
+                await asyncio.gather(
+                    *(
+                        store.ensure_collection(
+                            VectorKind.ENTITY,
+                            dimensions=2,
+                            distance=Distance.COSINE,
+                        )
+                        for store in stores
+                    )
+                )
+                infos = await asyncio.gather(
+                    *(
+                        store.collection_info(VectorKind.ENTITY, exact_count=False)
+                        for store in stores
+                    )
+                )
+                assert all(
+                    info is not None
+                    and (info.dimensions, info.distance) == (2, Distance.COSINE)
+                    for info in infos
+                )
+            finally:
+                try:
+                    if initialized:
+                        await stores[0].delete_collection(VectorKind.ENTITY)
+                finally:
+                    await asyncio.gather(*(store.close() for store in stores))
+
+        asyncio.run(ensure_collection())
+        asyncio.run(ensure_collection())
 
     async def test_collection_shape_is_fixed_after_creation(self, vector_store) -> None:
         """Collections are created once and reject dimension or metric changes."""

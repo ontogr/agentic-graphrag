@@ -8,11 +8,13 @@ from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Any, ClassVar, Literal
 from urllib.parse import urlparse
 from uuid import UUID
+from weakref import WeakKeyDictionary
 
 from opentelemetry.trace import SpanKind, Tracer
 from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from agrag.common._asyncio_locks import _get_loop_lock, _LoopLockRegistry
 from agrag.common.data_models.vector_record import (
     CollectionInfo,
     Distance,
@@ -39,7 +41,7 @@ if TYPE_CHECKING:
 
 
 _METRICS = {Distance.COSINE: "cosine", Distance.EUCLID: "l2-squared"}
-_COLLECTION_LOCKS: dict[tuple[str, str], asyncio.Lock] = {}
+_COLLECTION_LOCKS: _LoopLockRegistry = WeakKeyDictionary()
 _DESCRIPTION_PREFIX = "agrag-vector-v1:"
 _logger = logging.getLogger(__name__)
 
@@ -182,7 +184,7 @@ class WeaviateVectorStore(VectorStore):
         )
 
         name = self.collection_name(kind)
-        lock = _COLLECTION_LOCKS.setdefault((self._settings.url, name), asyncio.Lock())
+        lock = _get_loop_lock(_COLLECTION_LOCKS, (self._settings.url, name))
         async with lock, self._operation("ensure_collection", kind):
             if not await client.collections.exists(name):
                 description = _DESCRIPTION_PREFIX + json.dumps(

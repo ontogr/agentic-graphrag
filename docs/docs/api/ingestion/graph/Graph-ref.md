@@ -165,6 +165,9 @@ raises `GraphStoreAliasConflictError`. Under `SKIP` and
   `document_key`.
 - <code>GraphStoreAliasConflictError</code> – Under `RAISE`, a name this call
   created still belonged to another entity after the wait.
+- <code>Exception</code> – A commit failure other than an alias conflict propagates
+  regardless of `error_policy`. Documents committed earlier in this
+  call remain committed.
 
 ## `chunker` \{#agrag-ingestion-graph-Graph-chunker}
 
@@ -623,6 +626,9 @@ Under `RAISE` the call raises `GraphStoreAliasConflictError`. Under
   `document` key differs from `document_key`.
 - <code>GraphStoreAliasConflictError</code> – Under `RAISE`, a name this update
   created still belonged to another entity after the wait.
+- <code>Exception</code> – A commit failure other than an alias conflict propagates
+  regardless of `error_policy`. Documents committed earlier in this
+  call remain committed.
 
 <details open>
 <summary>Note</summary>

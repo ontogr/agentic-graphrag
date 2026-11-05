@@ -17,6 +17,7 @@ from opentelemetry.util.types import AttributeValue
 from pydantic import SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from agrag.common._asyncio_locks import _get_loop_lock, _LoopLockRegistry
 from agrag.common.data_models.vector_record import (
     CollectionInfo,
     Distance,
@@ -46,9 +47,7 @@ _METRICS = {Distance.COSINE: "COSINE", Distance.EUCLID: "L2"}
 _MAX_TEXT_BYTES = 65535
 _MAX_LABELS = 4096
 _MAX_LABEL_BYTES = 256
-_creation_locks: WeakKeyDictionary[
-    asyncio.AbstractEventLoop, dict[tuple[str, str], asyncio.Lock]
-] = WeakKeyDictionary()
+_creation_locks: _LoopLockRegistry = WeakKeyDictionary()
 
 
 def _labels_filter(labels: Sequence[str] | None) -> str:
@@ -172,9 +171,9 @@ class MilvusVectorStore(VectorStore):
         from pymilvus import DataType, Function, FunctionType  # noqa: PLC0415
 
         name = self.collection_name(kind)
-        locks = _creation_locks.setdefault(asyncio.get_running_loop(), {})
+        lock = _get_loop_lock(_creation_locks, (self.settings.uri, name))
         async with (
-            locks.setdefault((self.settings.uri, name), asyncio.Lock()),
+            lock,
             self._connection("ensure_collection", kind) as client,
         ):
             if not await client.has_collection(name):

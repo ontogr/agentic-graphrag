@@ -655,6 +655,9 @@ class Graph:
                 ``document_key``.
             GraphStoreAliasConflictError: Under ``RAISE``, a name this call
                 created still belonged to another entity after the wait.
+            Exception: A commit failure other than an alias conflict propagates
+                regardless of ``error_policy``. Documents committed earlier in this
+                call remain committed.
         """
         result = await add_documents(
             source,
@@ -782,6 +785,9 @@ class Graph:
                 ``document`` key differs from ``document_key``.
             GraphStoreAliasConflictError: Under ``RAISE``, a name this update
                 created still belonged to another entity after the wait.
+            Exception: A commit failure other than an alias conflict propagates
+                regardless of ``error_policy``. Documents committed earlier in this
+                call remain committed.
 
         Note:
             The fresh-content path shares ``ingest_chunks()`` with
