@@ -146,7 +146,9 @@ class TestCrossEncoderReranker:
                 return False
             finally:
                 release_build.set()
-                await asyncio.gather(first, second, return_exceptions=True)
-                await probe
+                try:
+                    await asyncio.gather(first, second)
+                finally:
+                    await probe
 
         assert asyncio.run(exercise())

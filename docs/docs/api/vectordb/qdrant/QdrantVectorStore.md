@@ -25,7 +25,7 @@ Use and close each store instance on the event loop that initializes it.
 
 **Functions:**
 
-- [**close**](#agrag-vectordb-qdrant-QdrantVectorStore-close) – Release connections; a later initialize can reconnect.
+- [**close**](#agrag-vectordb-qdrant-QdrantVectorStore-close) – Release connections; reinitialize on the same loop to reconnect.
 - [**collection_info**](#agrag-vectordb-qdrant-QdrantVectorStore-collection_info) – Return count and dense configuration, or None when absent.
 - [**collection_name**](#agrag-vectordb-qdrant-QdrantVectorStore-collection_name) – Return the prefixed collection name for a kind.
 - [**delete**](#agrag-vectordb-qdrant-QdrantVectorStore-delete) – Delete in batches of 256 and wait for the changes to become visible.
@@ -49,7 +49,7 @@ Use and close each store instance on the event loop that initializes it.
 close() -> None
 ```
 
-Release connections; a later initialize can reconnect.
+Release connections; reinitialize on the same loop to reconnect.
 
 ## `collection_info` \{#agrag-vectordb-qdrant-QdrantVectorStore-collection_info}
 

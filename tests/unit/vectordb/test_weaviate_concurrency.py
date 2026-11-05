@@ -12,6 +12,7 @@ from uuid import uuid4
 import pytest
 
 from agrag.common.data_models.vector_record import Distance, VectorKind
+from agrag.vectordb.errors import VectorStoreError
 from agrag.vectordb.weaviate import WeaviateSettings, WeaviateVectorStore
 
 
@@ -19,6 +20,7 @@ class _CollectionState:
     def __init__(self) -> None:
         self.exists = False
         self.description = ""
+        self.create_failure: Exception | None = None
         self.absent_checks = 0
         self.guard = Lock()
         self.absent_barrier = Barrier(2)
@@ -26,6 +28,13 @@ class _CollectionState:
 
 class _WeaviateBaseError(Exception):
     pass
+
+
+class _UnexpectedStatusCodeError(_WeaviateBaseError):
+    def __init__(self, status_code: int, error: object) -> None:
+        self.status_code = status_code
+        self.error = error
+        super().__init__(str(error))
 
 
 class _FakeCollection:
@@ -63,12 +72,18 @@ class _FakeCollections:
                 await asyncio.to_thread(self._state.absent_barrier.wait, 0.5)
         return exists
 
-    async def create(self, *, description: str, **_kwargs: object) -> None:
+    async def create(self, *, name: str, description: str, **_kwargs: object) -> None:
         with self._state.guard:
             if self._state.exists:
-                raise _WeaviateBaseError("collection already exists")
+                raise _UnexpectedStatusCodeError(
+                    422,
+                    {"error": [{"message": f"class name {name} already exists"}]},
+                )
             self._state.exists = True
             self._state.description = description
+            failure = self._state.create_failure
+        if failure is not None:
+            raise failure
 
     def use(self, _name: str) -> _FakeCollection:
         return _FakeCollection(self._state)
@@ -116,7 +131,12 @@ def _install_weaviate(monkeypatch: pytest.MonkeyPatch, state: _CollectionState) 
     init = ModuleType("weaviate.classes.init")
     init.__dict__["Auth"] = object()
     exceptions = ModuleType("weaviate.exceptions")
-    exceptions.__dict__["WeaviateBaseError"] = _WeaviateBaseError
+    exceptions.__dict__.update(
+        {
+            "WeaviateBaseError": _WeaviateBaseError,
+            "UnexpectedStatusCodeError": _UnexpectedStatusCodeError,
+        }
+    )
     weaviate.__dict__["classes"] = classes
     weaviate.__dict__["exceptions"] = exceptions
     for name, module in (
@@ -165,3 +185,36 @@ def test_ensure_collection_accepts_a_concurrent_create(
         "dimensions": 3,
         "prefix": prefix,
     }
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        _UnexpectedStatusCodeError(401, {"error": [{"message": "unauthorized"}]}),
+        _UnexpectedStatusCodeError(422, {"error": [{"message": "invalid schema"}]}),
+        _WeaviateBaseError("connection failed"),
+    ],
+)
+def test_ensure_collection_propagates_non_duplicate_create_errors(
+    monkeypatch: pytest.MonkeyPatch, failure: Exception
+) -> None:
+    """Only a duplicate-class response is accepted as a concurrent create."""
+    state = _CollectionState()
+    state.create_failure = failure
+    _install_weaviate(monkeypatch, state)
+    store = WeaviateVectorStore(
+        settings=WeaviateSettings(
+            _env_file=None, collection_prefix=f"looprace_{uuid4().hex}"
+        )
+    )
+
+    async def exercise() -> None:
+        try:
+            with pytest.raises(VectorStoreError):
+                await store.ensure_collection(
+                    VectorKind.ENTITY, dimensions=3, distance=Distance.COSINE
+                )
+        finally:
+            await store.close()
+
+    asyncio.run(exercise())

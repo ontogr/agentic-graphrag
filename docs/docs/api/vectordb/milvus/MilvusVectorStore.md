@@ -20,7 +20,7 @@ Use and close each store instance on the event loop that initializes it.
 
 **Functions:**
 
-- [**close**](#agrag-vectordb-milvus-MilvusVectorStore-close) – Release the connection; a later initialize reconnects.
+- [**close**](#agrag-vectordb-milvus-MilvusVectorStore-close) – Release the connection; reinitialize on the same loop to reconnect.
 - [**collection_info**](#agrag-vectordb-milvus-MilvusVectorStore-collection_info) – Return schema metadata and the record count, or None when absent.
 - [**collection_name**](#agrag-vectordb-milvus-MilvusVectorStore-collection_name) – Return the prefixed collection name for a kind.
 - [**delete**](#agrag-vectordb-milvus-MilvusVectorStore-delete) – Delete in batches, ignoring absent IDs and collections.
@@ -45,7 +45,7 @@ Use and close each store instance on the event loop that initializes it.
 close() -> None
 ```
 
-Release the connection; a later initialize reconnects.
+Release the connection; reinitialize on the same loop to reconnect.
 
 ## `collection_info` \{#agrag-vectordb-milvus-MilvusVectorStore-collection_info}
 

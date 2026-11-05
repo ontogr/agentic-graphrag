@@ -185,6 +185,7 @@ class WeaviateVectorStore(VectorStore):
             Tokenization,
             VectorDistances,
         )
+        from weaviate.exceptions import UnexpectedStatusCodeError  # noqa: PLC0415
 
         name = self.collection_name(kind)
         lock = _get_loop_lock(_COLLECTION_LOCKS, (self._settings.url, name))
@@ -216,8 +217,13 @@ class WeaviateVectorStore(VectorStore):
                             Property(name="text", data_type=DataType.TEXT),
                         ],
                     )
-                except Exception:
-                    if not await client.collections.exists(name):
+                except UnexpectedStatusCodeError as error:
+                    duplicate_message = f"class name {name} already exists".lower()
+                    if (
+                        error.status_code != 422
+                        or duplicate_message not in str(error.error).lower()
+                        or not await client.collections.exists(name)
+                    ):
                         raise
             info = await self.collection_info(kind, exact_count=False)
             if info is None or (info.dimensions, info.distance) != (

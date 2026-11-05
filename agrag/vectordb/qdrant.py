@@ -153,7 +153,7 @@ class QdrantVectorStore(VectorStore):
             self._client = client
 
     async def close(self) -> None:
-        """Release connections; a later initialize can reconnect."""
+        """Release connections; reinitialize on the same loop to reconnect."""
         if not self._check_event_loop():
             return
         async with self._client_lock:
