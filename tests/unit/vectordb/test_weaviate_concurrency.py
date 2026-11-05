@@ -79,11 +79,11 @@ class _FakeCollections:
                     422,
                     {"error": [{"message": "class already exists"}]},
                 )
+            failure = self._state.create_failure
+            if failure is not None:
+                raise failure
             self._state.exists = True
             self._state.description = description
-            failure = self._state.create_failure
-        if failure is not None:
-            raise failure
 
     def use(self, _name: str) -> _FakeCollection:
         return _FakeCollection(self._state)
@@ -218,3 +218,4 @@ def test_ensure_collection_propagates_non_duplicate_create_errors(
             await store.close()
 
     asyncio.run(exercise())
+    assert not state.exists
