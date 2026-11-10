@@ -24,9 +24,9 @@ def probe_live_llm(
 ) -> None:
     """Skip on unavailable access and raise other provider failures.
 
-    Default-transport probes are cached by endpoint, model, and API-key hash so
-    forked documentation blocks reuse one availability check per configuration.
-    Injected transports bypass the cache for isolated tests.
+    Successful and HTTP 401/402 default-transport results are cached by endpoint,
+    model, and API-key hash. Connection errors and timeouts are retried on later
+    checks. Injected transports bypass the cache for isolated tests.
     """
     cache_key = _cache_key(base_url, api_key, model) if transport is None else None
     if cache_key is not None and cache_key in _PROBE_CACHE:
@@ -58,8 +58,6 @@ def probe_live_llm(
             else "request timed out"
         )
         reason = f"LLM provider unavailable ({detail})"
-        if cache_key is not None:
-            _PROBE_CACHE[cache_key] = reason
         pytest.skip(reason)
 
     reason = {

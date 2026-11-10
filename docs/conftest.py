@@ -112,7 +112,7 @@ def pytest_collection_modifyitems(
         llm_config = _live_llm_config(fixture_name)
         if llm_config is None:
             continue
-        with contextlib.suppress(pytest.skip.Exception, httpx.HTTPStatusError):
+        with contextlib.suppress(pytest.skip.Exception, httpx.HTTPError):
             probe_live_llm(*llm_config)
 
 
