@@ -85,13 +85,9 @@ def _assert_preflight_request_error_is_deferred(
     output = result.stdout + result.stderr
 
     assert result.returncode != 0
-    assert (
-        "ERROR test_preflight_request_error.py::"
-        "test_provider_request_error_fails_in_fixture" in output
-    )
-    assert "ERROR collecting" not in output
     assert "test-secret" not in output
     case = next(ET.parse(report_path).iter("testcase"))
+    assert case.attrib["name"] == "test_provider_request_error_fails_in_fixture"
     error = case.find("error")
     assert error is not None
     assert "RemoteProtocolError" in error.attrib["message"]
