@@ -417,6 +417,7 @@ class TestCrossPathValueAgreement:
         ):
             assert agent[key] == baml[key], key
 
+    @pytest.mark.usefixtures("live_extraction_llm", "live_agent_llm")
     async def test_both_paths_agree_against_a_real_endpoint(
         self, capture: tuple[Any, InMemorySpanExporter]
     ) -> None:

@@ -215,6 +215,7 @@ class TestAgentTracing:
         await graph.add(documents=[make_document(self.document_key, text)])
         await await_indexes(self.store)
 
+    @pytest.mark.usefixtures("live_agent_llm")
     async def test_retrieval_spans_nest_under_their_tool_span(self) -> None:
         """Each retrieval span sits under a TOOL span of the agent run."""
         settings = AgentLLMSettings.from_openai_compatible_env()

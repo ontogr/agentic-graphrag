@@ -478,6 +478,7 @@ class TestRetrievalE2E:
     @pytest.mark.skipif(
         not _agent_llm_configured(), reason="LLM endpoint not configured"
     )
+    @pytest.mark.usefixtures("live_agent_llm")
     async def test_agent_answer_contains_evidence(self) -> None:
         """The agent's answer contains evidence from the graph."""
         await self._seed_graph()

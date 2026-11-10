@@ -60,6 +60,7 @@ def _baml_extractor() -> BAMLExtractor:
     return BAMLExtractor(settings=settings)
 
 
+@pytest.mark.usefixtures("live_extraction_llm")
 async def test_extractor_scores_meet_thresholds_on_kpi_edgar(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

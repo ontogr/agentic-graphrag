@@ -244,6 +244,7 @@ class TestAgentBuildIntegration:
     @pytest.mark.skipif(
         not _agent_llm_configured(), reason="LLM endpoint not configured"
     )
+    @pytest.mark.usefixtures("live_agent_llm")
     async def test_agent_ainvoke_returns_a_run_result(self) -> None:
         """A run returns the typed result through the configured LLM."""
         settings = AgentLLMSettings.from_openai_compatible_env()
@@ -271,6 +272,7 @@ class TestAgentBuildIntegration:
     @pytest.mark.skipif(
         not _agent_llm_configured(), reason="LLM endpoint not configured"
     )
+    @pytest.mark.usefixtures("live_agent_llm")
     async def test_multi_hop_question_cites_evidence(self) -> None:
         """A multi-hop answer cites evidence from its research transcript."""
         alice = await self._seed_entity(self.label, "Alice")
@@ -320,6 +322,7 @@ class TestAgentBuildIntegration:
     @pytest.mark.skipif(
         not _agent_llm_configured(), reason="LLM endpoint not configured"
     )
+    @pytest.mark.usefixtures("live_agent_llm")
     async def test_under_evidenced_question_does_not_fabricate_a_year(self) -> None:
         """A question the graph cannot answer does not invent a year."""
         await self._seed_entity(self.label, "Alice")
@@ -347,6 +350,7 @@ class TestAgentBuildIntegration:
     @pytest.mark.skipif(
         not _agent_llm_configured(), reason="LLM endpoint not configured"
     )
+    @pytest.mark.usefixtures("live_agent_llm")
     async def test_tool_budget_ends_the_run_as_budget_exhausted(
         self,
     ) -> None:

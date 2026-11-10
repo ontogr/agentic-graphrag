@@ -56,10 +56,11 @@ def _verifier_model() -> object:
 
 
 async def test_verifier_macro_f1_meets_threshold_on_finqa_verdicts(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, request: pytest.FixtureRequest
 ) -> None:
     """The verifier gives the gold verdict often enough to pass the gate."""
     model = _verifier_model()
+    request.getfixturevalue("live_agent_llm")
     lines = (FIXTURE_DIR / "verdict_items.jsonl").read_text().splitlines()
     items = [VerdictItem.model_validate_json(line) for line in lines]
     predicted = await run_verifier(model, items, concurrency=CONCURRENCY)

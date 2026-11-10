@@ -173,7 +173,7 @@ class _ThrottledJudge(ChatModelJudge):
 
 
 @pytest.fixture
-def judge() -> ChatModelJudge:
+def judge(request: pytest.FixtureRequest) -> ChatModelJudge:
     """Build the DeepEval judge, or skip when no judge model is configured."""
     try:
         settings = EvalJudgeSettings.from_openai_compatible_env()
@@ -181,6 +181,7 @@ def judge() -> ChatModelJudge:
         pytest.skip("Eval judge model not configured")
     if not settings.client.api_key:
         pytest.skip("Eval judge API key not configured")
+    request.getfixturevalue("live_eval_judge_llm")
     plain = ChatModelJudge.from_settings(settings)
     # The client backs off on 429 replies.
     chat_model = plain.load_model().model_copy(update={"max_retries": 8})
@@ -266,6 +267,7 @@ def agent_factory(request: pytest.FixtureRequest) -> Callable[..., Any]:
     settings = AgentLLMSettings.from_openai_compatible_env()
     if not settings.clients[0].api_key:
         pytest.skip("Agent LLM API key not configured")
+    request.getfixturevalue("live_agent_llm")
     tiny_corpus: TinyCorpus = request.getfixturevalue("tiny_corpus")
 
     def build(tracer: Any = None) -> Any:
@@ -373,6 +375,7 @@ def answer_quality_agent_factory(
     settings = AgentLLMSettings.from_openai_compatible_env()
     if not settings.clients[0].api_key:
         pytest.skip("Agent LLM API key not configured")
+    request.getfixturevalue("live_agent_llm")
     graph: AnswerQualityGraph = request.getfixturevalue("answer_quality_graph")
 
     def build(tracer: Any = None) -> Any:

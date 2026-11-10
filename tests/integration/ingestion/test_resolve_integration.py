@@ -155,6 +155,8 @@ class TestFetchPersistedNeighborsIntegration:
 class TestLLMVerifyIntegration:
     """LLMVerify calls a real LLM to verify entity pairs."""
 
+    pytestmark = pytest.mark.usefixtures("live_extraction_llm")
+
     @pytest.mark.skipif(not _has_llm_endpoint(), reason="LLM endpoint not configured")
     async def test_llm_returns_a_verdict(self) -> None:
         """LLMVerify completes without error and returns a valid verdict."""
@@ -276,6 +278,7 @@ class TestResolverIntegration:
         assert charles_group == [2]
 
     @pytest.mark.skipif(not _has_llm_endpoint(), reason="LLM endpoint not configured")
+    @pytest.mark.usefixtures("live_extraction_llm")
     async def test_full_pipeline_uses_llm_for_ambiguous_pairs(self) -> None:
         """FuzzyMatch returns UNCERTAIN; LLMVerify breaks the tie."""
         settings = ExtractionLLMSettings.from_openai_compatible_env()

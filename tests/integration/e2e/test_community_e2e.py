@@ -586,6 +586,7 @@ async def test_community_via_graph_add_e2e() -> None:  # noqa: PLR0915
 @pytest.mark.skipif(
     not _llm_endpoint_configured(), reason="LLM endpoint not configured"
 )
+@pytest.mark.usefixtures("live_extraction_llm")
 async def test_community_real_baml() -> None:
     """Real BAML: title non-empty, rating 0-10, findings list, embedding length."""
     store = build_test_store()
