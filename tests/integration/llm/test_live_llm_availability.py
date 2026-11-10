@@ -4,9 +4,12 @@ The tests use an in-process HTTP transport, so they cover provider status handli
 without making network requests or reading credentials.
 """
 
+from functools import partial
+
 import httpx
 import pytest
 
+import docs.conftest as docs_conftest
 from tests.integration._live_llm import probe_live_llm
 
 
@@ -68,3 +71,42 @@ class TestLiveLLMAvailability:
             )
 
         assert error.value.response.status_code == status_code
+
+    @pytest.mark.parametrize("status_code", [200, 401, 402, 403, 500])
+    def test_docs_fixture_handles_provider_responses_at_the_block_boundary(
+        self, status_code: int, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The docs fixture skips unavailable access and propagates other errors."""
+        monkeypatch.setenv("LLM_BASE_URL", "https://provider.invalid/v1")
+        monkeypatch.setenv("LLM_API_KEY", "test-secret")
+        monkeypatch.setenv("LLM_MODEL_ID", "test-model")
+        client_class = httpx.Client
+        monkeypatch.setattr(
+            docs_conftest.httpx,
+            "Client",
+            partial(
+                client_class,
+                transport=_transport_for_status(status_code),
+            ),
+        )
+
+        if status_code == 200:
+            assert docs_conftest.llm_env.__wrapped__() is None
+        elif status_code in (401, 402):
+            with pytest.raises(pytest.skip.Exception) as skipped:
+                docs_conftest.llm_env.__wrapped__()
+
+            reason = (
+                "credentials rejected"
+                if status_code == 401
+                else "provider credits required"
+            )
+            assert str(skipped.value) == (
+                f"LLM provider unavailable (HTTP {status_code}; {reason})"
+            )
+            assert "test-secret" not in str(skipped.value)
+        else:
+            with pytest.raises(httpx.HTTPStatusError) as error:
+                docs_conftest.llm_env.__wrapped__()
+
+            assert error.value.response.status_code == status_code

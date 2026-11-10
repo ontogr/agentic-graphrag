@@ -6,6 +6,7 @@ A block opts in with a fence such as ``python fixture:llm_env``.
 import asyncio
 import os
 
+import httpx
 import pytest
 import sentence_transformers  # noqa: F401
 import torch  # noqa: F401
@@ -55,9 +56,31 @@ async def _reset_neo4j() -> None:
 
 @pytest.fixture
 def llm_env():
-    """Skip a doc block unless an LLM endpoint is configured."""
-    if not (os.environ.get("LLM_API_KEY") and os.environ.get("LLM_BASE_URL")):
+    """Skip LLM blocks if the endpoint is missing or returns HTTP 401 or 402."""
+    base_url = os.environ.get("LLM_BASE_URL")
+    api_key = os.environ.get("LLM_API_KEY")
+    if not (base_url and api_key):
         pytest.skip("LLM_BASE_URL and LLM_API_KEY are not set")
+
+    with httpx.Client(
+        base_url=f"{base_url.rstrip('/')}/",
+        headers={"Authorization": f"Bearer {api_key}"},
+        timeout=15.0,
+    ) as client:
+        response = client.post(
+            "chat/completions",
+            json={
+                "model": os.environ.get("LLM_MODEL_ID") or "gpt-4o-mini",
+                "messages": [{"role": "user", "content": "Reply with OK."}],
+                "max_tokens": 1,
+            },
+        )
+
+    if response.status_code == 401:
+        pytest.skip("LLM provider unavailable (HTTP 401; credentials rejected)")
+    if response.status_code == 402:
+        pytest.skip("LLM provider unavailable (HTTP 402; provider credits required)")
+    response.raise_for_status()
 
 
 @pytest.fixture
