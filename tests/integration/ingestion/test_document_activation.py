@@ -308,7 +308,6 @@ class TestDocumentActivation:
         assert activations[1]["content_hash"] == _content_hash(after)
         assert await env.activation_seq("doc") == 2
 
-    @pytest.mark.usefixtures("live_extraction_llm")
     async def test_in_place_refresh_and_metadata_update_write_no_activation(
         self, env: _Env
     ) -> None:
@@ -328,7 +327,6 @@ class TestDocumentActivation:
         assert len(await env.activations("doc")) == 1
         assert await env.activation_seq("doc") == 1
 
-    @pytest.mark.usefixtures("live_extraction_llm")
     async def test_source_status_tracks_current_deleted_and_unknown_sources(
         self, env: _Env
     ) -> None:

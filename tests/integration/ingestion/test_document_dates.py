@@ -124,7 +124,6 @@ async def _open_graph(
 class TestDocumentDates:
     """Exercise date persistence through Graph.add() and Graph.update()."""
 
-    @pytest.mark.usefixtures("live_extraction_llm")
     async def test_dates_persist_and_clear_on_content_change(
         self, tmp_path: Path
     ) -> None:
@@ -202,7 +201,6 @@ class TestDocumentDates:
             )
             await store.close()
 
-    @pytest.mark.usefixtures("live_extraction_llm")
     async def test_date_only_updates_write_metadata_without_extraction(
         self, tmp_path: Path
     ) -> None:

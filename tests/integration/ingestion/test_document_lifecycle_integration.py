@@ -216,7 +216,6 @@ class TestDocumentLifecycle:
             )
             await store.close()
 
-    @pytest.mark.usefixtures("live_extraction_llm")
     async def test_update_same_text_twice_is_a_no_op(self) -> None:
         """A repeated update with unchanged text writes nothing new."""
         store = build_test_store()
@@ -378,7 +377,6 @@ class TestDocumentLifecycle:
                 )
             await store.close()
 
-    @pytest.mark.usefixtures("live_extraction_llm")
     async def test_repeat_add_converges_has_part_edges(self) -> None:
         """Adding identical content twice leaves one open edge per chunk.
 

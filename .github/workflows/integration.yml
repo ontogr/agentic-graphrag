@@ -5,7 +5,7 @@ on:
     branches:
       - main
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
+    types: [opened, synchronize, reopened, ready_for_review, converted_to_draft]
   schedule:
     - cron: "30 1 * * *"
   workflow_dispatch:
@@ -285,7 +285,7 @@ jobs:
   benchmark-fixtures:
     name: Benchmark fixtures
     needs: [changes]
-    if: needs.changes.outputs.backend_tests == 'true'
+    if: needs.changes.outputs.backend_tests == 'true' && !github.event.pull_request.draft
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
@@ -464,20 +464,20 @@ jobs:
         if: always()
         run: docker compose -f docker/docker-compose.ci.yml down -v
 
-  # Summarize backend test results. Skips are valid only when the selector
+  # Summarize integration test results. Skips are valid only when the selector
   # excluded them or the pull request is still a draft.
   integration-gate:
     name: Integration gate
     if: always()
-    needs: [changes, integration, e2e]
+    needs: [changes, integration, benchmark-fixtures, e2e]
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:
-      - name: Require selected backend checks to pass
+      - name: Require selected integration checks to pass
         env:
           SELECTOR_RESULT: ${{ needs.changes.result }}
           SELECTED: ${{ needs.changes.outputs.backend_tests }}
-          RESULTS: ${{ needs.integration.result }} ${{ needs.e2e.result }}
+          RESULTS: ${{ needs.integration.result }} ${{ needs.benchmark-fixtures.result }} ${{ needs.e2e.result }}
           DRAFT_PR: ${{ github.event_name == 'pull_request' && github.event.pull_request.draft }}
         run: |
           test "$SELECTOR_RESULT" = success
@@ -488,21 +488,21 @@ jobs:
             fi
             for result in $RESULTS; do
               if [ "$result" != skipped ]; then
-                echo "::error::Draft pull request unexpectedly ran a backend check: $result"
+                echo "::error::Draft pull request unexpectedly ran an integration check: $result"
                 exit 1
               fi
             done
           elif [ "$SELECTED" = true ]; then
             for result in $RESULTS; do
               if [ "$result" != success ]; then
-                echo "::error::A selected backend check finished with result: $result"
+                echo "::error::A selected integration check finished with result: $result"
                 exit 1
               fi
             done
           elif [ "$SELECTED" = false ]; then
             for result in $RESULTS; do
               if [ "$result" != skipped ]; then
-                echo "::error::An excluded backend check unexpectedly finished with result: $result"
+                echo "::error::An excluded integration check unexpectedly finished with result: $result"
                 exit 1
               fi
             done
