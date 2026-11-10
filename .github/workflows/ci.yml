@@ -7,6 +7,7 @@ on:
     branches:
       - main
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
   workflow_dispatch:
 
 permissions:
@@ -69,7 +70,7 @@ jobs:
   script-tests:
     name: CI selector tests
     needs: [changes]
-    if: needs.changes.outputs.unit == 'true'
+    if: needs.changes.outputs.unit == 'true' && !github.event.pull_request.draft
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -139,7 +140,7 @@ jobs:
   test:
     name: Tests - Python ${{ matrix.python-version }}
     needs: [changes]
-    if: needs.changes.outputs.unit == 'true'
+    if: needs.changes.outputs.unit == 'true' && !github.event.pull_request.draft
     runs-on: ubuntu-latest
     timeout-minutes: 20
     strategy:
