@@ -173,8 +173,9 @@ class _ThrottledJudge(ChatModelJudge):
 
 
 @pytest.fixture
-def judge() -> ChatModelJudge:
+def judge(request: pytest.FixtureRequest) -> ChatModelJudge:
     """Build the DeepEval judge, or skip when no judge model is configured."""
+    request.getfixturevalue("live_eval_judge_llm")
     try:
         settings = EvalJudgeSettings.from_openai_compatible_env()
     except ValueError:
@@ -263,6 +264,7 @@ async def tiny_corpus() -> AsyncGenerator[TinyCorpus, None]:
 @pytest.fixture
 def agent_factory(request: pytest.FixtureRequest) -> Callable[..., Any]:
     """Return a function that builds an agent over the corpus with the real LLM."""
+    request.getfixturevalue("live_agent_llm")
     settings = AgentLLMSettings.from_openai_compatible_env()
     if not settings.clients[0].api_key:
         pytest.skip("Agent LLM API key not configured")
@@ -370,6 +372,7 @@ def answer_quality_agent_factory(
     request: pytest.FixtureRequest,
 ) -> Callable[..., Any]:
     """Return a function that builds an agent over the FinQA graph."""
+    request.getfixturevalue("live_agent_llm")
     settings = AgentLLMSettings.from_openai_compatible_env()
     if not settings.clients[0].api_key:
         pytest.skip("Agent LLM API key not configured")

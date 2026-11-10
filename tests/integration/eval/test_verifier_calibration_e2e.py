@@ -55,6 +55,7 @@ def _verifier_model() -> object:
     )
 
 
+@pytest.mark.usefixtures("live_agent_llm")
 async def test_verifier_macro_f1_meets_threshold_on_finqa_verdicts(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

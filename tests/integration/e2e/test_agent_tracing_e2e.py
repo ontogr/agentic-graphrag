@@ -34,6 +34,7 @@ def _llm_configured() -> bool:
     importlib.util.find_spec("neo4j") is None, reason="neo4j extra not installed"
 )
 @pytest.mark.skipif(not _llm_configured(), reason="LLM endpoint not configured")
+@pytest.mark.usefixtures("live_agent_llm")
 class TestAgentTracingE2E:
     """A traced agent run exports tool spans nested under its own spans."""
 

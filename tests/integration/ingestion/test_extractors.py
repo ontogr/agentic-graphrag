@@ -65,6 +65,8 @@ def _has_gliner2() -> bool:
 class TestBAMLExtractorIntegration:
     """BAMLExtractor extracts entities and relations via a real LLM endpoint."""
 
+    pytestmark = pytest.mark.usefixtures("live_extraction_llm")
+
     @pytest.mark.skipif(not _has_llm_endpoint(), reason="LLM endpoint not configured")
     async def test_extracts_entities_from_paragraph(self) -> None:
         """A real LLM call returns recognized entities."""
@@ -185,6 +187,8 @@ class TestGlinerExtractorIntegration:
 
 class TestEscalationIntegration:
     """GLiNER2 reads every chunk and the LLM reads the weakest ones."""
+
+    pytestmark = pytest.mark.usefixtures("live_extraction_llm")
 
     @pytest.mark.skipif(
         not (_has_llm_endpoint() and _has_gliner2()),

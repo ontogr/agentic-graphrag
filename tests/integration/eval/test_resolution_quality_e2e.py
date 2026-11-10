@@ -210,6 +210,7 @@ async def test_pair_fates_report_transitive_merges_without_llm_attribution() -> 
     ]
 
 
+@pytest.mark.usefixtures("live_extraction_llm")
 async def test_full_resolver_meets_threshold_on_company_names(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
