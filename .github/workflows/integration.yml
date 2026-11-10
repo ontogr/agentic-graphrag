@@ -464,8 +464,8 @@ jobs:
         if: always()
         run: docker compose -f docker/docker-compose.ci.yml down -v
 
-  # One required check for branch protection; skipped workloads are valid only
-  # when the selector excluded them or the pull request is still a draft.
+  # Summarize backend test results. Skips are valid only when the selector
+  # excluded them or the pull request is still a draft.
   integration-gate:
     name: Integration gate
     if: always()
