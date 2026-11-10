@@ -320,7 +320,8 @@ DOCS_SHARD_3 := docs/docs/get-started docs/docs/guides \
 	$(addprefix --ignore=,$(DOCS_SHARD_1) $(DOCS_SHARD_2))
 DOCS_TEST_PATHS ?= $(if $(DOCS_SHARD),$(DOCS_SHARD_$(DOCS_SHARD)),docs/docs/get-started docs/docs/guides)
 
+docs-test: export PYTHONPATH := $(CURDIR)$(if $(PYTHONPATH),:$(PYTHONPATH))
 docs-test:
 	@test -n "$(strip $(DOCS_TEST_PATHS))" || { echo "No docs pages selected. DOCS_SHARD must be 1, 2 or 3."; exit 1; }
 	uv run --group docs pytest --markdown-docs $(DOCS_TEST_PATHS) \
-		--ignore=docs/docs/api -p no:deepeval -p no:cacheprovider -o addopts="" --forked -q
+		--ignore=docs/docs/api -p no:deepeval -p no:cacheprovider -o addopts="" --forked -q -rs

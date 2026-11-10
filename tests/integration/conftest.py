@@ -5,7 +5,7 @@ import pytest
 from tests.integration._live_llm import probe_live_llm
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture
 def live_extraction_llm() -> None:
     """Check the shared extraction endpoint before a provider-backed test."""
     from agrag.ingestion.extract import ExtractionLLMSettings  # noqa: PLC0415
@@ -22,7 +22,7 @@ def live_extraction_llm() -> None:
     probe_live_llm(client.base_url, api_key, client.model)
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture
 def live_agent_llm() -> None:
     """Check the configured agent endpoint before a provider-backed test."""
     from agrag.agents.settings import AgentLLMSettings  # noqa: PLC0415
@@ -34,7 +34,7 @@ def live_agent_llm() -> None:
     probe_live_llm(client.base_url, api_key, client.model)
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture
 def live_eval_judge_llm() -> None:
     """Check the configured evaluation judge endpoint before a live test."""
     from agrag.eval.settings import EvalJudgeSettings  # noqa: PLC0415
