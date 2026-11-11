@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Literal
 
+from agrag.llm.client_config import _DEFAULT_REQUEST_TIMEOUT_MS
+
 
 if TYPE_CHECKING:
     from agrag.llm.client_config import LLMClientConfig
@@ -50,6 +52,10 @@ def build_client_registry(
     registry = ClientRegistry()
     for client in clients:
         options: dict[str, object] = {"model": client.model, **client.options}
+        if client.provider == "openai-generic":
+            options.setdefault(
+                "http", {"request_timeout_ms": _DEFAULT_REQUEST_TIMEOUT_MS}
+            )
         if client.api_key is not None:
             options["api_key"] = client.api_key.get_secret_value()
         if client.base_url is not None:

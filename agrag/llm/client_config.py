@@ -5,6 +5,9 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, SecretStr
 
 
+_DEFAULT_REQUEST_TIMEOUT_MS = 300_000
+
+
 LLMProvider = Literal[
     "anthropic",
     "aws-bedrock",
@@ -61,4 +64,4 @@ class RetryConfig(BaseModel):
     multiplier: float = Field(default=2.0, ge=0)
     max_delay_ms: int = Field(default=30_000, ge=0)
     timeout_ms: int = Field(default=0, ge=0)
-    request_timeout_ms: int = Field(default=300_000, ge=0)
+    request_timeout_ms: int = Field(default=_DEFAULT_REQUEST_TIMEOUT_MS, ge=0)
