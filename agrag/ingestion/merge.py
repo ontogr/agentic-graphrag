@@ -219,11 +219,11 @@ async def resolve_description(
                 active_client = client
             else:
                 active_settings = settings or ExtractionLLMSettings()  # type: ignore[call-arg]
-                retry = active_settings.retry
+                retry_obj = active_settings.retry
                 registry = build_client_registry(
                     active_settings.clients,
                     strategy=active_settings.strategy,
-                    request_timeout_ms=retry.request_timeout_ms,
+                    request_timeout_ms=retry_obj.request_timeout_ms,
                 )
                 baml_options["client_registry"] = cast("ClientRegistry", registry)
                 try:
@@ -233,6 +233,7 @@ async def resolve_description(
                 except ImportError as exc:
                     raise ImportError("llm extra not installed") from exc
                 active_client = default_client
+                retry = retry_obj if retry_obj is not None else NO_RETRY
 
             descriptions = [str(candidate) for candidate in distinct]
             result = await call_with_retry(

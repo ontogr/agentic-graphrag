@@ -74,7 +74,7 @@ The agent can also record progress with `set_step` and record decisions with `re
 | `insufficient_evidence` | The agent returned a structured answer that says the evidence is insufficient. All cited ids passed the citation check. |
 | `partial` | The agent returned no structured answer, or some cited ids were still invalid after the repair pass. The repair pass runs only when the tool budget has room. |
 | `partial_retrieval` | A search, graph, or fetch call failed, or returned partial or truncated results, during the run. |
-| `budget_exhausted` | The run used all of its `max_tool_calls` tool calls, or it reached `recursion_limit`. After the last tool call the model gets no tools and must answer from the evidence it has gathered. |
+| `budget_exhausted` | The run used all of its `max_tool_calls` tool calls, or it reached `recursion_limit`. Once the budget is spent, the agent offers the model no more tools except the answer tool, and a run can still reach `recursion_limit` with no answer. |
 | `recording_failed` | A task event or decision could not be saved. The result lists each one in `recording_failures`. |
 
 When more than one condition applies, the run returns the first status that applies in this order: `recording_failed`, `budget_exhausted`, `partial_retrieval`, `partial`, `insufficient_evidence`, and then `answered`.

@@ -161,9 +161,10 @@ class TaskEventMiddleware(AgentMiddleware):
 
         Once the tool budget is spent, the model gets no tools except the
         structured answer tool, which the agent binds from its response format.
-        Without this, the model keeps requesting tools that are refused until
-        the recursion limit ends the run with no answer.
         """
+        # Every tool call is refused after the budget is spent, so a model that
+        # still sees tools keeps requesting them until the recursion limit ends
+        # the run without an answer.
         if self._run_state.budget_exhausted:
             request = request.override(
                 tools=[],
