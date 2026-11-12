@@ -49,6 +49,7 @@ from agrag.ingestion.merge import (
     PropertyStrategy,
     compute_merge,
 )
+from agrag.ingestion.settings import ExtractionSettings
 from agrag.retrieval.settings import RetrievalSettings
 from tests.conftest import FAKE_EMBEDDING_DIMENSIONS
 from tests.integration._backend import build_test_store
@@ -418,6 +419,7 @@ async def world() -> AsyncGenerator[_World, None]:
             graph_store=store,
             embedder=embedder,
             extractor=_DocumentExtractor(org_mentions),
+            extraction_settings=ExtractionSettings(mode="gliner"),
         )
         partial = _World(
             store=store,

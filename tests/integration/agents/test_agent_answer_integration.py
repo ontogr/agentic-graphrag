@@ -11,7 +11,7 @@ import pytest
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage
 from langchain_core.outputs import ChatGeneration, ChatResult
-from pydantic import PrivateAttr
+from pydantic import Field, PrivateAttr
 from pytest import MonkeyPatch
 
 from agrag.agents.build import build_agent
@@ -104,6 +104,65 @@ class _FinalModel(BaseChatModel):
                         ],
                     )
                 )
+            ]
+        )
+
+
+def _tool_name(tool: Any) -> str:
+    """Return the name of a tool or a function-style tool dict."""
+    if isinstance(tool, dict):
+        return str(tool.get("function", {}).get("name", tool.get("name", "")))
+    return str(tool.name)
+
+
+class _BudgetModel(BaseChatModel):
+    """Search while search is offered, then answer with the structured tool.
+
+    With ``keep_asking`` set, the model requests the search tool even after it
+    is no longer offered, which exercises the recursion limit.
+    """
+
+    answer: AgentAnswer
+    keep_asking: bool = False
+    offered: list[list[str]] = Field(default_factory=list)
+    calls: int = 0
+    _offered_now: list[str] = PrivateAttr(default_factory=list)
+
+    @property
+    def _llm_type(self) -> str:
+        """Return the scripted model type."""
+        return "scripted"
+
+    def bind_tools(self, tools: Any, **kwargs: Any) -> "_BudgetModel":
+        """Record which tools this call offers, then return the model."""
+        self._offered_now = [_tool_name(tool) for tool in tools]
+        self.offered.append(list(self._offered_now))
+        return self
+
+    def _generate(
+        self,
+        messages: list[BaseMessage],
+        stop: Any = None,
+        run_manager: Any = None,
+        **kwargs: Any,
+    ) -> ChatResult:
+        """Request a search or the final structured answer."""
+        self.calls += 1
+        if "search_evidence" in self._offered_now or self.keep_asking:
+            call = {
+                "name": "search_evidence",
+                "args": {"query": "aspirin"},
+                "id": f"search-{self.calls}",
+            }
+        else:
+            call = {
+                "name": "AgentAnswer",
+                "args": self.answer.model_dump(),
+                "id": "final-answer",
+            }
+        return ChatResult(
+            generations=[
+                ChatGeneration(message=AIMessage(content="", tool_calls=[call]))
             ]
         )
 
@@ -315,6 +374,96 @@ class TestAgentAnswerIntegration:
             assert result["answer"] == "I removed the unsupported citations."
             assert result["invalid_citations"] == []
             assert model.calls == 2
+        finally:
+            await _delete_project_history(store, project_id)
+            await store.close()
+
+    async def test_spent_budget_offers_only_the_answer_tool(
+        self, monkeypatch: MonkeyPatch
+    ) -> None:
+        """After the budget is spent, the model answers and no search is offered."""
+        store = build_test_store()
+        await store.connect()
+        project_id = f"budget-answer-{uuid4().hex}"
+        model = _BudgetModel(
+            answer=AgentAnswer(
+                answer="Aspirin is effective for headaches.",
+                support_status="insufficient_evidence",
+                citations=[],
+            )
+        )
+        try:
+            result = await _build(
+                monkeypatch,
+                store,
+                project_id,
+                model,
+                AgentSettings(max_tool_calls=2),
+                scope=frozenset({"budget-scope"}),
+            ).ainvoke({"task_name": f"task-{uuid4().hex}", "question": "Headaches?"})
+
+            assert result["status"] == "budget_exhausted"
+            assert result["answer"].startswith("Aspirin is effective")
+            assert model.offered[-1] == ["AgentAnswer"]
+        finally:
+            await _delete_project_history(store, project_id)
+            await store.close()
+
+    async def test_model_that_keeps_asking_for_tools_ends_at_the_recursion_limit(
+        self, monkeypatch: MonkeyPatch
+    ) -> None:
+        """A model that ignores the removed tools still ends at the recursion limit."""
+        store = build_test_store()
+        await store.connect()
+        project_id = f"budget-loop-{uuid4().hex}"
+        model = _BudgetModel(
+            answer=AgentAnswer(
+                answer="unused", support_status="supported", citations=[]
+            ),
+            keep_asking=True,
+        )
+        try:
+            result = await _build(
+                monkeypatch,
+                store,
+                project_id,
+                model,
+                AgentSettings(max_tool_calls=2, recursion_limit=12),
+                scope=frozenset({"budget-scope"}),
+            ).ainvoke({"task_name": f"task-{uuid4().hex}", "question": "Headaches?"})
+
+            assert result["status"] == "budget_exhausted"
+            assert result["answer"] == ""
+        finally:
+            await _delete_project_history(store, project_id)
+            await store.close()
+
+    async def test_spent_budget_with_bad_citation_keeps_the_answer(
+        self, monkeypatch: MonkeyPatch
+    ) -> None:
+        """A bad citation after the budget keeps the answer and skips repair."""
+        store = build_test_store()
+        await store.connect()
+        project_id = f"budget-bad-{uuid4().hex}"
+        model = _BudgetModel(
+            answer=AgentAnswer(
+                answer="Aspirin helps [ev1:s:invalid].",
+                support_status="supported",
+                citations=["ev1:s:invalid"],
+            )
+        )
+        try:
+            result = await _build(
+                monkeypatch,
+                store,
+                project_id,
+                model,
+                AgentSettings(max_tool_calls=2),
+                scope=frozenset({"budget-scope"}),
+            ).ainvoke({"task_name": f"task-{uuid4().hex}", "question": "Headaches?"})
+
+            assert result["answer"]
+            assert any("ev1:s:invalid" in c for c in result["invalid_citations"])
         finally:
             await _delete_project_history(store, project_id)
             await store.close()
