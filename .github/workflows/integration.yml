@@ -33,7 +33,8 @@ env:
   # about 5 minutes before a call gives up.
   EXTRACTION_LLM_RETRY: '{"max_retries": 8, "delay_ms": 5000, "multiplier": 2.0, "max_delay_ms": 60000}'
   # The agent model client waits at most 8 seconds between tries, so 30 tries
-  # wait about 3 minutes before an agent call gives up.
+  # wait about 3 minutes before an agent call gives up. A Retry-After header of
+  # up to 120 seconds replaces the wait for that try.
   AGENT_LLM_MAX_RETRIES: "30"
 
 jobs:
