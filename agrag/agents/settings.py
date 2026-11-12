@@ -26,6 +26,9 @@ class AgentLLMSettings(BaseSettings):
             tries the other clients in order when a model call fails;
             ``"round_robin"`` rotates across all clients per call.
             Ignored with one client.
+        max_retries: Retries of one agent model call after a failed attempt,
+            such as HTTP 429 or a connection error. ``None`` keeps the
+            provider library's default. Env: ``AGENT_LLM_MAX_RETRIES``.
 
     Env prefix: ``AGENT_LLM_``.
     """
@@ -39,6 +42,7 @@ class AgentLLMSettings(BaseSettings):
 
     clients: list[LLMClientConfig]
     strategy: Literal["single", "fallback", "round_robin"] = "single"
+    max_retries: int | None = Field(default=None, ge=0)
 
     @classmethod
     def from_openai_compatible_env(cls) -> "AgentLLMSettings":
