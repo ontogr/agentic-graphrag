@@ -219,11 +219,13 @@ async def resolve_description(
                 active_client = client
             else:
                 active_settings = settings or ExtractionLLMSettings()  # type: ignore[call-arg]
+                retry_obj = active_settings.retry
                 registry = build_client_registry(
-                    active_settings.clients, strategy=active_settings.strategy
+                    active_settings.clients,
+                    strategy=active_settings.strategy,
+                    request_timeout_ms=retry_obj.request_timeout_ms,
                 )
                 baml_options["client_registry"] = cast("ClientRegistry", registry)
-                retry_obj = active_settings.retry
                 try:
                     from agrag.llm.baml_client import (  # noqa: PLC0415
                         b as default_client,

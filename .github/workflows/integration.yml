@@ -27,6 +27,15 @@ env:
   LLM_BASE_URL: ${{ secrets.LLM_BASE_URL }}
   LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
   LLM_MODEL_ID: ${{ secrets.LLM_MODEL_ID }}
+  # The shared endpoint answers 429 while other jobs hold its concurrency
+  # slots. The default backoff waits about 7 seconds in total, so a busy
+  # endpoint fails a test that would pass a minute later. This waits at most
+  # about 5 minutes before a call gives up.
+  EXTRACTION_LLM_RETRY: '{"max_retries": 8, "delay_ms": 5000, "multiplier": 2.0, "max_delay_ms": 60000}'
+  # The agent model client waits at most 8 seconds between tries, so 30 tries
+  # wait about 3 minutes before an agent call gives up. A Retry-After header of
+  # up to 120 seconds replaces the wait for that try.
+  AGENT_LLM_MAX_RETRIES: "30"
 
 jobs:
   changes:
@@ -74,105 +83,105 @@ jobs:
             dist: loadscope
             services: neo4j milvus
             vector_store: milvus
-            timeout: 20
+            timeout: 60
           - name: graph-store
             backend: neo4j
             paths: "tests/integration/graphdb tests/integration/cypher tests/integration/retrieval --ignore=tests/integration/retrieval/evidence"
             workers: auto
             dist: loadgroup
             services: neo4j
-            timeout: 20
+            timeout: 60
           - name: evidence-search
             backend: neo4j
             paths: "tests/integration/retrieval/evidence/test_search.py tests/integration/retrieval/evidence/test_citations.py"
             workers: auto
             dist: loadgroup
             services: neo4j
-            timeout: 20
+            timeout: 60
           - name: evidence-graph
             backend: neo4j
             paths: "tests/integration/retrieval/evidence --ignore=tests/integration/retrieval/evidence/test_search.py --ignore=tests/integration/retrieval/evidence/test_citations.py"
             workers: auto
             dist: loadgroup
             services: neo4j
-            timeout: 20
+            timeout: 60
           - name: agents
             backend: neo4j
             paths: "tests/integration/agents"
             workers: 0
             dist: loadscope
             services: neo4j
-            timeout: 20
+            timeout: 60
           - name: pipeline
             backend: neo4j
             paths: "tests/integration/ingestion tests/integration/embedding tests/integration/loaders tests/integration/llm --ignore=tests/integration/ingestion/test_cutover_job_concurrency.py"
             workers: auto
             dist: loadscope
             services: neo4j
-            timeout: 20
+            timeout: 60
           - name: cutover-concurrency
             backend: neo4j
             paths: "tests/integration/ingestion/test_cutover_job_concurrency.py"
             workers: 0
             dist: loadscope
             services: neo4j
-            timeout: 20
+            timeout: 60
           - name: cutover-concurrency
             backend: falkordb
             paths: "tests/integration/ingestion/test_cutover_job_concurrency.py"
             workers: 0
             dist: loadscope
             services: falkordb
-            timeout: 20
+            timeout: 60
           - name: graph-store
             backend: falkordb
             paths: "tests/integration/graphdb tests/integration/cypher tests/integration/retrieval --ignore=tests/integration/retrieval/evidence"
             workers: auto
             dist: loadgroup
             services: falkordb
-            timeout: 20
+            timeout: 60
           - name: vector-seam
             backend: neo4j
             paths: "tests/integration/vectordb"
             workers: 0
             dist: loadgroup
             services: neo4j
-            timeout: 20
+            timeout: 60
           - name: vector-seam
             backend: falkordb
             paths: "tests/integration/vectordb"
             workers: 0
             dist: loadgroup
             services: falkordb
-            timeout: 20
+            timeout: 60
           - name: evidence-search
             backend: falkordb
             paths: "tests/integration/retrieval/evidence/test_search.py tests/integration/retrieval/evidence/test_citations.py"
             workers: auto
             dist: loadgroup
             services: falkordb
-            timeout: 20
+            timeout: 60
           - name: evidence-graph
             backend: falkordb
             paths: "tests/integration/retrieval/evidence --ignore=tests/integration/retrieval/evidence/test_search.py --ignore=tests/integration/retrieval/evidence/test_citations.py"
             workers: auto
             dist: loadgroup
             services: falkordb
-            timeout: 20
+            timeout: 60
           - name: agents
             backend: falkordb
             paths: "tests/integration/agents"
             workers: 0
             dist: loadscope
             services: falkordb
-            timeout: 20
+            timeout: 60
           - name: ingestion
             backend: falkordb
             paths: "tests/integration/ingestion --ignore=tests/integration/ingestion/test_cutover_job_concurrency.py"
             workers: auto
             dist: loadscope
             services: falkordb
-            timeout: 20
+            timeout: 60
           - name: vector-qdrant
             backend: neo4j
             paths: "tests/integration/vectordb/test_store_contract.py tests/integration/e2e/test_external_placement_e2e.py"
@@ -180,7 +189,7 @@ jobs:
             dist: loadscope
             services: neo4j qdrant
             vector_store: qdrant
-            timeout: 20
+            timeout: 60
           - name: vector-weaviate
             backend: neo4j
             vector_store: weaviate
@@ -188,7 +197,7 @@ jobs:
             workers: 0
             dist: loadscope
             services: neo4j weaviate
-            timeout: 20
+            timeout: 60
     env:
       UV_PYTHON: "3.12"
       AGRAG_TEST_BACKENDS: ${{ matrix.suite.backend }}
@@ -355,7 +364,7 @@ jobs:
               tests/integration/e2e/test_retrieval_and_agent.py
               -k "not (agent_build_and_invoke or agent_answer_contains_evidence or real_baml)"
             services: neo4j
-            timeout: 20
+            timeout: 60
             allow_skips: false
           - name: llm
             args: >-
@@ -363,7 +372,7 @@ jobs:
               tests/integration/e2e/test_retrieval_and_agent.py
               -k "agent_build_and_invoke or agent_answer_contains_evidence or real_baml"
             services: neo4j
-            timeout: 20
+            timeout: 60
             allow_skips: true
           - name: ingest
             args: >-
@@ -371,7 +380,7 @@ jobs:
               tests/integration/e2e/test_document_lifecycle_e2e.py
               tests/integration/e2e/test_resolution_merge_e2e.py
             services: neo4j
-            timeout: 20
+            timeout: 60
             allow_skips: false
     env:
       UV_PYTHON: "3.12"

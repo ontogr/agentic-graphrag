@@ -22,11 +22,16 @@ def probe_live_llm(
     *,
     transport: httpx.BaseTransport | None = None,
 ) -> None:
-    """Skip on unavailable access and raise other provider failures.
+    """Skip on unavailable access, accept HTTP 429 as reachable, and raise others.
 
-    Successful and HTTP 401/402 default-transport results are cached by endpoint,
-    model, and API-key hash. Connection errors and timeouts are retried on later
-    checks. Injected transports bypass the cache for isolated tests.
+    An HTTP 200 or 429 response shows that the endpoint is up and the key is
+    accepted, so the probe passes. A 429 means the endpoint has no spare request
+    capacity right now. The probe checks access only, so it does not retry or
+    sleep on a 429. HTTP 401 and 402 skip with a reason. Connection errors and
+    timeouts skip and are probed again on later checks. Other statuses raise.
+    Reachable (200 or 429) and HTTP 401/402 default-transport results are cached
+    by endpoint, model, and API-key hash. Injected transports bypass the cache
+    for isolated tests.
     """
     cache_key = _cache_key(base_url, api_key, model) if transport is None else None
     if cache_key is not None and cache_key in _PROBE_CACHE:
@@ -68,6 +73,8 @@ def probe_live_llm(
         if cache_key is not None:
             _PROBE_CACHE[cache_key] = reason
         pytest.skip(reason)
-    response.raise_for_status()
+    # A 429 shows the key and endpoint work, so it does not fail the status check.
+    if response.status_code != 429:
+        response.raise_for_status()
     if cache_key is not None:
         _PROBE_CACHE[cache_key] = None

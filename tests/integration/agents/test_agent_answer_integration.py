@@ -108,6 +108,59 @@ class _FinalModel(BaseChatModel):
         )
 
 
+class _BudgetModel(BaseChatModel):
+    """Request the search tool while it is offered, then answer structurally.
+
+    Once the search tool is no longer offered, the model returns the
+    structured answer.
+    """
+
+    answer: AgentAnswer
+    calls: int = 0
+    _search_offered: bool = PrivateAttr(default=False)
+
+    @property
+    def _llm_type(self) -> str:
+        """Return the scripted model type."""
+        return "scripted"
+
+    def bind_tools(self, tools: Any, **kwargs: Any) -> "_BudgetModel":
+        """Remember whether the search tool is offered in this model call."""
+        names = [
+            tool["function"]["name"] if isinstance(tool, dict) else tool.name
+            for tool in tools
+        ]
+        self._search_offered = "search_evidence" in names
+        return self
+
+    def _generate(
+        self,
+        messages: list[BaseMessage],
+        stop: Any = None,
+        run_manager: Any = None,
+        **kwargs: Any,
+    ) -> ChatResult:
+        """Request a search or the final structured answer."""
+        self.calls += 1
+        if self._search_offered:
+            call = {
+                "name": "search_evidence",
+                "args": {"query": "aspirin"},
+                "id": f"search-{self.calls}",
+            }
+        else:
+            call = {
+                "name": "AgentAnswer",
+                "args": self.answer.model_dump(),
+                "id": "final-answer",
+            }
+        return ChatResult(
+            generations=[
+                ChatGeneration(message=AIMessage(content="", tool_calls=[call]))
+            ]
+        )
+
+
 class _ZeroEmbedder(Embedder):
     """Embedder used when the answer requires no document search."""
 
@@ -132,7 +185,9 @@ def _build(
     scope: frozenset[str] = frozenset(),
 ) -> Any:
     """Build an agent with the supplied model."""
-    monkeypatch.setattr("agrag.agents.build.build_chat_model", lambda _config: model)
+    monkeypatch.setattr(
+        "agrag.agents.build.build_chat_model", lambda _config, **_: model
+    )
     return build_agent(
         graph_store=store,
         embedder=_ZeroEmbedder(),
@@ -315,6 +370,36 @@ class TestAgentAnswerIntegration:
             assert result["answer"] == "I removed the unsupported citations."
             assert result["invalid_citations"] == []
             assert model.calls == 2
+        finally:
+            await _delete_project_history(store, project_id)
+            await store.close()
+
+    async def test_spent_budget_ends_with_an_answer(
+        self, monkeypatch: MonkeyPatch
+    ) -> None:
+        """A spent tool budget still ends the run with an answer."""
+        store = build_test_store()
+        await store.connect()
+        project_id = f"budget-answer-{uuid4().hex}"
+        model = _BudgetModel(
+            answer=AgentAnswer(
+                answer="Aspirin is effective for headaches.",
+                support_status="insufficient_evidence",
+                citations=[],
+            )
+        )
+        try:
+            result = await _build(
+                monkeypatch,
+                store,
+                project_id,
+                model,
+                AgentSettings(max_tool_calls=2),
+                scope=frozenset({"budget-scope"}),
+            ).ainvoke({"task_name": f"task-{uuid4().hex}", "question": "Headaches?"})
+
+            assert result["status"] == "budget_exhausted"
+            assert result["answer"].startswith("Aspirin is effective")
         finally:
             await _delete_project_history(store, project_id)
             await store.close()

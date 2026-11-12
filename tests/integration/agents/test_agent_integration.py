@@ -27,6 +27,7 @@ from agrag.common.data_models.vector_record import Distance
 from agrag.cypher.entities import validate_identifier
 from agrag.embedding.base import Embedder
 from agrag.ingestion.graph import Graph
+from agrag.llm.client_config import LLMClientConfig
 from tests.conftest import FAKE_EMBEDDING_DIMENSIONS
 from tests.integration._backend import await_indexes, build_test_store
 from tests.integration.retrieval.evidence._corpus import (
@@ -228,7 +229,17 @@ class TestAgentBuildIntegration:
     @pytest.mark.skipif(neo4j_missing, reason="neo4j extra not installed")
     def test_build_agent_returns_compiled_graph(self) -> None:
         """build_agent returns an agent that exposes ainvoke."""
-        settings = AgentLLMSettings.from_openai_compatible_env()
+        settings = AgentLLMSettings(
+            clients=[
+                LLMClientConfig(
+                    name="agent",
+                    provider="openai-generic",
+                    model="unused-model",
+                    api_key="unused-key",
+                    base_url="http://127.0.0.1:9/v1",
+                )
+            ]
+        )
         agent = build_agent(
             graph_store=self.store,
             embedder=self.embedder,
@@ -314,9 +325,9 @@ class TestAgentBuildIntegration:
         citation_pattern = r"ev1:[sc]:[0-9a-f-]+:[0-9a-f-]+:[0-9a-f-]+"
         transcript_keys = set(re.findall(citation_pattern, transcript))
         assert transcript_keys, "research findings contain no citation keys"
-        answer = self._message_text(result)
-        answer_keys = set(re.findall(citation_pattern, answer))
-        assert answer_keys & transcript_keys, "final answer cites no research evidence"
+        assert result["answer"], "final answer is empty"
+        cited_keys = {citation.evidence_id for citation in result["citations"]}
+        assert cited_keys & transcript_keys, "final answer cites no research evidence"
 
     @pytest.mark.skipif(neo4j_missing, reason="neo4j extra not installed")
     @pytest.mark.skipif(
@@ -343,8 +354,8 @@ class TestAgentBuildIntegration:
             }
         )
 
-        answer = self._message_text(result)
-        assert not re.search(r"\b(?:1\d{3}|20\d{2})\b", answer)
+        assert result["answer"]
+        assert not re.search(r"\b(?:1\d{3}|20\d{2})\b", result["answer"])
 
     @pytest.mark.skipif(neo4j_missing, reason="neo4j extra not installed")
     @pytest.mark.skipif(

@@ -224,6 +224,18 @@ class TestLiveLLMAvailability:
             is None
         )
 
+    def test_rate_limited_provider_probe_is_reachable(self) -> None:
+        """A 429 response proves access, so the probe neither skips nor raises."""
+        assert (
+            probe_live_llm(
+                "https://provider.invalid/v1",
+                "test-secret",
+                "test-model",
+                transport=_transport_for_status(429),
+            )
+            is None
+        )
+
     @pytest.mark.parametrize("status_code", [403, 404, 500])
     def test_other_provider_errors_remain_failures(self, status_code: int) -> None:
         """Statuses other than 401 and 402 continue to fail the test."""

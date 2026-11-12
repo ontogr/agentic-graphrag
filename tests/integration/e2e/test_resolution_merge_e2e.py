@@ -2,9 +2,15 @@
 
 Three documents mention the same organization and person under different
 surface names, with conflicting property values and descriptions. A fake
-embedder decides which names mean the same thing, so no LLM runs: same-thing
-pairs score 1.0 and every other pair scores 0.5 or lower, and no pair sits in
-the band that needs LLM review. The tests prove that:
+embedder decides which names mean the same thing: same-thing pairs score 1.0
+and every other pair scores 0.5 or lower, so no pair sits in the band that
+needs LLM review. Extraction runs in gliner mode, so it calls no LLM. Non-live
+runs blank the shared ``LLM_*`` endpoint variables (see
+``tests/integration/conftest.py``), so with those variables as the only source
+of an endpoint, ``consolidate()`` builds no summarizer and joins conflicting
+descriptions, the same result as a failed summarizer call. The join assertions
+below depend on that. An endpoint set through ``EXTRACTION_LLM_*`` is not
+blanked. The tests prove that:
 
 - raw entities survive resolution, each linked by ``RESOLVED_AS`` to one
   resolved entity that carries the merged properties;
@@ -49,6 +55,7 @@ from agrag.ingestion.merge import (
     PropertyStrategy,
     compute_merge,
 )
+from agrag.ingestion.settings import ExtractionSettings
 from agrag.retrieval.settings import RetrievalSettings
 from tests.conftest import FAKE_EMBEDDING_DIMENSIONS
 from tests.integration._backend import build_test_store
@@ -418,6 +425,8 @@ async def world() -> AsyncGenerator[_World, None]:
             graph_store=store,
             embedder=embedder,
             extractor=_DocumentExtractor(org_mentions),
+            # Hybrid mode sends some chunks to the LLM, which adds unexpected entities.
+            extraction_settings=ExtractionSettings(mode="gliner"),
         )
         partial = _World(
             store=store,

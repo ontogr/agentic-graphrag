@@ -245,6 +245,7 @@ class TestResolverIntegration:
     """End-to-end resolution with real comparators."""
 
     @pytest.mark.skipif(not _has_llm_endpoint(), reason="LLM endpoint not configured")
+    @pytest.mark.usefixtures("live_extraction_llm")
     async def test_full_pipeline_groups_exact_duplicates(self) -> None:
         """Exact duplicates are grouped; distinct entities stay separate."""
         settings = ExtractionLLMSettings.from_openai_compatible_env()

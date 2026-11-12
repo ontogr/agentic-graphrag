@@ -54,6 +54,9 @@ class RetryConfig(BaseModel):
         timeout_ms: The retry deadline checked after failed attempts. Zero disables it.
         request_timeout_ms: The longest one attempt may run. A longer attempt is
             cancelled and counts as a failure that can retry. Zero disables it.
+            Each client also gets this limit as its own HTTP request timeout. With
+            the ``fallback`` strategy the limit is split evenly across the clients,
+            so a client that stalls leaves time for the next one.
     """
 
     max_retries: int = Field(default=3, ge=0)

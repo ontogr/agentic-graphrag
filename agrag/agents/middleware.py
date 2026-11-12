@@ -11,10 +11,16 @@ from langchain.agents.middleware.types import (
     ModelRequest,
     ModelResponse,
 )
-from langchain_core.messages import ToolMessage
+from langchain_core.messages import HumanMessage, ToolMessage
 from langgraph.errors import GraphBubbleUp
 
 from agrag.common.data_models.task import EventKind, StepKind, StepState
+
+
+_BUDGET_SPENT_NOTE = (
+    "The tool budget is spent, so no more evidence tools are available. "
+    "Answer now with the answer tool, using only the evidence already gathered."
+)
 
 
 @dataclass
@@ -151,7 +157,19 @@ class TaskEventMiddleware(AgentMiddleware):
         request: ModelRequest,
         handler: Callable[[ModelRequest], Awaitable[ModelResponse]],
     ) -> ModelResponse:
-        """Record the assistant response before any tool it requests runs."""
+        """Record the assistant response before any tool it requests runs.
+
+        Once the tool budget is spent, the model gets no tools except the
+        structured answer tool, which the agent binds from its response format.
+        """
+        # Every tool call is refused after the budget is spent, so a model that
+        # still sees tools keeps requesting them until the recursion limit ends
+        # the run without an answer.
+        if self._run_state.budget_exhausted:
+            request = request.override(
+                tools=[],
+                messages=[*request.messages, HumanMessage(content=_BUDGET_SPENT_NOTE)],
+            )
         response = await handler(request)
         for message in response.result:
             await record_event_or_flag(

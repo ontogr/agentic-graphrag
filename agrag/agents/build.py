@@ -77,7 +77,9 @@ def build_agent(
     history = ConversationHistory(graph_store, project_id=project_id, agent_id=agent_id)
     decisions = DecisionTraces(graph_store, project_id=project_id, agent_id=agent_id)
     middleware = build_model_middleware(
-        llm_settings.clients, strategy=llm_settings.strategy
+        llm_settings.clients,
+        strategy=llm_settings.strategy,
+        max_retries=llm_settings.max_retries,
     )
     return _TaskAgent(
         graph_store=graph_store,
@@ -85,7 +87,9 @@ def build_agent(
         scope=scope,
         history=history,
         decisions=decisions,
-        model=build_chat_model(llm_settings.clients[0]),
+        model=build_chat_model(
+            llm_settings.clients[0], max_retries=llm_settings.max_retries
+        ),
         settings=settings,
         middleware=middleware,
         provider=model_provider_key(llm_settings.clients[0].provider),

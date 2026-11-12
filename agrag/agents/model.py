@@ -14,7 +14,7 @@ _UNSUPPORTED_PROVIDERS = frozenset(
 )
 
 
-def build_chat_model(config: LLMClientConfig) -> Any:
+def build_chat_model(config: LLMClientConfig, *, max_retries: int | None = None) -> Any:
     """Translate one LLMClientConfig into a LangChain chat model.
 
     Covers anthropic, openai, openai-generic (mapped to ChatOpenAI
@@ -23,6 +23,8 @@ def build_chat_model(config: LLMClientConfig) -> Any:
 
     Args:
         config: The provider, model, api_key, and base_url to use.
+        max_retries: Retries of one model call after a failed attempt.
+            ``None`` keeps the provider library's default.
 
     Returns:
         A constructed, ready-to-call BaseChatModel.
@@ -39,6 +41,9 @@ def build_chat_model(config: LLMClientConfig) -> Any:
         )
 
     api_key = config.api_key.get_secret_value() if config.api_key else None
+    retry_kwargs: dict[str, Any] = (
+        {} if max_retries is None else {"max_retries": max_retries}
+    )
 
     if config.provider == "anthropic":
         from langchain_anthropic import (  # noqa: PLC0415
@@ -48,6 +53,7 @@ def build_chat_model(config: LLMClientConfig) -> Any:
         return ChatAnthropic(
             model=config.model,
             api_key=api_key,
+            **retry_kwargs,
         )
 
     if config.provider == "openai":
@@ -56,7 +62,7 @@ def build_chat_model(config: LLMClientConfig) -> Any:
         kwargs: dict[str, Any] = {"model": config.model}
         if api_key:
             kwargs["api_key"] = api_key
-        return ChatOpenAI(**kwargs)
+        return ChatOpenAI(**kwargs, **retry_kwargs)
 
     if config.provider == "openai-generic":
         from langchain_openai import ChatOpenAI  # noqa: PLC0415
@@ -66,7 +72,7 @@ def build_chat_model(config: LLMClientConfig) -> Any:
             generic_kwargs["base_url"] = config.base_url
         if api_key:
             generic_kwargs["api_key"] = api_key
-        return ChatOpenAI(**generic_kwargs)
+        return ChatOpenAI(**generic_kwargs, **retry_kwargs)
 
     if config.provider == "google-ai":
         from langchain_google_genai import (  # noqa: PLC0415
@@ -76,6 +82,7 @@ def build_chat_model(config: LLMClientConfig) -> Any:
         return ChatGoogleGenerativeAI(
             model=config.model,
             google_api_key=api_key,
+            **retry_kwargs,
         )
 
     raise UnsupportedAgentProviderError(
@@ -87,6 +94,7 @@ def build_model_middleware(
     clients: list[LLMClientConfig],
     *,
     strategy: Literal["single", "fallback", "round_robin"] = "single",
+    max_retries: int | None = None,
 ) -> list[Any]:
     """Build agent middleware composing multiple clients per strategy.
 
@@ -100,6 +108,7 @@ def build_model_middleware(
         clients: The configured clients, in priority order.
         strategy: How to compose ``clients``. ``"single"`` ignores all
             but the first client.
+        max_retries: Passed to ``build_chat_model`` for every client.
 
     Returns:
         Middleware for create_deep_agent/create_agent; empty when there
@@ -112,7 +121,7 @@ def build_model_middleware(
     if strategy == "single" or len(clients) <= 1:
         return []
 
-    models = [build_chat_model(client) for client in clients]
+    models = [build_chat_model(client, max_retries=max_retries) for client in clients]
     if strategy == "fallback":
         from langchain.agents.middleware import (  # noqa: PLC0415
             ModelFallbackMiddleware,

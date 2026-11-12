@@ -30,6 +30,9 @@ awrap_model_call(request:ModelRequest, handler:Callable[[ModelRequest], Awaitabl
 
 Record the assistant response before any tool it requests runs.
 
+Once the tool budget is spent, the model gets no tools except the
+structured answer tool, which the agent binds from its response format.
+
 ## `awrap_tool_call` \{#agrag-agents-middleware-TaskEventMiddleware-awrap_tool_call}
 
 ```python

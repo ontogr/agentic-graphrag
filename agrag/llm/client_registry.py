@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from typing import TYPE_CHECKING, Literal
 
 
@@ -12,12 +13,20 @@ if TYPE_CHECKING:
 def build_client_registry(
     clients: list[LLMClientConfig],
     *,
+    request_timeout_ms: int,
     strategy: Literal["single", "fallback", "round_robin"] = "single",
 ) -> object:
     """Build a ClientRegistry with the given clients, composed per strategy.
 
     Args:
         clients: The clients to register. Must be non-empty.
+        request_timeout_ms: The longest one attempt may run, normally
+            ``RetryConfig.request_timeout_ms``. Each client gets it as its HTTP
+            request timeout, so the limit is the configured one and not a BAML
+            default. Zero removes the limit. With ``"fallback"`` the value is split
+            evenly across ``clients``, rounded up, so a client that stalls leaves
+            time for the next. A ``request_timeout_ms`` in a client's
+            ``options["http"]`` takes precedence.
         strategy: ``"single"`` uses ``clients[0]`` directly. ``"fallback"`` and
             ``"round_robin"`` register one composite client over all of ``clients``,
             in order, and make it primary.
@@ -47,9 +56,22 @@ def build_client_registry(
             f"build_client_registry needs unique client names; repeated: {duplicates}."
         )
 
+    # Fallback tries its clients in turn inside one attempt, so each gets an equal
+    # share of the attempt limit, rounded up. A stalled client then times out on
+    # its own and the next one runs before the attempt limit cancels the call.
+    client_count = len(clients) if strategy == "fallback" else 1
+    client_timeout_ms = math.ceil(request_timeout_ms / client_count)
+
     registry = ClientRegistry()
     for client in clients:
-        options: dict[str, object] = {"model": client.model, **client.options}
+        options: dict[str, object] = {
+            "model": client.model,
+            **client.options,
+            "http": {
+                "request_timeout_ms": client_timeout_ms,
+                **client.options.get("http", {}),
+            },
+        }
         if client.api_key is not None:
             options["api_key"] = client.api_key.get_secret_value()
         if client.base_url is not None:

@@ -140,6 +140,8 @@ Class: `ExtractionLLMSettings`. Prefix: `EXTRACTION_LLM_`.
 | `EXTRACTION_LLM_STRATEGY` | `single` | `single`, `fallback`, or `round_robin`. Ignored with one client. |
 | `EXTRACTION_LLM_RETRY` | see below | A JSON object with `max_retries` (`3`), `delay_ms` (`1000`), `multiplier` (`2.0`), `max_delay_ms` (`30000`), `timeout_ms` (`0`, no deadline), and `request_timeout_ms` (`300000`, `0` turns it off). `timeout_ms` stops new attempts after the deadline; it does not stop a request that is already running. `request_timeout_ms` cancels one attempt that runs too long. |
 
+Each client also receives `request_timeout_ms` as its HTTP request timeout, and `0` leaves a request unlimited. With the `fallback` strategy the value is split evenly across the clients, rounded up, so a client that stalls leaves time for the next one. A client that sets `http.request_timeout_ms` in its `options` keeps that value.
+
 `ExtractionLLMSettings.from_openai_compatible_env()` builds one `openai-generic` client from `LLM_BASE_URL`, `LLM_API_KEY`, and `LLM_MODEL_ID`. It raises `RuntimeError` when `LLM_BASE_URL` or `LLM_MODEL_ID` is missing.
 
 `Graph` falls back to the same shared variables when `EXTRACTION_LLM_CLIENTS` is not set. Because the default mode is `hybrid`, setting `LLM_BASE_URL` and `LLM_MODEL_ID` for the agent also lets extraction send low-confidence chunks to that model. Set `EXTRACTION_MODE=gliner` to keep extraction local.
@@ -157,8 +159,9 @@ Class: `AgentLLMSettings`. Prefix: `AGENT_LLM_`.
 | `AGENT_LLM_BASE_URL` | `LLM_BASE_URL` | Read by `from_openai_compatible_env()`. |
 | `AGENT_LLM_API_KEY` | `LLM_API_KEY` | Read by `from_openai_compatible_env()`. |
 | `AGENT_LLM_MODEL_ID` | `LLM_MODEL_ID`, then `gpt-4o-mini` | Read by `from_openai_compatible_env()`. |
+| `AGENT_LLM_MAX_RETRIES` | unset, the provider library's default | Retries of one model call after a failed attempt, such as HTTP 429 or a connection error. Must be `0` or more. Read by `from_openai_compatible_env()` and when you build `AgentLLMSettings()` directly. |
 
-The agent builds its chat model from the first client in `AGENT_LLM_CLIENTS`. It supports the providers `anthropic`, `openai`, `openai-generic`, and `google-ai`. `AgentLLMSettings` has no retry settings. The retry settings under [Extraction](#extraction) configure extraction, merge-description, resolution-verification, and community-report calls.
+The agent builds its chat model from the first client in `AGENT_LLM_CLIENTS`. It supports the providers `anthropic`, `openai`, `openai-generic`, and `google-ai`. `AGENT_LLM_MAX_RETRIES` caps the retries of one agent model call. It applies to the first client and to every other client that the `fallback` or `round_robin` strategy uses. When it is unset, each provider library uses its own default. The `openai` and `openai-generic` providers use the OpenAI Python SDK, which waits between tries with exponential backoff. Before jitter, the first wait is 0.5 seconds, each later wait doubles, and no wait exceeds 8 seconds. Jitter reduces each backoff wait by a random amount of up to 25 percent. When the server sends a `Retry-After` or `retry-after-ms` header with a value above 0 and up to 120 seconds, the client waits for that value instead of the backoff. When the header asks for more than 120 seconds, the client does not retry the request. Other providers use their own backoff. The retry settings under [Extraction](#extraction) configure extraction, merge-description, resolution-verification, and community-report calls, not the agent.
 
 #### Agent strategies
 

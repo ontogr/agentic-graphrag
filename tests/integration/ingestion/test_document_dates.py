@@ -21,6 +21,7 @@ from agrag.embedding.base import Embedder
 from agrag.graphdb.base import GraphStore
 from agrag.ingestion.extract import Extractor
 from agrag.ingestion.graph import Graph
+from agrag.ingestion.settings import ExtractionSettings
 from agrag.loaders.base import ProseLoader
 from agrag.loaders.types import ReadOptions, SourceRef
 from tests.conftest import FAKE_EMBEDDING_DIMENSIONS
@@ -117,6 +118,7 @@ async def _open_graph(
         graph_store=store,
         embedder=embedder,
         extractor=extractor,
+        extraction_settings=ExtractionSettings(mode="gliner"),
     )
 
 
@@ -124,7 +126,6 @@ async def _open_graph(
 class TestDocumentDates:
     """Exercise date persistence through Graph.add() and Graph.update()."""
 
-    @pytest.mark.usefixtures("live_extraction_llm")
     async def test_dates_persist_and_clear_on_content_change(
         self, tmp_path: Path
     ) -> None:
@@ -202,7 +203,6 @@ class TestDocumentDates:
             )
             await store.close()
 
-    @pytest.mark.usefixtures("live_extraction_llm")
     async def test_date_only_updates_write_metadata_without_extraction(
         self, tmp_path: Path
     ) -> None:

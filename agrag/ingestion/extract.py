@@ -870,7 +870,9 @@ class BAMLExtractor(LLMExtractor):
                 client = self._default_client()
                 settings = self.settings or ExtractionLLMSettings()
                 registry = build_client_registry(
-                    settings.clients, strategy=settings.strategy
+                    settings.clients,
+                    strategy=settings.strategy,
+                    request_timeout_ms=settings.retry.request_timeout_ms,
                 )
                 baml_options = {"client_registry": registry}
                 retry = settings.retry
