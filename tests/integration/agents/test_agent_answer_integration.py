@@ -126,7 +126,11 @@ class _BudgetModel(BaseChatModel):
 
     def bind_tools(self, tools: Any, **kwargs: Any) -> "_BudgetModel":
         """Remember whether the search tool is offered in this model call."""
-        self._search_offered = any(tool.name == "search_evidence" for tool in tools)
+        names = [
+            tool["function"]["name"] if isinstance(tool, dict) else tool.name
+            for tool in tools
+        ]
+        self._search_offered = "search_evidence" in names
         return self
 
     def _generate(

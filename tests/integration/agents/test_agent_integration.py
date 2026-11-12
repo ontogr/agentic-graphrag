@@ -326,7 +326,8 @@ class TestAgentBuildIntegration:
         transcript_keys = set(re.findall(citation_pattern, transcript))
         assert transcript_keys, "research findings contain no citation keys"
         assert result["answer"], "final answer is empty"
-        assert result["citations"], "final answer cites no research evidence"
+        cited_keys = {citation.evidence_id for citation in result["citations"]}
+        assert cited_keys & transcript_keys, "final answer cites no research evidence"
 
     @pytest.mark.skipif(neo4j_missing, reason="neo4j extra not installed")
     @pytest.mark.skipif(
