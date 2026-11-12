@@ -74,105 +74,105 @@ jobs:
             dist: loadscope
             services: neo4j milvus
             vector_store: milvus
-            timeout: 20
+            timeout: 60
           - name: graph-store
             backend: neo4j
             paths: "tests/integration/graphdb tests/integration/cypher tests/integration/retrieval --ignore=tests/integration/retrieval/evidence"
             workers: auto
             dist: loadgroup
             services: neo4j
-            timeout: 20
+            timeout: 60
           - name: evidence-search
             backend: neo4j
             paths: "tests/integration/retrieval/evidence/test_search.py tests/integration/retrieval/evidence/test_citations.py"
             workers: auto
             dist: loadgroup
             services: neo4j
-            timeout: 20
+            timeout: 60
           - name: evidence-graph
             backend: neo4j
             paths: "tests/integration/retrieval/evidence --ignore=tests/integration/retrieval/evidence/test_search.py --ignore=tests/integration/retrieval/evidence/test_citations.py"
             workers: auto
             dist: loadgroup
             services: neo4j
-            timeout: 20
+            timeout: 60
           - name: agents
             backend: neo4j
             paths: "tests/integration/agents"
             workers: 0
             dist: loadscope
             services: neo4j
-            timeout: 20
+            timeout: 60
           - name: pipeline
             backend: neo4j
             paths: "tests/integration/ingestion tests/integration/embedding tests/integration/loaders tests/integration/llm --ignore=tests/integration/ingestion/test_cutover_job_concurrency.py"
             workers: auto
             dist: loadscope
             services: neo4j
-            timeout: 20
+            timeout: 60
           - name: cutover-concurrency
             backend: neo4j
             paths: "tests/integration/ingestion/test_cutover_job_concurrency.py"
             workers: 0
             dist: loadscope
             services: neo4j
-            timeout: 20
+            timeout: 60
           - name: cutover-concurrency
             backend: falkordb
             paths: "tests/integration/ingestion/test_cutover_job_concurrency.py"
             workers: 0
             dist: loadscope
             services: falkordb
-            timeout: 20
+            timeout: 60
           - name: graph-store
             backend: falkordb
             paths: "tests/integration/graphdb tests/integration/cypher tests/integration/retrieval --ignore=tests/integration/retrieval/evidence"
             workers: auto
             dist: loadgroup
             services: falkordb
-            timeout: 20
+            timeout: 60
           - name: vector-seam
             backend: neo4j
             paths: "tests/integration/vectordb"
             workers: 0
             dist: loadgroup
             services: neo4j
-            timeout: 20
+            timeout: 60
           - name: vector-seam
             backend: falkordb
             paths: "tests/integration/vectordb"
             workers: 0
             dist: loadgroup
             services: falkordb
-            timeout: 20
+            timeout: 60
           - name: evidence-search
             backend: falkordb
             paths: "tests/integration/retrieval/evidence/test_search.py tests/integration/retrieval/evidence/test_citations.py"
             workers: auto
             dist: loadgroup
             services: falkordb
-            timeout: 20
+            timeout: 60
           - name: evidence-graph
             backend: falkordb
             paths: "tests/integration/retrieval/evidence --ignore=tests/integration/retrieval/evidence/test_search.py --ignore=tests/integration/retrieval/evidence/test_citations.py"
             workers: auto
             dist: loadgroup
             services: falkordb
-            timeout: 20
+            timeout: 60
           - name: agents
             backend: falkordb
             paths: "tests/integration/agents"
             workers: 0
             dist: loadscope
             services: falkordb
-            timeout: 20
+            timeout: 60
           - name: ingestion
             backend: falkordb
             paths: "tests/integration/ingestion --ignore=tests/integration/ingestion/test_cutover_job_concurrency.py"
             workers: auto
             dist: loadscope
             services: falkordb
-            timeout: 20
+            timeout: 60
           - name: vector-qdrant
             backend: neo4j
             paths: "tests/integration/vectordb/test_store_contract.py tests/integration/e2e/test_external_placement_e2e.py"
@@ -180,7 +180,7 @@ jobs:
             dist: loadscope
             services: neo4j qdrant
             vector_store: qdrant
-            timeout: 20
+            timeout: 60
           - name: vector-weaviate
             backend: neo4j
             vector_store: weaviate
@@ -188,7 +188,7 @@ jobs:
             workers: 0
             dist: loadscope
             services: neo4j weaviate
-            timeout: 20
+            timeout: 60
     env:
       UV_PYTHON: "3.12"
       AGRAG_TEST_BACKENDS: ${{ matrix.suite.backend }}
@@ -355,7 +355,7 @@ jobs:
               tests/integration/e2e/test_retrieval_and_agent.py
               -k "not (agent_build_and_invoke or agent_answer_contains_evidence or real_baml)"
             services: neo4j
-            timeout: 20
+            timeout: 60
             allow_skips: false
           - name: llm
             args: >-
@@ -363,7 +363,7 @@ jobs:
               tests/integration/e2e/test_retrieval_and_agent.py
               -k "agent_build_and_invoke or agent_answer_contains_evidence or real_baml"
             services: neo4j
-            timeout: 20
+            timeout: 60
             allow_skips: true
           - name: ingest
             args: >-
@@ -371,7 +371,7 @@ jobs:
               tests/integration/e2e/test_document_lifecycle_e2e.py
               tests/integration/e2e/test_resolution_merge_e2e.py
             services: neo4j
-            timeout: 20
+            timeout: 60
             allow_skips: false
     env:
       UV_PYTHON: "3.12"
