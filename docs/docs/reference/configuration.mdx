@@ -140,6 +140,8 @@ Class: `ExtractionLLMSettings`. Prefix: `EXTRACTION_LLM_`.
 | `EXTRACTION_LLM_STRATEGY` | `single` | `single`, `fallback`, or `round_robin`. Ignored with one client. |
 | `EXTRACTION_LLM_RETRY` | see below | A JSON object with `max_retries` (`3`), `delay_ms` (`1000`), `multiplier` (`2.0`), `max_delay_ms` (`30000`), `timeout_ms` (`0`, no deadline), and `request_timeout_ms` (`300000`, `0` turns it off). `timeout_ms` stops new attempts after the deadline; it does not stop a request that is already running. `request_timeout_ms` cancels one attempt that runs too long. |
 
+Each client also receives `request_timeout_ms` as its HTTP request timeout, and `0` leaves a request unlimited. With the `fallback` strategy the value is split evenly across the clients, rounded up, so a client that stalls leaves time for the next one. A client that sets `http.request_timeout_ms` in its `options` keeps that value.
+
 `ExtractionLLMSettings.from_openai_compatible_env()` builds one `openai-generic` client from `LLM_BASE_URL`, `LLM_API_KEY`, and `LLM_MODEL_ID`. It raises `RuntimeError` when `LLM_BASE_URL` or `LLM_MODEL_ID` is missing.
 
 `Graph` falls back to the same shared variables when `EXTRACTION_LLM_CLIENTS` is not set. Because the default mode is `hybrid`, setting `LLM_BASE_URL` and `LLM_MODEL_ID` for the agent also lets extraction send low-confidence chunks to that model. Set `EXTRACTION_MODE=gliner` to keep extraction local.

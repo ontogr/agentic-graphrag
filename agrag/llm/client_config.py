@@ -5,9 +5,6 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, SecretStr
 
 
-_DEFAULT_REQUEST_TIMEOUT_MS = 300_000
-
-
 LLMProvider = Literal[
     "anthropic",
     "aws-bedrock",
@@ -57,6 +54,9 @@ class RetryConfig(BaseModel):
         timeout_ms: The retry deadline checked after failed attempts. Zero disables it.
         request_timeout_ms: The longest one attempt may run. A longer attempt is
             cancelled and counts as a failure that can retry. Zero disables it.
+            Each client also gets this limit as its own HTTP request timeout. With
+            the ``fallback`` strategy the limit is split evenly across the clients,
+            so a client that stalls leaves time for the next one.
     """
 
     max_retries: int = Field(default=3, ge=0)
@@ -64,4 +64,4 @@ class RetryConfig(BaseModel):
     multiplier: float = Field(default=2.0, ge=0)
     max_delay_ms: int = Field(default=30_000, ge=0)
     timeout_ms: int = Field(default=0, ge=0)
-    request_timeout_ms: int = Field(default=_DEFAULT_REQUEST_TIMEOUT_MS, ge=0)
+    request_timeout_ms: int = Field(default=300_000, ge=0)

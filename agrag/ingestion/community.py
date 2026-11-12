@@ -443,7 +443,11 @@ async def generate_community_reports(  # noqa: PLR0915
         settings = ExtractionLLMSettings.from_openai_compatible_env()
         baml_options["client_registry"] = cast(
             "ClientRegistry",
-            build_client_registry(settings.clients, strategy=settings.strategy),
+            build_client_registry(
+                settings.clients,
+                strategy=settings.strategy,
+                request_timeout_ms=settings.retry.request_timeout_ms,
+            ),
         )
         retry = settings.retry
     except (ImportError, RuntimeError):

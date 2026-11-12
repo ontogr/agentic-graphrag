@@ -277,7 +277,7 @@ class TestLLMVerify:
         monkeypatch.setattr("agrag.llm.retry.random.uniform", lambda low, high: high)
         monkeypatch.setattr(
             "agrag.llm.client_registry.build_client_registry",
-            lambda clients, *, strategy: object(),
+            lambda clients, *, strategy, request_timeout_ms: object(),
         )
 
         call_count = 0
@@ -325,7 +325,7 @@ class TestLLMVerify:
         # Ensure the fallback reads the monkeypatched env, not a stale .env
         monkeypatch.setattr(
             "agrag.llm.client_registry.build_client_registry",
-            lambda clients, *, strategy: object(),
+            lambda clients, *, strategy, request_timeout_ms: object(),
         )
 
         chunk = _chunk("context text")

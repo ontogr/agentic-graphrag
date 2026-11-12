@@ -375,6 +375,50 @@ class TestFallback:
         assert dict(failed.attributes or {})["agrag.llm.selected"] is False
         write_span_tree(span_tree_path("nesting_fallback.json"), spans)
 
+    @staticmethod
+    async def test_stalled_primary_leaves_time_for_the_secondary(
+        local: LocalLLM,
+    ) -> None:
+        """A primary that stalls is cut off early enough for the secondary to serve.
+
+        The primary holds its first request for 1.2 seconds, longer than the
+        0.8 second attempt limit. The secondary answers at once, so the attempt
+        succeeds only if the primary's own limit is a share of the attempt
+        limit rather than the whole of it.
+        """
+        exporter = InMemorySpanExporter()
+        provider = TracerProvider()
+        provider.add_span_processor(SimpleSpanProcessor(exporter))
+        tracer = provider.get_tracer("test")
+        settings = ExtractionLLMSettings(
+            clients=[
+                LLMClientConfig(
+                    name=name,
+                    provider="openai-generic",
+                    model="requested-model",
+                    api_key="sk-nesting-test-key",
+                    base_url=local.url(mode),
+                )
+                for name, mode in (("primary", "stall-first"), ("secondary", "extract"))
+            ],
+            strategy="fallback",
+            retry=RetryConfig(max_retries=0, request_timeout_ms=800),
+        )
+
+        await BAMLExtractor(settings=settings, tracer=tracer).extract(
+            _chunk("Ada Lovelace founded a clinic."), DEFAULT_SCHEMA
+        )
+
+        spans = exporter.get_finished_spans()
+        assert len(local.received) == 2
+        served = [
+            dict(span.attributes or {})["agrag.llm.client_name"]
+            for span in _requests(spans)
+            if dict(span.attributes or {}).get("agrag.llm.selected") is True
+        ]
+        assert served == ["secondary"]
+        write_span_tree(span_tree_path("nesting_fallback_stalled_primary.json"), spans)
+
 
 class TestJudgeUnderDeepEvalScheduler:
     """Judge spans nest under the caller's span through DeepEval's scheduler.

@@ -29,6 +29,7 @@ COMPLETION_TOKENS = 7
 # drive a real BAML retry over real HTTP.
 _FLAKY_FAILURES = 2
 _SLOW_FIRST_SECONDS = 0.3
+_STALL_FIRST_SECONDS = 1.2
 
 
 def _reply_for(mode: str) -> str:
@@ -41,6 +42,7 @@ def _reply_for(mode: str) -> str:
         "html": "<html>Bad Gateway</html>",
         "extract": "[]",
         "slow-first": "[]",
+        "stall-first": "[]",
         "408-first": "[]",
         "verify": "[]",
         "flaky": "[]",
@@ -72,6 +74,8 @@ class _Handler(BaseHTTPRequestHandler):
             )
             self.server.closed_connections.append(closed)  # type: ignore[attr-defined]
             self.server.probe_complete.set()  # type: ignore[attr-defined]
+        if mode == "stall-first" and attempts == 1:
+            time.sleep(_STALL_FIRST_SECONDS)
         if mode == "408-first" and attempts == 1:
             payload = json.dumps({"error": {"message": "request timeout"}}).encode()
             self.send_response(408)

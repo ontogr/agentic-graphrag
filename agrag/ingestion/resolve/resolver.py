@@ -343,7 +343,9 @@ class LLMVerify(Comparator):
                         self.unavailable_pairs += len(pairs)
                         return _undecided(pairs), 0
                     registry = client_registry.build_client_registry(
-                        settings.clients, strategy=settings.strategy
+                        settings.clients,
+                        strategy=settings.strategy,
+                        request_timeout_ms=settings.retry.request_timeout_ms,
                     )
                     baml_options = {"client_registry": registry}
                     retry = settings.retry
