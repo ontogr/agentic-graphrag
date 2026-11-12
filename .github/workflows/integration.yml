@@ -27,6 +27,11 @@ env:
   LLM_BASE_URL: ${{ secrets.LLM_BASE_URL }}
   LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
   LLM_MODEL_ID: ${{ secrets.LLM_MODEL_ID }}
+  # The shared endpoint answers 429 while other jobs hold its concurrency
+  # slots. The default backoff waits about 7 seconds in total, so a busy
+  # endpoint fails a test that would pass a minute later. This waits about
+  # 5 minutes before a call gives up.
+  EXTRACTION_LLM_RETRY: '{"max_retries": 8, "delay_ms": 5000, "multiplier": 2.0, "max_delay_ms": 60000}'
 
 jobs:
   changes:
