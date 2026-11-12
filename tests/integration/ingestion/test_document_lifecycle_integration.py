@@ -22,6 +22,7 @@ from agrag.embedding.base import Embedder
 from agrag.graphdb.base import GraphStore
 from agrag.ingestion.extract import Extractor
 from agrag.ingestion.graph import Graph
+from agrag.ingestion.settings import ExtractionSettings
 from tests.conftest import FAKE_EMBEDDING_DIMENSIONS
 from tests.integration._backend import build_test_store
 from tests.integration.e2e._artifact import write_artifact
@@ -107,6 +108,7 @@ async def _open_graph(store: GraphStore) -> Graph:
         graph_store=store,
         embedder=_FixedEmbedder(),
         extractor=_NoopExtractor(),
+        extraction_settings=ExtractionSettings(mode="gliner"),
     )
 
 
@@ -216,7 +218,6 @@ class TestDocumentLifecycle:
             )
             await store.close()
 
-    @pytest.mark.usefixtures("live_extraction_llm")
     async def test_update_same_text_twice_is_a_no_op(self) -> None:
         """A repeated update with unchanged text writes nothing new."""
         store = build_test_store()
@@ -378,7 +379,6 @@ class TestDocumentLifecycle:
                 )
             await store.close()
 
-    @pytest.mark.usefixtures("live_extraction_llm")
     async def test_repeat_add_converges_has_part_edges(self) -> None:
         """Adding identical content twice leaves one open edge per chunk.
 
