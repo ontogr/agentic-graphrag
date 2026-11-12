@@ -181,7 +181,9 @@ def _build(
     scope: frozenset[str] = frozenset(),
 ) -> Any:
     """Build an agent with the supplied model."""
-    monkeypatch.setattr("agrag.agents.build.build_chat_model", lambda _config: model)
+    monkeypatch.setattr(
+        "agrag.agents.build.build_chat_model", lambda _config, **_: model
+    )
     return build_agent(
         graph_store=store,
         embedder=_ZeroEmbedder(),

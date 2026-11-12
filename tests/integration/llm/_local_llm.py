@@ -28,6 +28,9 @@ COMPLETION_TOKENS = 7
 # How many requests the "flaky" mode fails before it serves, so a test can
 # drive a real BAML retry over real HTTP.
 _FLAKY_FAILURES = 2
+# How many requests the "rate-limited" mode answers with HTTP 429 before it
+# serves, so a test can drive the provider library's own retry on rate limits.
+_RATE_LIMITED_FAILURES = 3
 _SLOW_FIRST_SECONDS = 0.3
 _STALL_FIRST_SECONDS = 1.2
 
@@ -46,6 +49,7 @@ def _reply_for(mode: str) -> str:
         "408-first": "[]",
         "verify": "[]",
         "flaky": "[]",
+        "rate-limited": "served after retries",
     }.get(mode, "merged description")
 
 
@@ -87,6 +91,9 @@ class _Handler(BaseHTTPRequestHandler):
         if mode == "500":
             payload = json.dumps({"error": {"message": "boom"}}).encode()
             self.send_response(500)
+        elif mode == "rate-limited" and attempts <= _RATE_LIMITED_FAILURES:
+            payload = json.dumps({"error": {"message": "rate limited"}}).encode()
+            self.send_response(429)
         elif mode == "flaky" and attempts <= _FLAKY_FAILURES:
             # Fail the first requests of this server, then serve, so a test can
             # drive a real retry through BAML over real HTTP.

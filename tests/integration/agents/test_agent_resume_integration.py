@@ -115,7 +115,9 @@ def _build(
     model: _ScriptedModel,
 ) -> Any:
     """Build an agent with the supplied scripted chat model."""
-    monkeypatch.setattr("agrag.agents.build.build_chat_model", lambda _config: model)
+    monkeypatch.setattr(
+        "agrag.agents.build.build_chat_model", lambda _config, **_: model
+    )
     return build_agent(
         graph_store=store,
         embedder=_ZeroEmbedder(),
