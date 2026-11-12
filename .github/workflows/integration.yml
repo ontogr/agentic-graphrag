@@ -32,6 +32,9 @@ env:
   # endpoint fails a test that would pass a minute later. This waits about
   # 5 minutes before a call gives up.
   EXTRACTION_LLM_RETRY: '{"max_retries": 8, "delay_ms": 5000, "multiplier": 2.0, "max_delay_ms": 60000}'
+  # The agent model client retries a 429 about every 8 seconds, so this waits
+  # about 4 minutes before an agent call gives up.
+  AGENT_LLM_MAX_RETRIES: "30"
 
 jobs:
   changes:
