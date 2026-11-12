@@ -6,7 +6,7 @@ sidebar_label: build_model_middleware
 # `agrag.agents.model.build_model_middleware` \{#agrag-agents-model-build_model_middleware}
 
 ```python
-build_model_middleware(clients:list[LLMClientConfig], *, strategy:Literal['single', 'fallback', 'round_robin'] = 'single') -> list[Any]
+build_model_middleware(clients:list[LLMClientConfig], *, strategy:Literal['single', 'fallback', 'round_robin'] = 'single', max_retries:int | None = None) -> list[Any]
 ```
 
 Build agent middleware composing multiple clients per strategy.
@@ -22,6 +22,7 @@ every client per model call.
 - **clients** (<code>list\[LLMClientConfig\]</code>) – The configured clients, in priority order.
 - **strategy** (<code>Literal['single', 'fallback', 'round_robin']</code>) – How to compose `clients`. `"single"` ignores all
   but the first client.
+- **max_retries** (<code>int | None</code>) – Passed to `build_chat_model` for every client.
 
 **Returns:**
 
