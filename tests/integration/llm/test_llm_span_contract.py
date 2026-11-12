@@ -443,14 +443,13 @@ class TestCrossPathValueAgreement:
         ).extract(_chunk("Meridian Health Group opened a clinic."), DEFAULT_SCHEMA)
         # A rate-limited endpoint (HTTP 429) makes call_with_retry retry, and
         # each failed attempt is recorded as an ERROR request span.
-        request_spans = [
+        successful_spans = tuple(
             span
             for span in exporter.get_finished_spans()
-            if span.name == "agrag.llm.request"
-            and span.status.status_code.name != "ERROR"
-        ]
-        assert request_spans, "expected a successful agrag.llm.request span"
-        baml = dict(request_spans[-1].attributes or {})  # type: ignore[arg-type]
+            if span.status.status_code.name != "ERROR"
+        )
+        request_span = _one(successful_spans, "agrag.llm.request")
+        baml = dict(request_span.attributes or {})  # type: ignore[arg-type]
 
         agent_exporter = InMemorySpanExporter()
         agent_provider = TracerProvider()

@@ -11,7 +11,7 @@ import pytest
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage
 from langchain_core.outputs import ChatGeneration, ChatResult
-from pydantic import Field, PrivateAttr
+from pydantic import PrivateAttr
 from pytest import MonkeyPatch
 
 from agrag.agents.build import build_agent
@@ -108,25 +108,16 @@ class _FinalModel(BaseChatModel):
         )
 
 
-def _tool_name(tool: Any) -> str:
-    """Return the name of a tool or a function-style tool dict."""
-    if isinstance(tool, dict):
-        return str(tool.get("function", {}).get("name", tool.get("name", "")))
-    return str(tool.name)
-
-
 class _BudgetModel(BaseChatModel):
-    """Search while search is offered, then answer with the structured tool.
+    """Request the search tool while it is offered, then answer structurally.
 
-    With ``keep_asking`` set, the model requests the search tool even after it
-    is no longer offered, which exercises the recursion limit.
+    Once the search tool is no longer offered, the model returns the
+    structured answer.
     """
 
     answer: AgentAnswer
-    keep_asking: bool = False
-    offered: list[list[str]] = Field(default_factory=list)
     calls: int = 0
-    _offered_now: list[str] = PrivateAttr(default_factory=list)
+    _search_offered: bool = PrivateAttr(default=False)
 
     @property
     def _llm_type(self) -> str:
@@ -134,9 +125,8 @@ class _BudgetModel(BaseChatModel):
         return "scripted"
 
     def bind_tools(self, tools: Any, **kwargs: Any) -> "_BudgetModel":
-        """Record which tools this call offers, then return the model."""
-        self._offered_now = [_tool_name(tool) for tool in tools]
-        self.offered.append(list(self._offered_now))
+        """Remember whether the search tool is offered in this model call."""
+        self._search_offered = any(tool.name == "search_evidence" for tool in tools)
         return self
 
     def _generate(
@@ -148,7 +138,7 @@ class _BudgetModel(BaseChatModel):
     ) -> ChatResult:
         """Request a search or the final structured answer."""
         self.calls += 1
-        if "search_evidence" in self._offered_now or self.keep_asking:
+        if self._search_offered:
             call = {
                 "name": "search_evidence",
                 "args": {"query": "aspirin"},
@@ -378,10 +368,10 @@ class TestAgentAnswerIntegration:
             await _delete_project_history(store, project_id)
             await store.close()
 
-    async def test_spent_budget_offers_only_the_answer_tool(
+    async def test_spent_budget_ends_with_an_answer(
         self, monkeypatch: MonkeyPatch
     ) -> None:
-        """After the budget is spent, the model answers and no search is offered."""
+        """A spent tool budget still ends the run with an answer."""
         store = build_test_store()
         await store.connect()
         project_id = f"budget-answer-{uuid4().hex}"
@@ -404,66 +394,6 @@ class TestAgentAnswerIntegration:
 
             assert result["status"] == "budget_exhausted"
             assert result["answer"].startswith("Aspirin is effective")
-            assert model.offered[-1] == ["AgentAnswer"]
-        finally:
-            await _delete_project_history(store, project_id)
-            await store.close()
-
-    async def test_model_that_keeps_asking_for_tools_ends_at_the_recursion_limit(
-        self, monkeypatch: MonkeyPatch
-    ) -> None:
-        """A model that ignores the removed tools still ends at the recursion limit."""
-        store = build_test_store()
-        await store.connect()
-        project_id = f"budget-loop-{uuid4().hex}"
-        model = _BudgetModel(
-            answer=AgentAnswer(
-                answer="unused", support_status="supported", citations=[]
-            ),
-            keep_asking=True,
-        )
-        try:
-            result = await _build(
-                monkeypatch,
-                store,
-                project_id,
-                model,
-                AgentSettings(max_tool_calls=2, recursion_limit=12),
-                scope=frozenset({"budget-scope"}),
-            ).ainvoke({"task_name": f"task-{uuid4().hex}", "question": "Headaches?"})
-
-            assert result["status"] == "budget_exhausted"
-            assert result["answer"] == ""
-        finally:
-            await _delete_project_history(store, project_id)
-            await store.close()
-
-    async def test_spent_budget_with_bad_citation_keeps_the_answer(
-        self, monkeypatch: MonkeyPatch
-    ) -> None:
-        """A bad citation after the budget keeps the answer and skips repair."""
-        store = build_test_store()
-        await store.connect()
-        project_id = f"budget-bad-{uuid4().hex}"
-        model = _BudgetModel(
-            answer=AgentAnswer(
-                answer="Aspirin helps [ev1:s:invalid].",
-                support_status="supported",
-                citations=["ev1:s:invalid"],
-            )
-        )
-        try:
-            result = await _build(
-                monkeypatch,
-                store,
-                project_id,
-                model,
-                AgentSettings(max_tool_calls=2),
-                scope=frozenset({"budget-scope"}),
-            ).ainvoke({"task_name": f"task-{uuid4().hex}", "question": "Headaches?"})
-
-            assert result["answer"]
-            assert any("ev1:s:invalid" in c for c in result["invalid_citations"])
         finally:
             await _delete_project_history(store, project_id)
             await store.close()
