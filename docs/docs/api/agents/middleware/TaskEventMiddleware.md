@@ -32,8 +32,6 @@ Record the assistant response before any tool it requests runs.
 
 Once the tool budget is spent, the model gets no tools except the
 structured answer tool, which the agent binds from its response format.
-Without this, the model keeps requesting tools that are refused until
-the recursion limit ends the run with no answer.
 
 ## `awrap_tool_call` \{#agrag-agents-middleware-TaskEventMiddleware-awrap_tool_call}
 
