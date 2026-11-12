@@ -4,10 +4,11 @@ Three documents mention the same organization and person under different
 surface names, with conflicting property values and descriptions. A fake
 embedder decides which names mean the same thing: same-thing pairs score 1.0
 and every other pair scores 0.5 or lower, so no pair sits in the band that
-needs LLM review. Extraction runs in gliner mode, so it calls no LLM. Merging
-conflicting descriptions in ``consolidate()`` still calls the environment LLM
-summarizer, and joins the descriptions when that call fails. The tests prove
-that:
+needs LLM review. Extraction runs in gliner mode, so it calls no LLM. Non-live
+runs blank the provider env (see ``tests/integration/conftest.py``), so the
+environment LLM summarizer is never built. Merging conflicting descriptions in
+``consolidate()`` therefore joins them, the same result as a failed summarizer
+call, and the join assertions below depend on that. The tests prove that:
 
 - raw entities survive resolution, each linked by ``RESOLVED_AS`` to one
   resolved entity that carries the merged properties;

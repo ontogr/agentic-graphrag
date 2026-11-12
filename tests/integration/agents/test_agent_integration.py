@@ -27,6 +27,7 @@ from agrag.common.data_models.vector_record import Distance
 from agrag.cypher.entities import validate_identifier
 from agrag.embedding.base import Embedder
 from agrag.ingestion.graph import Graph
+from agrag.llm.client_config import LLMClientConfig
 from tests.conftest import FAKE_EMBEDDING_DIMENSIONS
 from tests.integration._backend import await_indexes, build_test_store
 from tests.integration.retrieval.evidence._corpus import (
@@ -228,7 +229,17 @@ class TestAgentBuildIntegration:
     @pytest.mark.skipif(neo4j_missing, reason="neo4j extra not installed")
     def test_build_agent_returns_compiled_graph(self) -> None:
         """build_agent returns an agent that exposes ainvoke."""
-        settings = AgentLLMSettings.from_openai_compatible_env()
+        settings = AgentLLMSettings(
+            clients=[
+                LLMClientConfig(
+                    name="agent",
+                    provider="openai-generic",
+                    model="unused-model",
+                    api_key="unused-key",
+                    base_url="http://127.0.0.1:9/v1",
+                )
+            ]
+        )
         agent = build_agent(
             graph_store=self.store,
             embedder=self.embedder,
