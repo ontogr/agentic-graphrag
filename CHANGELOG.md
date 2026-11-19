@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.8] - 2026-11-19
+
+### Changed
+
+- Stream vector repair over sorted id pages ([#183](https://github.com/ontogr/agentic-graphrag/pull/183))
+
+### Fixed
+
+- Run blocking loader work off the event loop ([#181](https://github.com/ontogr/agentic-graphrag/pull/181))
+- Resume and retry cutover commits instead of restarting them ([#182](https://github.com/ontogr/agentic-graphrag/pull/182))
+- Fence pending writes by their cutover job ([#184](https://github.com/ontogr/agentic-graphrag/pull/184))
+- Wait for a pending job before retrying a claimed entity name ([#185](https://github.com/ontogr/agentic-graphrag/pull/185))
+- Use event-loop-safe locks for shared resources ([#186](https://github.com/ontogr/agentic-graphrag/pull/186))
+- Skip LLM checks when provider access is unavailable ([#188](https://github.com/ontogr/agentic-graphrag/pull/188))
+- Pass the request timeout to every BAML client and stabilize the live tests ([#189](https://github.com/ontogr/agentic-graphrag/pull/189))
+
 ## [0.0.7] - 2026-10-25
 
 ### Added
@@ -190,7 +206,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.0.1] - 2026-08-25
 
-[unreleased]: https://github.com/ontogr/agentic-graphrag/compare/v0.0.7..HEAD
+[unreleased]: https://github.com/ontogr/agentic-graphrag/compare/v0.0.8..HEAD
+[0.0.8]: https://github.com/ontogr/agentic-graphrag/compare/v0.0.7..v0.0.8
 [0.0.7]: https://github.com/ontogr/agentic-graphrag/compare/v0.0.6..v0.0.7
 [0.0.6]: https://github.com/ontogr/agentic-graphrag/compare/v0.0.5..v0.0.6
 [0.0.5]: https://github.com/ontogr/agentic-graphrag/compare/v0.0.4..v0.0.5

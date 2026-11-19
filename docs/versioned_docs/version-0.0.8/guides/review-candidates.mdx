@@ -1,0 +1,142 @@
+---
+title: Review candidates and grow your schema
+description: Review extraction candidates, update the schema, and convert approved items.
+---
+
+# Review candidates and grow your schema
+
+Review candidates when the extractor found useful information that the current schema or confidence thresholds kept out of the entity graph. Approve valid items, apply the generated schema changes yourself, and convert the approved items.
+
+## Before you start
+
+- Add documents to a graph with candidate writing enabled. Candidate writing is enabled by default.
+- Make sure Neo4j is running and its `NEO4J_*` settings are set.
+- Keep the schema in a file that you can edit. See [Define a graph schema](./define-a-graph-schema.mdx).
+
+## List candidates
+
+Use `list_candidates` to inspect pending relation candidates that appeared at least twice. The count is the total number of sightings represented by the grouped records.
+
+```python notest
+import asyncio
+
+from agrag.candidates import CandidateQuery, list_candidates
+from agrag.graphdb import build_graph_store
+
+
+async def main() -> None:
+    store = build_graph_store("neo4j")
+    try:
+        groups = await list_candidates(
+            store, CandidateQuery(kind="relation", min_count=2)
+        )
+        for group in groups:
+            candidate = group.candidate
+            print(
+                group.count,
+                candidate.label,
+                candidate.source_text,
+                candidate.target_text,
+                candidate.reason,
+            )
+    finally:
+        await store.close()
+
+
+asyncio.run(main())
+```
+
+Candidate IDs can change when a source document is re-extracted. Review and approve the current IDs before that happens, or approve by a filter.
+
+## Approve candidates and write a patch
+
+Approve only candidates that are supported by their source text. This example approves matching `WORKS_FOR` relations and writes `patch.json`.
+
+```python notest
+import asyncio
+from pathlib import Path
+
+from agrag.candidates import CandidateQuery, approve_candidates
+from agrag.graphdb import build_graph_store
+from agrag.schema import load_schema
+
+
+async def main() -> None:
+    store = build_graph_store("neo4j")
+    schema = load_schema("schema.yaml")
+    try:
+        result = await approve_candidates(
+            store,
+            schema,
+            query=CandidateQuery(kind="relation", label="WORKS_FOR", min_count=2),
+            output=Path("patch.json"),
+        )
+        print(result.outcome.changed)
+        print(result.outcome.skipped)
+    finally:
+        await store.close()
+
+
+asyncio.run(main())
+```
+
+The approval step writes a patch describing schema changes and the candidate IDs to convert. It does not edit `schema.yaml`. Candidates with unresolved or ambiguous endpoints remain pending and appear in the skipped results. Use `reject_candidates` for items that are wrong. Rejected records remain in the graph and suppress the same candidate in later extraction runs.
+
+## Apply the schema patch
+
+Open `patch.json` and add its changes to your schema. A relation whose label already exists adds allowed endpoint pairs under `add_patterns`. For example:
+
+```yaml
+relations:
+  - label: WORKS_FOR
+    add_patterns:
+      - [Person, Project]
+```
+
+Use the schema loader's format for new entity and relation declarations. Add descriptions for new entity types because the extractor uses those descriptions. Raise the schema version after you apply the changes. See the [schema file format](../reference/schema-file-format.mdx).
+
+## Convert approved candidates
+
+Open the graph with the updated schema, then pass the patch file to `Graph.convert_candidates`.
+
+```python notest
+import asyncio
+from pathlib import Path
+
+from agrag.embedding import build_embedder
+from agrag.graphdb import build_graph_store
+from agrag.ingestion import GlinerExtractor, Graph
+from agrag.schema import load_schema
+
+
+async def main() -> None:
+    store = build_graph_store("neo4j")
+    graph = await Graph.open(
+        schema=load_schema("schema.yaml"),
+        graph_store=store,
+        embedder=build_embedder("ibm-granite/granite-embedding-small-english-r2"),
+        extractor=GlinerExtractor(),
+    )
+    try:
+        report = await graph.convert_candidates(Path("patch.json"))
+        print(report)
+    finally:
+        await store.close()
+
+
+asyncio.run(main())
+```
+
+Conversion checks that the open graph's schema contains the patch changes. If the schema is missing an addition, `Graph.convert_candidates` raises `PatchNotAppliedError` before it writes graph data. On Neo4j, conversion runs its graph changes in one transaction. On FalkorDB, earlier statements remain if a later statement fails. See [atomicity](./configure-storage-backends.mdx#atomicity). A second call skips candidate IDs already converted.
+
+An entity candidate becomes an entity node and keeps its ID. A matching entity with the same name and type receives its evidence instead. A relation candidate becomes an edge. A property candidate becomes a property on its entity.
+
+## Retain or remove reviewed candidates
+
+Candidates do not expire. Pending candidates for an updated document are replaced when its new extraction job commits. Approved and rejected candidates remain until conversion or pruning. Pruning is a dry run unless you pass `apply=True`, and it never deletes approved candidates. Removing a rejected candidate allows extraction to propose the same content again.
+
+## Related
+
+- Reference: [Candidates](../reference/candidates.mdx) lists the filters, states, and patch fields.
+- Explanation: [Candidates](../concepts/candidates.mdx) describes candidate visibility and lifecycle.
+- How-to: [Turn candidates off](./turn-off-candidates.mdx) stops the writing of discarded items as candidates.

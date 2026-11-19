@@ -1,0 +1,76 @@
+---
+title: JSON-LD schema export
+---
+
+# JSON-LD schema export
+
+`agrag.schema.formats.to_jsonld(schema, *, base_iri=None)` returns a Python dictionary with a JSON-LD representation of the schema's OWL vocabulary. The exporter has no optional dependency.
+
+The output describes schema terms. It does not contain graph instance data, and the export does not make an OWL reasoner part of extraction. OWL vocabulary does not enforce the extraction patterns that `GraphSchema` uses.
+
+## Call the exporter
+
+Pass a `GraphSchema` to `to_jsonld`. Use `load_schema` to create one from the canonical dictionary form:
+
+```python
+import json
+
+from agrag.schema import load_schema
+from agrag.schema.formats import to_jsonld
+
+schema = load_schema(
+    {
+        "name": "catalog",
+        "version": "1",
+        "entities": [
+            {"label": "Product", "description": "A catalog item."},
+            {"label": "Supplier", "description": "A product supplier."},
+        ],
+        "relations": [
+            {
+                "label": "SUPPLIES",
+                "description": "A supplier provides a product.",
+                "patterns": [["Supplier", "Product"]],
+            }
+        ],
+    }
+)
+
+print(json.dumps(to_jsonld(schema), indent=2))
+```
+
+## Namespace
+
+Without `base_iri`, the exporter uses `urn:agrag:schema:<encoded-name>:` as the base namespace. It percent-encodes the schema name for use in the namespace. Pass `base_iri` to use a different base namespace.
+
+```python
+document = to_jsonld(schema, base_iri="https://example.org/catalog#")
+```
+
+`base_iri` applies to the exported vocabulary. It does not change the schema name or version.
+
+## Mapping
+
+| Schema declaration | JSON-LD vocabulary |
+| --- | --- |
+| Entity type | `owl:Class`, with `rdfs:label` and a description in `rdfs:comment` |
+| Parents | `rdfs:subClassOf` links to each declared parent |
+| Entity property | `owl:DatatypeProperty`, with its entity type as the domain |
+| Property type | `xsd:string`, `xsd:integer`, `xsd:double`, `xsd:boolean`, or `xsd:date` |
+| Relation | `owl:ObjectProperty`, with endpoint alternatives in `owl:unionOf` when needed |
+| Maximum one target per source | `owl:FunctionalProperty` |
+| Maximum one source per target | `owl:InverseFunctionalProperty` |
+| Larger relation limits | `agrag:maxPerSource` and `agrag:maxPerTarget` integer annotations |
+| Relation pattern pairs | `agrag:patterns`, with each pair stored as a JSON string |
+| Symmetry | `agrag:symmetric` boolean annotation |
+| Property required flag and enum | `agrag:required` and `agrag:enum` annotations |
+
+The `agrag` prefix names `https://ontogr.com/agrag/schema#`. The annotations preserve declarations for tools that understand them; OWL reasoners do not enforce them. Symmetry is an annotation rather than an `owl:SymmetricProperty` axiom, so OWL reasoners do not infer reverse edges from the export.
+
+Entity and relation IRIs append the percent-encoded label to the base. Property IRIs append the separately percent-encoded entity label and property name, separated by `/`, so slash-containing names cannot make distinct declarations share an IRI. Parent links use standard OWL inheritance. In OWL, a child therefore also belongs to a parent's property domain, although `GraphSchema` does not inherit property declarations.
+
+Domain and range unions do not preserve the pairing between endpoint types. For example, patterns `(Person, Company)` and `(Team, Project)` produce domain and range unions that also admit the other pairings. Symmetric relations include both endpoints in both unions because each allowed edge can also be reversed. Read `agrag:patterns` for the original pairs. A relation with no patterns has no domain or range axiom.
+
+The export omits the schema version. It does not validate `base_iri`; pass an absolute namespace IRI, usually ending in `#`, `/`, or `:`. OWL functional properties express identity constraints, not data validation rules that reject a second value.
+
+For the schema input formats and canonical dictionary fields, see [Schema file format](./schema-file-format.mdx). For a walkthrough of defining a schema, see [Define a graph schema](../guides/define-a-graph-schema.mdx).

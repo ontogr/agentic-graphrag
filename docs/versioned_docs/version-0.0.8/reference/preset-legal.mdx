@@ -1,0 +1,122 @@
+---
+title: Legal preset
+description: The contract and regulation entity types that the legal preset adds to the default schema.
+---
+
+# Legal preset
+
+The legal preset adds two entity types to the default schema: `Contract` and `Regulation`. It fits schemas about agreements between parties and the rules that govern them. The preset adds no relations.
+
+## Import and name
+
+`LEGAL` is a constant in `agrag.common.data_models`. Its `name` is `legal`, which is the name that `load_schema` accepts.
+
+```python
+from agrag.common.data_models import LEGAL
+
+print(LEGAL.name)
+```
+
+```text
+legal
+```
+
+## Entity types added
+
+| Type | Description |
+| --- | --- |
+| `Contract` | An agreement with a lawful object, made by two or more parties. |
+| `Regulation` | A rule with legal force, issued by a legislative body. |
+
+The two types have no parents and no properties.
+
+## Apply the preset
+
+`load_schema("legal")` and `LEGAL.apply(DEFAULT_SCHEMA)` return the default schema with the two types added. The name of the result is `default+legal`. `load_schema({}, extends=LEGAL)` builds a schema named `custom` on top of the preset.
+
+```python
+from agrag.common.data_models import DEFAULT_SCHEMA, LEGAL
+from agrag.schema import load_schema
+
+by_name = load_schema("legal")
+by_apply = LEGAL.apply(DEFAULT_SCHEMA)
+by_extends = load_schema({}, extends=LEGAL)
+
+for schema in (by_name, by_apply, by_extends):
+    print(schema.name, len(schema.entities), len(schema.relations))
+```
+
+```text
+default+legal 11 8
+default+legal 11 8
+custom 11 8
+```
+
+`apply` returns a new schema and does not change `DEFAULT_SCHEMA`. It raises `ValueError` when the schema already declares one of the preset labels, so apply the preset once. [Use a preset](../guides/use-a-preset.mdx) lists the same limits.
+
+## Size of the resulting schema
+
+The default schema has nine entity types and eight relation types. With the legal preset, the schema has 11 entity types and 8 relation types. Both presets together give 14 entity types and 8 relation types.
+
+## Relations for the new types
+
+The default relations do not accept the new types. The default `PARTICIPATED_IN` relation allows people and organizations to take part in events and projects, and it does not allow them to take part in a `Contract`.
+
+```python
+from agrag.common.data_models import DEFAULT_SCHEMA, LEGAL
+
+schema = LEGAL.apply(DEFAULT_SCHEMA)
+print(schema.allows("PARTICIPATED_IN", "Person", "Contract"))
+print(schema.allows("PARTICIPATED_IN", "Person", "Project"))
+```
+
+```text
+False
+True
+```
+
+`GOVERNED_BY` is a new relation from `Contract` to `Regulation`. `add_patterns` adds `Contract` to the targets of `PARTICIPATED_IN` for people and organizations.
+
+```python
+from agrag.common.data_models import LEGAL
+from agrag.schema import load_schema
+
+schema = load_schema(
+    {
+        "relations": [
+            {
+                "label": "GOVERNED_BY",
+                "description": "A contract is subject to a regulation.",
+                "patterns": [["Contract", "Regulation"]],
+            },
+            {
+                "label": "PARTICIPATED_IN",
+                "add_patterns": [["Person", "Contract"], ["Organization", "Contract"]],
+            },
+        ]
+    },
+    extends=LEGAL,
+)
+
+print(schema.name, len(schema.entities), len(schema.relations))
+for relation in schema.relations:
+    if relation.label == "GOVERNED_BY":
+        print(relation.label, relation.patterns)
+print(schema.allows("PARTICIPATED_IN", "Person", "Contract"))
+print(schema.allows("GOVERNED_BY", "Contract", "Regulation"))
+```
+
+```text
+custom 11 9
+GOVERNED_BY [('Contract', 'Regulation')]
+True
+True
+```
+
+`add_patterns` adds pairs to a base relation and keeps the patterns the base already declares. A new relation label needs `patterns`.
+
+## Related
+
+- [Use a preset](../guides/use-a-preset.mdx) shows how to add the legal types to a graph with `Graph.open`.
+- [Default schema](./default-schema.mdx) lists the default entity types and relation types that the preset extends.
+- [Ontologies](../concepts/ontologies.mdx) explains how an ontology maps to a schema and the formats that define one.
