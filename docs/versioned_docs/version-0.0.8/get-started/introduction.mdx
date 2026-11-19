@@ -1,0 +1,56 @@
+---
+sidebar_position: 1
+title: Introduction
+---
+
+import Diagram from '@site/src/components/Diagram';
+
+# Introduction
+
+Agentic GraphRAG is an open source framework that builds one graph connecting your enterprise knowledge to the conversations your agents have and the decisions they make. Each decision links back to the passages and task events behind it, so agents can look up earlier decisions with their evidence, resume work across sessions, and review a decision when its sources change.
+
+- **Evidence you can cite:** Documents become a graph shaped by your schema. Agents search it, read the exact passage behind each result, and cite it. A citation check flags any source the agent never read. Each passage keeps its source and location, a relation links to the passages that support it, and a citation to an older version of a document still leads to the text that was cited.
+- **Work that resumes:** A task stores its goal, an ordered log of messages, tool calls, and tool results, and its named steps in the graph. A later run, even in another process, continues from the stored steps and reruns only the unfinished ones.
+- **Decisions tied to their sources:** A decision stores its conclusion, rationale, and assumptions with links to the passages, task events, and earlier decisions it relies on. When a cited document gets a new version, the decision is flagged for review, and the built-in agent leaves it out of its search for earlier decisions until a reviewer reaffirms, replaces, or rejects it.
+- **Fits your stack:** Use it from Python, run the built-in agent, or connect your own agent through MCP. It runs on Neo4j or FalkorDB, and vectors can live in the graph or in Qdrant, Milvus, or Weaviate.
+
+## What it keeps in the graph
+
+The graph has three connected layers. Enterprise knowledge holds documents with their sections, chunks, entities, relations, and community summaries. Conversation history holds named tasks, ordered events, and steps. Events include agent messages, tool calls, and tool results. Decision traces hold conclusions, concise rationales, assumptions, and explicit supports to passages, task events, or other decisions.
+
+You can define your own entity and relation types. The company-briefing workflow uses annual-report passages to support decisions about a business risk. A later run can resume its task and inspect the saved decision. A correction to the working copy flags decisions that cite the changed text for review.
+
+## Three ways to use it
+
+Use the Python library when you want direct control. `Graph` adds documents, the functions in `agrag.evidence` search and cite, `agrag.history` records task events and steps, and `agrag.decisions` records supported decisions. Use `build_agent` for a task-scoped agent that searches your documents, records its work, and answers with numbered sources. Run `agrag-mcp` to give an MCP client tools for search, citation, conversation history, and decision traces.
+
+## How it works
+
+<Diagram folder="docs" name="introduction" alt="Ingestion stores enterprise knowledge in one graph. An agent or MCP client searches the graph, records conversation history, and saves decision traces with evidence supports. The agent returns a cited answer." />
+
+1. You add documents. Agentic GraphRAG loads them, splits them into chunks, and extracts entities and relations.
+2. Agentic GraphRAG resolves duplicate extracted entities and writes the graph and its indexes to the graph database.
+3. You ask a question. The agent discovers and fetches evidence from the graph.
+4. The agent checks its citations against the fetched evidence and writes an answer with numbered sources.
+5. The agent records messages, tool calls, and tool results as task events. It records progress as steps and saves decisions with explicit supports.
+
+## Who it is for
+
+Use it to build an agent that answers from documents you own and cites the passages it read. The company briefing example resumes the same task after a correction to its source.
+
+## What you need
+
+- Python 3.11 or newer.
+- A [Neo4j or FalkorDB database](../concepts/graph-storage.mdx). Both store the graph and its search indexes. Vectors can also go to one external store (Qdrant, Milvus, or Weaviate) per graph.
+- An OpenAI-compatible LLM endpoint for the built-in agent. Embeddings and local extraction run on your machine.
+
+## Where to go next
+
+- [Quickstart](./quickstart.mdx): build a graph from one document and ask the agent a question.
+- [Features](./features.mdx): the full list of what Agentic GraphRAG does.
+- [Installation](./installation.mdx): choose the extras that you need.
+- [Architecture](../concepts/architecture.mdx): how the parts fit together.
+- [Find and cite evidence](../guides/find-and-cite-evidence.mdx): search passages and check citations from Python.
+- [Run the MCP server](../guides/run-the-mcp-server.mdx): connect an MCP client.
+- [Decision traces](../guides/decision-traces.mdx): record supported decisions and review them when source documents change.
+- [API reference](../api/index.md): every class and function.

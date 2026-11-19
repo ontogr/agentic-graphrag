@@ -1,0 +1,405 @@
+---
+sidebar_position: 15
+title: Ontologies
+description: How an enterprise ontology maps to a graph schema, the formats that define one, and what each stage reads from it.
+---
+
+# Ontologies
+
+An ontology describes the things a business works with. It names the entity types, such as customers, suppliers, contracts and sites. It names the properties of each type, such as a supplier's country or a contract's end date. It also names the links between types, such as a person who works for an organization.
+
+Agentic GraphRAG reads an ontology as a graph schema. The schema lists the entity types and relation types that extraction can return, and the pairs of entity types that each relation accepts. Every stage of the pipeline reads the same schema.
+
+## How an ontology maps to a schema
+
+The table lists each ontology term and the schema element it becomes.
+
+| Ontology term | Schema element | Notes |
+| --- | --- | --- |
+| Class or object type | Entity type | The label is the class name. |
+| Subclass, `rdfs:subClassOf` | `parents` of the child entity type | A pattern that names a parent also covers its child types. |
+| Datatype property | Entity property | The datatype becomes the property type, such as `string`, `integer`, `boolean` or `date`. |
+| Datatype property with a minimum cardinality of 1 | Required property | The property is marked `required: true`. |
+| Object property or link type | Relation with `patterns` | The domain is the source type and the range is the target type. |
+| Functional property | `cardinality.max_per_source` of 1 | Each source has at most one target. |
+| Inverse functional property | `cardinality.max_per_target` of 1 | Each target has at most one source. |
+| Symmetric property | Patterns in both directions | Each allowed pair also allows its reverse, with equal limits on both sides. |
+
+The table uses OWL terms. The Pydantic and YAML forms write the same schema elements with their own notation, and each format section below shows that notation.
+
+The limits describe the schema. Extraction does not reject an edge that breaks a limit. See [Extraction](./extraction.mdx) for what the pipeline checks.
+
+## Accepted formats
+
+`load_schema` accepts the sources below. Each one returns a `GraphSchema` that has the same fields and passes the same checks.
+
+| Format | What you write | How it maps to the schema | Needs |
+| --- | --- | --- | --- |
+| [Lists and dicts in code](#lists-and-dicts-in-code) | A list of labels and relation strings, or a dict. | A string such as `Person-WORKS_FOR->Vendor` declares a relation with one pattern. A dict adds descriptions and parents. | Nothing extra. |
+| [YAML and JSON files](#yaml-and-json-files) | A `.yaml`, `.yml` or `.json` file, or JSON text. | Entity types with descriptions, parents and properties. Relations with allowed type pairs and cardinality limits. | Nothing extra. |
+| [Pydantic classes](#pydantic-classes) | One class for each entity type. | Class: entity type. Field that holds another class: relation. Other field: property. A base class becomes the parent type. | Nothing extra. |
+| [OWL and RDFS Turtle files](#owl-and-rdfs-turtle-files) | A `.ttl` file. | Class: entity type. `subClassOf`: parent type. Datatype property: entity property. Object property: relation between its domain and range classes. Functional and inverse functional property: one target for each source, one source for each target. Symmetric property: both directions. | The `schema-formats` extra. |
+| [Shipped names](#shipped-names) | `default`, `operations` or `legal`. | The default schema, or the default schema plus a preset. | Nothing extra. |
+
+### Lists and dicts in code
+
+Use a list or a dict in code for a small schema that does not need a separate file. A list of strings gives labels and relations in short form. A string such as `Person-WORKS_FOR->Vendor` declares the relation `WORKS_FOR` with one pattern. A dict gives each entity type a description, and each entity type can name its `parents`. The short form leaves every description empty.
+
+```python
+from agrag.schema import load_schema
+
+schema = load_schema(["Person", "Vendor", "Person-WORKS_FOR->Vendor"])
+
+print(schema.name, schema.version)
+print([entity.label for entity in schema.entities])
+print([(relation.label, relation.patterns) for relation in schema.relations])
+```
+
+```text
+custom 1
+['Person', 'Vendor']
+[('WORKS_FOR', [('Person', 'Vendor')])]
+```
+
+The dict form adds descriptions, parents and relation descriptions. The description of each type is what the extractor sees.
+
+```python
+from agrag.schema import load_schema
+
+schema = load_schema(
+    {
+        "name": "procurement",
+        "entities": {
+            "Organization": "A company or other legal body that buys or sells goods.",
+            "Vendor": {
+                "description": "An organization that supplies goods or services.",
+                "parents": ["Organization"],
+            },
+            "Person": "A person who works for an organization.",
+        },
+        "relations": {
+            "WORKS_FOR": {
+                "description": "A person is employed by an organization.",
+                "patterns": ["Person->Organization"],
+            },
+            "SUPPLIES": {
+                "description": "A vendor supplies goods or services to an organization.",
+                "patterns": ["Vendor->Organization"],
+            },
+        },
+    }
+)
+
+for entity in schema.entities:
+    print(entity.label, entity.parents)
+for relation in schema.relations:
+    print(relation.label, relation.patterns)
+print(schema.allows("WORKS_FOR", "Person", "Vendor"))
+```
+
+```text
+Organization []
+Vendor ['Organization']
+Person []
+WORKS_FOR [('Person', 'Organization')]
+SUPPLIES [('Vendor', 'Organization')]
+True
+```
+
+The last line is `True` because `WORKS_FOR` allows `Person` to `Organization`, and `Vendor` is a child of `Organization`.
+
+For the full list of keys, see [Schema file format](../reference/schema-file-format.mdx). [Define a graph schema](../guides/define-a-graph-schema.mdx) shows the schema in a graph.
+
+### YAML and JSON files
+
+Use a `.yaml`, `.yml` or `.json` file when the schema is shared between services or edited without changing code. The file holds the keys `name`, `version`, `entities`, `relations` and `extends`. Entity types map to their `description`, `parents` and `properties`. Relation types map to their `description`, `patterns` and `cardinality`.
+
+```yaml
+name: procurement
+version: "1"
+entities:
+  Organization:
+    description: A company or other legal body that buys or sells goods.
+    properties:
+      country: {type: string}
+  Vendor:
+    description: An organization that supplies goods or services to a buyer.
+    parents: [Organization]
+    properties:
+      category: {type: string, required: true, enum: [hardware, software, services]}
+  Person:
+    description: A person who works for an organization.
+    properties:
+      email: {type: string}
+relations:
+  WORKS_FOR:
+    description: A person is employed by an organization.
+    patterns: ["Person->Organization"]
+    cardinality: {max_per_source: 1}
+  SUPPLIES:
+    description: A vendor supplies goods or services to an organization.
+    patterns: ["Vendor->Organization"]
+```
+
+`load_schema` reads the file from its path. The Python block creates the file in a temporary folder, so it needs no setup.
+
+```python
+import tempfile
+from pathlib import Path
+
+from agrag.schema import load_schema
+
+YAML_TEXT = """\
+name: procurement
+version: "1"
+entities:
+  Organization:
+    description: A company or other legal body that buys or sells goods.
+    properties:
+      country: {type: string}
+  Vendor:
+    description: An organization that supplies goods or services to a buyer.
+    parents: [Organization]
+    properties:
+      category: {type: string, required: true, enum: [hardware, software, services]}
+  Person:
+    description: A person who works for an organization.
+    properties:
+      email: {type: string}
+relations:
+  WORKS_FOR:
+    description: A person is employed by an organization.
+    patterns: ["Person->Organization"]
+    cardinality: {max_per_source: 1}
+  SUPPLIES:
+    description: A vendor supplies goods or services to an organization.
+    patterns: ["Vendor->Organization"]
+"""
+
+with tempfile.TemporaryDirectory() as folder:
+    path = Path(folder) / "procurement.yaml"
+    path.write_text(YAML_TEXT, encoding="utf-8")
+    schema = load_schema(path)
+
+print(schema.name, schema.version)
+for entity in schema.entities:
+    print(entity.label, entity.parents, list(entity.properties))
+for relation in schema.relations:
+    print(relation.label, relation.patterns)
+```
+
+```text
+procurement 1
+Organization [] ['country']
+Vendor ['Organization'] ['category']
+Person [] ['email']
+WORKS_FOR [('Person', 'Organization')]
+SUPPLIES [('Vendor', 'Organization')]
+```
+
+A key that the schema does not define is an error, and the error names the closest valid key. A file with a `.json` suffix uses the same keys in JSON syntax.
+
+### Pydantic classes
+
+Use Pydantic classes when the domain model already exists as Pydantic code. Each class becomes an entity type, and its docstring becomes the description. A base class that is also in the list becomes a parent. A field whose type is another listed class becomes a relation named after the field in upper case. Any other field becomes a property, and a `Literal` field becomes a property with `enum` values.
+
+```python
+from typing import Literal
+
+from pydantic import BaseModel, Field
+
+from agrag.schema import load_schema
+
+
+class Organization(BaseModel):
+    """A company or other legal body that buys or sells goods."""
+
+    legal_name: str
+    country: str | None = None
+
+
+class Vendor(Organization):
+    """An organization that supplies goods or services to a buyer."""
+
+    category: Literal["hardware", "software", "services"]
+
+
+class Person(BaseModel):
+    """A person who works for an organization."""
+
+    email: str
+    employer: Organization | None = Field(
+        default=None, description="A person is employed by an organization."
+    )
+
+
+schema = load_schema([Organization, Vendor, Person])
+
+for entity in schema.entities:
+    print(entity.label, entity.parents, list(entity.properties))
+for relation in schema.relations:
+    print(relation.label, relation.patterns)
+```
+
+```text
+Organization [] ['legal_name', 'country']
+Vendor ['Organization'] ['category']
+Person [] ['email']
+EMPLOYER [('Person', 'Organization')]
+```
+
+`Vendor` lists only the field it adds, because `legal_name` and `country` come from `Organization`. The relation is named `EMPLOYER` after the field. A class cannot declare `max_per_target` or `symmetric`. The graph also reserves some property names, such as `name` and `label`, and a schema that declares one of them fails to load. See [Pydantic class import](../reference/schema-format-pydantic.mdx) for the full mapping and the warnings the import reports.
+
+### OWL and RDFS Turtle files
+
+Use a Turtle file when the ontology already exists in OWL or RDFS, for example from a modelling tool. Reading Turtle needs the optional extra, which you install with `pip install "agentic-graphrag[schema-formats]"`.
+
+The importer reads the OWL terms listed in [How an ontology maps to a schema](#how-an-ontology-maps-to-a-schema). A class takes its class name as its description. `rdfs:comment` is never used as a description, and the importer logs a warning when a comment is present. A relation without a comment takes its first `rdfs:label` as its description. The relation label is the local name in upper case with underscores, so `worksFor` becomes `WORKS_FOR`. The importer does not follow `owl:imports` and does not infer triples.
+
+```python
+import tempfile
+from pathlib import Path
+
+from agrag.schema import load_schema
+
+TURTLE_TEXT = """\
+@prefix : <http://example.org/procurement#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+:Organization a owl:Class .
+:Vendor a owl:Class ; rdfs:subClassOf :Organization .
+:Person a owl:Class .
+
+:country a owl:DatatypeProperty ;
+    rdfs:domain :Organization ;
+    rdfs:range xsd:string .
+
+:worksFor a owl:ObjectProperty, owl:FunctionalProperty ;
+    rdfs:label "works for" ;
+    rdfs:domain :Person ;
+    rdfs:range :Organization .
+
+:supplies a owl:ObjectProperty ;
+    rdfs:label "supplies goods to" ;
+    rdfs:domain :Vendor ;
+    rdfs:range :Organization .
+"""
+
+with tempfile.TemporaryDirectory() as folder:
+    path = Path(folder) / "procurement.ttl"
+    path.write_text(TURTLE_TEXT, encoding="utf-8")
+    schema = load_schema(path)
+
+print(schema.name, schema.version)
+for entity in schema.entities:
+    print(entity.label, entity.parents, list(entity.properties))
+for relation in schema.relations:
+    print(
+        relation.label,
+        repr(relation.description),
+        relation.patterns,
+        relation.cardinality.max_per_source,
+    )
+```
+
+```text
+procurement 1
+Organization [] ['country']
+Person [] []
+Vendor ['Organization'] ['country']
+SUPPLIES 'supplies goods to' [('Vendor', 'Organization')] None
+WORKS_FOR 'works for' [('Person', 'Organization')] 1
+```
+
+The `Vendor` type inherits `country` from `Organization`. `WORKS_FOR` has a limit of one per source because `worksFor` is a functional property. The complete mapping is in [OWL and RDFS Turtle import](../reference/owl-import.mdx).
+
+### Shipped names
+
+Use a shipped name when the schema is the default domain or one of the presets. `load_schema("default")` returns `DEFAULT_SCHEMA`. `load_schema("operations")` and `load_schema("legal")` return the default schema with the preset's entity types added, so their names are `default+operations` and `default+legal`. The presets are described in [Operations preset](../reference/preset-operations.mdx) and [Legal preset](../reference/preset-legal.mdx).
+
+```python
+from agrag.schema import load_schema
+
+for name in ("default", "operations", "legal"):
+    schema = load_schema(name)
+    print(name, schema.name, len(schema.entities), len(schema.relations))
+```
+
+```text
+default default 9 8
+operations default+operations 12 8
+legal default+legal 11 8
+```
+
+## Exporting a schema
+
+The schema can be written in three standard formats, which other tools can read.
+
+- [JSON Schema export](../reference/schema-format-json-schema.mdx) writes a JSON Schema that checks an extraction document, for example as the response schema of an LLM call.
+- [JSON-LD schema export](../reference/schema-json-ld.mdx) writes the labels and relations as an OWL vocabulary in JSON-LD.
+- [SHACL export](../reference/schema-format-shacl.mdx) writes SHACL shapes in Turtle that check the types and patterns of RDF data.
+
+## How the schema is used
+
+- Extraction receives the entity types, the relation types and their descriptions. Validation then drops each entity whose label the schema does not declare, and each relation whose label or pair of entity types the schema does not allow. [Extraction](./extraction.mdx) lists the steps.
+- Graph creation makes each entity type a node label. An entity whose type has parents also carries the labels of those parents, so a filter on `Organization` finds a `Vendor`. Each relation becomes a typed relationship between two entities. [Knowledge graph](./knowledge-graph.mdx) lists the node and edge kinds.
+- Retrieval runs entity search for each schema label, unless the call names labels. The relationship walk follows only the relation types that the schema declares, or the types named in `relation_types`. [How entity search and relations work](./how-entity-search-works.mdx) describes both searches.
+- Agents use the same labels and relation types when they call entity search and explore relationships. Each entity in a result carries its label and its schema properties. [Entity search](../tools/entity-search.mdx) lists the result fields.
+
+Results that fall outside the schema are kept as candidates for review, unless you turn candidate reporting off. Candidates stay out of ordinary retrieval. See [Candidates](./candidates.mdx).
+
+## Building on a base schema
+
+`extends` names a base schema, which can be a shipped name, a preset, a path, a dict or a `GraphSchema`. A schema with `extends` keeps the base types and relations and changes them with these rules.
+
+| Change | Result |
+| --- | --- |
+| Add a new label | The item is added. |
+| Declare a label that the base already has | The load fails, unless the item sets `override: true`. |
+| Add pairs to a base relation with `add_patterns` | The pairs are added to the relation's patterns. |
+| Remove a base type with `exclude` | The type and the relation patterns that use it are removed. |
+| Override a base item with `override: true` | The item replaces the base item. The override cannot drop a property, change its type, make a required property optional, widen its `enum`, or raise a cardinality limit. |
+
+The example adds a `Contract` type and lets people and organizations take part in it.
+
+```python
+from agrag.schema import load_schema
+
+schema = load_schema(
+    {
+        "entities": [
+            {
+                "label": "Contract",
+                "description": "An agreement between two or more parties.",
+            },
+        ],
+        "relations": [
+            {
+                "label": "PARTICIPATED_IN",
+                "add_patterns": [["Person", "Contract"], ["Organization", "Contract"]],
+            },
+        ],
+    },
+    extends="default",
+)
+
+print(schema.name, len(schema.entities), len(schema.relations))
+print(schema.allows("PARTICIPATED_IN", "Person", "Contract"))
+```
+
+```text
+custom 10 8
+True
+```
+
+The result is named `custom` because the source does not set a name. The full rules and the error messages are in [Build on a base schema](../reference/schema-file-format.mdx#build-on-a-base-schema).
+
+## Related
+
+- [Define a graph schema](../guides/define-a-graph-schema.mdx) shows how to write a schema and give it to a graph.
+- [Write a custom schema](../guides/write-a-custom-schema.mdx) shows the short list form, an extension of the default schema, and a full replacement.
+- [Schema file format](../reference/schema-file-format.mdx) lists every key that a schema source accepts.
+- [Extraction](./extraction.mdx) explains how the extractor uses the types and relations.
+- [Candidates](./candidates.mdx) explains the results that fall outside the schema.

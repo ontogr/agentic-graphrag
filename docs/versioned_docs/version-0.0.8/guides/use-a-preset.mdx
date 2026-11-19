@@ -1,0 +1,59 @@
+---
+sidebar_position: 8
+title: Use a preset
+description: Add operations or legal entity types to the default schema.
+---
+
+# Use a preset
+
+Add entity types to `DEFAULT_SCHEMA` with a preset. A preset adds new types. It does not add relations or change descriptions. The default relations do not accept the new types.
+
+## Before you start
+
+- Install Agentic GraphRAG. These steps do not need a database.
+- Choose the types you need. The [default schema reference](../reference/default-schema.mdx) lists them.
+
+## Add one preset
+
+```python
+from agrag.common.data_models import DEFAULT_SCHEMA, OPERATIONS
+
+schema = OPERATIONS.apply(DEFAULT_SCHEMA)
+
+print(schema.name)
+print([entity.label for entity in schema.entities])
+```
+
+`apply` returns a new schema. It does not change `DEFAULT_SCHEMA`.
+
+## Add two presets
+
+```python
+from agrag.common.data_models import DEFAULT_SCHEMA, LEGAL, OPERATIONS
+
+schema = LEGAL.apply(OPERATIONS.apply(DEFAULT_SCHEMA))
+
+print(len(schema.entities), len(schema.relations))
+```
+
+The result has 14 entity types and 8 relation types.
+
+## Give the schema to a graph
+
+Pass the new schema to `Graph.open` in place of `DEFAULT_SCHEMA`. Search with the same schema, so the engine searches the labels in the graph.
+
+[Ingest documents](./ingest-documents.mdx) shows a complete `Graph.open` call.
+
+## Limits
+
+- Each label adds extraction time. Add only the presets you need.
+- Apply each preset once. Applying the same preset again raises `ValueError`.
+- A preset cannot reuse a label that the schema already declares.
+
+## Related
+
+- Reference: [Default schema](../reference/default-schema.mdx) lists the default entity and relation types.
+- Reference: [Operations preset](../reference/preset-operations.mdx) lists the operations types and shows how to add relations for them.
+- Reference: [Legal preset](../reference/preset-legal.mdx) lists the legal types and shows how to add relations for them.
+- Concept: [Ontologies](../concepts/ontologies.mdx) explains how an ontology maps to a schema, and which formats define one.
+- Guide: [Define a graph schema](./define-a-graph-schema.mdx) explains how to give a schema to a graph.

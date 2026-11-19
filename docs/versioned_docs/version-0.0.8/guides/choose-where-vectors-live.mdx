@@ -1,0 +1,111 @@
+---
+title: Choose where vectors live
+sidebar_position: 3
+---
+
+# Choose where vectors live
+
+Keep vectors in Neo4j or FalkorDB by default, or store them exclusively in Qdrant, Milvus, or Weaviate. The graph database always keeps documents, entities, relations, provenance, and full-text indexes. One vector placement covers chunks, entities, resolved entities, and communities for the lifetime of a graph.
+
+## Prepare a Qdrant server
+
+You need a configured [graph backend](./configure-storage-backends.mdx), the same embedder for ingestion and search, and Qdrant 1.17.0 or later. Qdrant runs as a separate service. FastEmbed computes BM25 sparse vectors locally from the exact text used for dense embedding.
+
+1. Install the graph driver and the Qdrant extra. Replace `neo4j` with `falkordb` if needed.
+
+   ```bash
+   uv pip install "agentic-graphrag[neo4j,qdrant]"
+   ```
+
+2. For local development from a source checkout, start an isolated Qdrant service. The development volume persists until you explicitly remove it.
+
+   ```bash
+   docker compose -p agrag-qdrant -f docker/docker-compose.dev.yml up -d --wait qdrant
+   ```
+
+   HTTP listens on `127.0.0.1:7961` and gRPC on `127.0.0.1:7962`. Override `QDRANT_HTTP_PORT` and `QDRANT_GRPC_PORT` when another project uses those ports. Use HTTPS and authentication for a remote server.
+
+3. Set the endpoint and a unique prefix for this graph in `.env`.
+
+   ```dotenv
+   QDRANT_URL=http://localhost:7961
+   QDRANT_COLLECTION_PREFIX=project_notes
+   ```
+
+   For an authenticated remote endpoint, also set `QDRANT_API_KEY` and use an `https://` URL. The prefix must start with a letter and contain at most 41 letters, digits, or underscores. Each graph must use its own prefix. Collections are named `<prefix>_chunks`, `<prefix>_entities`, `<prefix>_resolved_entities`, and `<prefix>_communities`.
+
+## Prepare a Milvus server
+
+Use the Milvus 3.0.1 server that the compose files in `docker/` run, or a Zilliz Cloud endpoint. Install `agentic-graphrag[neo4j,milvus]`, replacing `neo4j` with `falkordb` if needed. In a source checkout, start an isolated local server:
+
+```bash
+docker compose -p agrag-milvus -f docker/docker-compose.dev.yml up -d --wait milvus
+```
+
+The service uses embedded etcd and local storage in a project-scoped volume. It publishes the SDK endpoint on `127.0.0.1:7971` and health endpoint on `127.0.0.1:7972`. Override `MILVUS_PORT` and `MILVUS_HTTP_PORT` if those ports are occupied. Configure the SDK endpoint and a graph-specific prefix:
+
+```dotenv
+MILVUS_URI=http://localhost:7971
+MILVUS_COLLECTION_PREFIX=project_notes
+```
+
+Non-local endpoints require HTTPS. Remote authentication also needs `MILVUS_TOKEN`. Set the token privately, not in the URI or Git. Construct `MilvusVectorStore(settings=MilvusSettings())` from `agrag.vectordb` and use it in place of Qdrant in the example below. Milvus generates BM25 vectors on the server and uses normalized weighted ranking for hybrid search. Alpha zero searches BM25 only and omits records with no lexical match; alpha one searches dense vectors only. Stored BM25 text is truncated at a whole UTF-8 character within 65535 bytes without changing dense embeddings. [Milvus settings](../reference/configuration.mdx#milvus) lists label limits, consistency, and response-size constraints.
+
+## Prepare a Weaviate server
+
+Install `agentic-graphrag[neo4j,weaviate]`, replacing `neo4j` with `falkordb` if needed. Configure both HTTP and gRPC access using the [Weaviate setup instructions](./configure-storage-backends.mdx#set-up-weaviate-for-vectors). For cloud, use `WEAVIATE_MODE=cloud`, the HTTPS cluster URL, and a privately supplied API key. Keep `ASYNC_INDEXING=false` on custom servers.
+
+Set `WEAVIATE_COLLECTION_PREFIX` to a graph-specific prefix starting with a lowercase letter. Weaviate capitalizes the first letter of collection names. The lowercase restriction prevents distinct prefixes from aliasing the same collections. Keep collection descriptions unchanged because they persist dimensions for empty collections.
+
+Construct `WeaviateVectorStore(settings=WeaviateSettings())` from `agrag.vectordb` and use it in place of Qdrant below. Hybrid search uses native relative-score fusion. Alpha zero uses BM25 and omits lexical nonmatches; alpha one uses dense search. Requests are capped at 10,000 results. [Weaviate settings](../reference/configuration.mdx#weaviate) define transport and collection constraints.
+
+## Open and search the graph
+
+Pass the Qdrant instance to both ingestion and retrieval. The example assumes `graph_store`, `embedder`, `extractor`, and `schema` are configured as in [Ingest documents](./ingest-documents.mdx), and that `scope` is the `frozenset` of document keys the search may read.
+
+```python notest
+from agrag.evidence import search_evidence
+from agrag.ingestion import Graph
+from agrag.vectordb import QdrantSettings, QdrantVectorStore
+
+vectors = QdrantVectorStore(settings=QdrantSettings())
+graph = await Graph.open(
+    graph_store=graph_store,
+    embedder=embedder,
+    extractor=extractor,
+    schema=schema,
+    vector_store=vectors,
+)
+try:
+    await graph.add(text="Ada worked on the Analytical Engine.")
+    result = await search_evidence(
+        graph_store,
+        embedder,
+        "Who worked on the Analytical Engine?",
+        scope=scope,
+        vector_store=vectors,
+    )
+finally:
+    await vectors.close()
+    await graph_store.close()
+```
+
+`Graph.open` creates the four collections and checks their dimensions and distance metric on reopening. With Qdrant configured, ingestion stores no embedding property on graph nodes and creates no graph vector indexes. Each external search result is joined back to graph data before visibility and document scope are applied. An `entity_search` call with `labels` matches any requested label, including ancestor labels.
+
+Dense scores use the graph-native scale. Hybrid search uses Qdrant's weighted reciprocal rank fusion over dense and BM25 results. `RETRIEVAL_HYBRID_ALPHA` defaults to `0.5`; `1.0` returns dense order and graph-native dense scores, `0.0` returns BM25 order and scores while omitting nonmatches, and intermediate values return weighted RRF scores. Treat scores from the hybrid API as ranking values, not a common similarity scale across alpha settings. Resolution candidate searches remain dense. Qdrant searches are capped at 16384 results per call.
+
+Omit `vector_store` everywhere to keep graph-native placement. Placement is fixed per graph. Switching between graph-native and Qdrant, changing the prefix, or changing dimensions or distance requires a separate graph and re-ingestion. `VectorPlacementError` reports a mismatch with recorded placement; `CollectionMismatchError` reports a mismatch with an existing Qdrant collection. Do not delete collections to bypass either check on a graph you intend to keep.
+
+## Repair missing vectors
+
+A failure after a graph write can leave a committed node without a vector. The node cannot appear in vector results until its vector is restored. Reopen the graph with its original placement and run repair manually.
+
+```python notest
+report = await graph.repair_vectors()
+```
+
+The report gives checked, missing, upserted, and pruned counts and failures per kind. Repair adds missing vectors by default. To also delete orphan vectors that have no committed graph node, use `await graph.repair_vectors(prune=True)`. Run repair while ingestion is idle when pruning. Orphan vectors do not appear in search because the graph join drops them.
+
+## Use the same placement in MCP
+
+Install the `mcp` extra too. Set `MCP_VECTOR_STORE` to `qdrant`, `milvus`, or `weaviate`, with the same backend settings used during ingestion. MCP validates placement at startup. In hybrid evidence search, the store fuses both signals internally and the reported hit has `legs=["semantic"]`. Lexical-only evidence search continues to use the graph full-text index.
