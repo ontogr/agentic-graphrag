@@ -97,24 +97,27 @@ class TestMcpHistoryTools:
             outcome = read.structured_content["outcomes"][0]
             assert outcome["status"] == "truncated"
             assert outcome["text"]
-            recorded = await client.call_tool(
-                "record_decision",
-                {
-                    "task_name": "harbor",
-                    "choice_key": "keep-log",
-                    "conclusion": "Keep the log.",
-                    "rationale": "The log records harbor activity.",
-                    "request_id": "keep-log",
-                    "assumptions": [],
-                    "open_questions": [],
-                    "supports": [
-                        {
-                            "task_name": "harbor",
-                            "seq": event.structured_content["event"]["seq"],
-                        }
-                    ],
-                },
+            arguments = {
+                "task_name": "harbor",
+                "choice_key": "keep-log",
+                "conclusion": "Keep the log.",
+                "rationale": "The log records harbor activity.",
+                "request_id": "keep-log",
+                "assumptions": [],
+                "open_questions": [],
+                "supports": [
+                    {
+                        "task_name": "harbor",
+                        "seq": event.structured_content["event"]["seq"],
+                    }
+                ],
+            }
+            recorded = await client.call_tool("record_decision", arguments)
+            await client.call_tool(
+                "fetch_evidence", {"evidence_ids": [evidence_id], "max_chars": 5}
             )
+            retried = await client.call_tool("record_decision", arguments)
+            assert retried.structured_content == recorded.structured_content
             decision = recorded.structured_content["decision"]
             assert decision["review_state"] == "clear"
 

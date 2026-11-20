@@ -168,10 +168,6 @@ class DecisionTraces:
             "supports": [s.model_dump(mode="json") for s in supports],
             "assumptions": list(assumptions),
             "open_questions": list(open_questions),
-            "fetched_evidence": [
-                item.model_dump(mode="json") for item in fetched_evidence
-            ],
-            "consulted": [item.model_dump(mode="json") for item in consulted],
         }
         return await self._write(
             "record_decision",
@@ -231,10 +227,6 @@ class DecisionTraces:
             "supports": [s.model_dump(mode="json") for s in supports],
             "assumptions": list(assumptions),
             "open_questions": list(open_questions),
-            "fetched_evidence": [
-                item.model_dump(mode="json") for item in fetched_evidence
-            ],
-            "consulted": [item.model_dump(mode="json") for item in consulted],
         }
         return await self._write(
             "supersede_decision",
