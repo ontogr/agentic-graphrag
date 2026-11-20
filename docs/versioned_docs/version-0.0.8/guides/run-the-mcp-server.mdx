@@ -1,0 +1,124 @@
+---
+title: Run the MCP server
+sidebar_position: 6
+description: Give an MCP client tools to search your documents, read exact passages, check citations, and access conversation history and decision traces.
+---
+
+import Diagram from '@site/src/components/Diagram';
+
+# Run the MCP server
+
+The `agrag-mcp` command runs a local stdio server. An MCP client such as an IDE assistant or a desktop chat app uses it to search the documents in your graph, read the exact text behind each result, check citations, and access conversation history and decision traces.
+
+<Diagram folder="docs" name="context-mcp-server" alt="An MCP client reaches three tool groups. Evidence tools read documents in the server's scope. History and decision read tools require a project id and agent id. Write tools require read_only to be false, and reject_decision also requires allow_reject." />
+
+## Before you start
+
+- A graph that already holds your documents. See [Ingest documents](./ingest-documents.mdx).
+- The extras for the server and the graph store:
+
+```bash
+uv pip install "agentic-graphrag[neo4j,mcp]"
+```
+
+- For FalkorDB, replace `neo4j` with `falkordb` in the install command and set `MCP_GRAPH_STORE=falkordb`. Use the selected backend's `NEO4J_*` or `FALKORDB_*` connection values and the `EMBEDDING_MODEL` used for ingestion. [Configure storage backends](./configure-storage-backends.mdx) for server setup and connection checks.
+
+## Choose the documents the server can read
+
+Set `MCP_SCOPE_DOCUMENT_KEYS` to a comma-separated list of document keys. The server reads only those documents, and a tool call cannot widen the list. A document you added from a file has the resolved absolute path as its key, for example `/home/you/notes/policy.md`. A document you added with `graph.add(text=...)` has a key of the form `inline://<16-hex-hash>`. A prebuilt `Document` uses its `uri` as the key unless you set `document_key` yourself. To choose a readable key, give the document a stable `uri` or set `document_key` explicitly.
+
+The server refuses to start when the list holds no key. Blank entries and entries that hold only spaces do not count. The server writes this line to stderr and exits with status 2:
+
+```text
+agrag-mcp: invalid settings: Value error, scope_document_keys must list at least one document key
+```
+
+## Add the server to your client
+
+Add an entry like this one to the MCP configuration of your client:
+
+```json
+{
+  "mcpServers": {
+    "agrag": {
+      "command": "agrag-mcp",
+      "env": {
+        "NEO4J_URI": "bolt://localhost:7687",
+        "NEO4J_USERNAME": "neo4j",
+        "NEO4J_PASSWORD": "your-password",
+        "MCP_SCOPE_DOCUMENT_KEYS": "/home/you/notes/policy.md"
+      }
+    }
+  }
+}
+```
+
+To read from FalkorDB, set `MCP_GRAPH_STORE` to `falkordb` and set `FALKORDB_URL` (and `FALKORDB_GRAPH` if you use another graph name) in place of the `NEO4J_*` variables. The default is `neo4j`.
+
+If ingestion uses Qdrant, also install the `qdrant` extra and set `MCP_VECTOR_STORE=qdrant`, `QDRANT_URL`, and `QDRANT_COLLECTION_PREFIX` to the ingestion values. Set `QDRANT_API_KEY` for an authenticated endpoint. MCP checks recorded placement before serving requests. [Choose where vectors live](./choose-where-vectors-live.mdx) describes collection configuration and repair. Hybrid evidence searches use one internally fused Qdrant leg, reported as `semantic`; lexical-only search still uses graph full-text indexes.
+
+For Milvus, install the `milvus` extra instead and set `MCP_VECTOR_STORE=milvus`, `MILVUS_URI`, and `MILVUS_COLLECTION_PREFIX` to the ingestion values. Supply `MILVUS_TOKEN` privately for authenticated endpoints. The same placement checks and internally fused hybrid-search behavior apply.
+
+The server starts read-only. It loads the embedding model on the first semantic or hybrid search. Logs go to stderr, and stdout carries only protocol messages.
+
+## Read evidence
+
+These tools work with only a document scope. Each tool reads the documents you listed in `MCP_SCOPE_DOCUMENT_KEYS`, and none of them can read more.
+
+| Tool | What it does | Call it when |
+| --- | --- | --- |
+| `search_evidence` | Finds passages by full-text search, semantic search, or both. Each hit has an evidence id and a 240-character preview. | You have a question and no passage yet. |
+| `fetch_evidence` | Returns the exact text for evidence ids, with the title, source, and version status. | You are about to quote or cite a passage. |
+| `navigate_document_tree` | Moves from a passage to its parent section, the other passages under the same parent, sibling sections, the previous or next passage, or table context. | A hit is cut off, or you need the section or the table rows around it. |
+| `entity_search` | Finds entities by name or meaning, each with up to three passages that mention it. | The question names a person, product, clause, or other thing from the schema. |
+| `explore_relationships` | Follows the relations of an entity out to two steps. Each relation is an assertion that a passage states, or a path that no passage states. | The question asks how things connect. |
+| `check_citations` | Checks cited ids against the ids this session fetched. | Your answer cites evidence and you want to confirm each citation before you return it. |
+
+A typical session starts with `search_evidence`, fetches the best hits with `fetch_evidence`, and then writes an answer that cites the fetched ids. When the question names an entity, start with `entity_search` and `explore_relationships`, then fetch the passages on the edges you use. Run `check_citations` on the ids you cite, and build the numbered references from the `citation_markdown` of each fetch.
+
+`fetch_evidence` also returns a `citation_markdown` field for complete fetches. Use it to build a numbered claim reference and a Sources list in your client's answer. The server keeps the fetched ids in memory for the session, and `check_citations` compares against them. `check_citations` confirms that a cited id was fetched in this session. [Evidence ids and citations](../concepts/evidence-and-citations.mdx) explains what a valid citation does and does not show. A search with no hits does not prove that the documents lack the answer, and the server says so in the instructions it gives your client.
+
+The [tools reference](../reference/tools.mdx#evidence-tools) lists the parameters, defaults, and caps of each evidence tool.
+
+## Enable conversation history and decision traces
+
+Set `MCP_PROJECT_ID` and `MCP_AGENT_ID` to enable history and decision tools. Tasks and decisions belong to the project, and the agent id is recorded as the author of each write.
+
+The built-in agent uses the same names. The [tools reference](../reference/tools.mdx#tool-names) lists them. The read tools are `get_task`, `list_events`, `fetch_event`, `list_steps`, `search_decisions`, `list_conflicts`, `get_decision`, `list_support_history`, `list_decisions`, and `list_decisions_for_review`.
+
+To let the client write, set `MCP_READ_ONLY=false`. The write tools are `create_task`, `record_event`, `set_step`, `record_decision`, `supersede_decision`, `reaffirm_decision`, and `continue_decision_review`. The request-based writes take a `request_id`, and a retry with the same id returns the saved result for a completed write. A `request_id` takes 1 to 64 characters. A `record_event` payload takes up to 1,000,000 characters.
+
+With `MCP_READ_ONLY=false`, the server also needs `MCP_PROJECT_ID` and `MCP_AGENT_ID`. If either is blank, the server exits with status 2 and writes `agrag-mcp: invalid settings: Value error, project_id and agent_id must not be blank` to stderr. On FalkorDB, a failed multi-statement write can leave partial effects that repeat on retry. Account for the [retry limits](./configure-storage-backends.mdx#retried-history-and-decision-writes) before enabling writes. `continue_decision_review` takes a bounded `limit` instead. A decision lists the evidence it rests on, and the server accepts document evidence that the same session fetched. Set `MCP_ALLOW_REJECT=true` to add `reject_decision`.
+
+Document scope applies to evidence reads. Task and decision tools act on the configured project.
+
+## Tune the limits
+
+The server caps what it returns. A result states when it left items out.
+
+| Variable | Default | Limits |
+| --- | --- | --- |
+| `MCP_GRAPH_STORE` | `neo4j` | The graph store to read, `neo4j` or `falkordb`. |
+| `MCP_MAX_HITS` | `10` | Hits per search. |
+| `MCP_MAX_SNIPPET_CHARS` | `240` | Characters in one snippet. |
+| `MCP_MAX_FETCH_CHARS` | `4000` | Characters for each fetched id. |
+| `MCP_MAX_FETCH_IDS` | `20` | Ids in one fetch or citation check, from 1 to 20. |
+| `MCP_MAX_RESPONSE_CHARS` | `60000` | Characters in one result. |
+| `MCP_REQUEST_DEADLINE_SECONDS` | `30.0` | Seconds one tool operation may run. |
+
+A result over `MCP_MAX_RESPONSE_CHARS` is shortened for `search_evidence`, `fetch_evidence`, and `check_citations`, which drop trailing items and set `truncated`. Every other tool returns the error `tool result exceeds the configured response limit` and sends no partial result. A tool operation that runs past `MCP_REQUEST_DEADLINE_SECONDS` returns `tool operation deadline exceeded`.
+
+The [Configuration reference](../reference/configuration.mdx#mcp-server) lists every variable.
+
+## Read a graph with Weaviate vectors
+
+Install the `weaviate` extra beside the graph and MCP extras. Set `MCP_VECTOR_STORE=weaviate` and the same `WEAVIATE_MODE`, `WEAVIATE_URL`, `WEAVIATE_COLLECTION_PREFIX`, and credentials used for ingestion. Custom deployments also need `WEAVIATE_GRPC_PORT`. The server validates placement before serving requests. A different prefix, store, or embedding configuration cannot read that graph's vectors.
+
+Store-hybrid hits report `legs=["semantic"]` because Weaviate fuses dense and lexical results internally. Lexical-only evidence search still uses the graph's full-text index.
+
+## Related
+
+- How-to: [Find and cite evidence](./find-and-cite-evidence.mdx) calls the same operations from Python.
+- Use [Decision traces](./decision-traces.mdx) to record supported decisions and review them when source documents change.
+- [Retrieval](../concepts/retrieval.mdx) compares the search strategies, and [Evidence ids and citations](../concepts/evidence-and-citations.mdx) describes the fetch and citation check that a client runs.
+- Reference: [Tools](../reference/tools.mdx) for tool parameters, [Configuration](../reference/configuration.mdx#mcp-server) for server settings.

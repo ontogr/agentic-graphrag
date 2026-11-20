@@ -4,8 +4,8 @@ build-backend = "uv_build"
 
 [project]
 name = "agentic-graphrag"
-version = "0.0.7"
-description = "Builds one graph connecting enterprise knowledge to the conversations agents have and the decisions they make."
+version = "0.0.8"
+description = "Agentic GraphRAG is an open source framework that builds a graph connecting your enterprise knowledge to the conversations your agents have and the decisions they make. Each decision links back to the passages and task events behind it, so agents can look up earlier decisions with their evidence, and resume work across sessions."
 readme = "README.md"
 requires-python = ">=3.11"
 license = "Apache-2.0"

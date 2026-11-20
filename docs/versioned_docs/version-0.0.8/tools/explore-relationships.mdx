@@ -1,0 +1,183 @@
+---
+title: Explore relationships
+description: Follow the relations around one entity, up to two steps, and see which passages state each relation.
+---
+
+# Explore relationships
+
+Explore relationships follows the stored relations around one entity and marks each relation as stated by a passage or only connected in the graph.
+
+| | |
+|---|---|
+| Python function | `explore_relationships` |
+| Built-in agent tool | `explore_relationships` |
+| MCP tool | `explore_relationships` |
+| Required inputs | `entity_id`. Python also needs `store` and `scope`. |
+| Optional inputs | `depth` (default 1), `relation_types`, `max_nodes` (default 25), `max_edges` (default 50) |
+| Returns | An `ExplorationResult` with `nodes` and `edges` |
+| Needs | An `entity_id` from [entity search](./entity-search.mdx) |
+| Reads | Relations between entities, and the passages in scope that state them |
+| API reference | [`agrag.evidence.explore_relationships`](../api/evidence/entities/explore_relationships.md) |
+
+## Overview
+
+Use this tool when the question asks how things connect, who or what is related to an entity, or which passage states a relation.
+
+Each edge is one of two kinds.
+
+- An `assertion` has at least one visible passage in scope attached to the relation. The edge lists up to three of those passages as evidence ids. [Fetch evidence](./fetch-evidence.mdx) reads them.
+- A `path` means two entities are connected in the graph and no passage in scope states the relation. A conclusion drawn from a path needs its own support.
+
+An edge has `source_id` and `target_id` as stored, so the direction is the direction of the stored relation. A node has `entity_id`, `label`, `name`, and `depth`, which is the number of relations from the start entity.
+
+## Example
+
+The examples use the notes from [Set up the example](./example-setup.mdx), and they reuse `store`, `embedder`, `scope`, and `short` from that page. `maria_id` is the `entity_id` of the first hit for "Maria Chen" in the [entity search example](./entity-search.mdx#example), and `planner_id` is the `entity_id` of the first hit for "route planner". Outputs come from a real run.
+
+List what Maria Chen connects to, one step out:
+
+```python notest
+view = await explore_relationships(store, maria_id, scope=scope, depth=1)
+names = {maria_id: "Maria Chen"} | {n.entity_id: n.name for n in view.nodes}
+for edge in view.edges:
+    print(
+        f"{edge.kind.value}  {names[edge.source_id]} -[{edge.relation_type}]-> "
+        f"{names[edge.target_id]}  evidence: {[short(e.evidence_id) for e in edge.evidence]}"
+    )
+print("truncated_by:", [bound.value for bound in view.truncated_by])
+```
+
+```text
+assertion  Maria Chen -[AUTHORED]-> Orion Planner  evidence: ['ev1:c:f24b301d...3e66aa77']
+assertion  Maria Chen -[WORKS_FOR]-> Acme Robotics  evidence: ['ev1:c:f24b301d...3e66aa77']
+truncated_by: []
+```
+
+Both edges are assertions, and the passage `...3e66aa77` states both. Fetch that id to read the sentence "Maria Chen works for Acme Robotics and wrote the Orion Planner."
+
+### See which bound cut a walk
+
+`truncated_by` names every bound that cut a walk. The first starts at the planner and goes one step, the second follows only `AUTHORED` relations, and the third allows one edge:
+
+```python notest
+view = await explore_relationships(store, planner_id, scope=scope, depth=1)
+print([(n.name, n.depth) for n in view.nodes], [b.value for b in view.truncated_by])
+
+view = await explore_relationships(
+    store, maria_id, scope=scope, depth=1, relation_types=["AUTHORED"]
+)
+print([e.relation_type for e in view.edges], [b.value for b in view.truncated_by])
+
+view = await explore_relationships(store, maria_id, scope=scope, depth=1, max_edges=1)
+print(len(view.edges), [b.value for b in view.truncated_by])
+```
+
+```text
+[('Maria Chen', 1)] ['depth']
+['AUTHORED'] []
+1 ['edges']
+```
+
+The first call reaches Maria Chen and stops with `depth`, because she has more connections that a one-step walk does not follow. Raise `depth` to 2 to follow them. The second call narrows the walk with `relation_types`, and nothing is cut. The third call stops with `edges`, because the entity has more edges than `max_edges` allows.
+
+## Usage
+
+### In Python
+
+Call `explore_relationships` as in the example above. Python needs the connected `store`, the `entity_id`, and the `scope`.
+
+### In the built-in agent
+
+The agent calls `explore_relationships` on its own after `entity_search` returns an entity. The agent version caps `depth` at 2 and the node and edge limits at 200.
+
+### On the MCP server
+
+An MCP client calls `explore_relationships` with an `entity_id` from an `entity_search` hit.
+
+```json
+{"entity_id": "a0083936-0bf3-5836-9ebf-95cf350434ec", "depth": 1, "relation_types": ["AUTHORED"]}
+```
+
+The parameter ranges and the MCP caps are in the [relationship exploration parameters](../reference/tools.mdx#relationship-exploration).
+
+## Result
+
+| Bound in `truncated_by` | Meaning |
+|---|---|
+| `nodes` | More entities were reached than `max_nodes` allows. |
+| `edges` | More edges existed than `max_edges` allows. |
+| `depth` | Entities at the last depth have further connections that were not followed. |
+| `candidates` | More relations existed than the per-step read limit. |
+
+| Status | Meaning |
+|---|---|
+| `ok` | The walk ran. The result may hold no edges. |
+| `unavailable` | The start entity is missing, or no passage of it is in scope. Both cases give the same status. |
+| `malformed` | `entity_id` is not a canonical UUID string. |
+| `failed` | The store failed during the walk. |
+
+A call with an id that is not a UUID returns `malformed` and the detail `not an entity id`.
+
+<details>
+<summary>Full JSON of the one-step walk from Maria Chen</summary>
+
+This is `view.model_dump_json(indent=2)` for the first example.
+
+```json
+{
+  "status": "ok",
+  "nodes": [
+    {
+      "entity_id": "adaafece-3687-5c94-800c-cd95c34c3eda",
+      "label": "Organization",
+      "name": "Acme Robotics",
+      "depth": 1
+    },
+    {
+      "entity_id": "e1dca08d-5569-57b4-be51-638d800f4b79",
+      "label": "Software",
+      "name": "Orion Planner",
+      "depth": 1
+    }
+  ],
+  "edges": [
+    {
+      "source_id": "a0083936-0bf3-5836-9ebf-95cf350434ec",
+      "target_id": "adaafece-3687-5c94-800c-cd95c34c3eda",
+      "relation_type": "WORKS_FOR",
+      "kind": "assertion",
+      "evidence": [
+        {
+          "evidence_id": "ev1:c:f24b301d-f73a-5291-9d80-7ea3cbd5291c:c174f9d9eba7d79c:440441fc-6865-5391-8e02-a44c3e66aa77",
+          "document_key": "/home/you/acme-notes.md",
+          "location": { "char_start": null, "char_end": null, "page_numbers": [] }
+        }
+      ]
+    },
+    {
+      "source_id": "a0083936-0bf3-5836-9ebf-95cf350434ec",
+      "target_id": "e1dca08d-5569-57b4-be51-638d800f4b79",
+      "relation_type": "AUTHORED",
+      "kind": "assertion",
+      "evidence": [
+        {
+          "evidence_id": "ev1:c:f24b301d-f73a-5291-9d80-7ea3cbd5291c:c174f9d9eba7d79c:440441fc-6865-5391-8e02-a44c3e66aa77",
+          "document_key": "/home/you/acme-notes.md",
+          "location": { "char_start": null, "char_end": null, "page_numbers": [] }
+        }
+      ]
+    }
+  ],
+  "truncated": false,
+  "truncated_by": [],
+  "detail": null
+}
+```
+
+</details>
+
+## Related
+
+- [How entity search and relations work](../concepts/how-entity-search-works.mdx) describes which relation types the walk follows and which edges it drops.
+- [Entity search](./entity-search.mdx) returns the `entity_id` that this tool needs.
+- [Fetch evidence](./fetch-evidence.mdx) reads the passages on an assertion edge so you can cite them.

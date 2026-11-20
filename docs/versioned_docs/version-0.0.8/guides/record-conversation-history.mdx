@@ -1,0 +1,250 @@
+---
+title: Record and resume a task
+sidebar_label: Record and resume a task
+description: Create a task, record its events and steps from Python, and read the task back in a later process.
+---
+
+# Record and resume a task
+
+Create a task, append its events and steps, and read the state back in a later process. This guide uses `ConversationHistory`. [Record decisions and review them](./decision-traces.mdx) covers decisions that cite the task's events and steps.
+
+## Prerequisites
+
+- A Neo4j or FalkorDB database. Set the `NEO4J_*` variables for Neo4j in the environment or in the repository `.env` file.
+- The `neo4j` extra. In a checkout of the repository, run:
+
+  ```bash
+  uv sync --extra neo4j
+  ```
+
+- A project id and an agent id. Read them from trusted configuration. The project id scopes every record, and the agent id is stored as the author of each event and step.
+
+## Set up the script
+
+The examples share the imports, the constants, and a helper that stops on a refused write.
+
+```python notest
+import asyncio
+
+from agrag.common.data_models.task import EventKind, StepKind, StepState
+from agrag.graphdb import build_graph_store
+from agrag.history import ConversationHistory, HistoryRetention
+
+PROJECT_ID = "support-desk"
+AGENT_ID = "briefing-agent"
+TASK_NAME = "quarterly-summary"
+
+
+def require_recorded(outcome):
+    """Return the write result, or stop when the store refused the write."""
+    if not outcome.recorded:
+        raise RuntimeError(f"write refused: {outcome.error}")
+    return outcome
+```
+
+Each write returns a result object with `recorded` and `error`. A refused write does not raise an exception, so the helper turns a refusal into an error.
+
+## Create the task
+
+Create the task with a goal. Pass a `request_id` so that a retry of the same script returns the stored result instead of a second write.
+
+```python notest
+async def create_task(history: ConversationHistory) -> None:
+    created = require_recorded(
+        await history.create_task(
+            TASK_NAME,
+            "Summarize the quarterly report",
+            request_id="create-quarterly-summary",
+        )
+    )
+    print(created.task.status)
+```
+
+The task starts with the status `open`. Creating a task with the same name and the same goal returns the existing task. A different goal is refused with `task_exists`.
+
+## Record events
+
+Append events in the order the work happens. Events get sequence numbers from 1 in the order they are recorded.
+
+```python notest
+async def record_events(history: ConversationHistory) -> int:
+    require_recorded(
+        await history.record_event(
+            TASK_NAME,
+            EventKind.MESSAGE,
+            role="user",
+            payload="Summarize the quarterly report.",
+            request_id="event-question",
+        )
+    )
+    require_recorded(
+        await history.record_event(
+            TASK_NAME,
+            EventKind.TOOL_CALL,
+            name="search_passages",
+            payload='{"query": "revenue by segment"}',
+            request_id="event-search-call",
+        )
+    )
+    result = require_recorded(
+        await history.record_event(
+            TASK_NAME,
+            EventKind.TOOL_RESULT,
+            name="search_passages",
+            payload="Segment revenue is reported in the segment table.",
+            request_id="event-search-result",
+        )
+    )
+    return result.event.seq
+```
+
+The function returns the sequence number of the tool result. A step can point to that number as the event that holds its result.
+
+A payload longer than 32,000 characters is cut to that length in storage. The event keeps the SHA-256 hash of the full text, so the stored text can be checked against the original.
+
+## Record steps
+
+Set a step to `in_progress` before the work starts, and set it to `completed` with the event that holds its result when the work ends.
+
+```python notest
+async def record_steps(history: ConversationHistory, result_seq: int) -> None:
+    require_recorded(
+        await history.set_step(
+            TASK_NAME,
+            "collect-revenue",
+            StepState.IN_PROGRESS,
+            kind=StepKind.READ,
+            request_id="step-collect-revenue-start",
+        )
+    )
+    require_recorded(
+        await history.set_step(
+            TASK_NAME,
+            "collect-revenue",
+            StepState.COMPLETED,
+            kind=StepKind.READ,
+            result_event_seq=result_seq,
+            request_id="step-collect-revenue-done",
+        )
+    )
+```
+
+The `result_event_seq` must name an event in the same task. Otherwise the write is refused with `event_not_found`.
+
+## Read the task and its events
+
+`get_task` returns the resume view. The view has the step counts for each state and the last event sequence number, and it has no event bodies. `list_events` returns the bodies, one page at a time.
+
+```python notest
+async def read_task(history: ConversationHistory) -> None:
+    lookup = await history.get_task(TASK_NAME)
+    if not lookup.found or lookup.view is None:
+        raise RuntimeError(f"task {TASK_NAME!r} does not exist")
+    print("last event:", lookup.view.last_event_seq)
+    print("step counts:", lookup.view.step_counts)
+
+    after_seq = 0
+    while True:
+        page = await history.list_events(TASK_NAME, after_seq=after_seq, limit=50)
+        for event in page.events:
+            print(event.seq, event.kind, event.payload[:60])
+        if page.next_after_seq is None:
+            break
+        after_seq = page.next_after_seq
+```
+
+Pass `after_seq` to continue from a sequence number that an earlier read already processed. The page size is at most 200.
+
+## Resume in a later process
+
+A later process builds the same objects with the same project id and task name. It reads the view, lists the steps that still need work, and continues.
+
+```python notest
+async def resume_task() -> None:
+    store = build_graph_store("neo4j")
+    await store.connect()
+    try:
+        history = ConversationHistory(store, project_id=PROJECT_ID, agent_id=AGENT_ID)
+        lookup = await history.get_task(TASK_NAME)
+        if not lookup.found or lookup.view is None:
+            raise RuntimeError(f"task {TASK_NAME!r} does not exist")
+        print("resuming after event", lookup.view.last_event_seq)
+
+        for state in (
+            StepState.IN_PROGRESS,
+            StepState.FAILED,
+            StepState.UNKNOWN,
+            StepState.NOT_STARTED,
+        ):
+            page = await history.list_steps(TASK_NAME, state, limit=50)
+            for step in page.steps:
+                print(state, step.name, step.kind)
+    finally:
+        await store.close()
+```
+
+Resume reruns every step that is not completed. The completed steps keep their results, and a completed step with a supported result reports whether that result can still be reused. Each step summary carries a `result_validity` value. See the [data model reference](../reference/history-and-decisions-data-model.mdx) for the values.
+
+New events continue the sequence. The next event after the last one gets the next number, so the log has no gap.
+
+## Open the store in a script
+
+Open the store once, run the functions, and close it. The script below runs the write path. Run `resume_task` from the previous section the same way in a later process.
+
+```python notest
+async def record_run() -> None:
+    store = build_graph_store("neo4j")
+    await store.connect()
+    try:
+        history = ConversationHistory(store, project_id=PROJECT_ID, agent_id=AGENT_ID)
+        await create_task(history)
+        result_seq = await record_events(history)
+        await record_steps(history, result_seq)
+        await read_task(history)
+    finally:
+        await store.close()
+
+
+if __name__ == "__main__":
+    asyncio.run(record_run())
+```
+
+## Remove recorded history
+
+`HistoryRetention` changes history that is already stored. It takes the store, the project id, and the agent id as positional arguments.
+
+:::warning[Deleting a task removes its events and steps]
+`delete_task` removes the task, its events, and its steps. It cannot be undone. With the default `include_decisions=True`, it also removes the task's decisions.
+:::
+
+```python notest
+async def remove_task(store) -> None:
+    retention = HistoryRetention(store, PROJECT_ID, AGENT_ID)
+    redacted = await retention.redact_event("<event id from fetch_event>")
+    print(redacted.affected_decision_ids)
+
+    deleted = await retention.delete_task(TASK_NAME, include_decisions=False)
+    print(deleted.affected_decision_ids)
+```
+
+`redact_event` takes the event's UUID as a string. Use the `id` field of an event from `list_events`. Redaction keeps the event in sequence and keeps its hash. Decisions that cite the event are flagged for review. With `include_decisions=False`, `delete_task` keeps the task's decisions and detaches them from the deleted task.
+
+## Check the failure cases
+
+A refused write returns an error code. Use the table to find the cause.
+
+| Error code | Cause | Fix |
+| --- | --- | --- |
+| `task_exists` | `create_task` used a name that exists with a different goal. | Use a new task name, or the original goal. |
+| `task_not_found` | The task name does not exist in the project, or the project id differs from the one that created it. | Call `create_task` first, and check the project id. |
+| `event_not_found` | `set_step` named a `result_event_seq` that is not in the task. | Pass the sequence number from `RecordEventResult.event.seq`. |
+| `request_id_reused` | The same `request_id` was sent with different arguments. | Use a new `request_id` for the new write. |
+| `invalid_request_id` | The `request_id` is empty or longer than 64 characters. | Use an id of 1 to 64 characters. |
+
+A `found` value of `False` from `get_task` or `list_events` means the name is not in this project. It does not mean that the store is empty.
+
+## Related
+
+- [Record decisions and review them](./decision-traces.mdx) records decisions that cite document passages, events, and earlier decisions.
+- [Conversation history and decisions](../concepts/conversation-history-and-decisions.mdx) explains how tasks, events, steps, and decisions relate.
+- [History and decisions data model](../reference/history-and-decisions-data-model.mdx) lists the fields, limits, and state values.

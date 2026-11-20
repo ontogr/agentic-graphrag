@@ -1,0 +1,110 @@
+---
+title: agrag.common.data_models.task.TaskView
+sidebar_label: TaskView
+---
+
+# `agrag.common.data_models.task.TaskView` \{#agrag-common-data_models-task-TaskView}
+
+Bases: <code>BaseModel</code>
+
+A bounded resume view of one task. It never includes event bodies.
+
+**Attributes:**
+
+- [**task_name**](#agrag-common-data_models-task-TaskView-task_name) (<code>str</code>) – Task name.
+- [**goal**](#agrag-common-data_models-task-TaskView-goal) (<code>str</code>) – The task goal.
+- [**status**](#agrag-common-data_models-task-TaskView-status) (<code>[TaskStatus](TaskStatus.md)</code>) – Lifecycle state.
+- [**last_event_seq**](#agrag-common-data_models-task-TaskView-last_event_seq) (<code>int</code>) – The sequence number of the last event, or 0.
+- [**steps**](#agrag-common-data_models-task-TaskView-steps) (<code>dict\[[StepState](StepState.md), list\[[StepSummary](StepSummary.md)\]\]</code>) – Shown steps grouped by state. Every state is a key, in the
+  order of `STEP_STATE_ORDER`. The shown steps are capped across
+  all states.
+- [**step_counts**](#agrag-common-data_models-task-TaskView-step_counts) (<code>dict\[[StepState](StepState.md), int\]</code>) – Number of steps in each state, including steps that the
+  cap hides. Every state is a key.
+- [**steps_truncated**](#agrag-common-data_models-task-TaskView-steps_truncated) (<code>bool</code>) – Whether some steps are hidden by the cap.
+- [**decisions**](#agrag-common-data_models-task-TaskView-decisions) (<code>list\[[Decision](../decision/Decision-ref.md)\]</code>) – Active decisions, newest first, capped at 20.
+- [**review_decisions**](#agrag-common-data_models-task-TaskView-review_decisions) (<code>list\[[Decision](../decision/Decision-ref.md)\]</code>) – Active decisions needing review, capped at 20.
+- [**conflicts**](#agrag-common-data_models-task-TaskView-conflicts) (<code>list\[[ConflictGroup](../decision/ConflictGroup.md)\]</code>) – Conflicting choices that include this task, capped at 10.
+
+## `conflicts` \{#agrag-common-data_models-task-TaskView-conflicts}
+
+```python
+conflicts: list[ConflictGroup] = Field(default_factory=list)
+```
+
+## `conflicts_truncated` \{#agrag-common-data_models-task-TaskView-conflicts_truncated}
+
+```python
+conflicts_truncated: bool = False
+```
+
+## `decision_count` \{#agrag-common-data_models-task-TaskView-decision_count}
+
+```python
+decision_count: int = 0
+```
+
+## `decisions` \{#agrag-common-data_models-task-TaskView-decisions}
+
+```python
+decisions: list[Decision] = Field(default_factory=list)
+```
+
+## `decisions_truncated` \{#agrag-common-data_models-task-TaskView-decisions_truncated}
+
+```python
+decisions_truncated: bool = False
+```
+
+## `goal` \{#agrag-common-data_models-task-TaskView-goal}
+
+```python
+goal: str
+```
+
+## `last_event_seq` \{#agrag-common-data_models-task-TaskView-last_event_seq}
+
+```python
+last_event_seq: int
+```
+
+## `model_config` \{#agrag-common-data_models-task-TaskView-model_config}
+
+```python
+model_config = ConfigDict(frozen=True)
+```
+
+## `review_decisions` \{#agrag-common-data_models-task-TaskView-review_decisions}
+
+```python
+review_decisions: list[Decision] = Field(default_factory=list)
+```
+
+## `status` \{#agrag-common-data_models-task-TaskView-status}
+
+```python
+status: TaskStatus
+```
+
+## `step_counts` \{#agrag-common-data_models-task-TaskView-step_counts}
+
+```python
+step_counts: dict[StepState, int]
+```
+
+## `steps` \{#agrag-common-data_models-task-TaskView-steps}
+
+```python
+steps: dict[StepState, list[StepSummary]]
+```
+
+## `steps_truncated` \{#agrag-common-data_models-task-TaskView-steps_truncated}
+
+```python
+steps_truncated: bool
+```
+
+## `task_name` \{#agrag-common-data_models-task-TaskView-task_name}
+
+```python
+task_name: str
+```

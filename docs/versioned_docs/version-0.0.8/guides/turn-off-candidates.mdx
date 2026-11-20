@@ -1,0 +1,62 @@
+---
+title: Turn candidates off
+description: Stop Graph from writing discarded extraction items as candidates.
+---
+
+# Turn candidates off
+
+By default, `Graph.add` and `Graph.update` write discarded extraction items as candidates. The extraction and merge statistics still count discarded items when candidate writes are off. [Candidates](../concepts/candidates.mdx) describes what a candidate holds.
+
+## Disable candidate writes
+
+Set the environment variable before you open the graph:
+
+```bash
+export EXTRACTION_CANDIDATES_ENABLED=false
+```
+
+Or pass one `ExtractionSettings` object to the graph and the GLiNER extractor. Install the `neo4j` and `extract` extras and start Neo4j first.
+
+```python
+import asyncio
+
+from agrag.common.data_models import DEFAULT_SCHEMA
+from agrag.embedding import build_embedder
+from agrag.graphdb import build_graph_store
+from agrag.ingestion import ExtractionSettings, Graph, GlinerExtractor
+
+
+async def main() -> None:
+    graph_store = build_graph_store("neo4j")
+    settings = ExtractionSettings(candidates_enabled=False)
+    graph = await Graph.open(
+        schema=DEFAULT_SCHEMA,
+        graph_store=graph_store,
+        embedder=build_embedder(
+            "ibm-granite/granite-embedding-small-english-r2"
+        ),
+        extractor=GlinerExtractor(settings=settings),
+        extraction_settings=settings,
+    )
+    try:
+        result = await graph.add(text="A sample document with an uncertain relation.")
+        print(result.extraction.candidates_written)
+        for item in result.extraction.dropped:
+            print(item.kind, item.label, item.reason, item.count)
+    finally:
+        await graph_store.close()
+
+
+asyncio.run(main())
+```
+
+The script prints `0` for `candidates_written`, then one line for each entry in `extraction.dropped`. The `entity_band` reason is absent because GLiNER does not run its candidate pass.
+
+## Existing candidates
+
+Turning candidate writes off does not delete existing candidates. `Graph.update` replaces a document's pending candidates with those from its latest run. `Graph.delete_document` removes that document's pending candidates. Approved and rejected candidates stay.
+
+## Related
+
+- Explanation: [Candidates](../concepts/candidates.mdx) describes candidate visibility and lifecycle.
+- Reference: [Run statistics](../reference/run-stats.mdx) lists the counts, and [Configuration](../reference/configuration.mdx) lists the candidate settings.
