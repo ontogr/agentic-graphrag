@@ -15,7 +15,10 @@ from mcp import Client
 from agrag.common.data_models.task import EventKind
 from agrag.mcp_server.server import build_server
 from agrag.mcp_server.settings import McpServerSettings
-from tests.integration.retrieval.evidence._corpus import BagOfWordsEmbedder
+from tests.integration.retrieval.evidence._corpus import (
+    BagOfWordsEmbedder,
+    make_document,
+)
 from tests.integration.retrieval.evidence.conftest import EvidenceEnv
 
 
@@ -52,6 +55,82 @@ async def history_identity(
 
 class TestMcpHistoryTools:
     """MCP task and decision writes preserve scope and retry guarantees."""
+
+    async def test_truncated_read_flags_decision_when_document_changes(
+        self, evidence_env: EvidenceEnv, history_identity: tuple[str, str]
+    ) -> None:
+        """Text from an incomplete fetch can put a decision back in review."""
+        project_id, agent_id = history_identity
+        settings = McpServerSettings(
+            scope_document_keys=evidence_env.harbor,
+            project_id=project_id,
+            agent_id=agent_id,
+            read_only=False,
+        )
+        server = build_server(evidence_env.store, BagOfWordsEmbedder(), settings)
+        async with Client(server) as client:
+            await client.call_tool(
+                "create_task",
+                {
+                    "task_name": "harbor",
+                    "goal": "Review the log",
+                    "request_id": "create-harbor",
+                },
+            )
+            event = await client.call_tool(
+                "record_event",
+                {
+                    "task_name": "harbor",
+                    "kind": "note",
+                    "payload": "Review the log",
+                    "request_id": "harbor-note",
+                },
+            )
+            found = await client.call_tool(
+                "search_evidence",
+                {"query": "lighthouse", "mode": "lexical", "limit": 1},
+            )
+            evidence_id = found.structured_content["hits"][0]["evidence_id"]
+            read = await client.call_tool(
+                "fetch_evidence", {"evidence_ids": [evidence_id], "max_chars": 10}
+            )
+            outcome = read.structured_content["outcomes"][0]
+            assert outcome["status"] == "truncated"
+            assert outcome["text"]
+            recorded = await client.call_tool(
+                "record_decision",
+                {
+                    "task_name": "harbor",
+                    "choice_key": "keep-log",
+                    "conclusion": "Keep the log.",
+                    "rationale": "The log records harbor activity.",
+                    "request_id": "keep-log",
+                    "assumptions": [],
+                    "open_questions": [],
+                    "supports": [
+                        {
+                            "task_name": "harbor",
+                            "seq": event.structured_content["event"]["seq"],
+                        }
+                    ],
+                },
+            )
+            decision = recorded.structured_content["decision"]
+            assert decision["review_state"] == "clear"
+
+            await evidence_env.graph.add(
+                documents=[
+                    make_document(evidence_env.harbor, "Revised lighthouse log.")
+                ]
+            )
+
+            reviewed = await client.call_tool(
+                "get_decision", {"decision_id": decision["id"]}
+            )
+            assert (
+                reviewed.structured_content["decision"]["review_reason"]
+                == "consulted_source_changed"
+            )
 
     async def test_tools_persist_scoped_events_and_gate_rejection(  # noqa: PLR0915
         self,

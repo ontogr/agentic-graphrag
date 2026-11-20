@@ -127,13 +127,15 @@ still needing review.
 ## `record_decision` \{#agrag-decisions-DecisionTraces-record_decision}
 
 ```python
-record_decision(task_name:str, choice_key:str, conclusion:str, rationale:str, *, supports:Sequence[SupportInput], fetched_evidence:Sequence[FetchOutcome] = (), assumptions:Sequence[str] = (), open_questions:Sequence[str] = (), request_id:str | None = None) -> RecordDecisionResult
+record_decision(task_name:str, choice_key:str, conclusion:str, rationale:str, *, supports:Sequence[SupportInput], fetched_evidence:Sequence[FetchOutcome] = (), consulted:Sequence[FetchOutcome] = (), assumptions:Sequence[str] = (), open_questions:Sequence[str] = (), request_id:str | None = None) -> RecordDecisionResult
 ```
 
 Record a decision only when every support is valid and in scope.
 
 Document evidence must appear in `fetched_evidence` with status
-`ok`. All checks and writes share one graph transaction.
+`ok`. `consulted` contains text returned to the caller, including
+outcomes that are not complete current fetches. All checks and writes
+share one graph transaction.
 
 ## `reject_decision` \{#agrag-decisions-DecisionTraces-reject_decision}
 
@@ -165,7 +167,10 @@ Find same-project decisions as precedents, with their task context.
 ## `supersede_decision` \{#agrag-decisions-DecisionTraces-supersede_decision}
 
 ```python
-supersede_decision(decision_id:UUID, conclusion:str, rationale:str, *, explanation:str, supports:Sequence[SupportInput], fetched_evidence:Sequence[FetchOutcome] = (), assumptions:Sequence[str] = (), open_questions:Sequence[str] = (), request_id:str | None = None) -> RecordDecisionResult
+supersede_decision(decision_id:UUID, conclusion:str, rationale:str, *, explanation:str, supports:Sequence[SupportInput], fetched_evidence:Sequence[FetchOutcome] = (), consulted:Sequence[FetchOutcome] = (), assumptions:Sequence[str] = (), open_questions:Sequence[str] = (), request_id:str | None = None) -> RecordDecisionResult
 ```
 
 Record a same-choice replacement and preserve the old decision.
+
+`fetched_evidence` is used to validate cited documents. `consulted`
+records every text-bearing outcome that informed the replacement.

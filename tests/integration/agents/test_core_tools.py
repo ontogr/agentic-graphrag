@@ -249,6 +249,7 @@ async def test_core_history_tools_read_write_and_review_persisted_data() -> None
             )
         )
         assert superseded["recorded"] is True
+        assert superseded["decision"]["review_reason"] == "consulted_source_changed"
         old = json.loads(
             await tool_by_name["get_decision"].ainvoke({"decision_id": decision_id})
         )

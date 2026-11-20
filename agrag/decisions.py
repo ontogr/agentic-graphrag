@@ -64,6 +64,7 @@ from agrag.cypher.decision_review import (
     replace_document_supports_query,
     support_history_query,
 )
+from agrag.cypher.documents import lock_current_document_query
 from agrag.cypher.history import (
     append_event_query,
     claim_request_query,
@@ -143,6 +144,7 @@ class DecisionTraces:
         *,
         supports: Sequence[SupportInput],
         fetched_evidence: Sequence[FetchOutcome] = (),
+        consulted: Sequence[FetchOutcome] = (),
         assumptions: Sequence[str] = (),
         open_questions: Sequence[str] = (),
         request_id: str | None = None,
@@ -150,7 +152,9 @@ class DecisionTraces:
         """Record a decision only when every support is valid and in scope.
 
         Document evidence must appear in ``fetched_evidence`` with status
-        ``ok``. All checks and writes share one graph transaction.
+        ``ok``. ``consulted`` contains text returned to the caller, including
+        outcomes that are not complete current fetches. All checks and writes
+        share one graph transaction.
         """
         if not supports:
             return RecordDecisionResult(
@@ -167,6 +171,7 @@ class DecisionTraces:
             "fetched_evidence": [
                 item.model_dump(mode="json") for item in fetched_evidence
             ],
+            "consulted": [item.model_dump(mode="json") for item in consulted],
         }
         return await self._write(
             "record_decision",
@@ -181,6 +186,7 @@ class DecisionTraces:
                 rationale=rationale,
                 supports=supports,
                 fetched=fetched_evidence,
+                consulted=consulted,
                 assumptions=assumptions,
                 open_questions=open_questions,
                 supersedes=None,
@@ -197,11 +203,16 @@ class DecisionTraces:
         explanation: str,
         supports: Sequence[SupportInput],
         fetched_evidence: Sequence[FetchOutcome] = (),
+        consulted: Sequence[FetchOutcome] = (),
         assumptions: Sequence[str] = (),
         open_questions: Sequence[str] = (),
         request_id: str | None = None,
     ) -> RecordDecisionResult:
-        """Record a same-choice replacement and preserve the old decision."""
+        """Record a same-choice replacement and preserve the old decision.
+
+        ``fetched_evidence`` is used to validate cited documents. ``consulted``
+        records every text-bearing outcome that informed the replacement.
+        """
         if not explanation.strip():
             return RecordDecisionResult(
                 recorded=False, error=WriteErrorCode.EXPLANATION_REQUIRED
@@ -223,6 +234,7 @@ class DecisionTraces:
             "fetched_evidence": [
                 item.model_dump(mode="json") for item in fetched_evidence
             ],
+            "consulted": [item.model_dump(mode="json") for item in consulted],
         }
         return await self._write(
             "supersede_decision",
@@ -237,6 +249,7 @@ class DecisionTraces:
                 rationale=rationale,
                 supports=supports,
                 fetched=fetched_evidence,
+                consulted=consulted,
                 assumptions=assumptions,
                 open_questions=open_questions,
                 supersedes=decision_id,
@@ -580,6 +593,7 @@ class DecisionTraces:
         rationale: str,
         supports: Sequence[SupportInput],
         fetched: Sequence[FetchOutcome],
+        consulted: Sequence[FetchOutcome],
         assumptions: Sequence[str],
         open_questions: Sequence[str],
         supersedes: UUID | None,
@@ -647,13 +661,17 @@ class DecisionTraces:
         support_props, currency_changed = await self.resolve_supports(
             tx, supports, fetched
         )
-        cited_document_ids = {
-            support["document_node_id"]
+        cited_versions = {
+            (
+                support["document_node_id"],
+                support["recorded_activation_seq"],
+                support["content_hash"],
+            )
             for support in support_props
             if support["kind"] == "document"
         }
         consulted_refs, consulted_changed = await self._consulted_sources(
-            tx, fetched, cited_document_ids
+            tx, consulted or fetched, cited_versions
         )
         revision = max((int(item["revision"]) for item in revisions), default=0) + 1
         identity = str(_uuid("Decision", task["id"], choice_key, revision))
@@ -1049,7 +1067,7 @@ class DecisionTraces:
         self,
         tx: GraphStoreTransaction,
         fetched: Sequence[FetchOutcome],
-        cited_document_ids: set[str],
+        cited_versions: set[tuple[str, int, str]],
     ) -> tuple[list[str], bool]:
         """Record the versions of documents read but not cited, and detect changes.
 
@@ -1059,21 +1077,33 @@ class DecisionTraces:
         """
         refs: set[str] = set()
         changed = False
-        for outcome in fetched:
-            if outcome.reference is None or outcome.observed_activation_seq is None:
-                continue
-            document_id = str(outcome.reference.document_node_id)
-            if document_id in cited_document_ids:
+        candidates = [
+            (
+                outcome,
+                str(outcome.reference.document_node_id),
+            )
+            for outcome in fetched
+            if outcome.text is not None
+            and outcome.reference is not None
+            and outcome.observed_activation_seq is not None
+        ]
+        candidates.sort(key=lambda item: item[1])
+        for outcome, document_id in candidates:
+            version = (
+                document_id,
+                outcome.observed_activation_seq,
+                outcome.content_hash,
+            )
+            if version in cited_versions:
                 continue
             refs.add(f"{document_id}:{outcome.observed_activation_seq}")
-            current = (
-                await tx.execute_read(
-                    "MATCH (doc:Document {id: $id}) "
-                    "RETURN doc.current_content_hash AS hash, "
-                    "doc.activation_seq AS seq",
-                    {"id": document_id},
-                )
-            )[0]
+            current_rows = await tx.execute_write(
+                lock_current_document_query(), {"id": document_id}
+            )
+            if not current_rows:
+                changed = True
+                continue
+            current = current_rows[0]
             changed |= (
                 current["hash"] != outcome.content_hash
                 or current["seq"] != outcome.observed_activation_seq

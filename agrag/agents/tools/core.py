@@ -97,6 +97,11 @@ def make_core_tools(  # noqa: PLR0915
         fetched_ids=fetched_ids,
         fetches={item.evidence_id: item for item in fetched_outcomes},
     )
+    consulted_fetches = {
+        (item.evidence_id, item.observed_activation_seq): item
+        for item in fetched_outcomes
+        if item.text is not None
+    }
 
     @tool("search_evidence", description=SEARCH_EVIDENCE)
     async def search_evidence_tool(
@@ -151,6 +156,10 @@ def make_core_tools(  # noqa: PLR0915
             )
             for outcome in result.outcomes:
                 run_state.fetches[outcome.evidence_id] = outcome
+                if outcome.text is not None:
+                    consulted_fetches[
+                        (outcome.evidence_id, outcome.observed_activation_seq)
+                    ] = outcome
                 if outcome.status is FetchStatus.OK:
                     run_state.fetched_ids.append(outcome.evidence_id)
                 elif outcome.status in {
@@ -389,6 +398,7 @@ def make_core_tools(  # noqa: PLR0915
             rationale,
             supports=supports,
             fetched_evidence=fetched,
+            consulted=list(consulted_fetches.values()),
             assumptions=assumptions or [],
             open_questions=open_questions or [],
         )
@@ -421,6 +431,7 @@ def make_core_tools(  # noqa: PLR0915
             explanation=explanation,
             supports=supports,
             fetched_evidence=fetched,
+            consulted=list(consulted_fetches.values()),
             assumptions=assumptions or [],
             open_questions=open_questions or [],
         )

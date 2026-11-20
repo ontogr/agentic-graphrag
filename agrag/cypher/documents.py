@@ -34,6 +34,16 @@ def find_document_query() -> str:
     )
 
 
+def lock_current_document_query() -> str:
+    """Build Cypher that locks and reads a document's current version."""
+    return (
+        f"MATCH (doc:{NODE_IDENTITY_LABEL}:Document {{id: $id}}) "
+        "SET doc._agrag_decision_lock = true "
+        "REMOVE doc._agrag_decision_lock "
+        "RETURN doc.current_content_hash AS hash, doc.activation_seq AS seq"
+    )
+
+
 def update_document_dates_query() -> str:
     """Build Cypher to replace only the two stored document date properties."""
     return (
