@@ -9,12 +9,22 @@ Bases: <code>StrEnum</code>
 
 Why a decision needs review.
 
+`consulted_source_changed` means a document the decision read while
+deciding, but did not cite, changed or was removed.
+
 **Attributes:**
 
+- [**CONSULTED_SOURCE_CHANGED**](#agrag-common-data_models-decision-ReviewReason-CONSULTED_SOURCE_CHANGED) –
 - [**DEPENDENCY_REVIEW**](#agrag-common-data_models-decision-ReviewReason-DEPENDENCY_REVIEW) –
 - [**SOURCE_CHANGED**](#agrag-common-data_models-decision-ReviewReason-SOURCE_CHANGED) –
 - [**SOURCE_CHANGED_DURING_RECORDING**](#agrag-common-data_models-decision-ReviewReason-SOURCE_CHANGED_DURING_RECORDING) –
 - [**SOURCE_REMOVED**](#agrag-common-data_models-decision-ReviewReason-SOURCE_REMOVED) –
+
+## `CONSULTED_SOURCE_CHANGED` \{#agrag-common-data_models-decision-ReviewReason-CONSULTED_SOURCE_CHANGED}
+
+```python
+CONSULTED_SOURCE_CHANGED = 'consulted_source_changed'
+```
 
 ## `DEPENDENCY_REVIEW` \{#agrag-common-data_models-decision-ReviewReason-DEPENDENCY_REVIEW}
 

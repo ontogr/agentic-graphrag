@@ -99,7 +99,9 @@ Confirm a decision still stands on the current version of its documents.
 Review means the decision needs a look. It does not mean the decision
 is false. Reaffirming records the caller as the reviewer, replaces the
 decision's document supports with `evidence`, and clears the review
-flag. It does not change the flags of dependent decisions.
+flag. It does not change the flags of dependent decisions. It also drops
+the documents the decision read without citing, so a later change to one
+of them no longer flags the decision.
 
 Every document the decision cites must be fetched in its current
 version, and `evidence` must cite exactly those documents. A cited
