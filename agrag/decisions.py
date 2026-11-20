@@ -35,6 +35,7 @@ from agrag.common.data_models.decision import (
     ReaffirmDecisionResult,
     RecordDecisionResult,
     RejectDecisionResult,
+    ReviewReason,
     ReviewState,
     Support,
     SupportHistoryPage,
@@ -270,7 +271,9 @@ class DecisionTraces:
         Review means the decision needs a look. It does not mean the decision
         is false. Reaffirming records the caller as the reviewer, replaces the
         decision's document supports with ``evidence``, and clears the review
-        flag. It does not change the flags of dependent decisions.
+        flag. It does not change the flags of dependent decisions. It also drops
+        the documents the decision read without citing, so a later change to one
+        of them no longer flags the decision.
 
         Every document the decision cites must be fetched in its current
         version, and ``evidence`` must cite exactly those documents. A cited
@@ -644,12 +647,25 @@ class DecisionTraces:
         support_props, currency_changed = await self.resolve_supports(
             tx, supports, fetched
         )
+        cited_document_ids = {
+            support["document_node_id"]
+            for support in support_props
+            if support["kind"] == "document"
+        }
+        consulted_refs, consulted_changed = await self._consulted_sources(
+            tx, fetched, cited_document_ids
+        )
         revision = max((int(item["revision"]) for item in revisions), default=0) + 1
         identity = str(_uuid("Decision", task["id"], choice_key, revision))
         created = datetime.now(UTC)
-        status_review = (
-            ReviewState.NEEDS_REVIEW if currency_changed else ReviewState.CLEAR
+        review_reason = (
+            ReviewReason.SOURCE_CHANGED_DURING_RECORDING
+            if currency_changed
+            else ReviewReason.CONSULTED_SOURCE_CHANGED
+            if consulted_changed
+            else None
         )
+        status_review = ReviewState.NEEDS_REVIEW if review_reason else ReviewState.CLEAR
         props = {
             "id": identity,
             "task_id": task["id"],
@@ -663,9 +679,8 @@ class DecisionTraces:
             "author": self._agent_id,
             "status": DecisionStatus.ACTIVE.value,
             "review_state": status_review.value,
-            "review_reason": "source_changed_during_recording"
-            if currency_changed
-            else None,
+            "review_reason": review_reason.value if review_reason else None,
+            "consulted_refs": consulted_refs,
             "rejection_reason": None,
             "rejected_by": None,
             "created_at": created.isoformat(),
@@ -712,7 +727,7 @@ class DecisionTraces:
         return RecordDecisionResult(
             recorded=True,
             decision=lookup,
-            warnings=["source_changed_during_recording"] if currency_changed else [],
+            warnings=[review_reason.value] if review_reason else [],
         )
 
     async def _reject(
@@ -1029,6 +1044,41 @@ class DecisionTraces:
             recorded_activation_seq=outcome.observed_activation_seq,
         ).model_dump(mode="json")
         return support, changed
+
+    async def _consulted_sources(
+        self,
+        tx: GraphStoreTransaction,
+        fetched: Sequence[FetchOutcome],
+        cited_document_ids: set[str],
+    ) -> tuple[list[str], bool]:
+        """Record the versions of documents read but not cited, and detect changes.
+
+        Each entry is ``document_node_id:activation_seq`` for the version that
+        was read. The flag is True when one of those versions is no longer
+        the current version at record time.
+        """
+        refs: set[str] = set()
+        changed = False
+        for outcome in fetched:
+            if outcome.reference is None or outcome.observed_activation_seq is None:
+                continue
+            document_id = str(outcome.reference.document_node_id)
+            if document_id in cited_document_ids:
+                continue
+            refs.add(f"{document_id}:{outcome.observed_activation_seq}")
+            current = (
+                await tx.execute_read(
+                    "MATCH (doc:Document {id: $id}) "
+                    "RETURN doc.current_content_hash AS hash, "
+                    "doc.activation_seq AS seq",
+                    {"id": document_id},
+                )
+            )[0]
+            changed |= (
+                current["hash"] != outcome.content_hash
+                or current["seq"] != outcome.observed_activation_seq
+            )
+        return sorted(refs), changed
 
     async def _event_support(
         self, tx: GraphStoreTransaction, source: EventSupportInput

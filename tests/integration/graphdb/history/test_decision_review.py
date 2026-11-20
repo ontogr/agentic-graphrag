@@ -644,3 +644,139 @@ async def test_revert_to_recorded_content_keeps_flag(store, project, documents):
     current = await history.get_decision(decision.id)
     assert current.decision.review_state is ReviewState.NEEDS_REVIEW
     assert current.decision.review_reason.value == "source_changed"
+
+
+async def _fetch_current_passage(store, document_key: str, query: str):
+    found = await search_evidence(
+        store,
+        BagOfWordsEmbedder(),
+        query,
+        mode=EvidenceSearchMode.LEXICAL,
+        scope=frozenset({document_key}),
+        limit=5,
+    )
+    evidence_id = found.hits[0].evidence_id
+    fetched = await fetch_evidence(
+        store, [evidence_id], scope=frozenset({document_key}), max_chars=500
+    )
+    assert fetched.outcomes[0].status is FetchStatus.OK
+    return evidence_id, fetched.outcomes
+
+
+async def _record_citing_harbor_and_reading_keep(
+    store, project, documents, task_name: str
+):
+    cited_id, cited = await _fetch_current_passage(store, documents.harbor, "harbor")
+    _, consulted = await _fetch_current_passage(store, documents.keep, "privacy")
+    tasks = ConversationHistory(store, project_id=project, agent_id="agent")
+    await tasks.create_task(task_name, "decide from two documents")
+    await tasks.record_event(task_name, EventKind.NOTE, payload="review fixture")
+    history = DecisionTraces(store, project_id=project, agent_id="agent")
+    result = await history.record_decision(
+        task_name,
+        f"choice-{task_name}",
+        "use harbor",
+        "harbor support, keep read",
+        supports=[DocumentSupportInput(evidence_id=cited_id)],
+        fetched_evidence=[*cited, *consulted],
+    )
+    assert result.recorded and result.decision is not None
+    return history, result.decision
+
+
+async def test_change_to_read_but_uncited_document_flags_decision(
+    store, project, documents
+):
+    """A decision flags when a document it read changes, even if it did not cite it."""
+    history, consulting = await _record_citing_harbor_and_reading_keep(
+        store, project, documents, "consulting"
+    )
+    _, harbor_only = await _record_document_decision(
+        store, project, documents, "harbor-only"
+    )
+    await documents.graph.add(
+        documents=[make_document(documents.keep, "Keep privacy notice revised.")]
+    )
+
+    flagged = await history.get_decision(consulting.id)
+    assert flagged.decision.review_state is ReviewState.NEEDS_REVIEW
+    assert flagged.decision.review_reason.value == "consulted_source_changed"
+    await history.continue_decision_review(limit=10)
+    unaffected = await history.get_decision(harbor_only.id)
+    assert unaffected.decision.review_state is ReviewState.CLEAR
+
+
+async def test_reaffirming_cited_source_drops_read_only_documents(
+    store, project, documents
+):
+    """Reaffirming clears the flag and stops tracking documents that were only read."""
+    history, decision = await _record_citing_harbor_and_reading_keep(
+        store, project, documents, "reaffirm-consulted"
+    )
+    await documents.graph.add(
+        documents=[make_document(documents.keep, "Keep privacy notice revised.")]
+    )
+    await history.continue_decision_review(limit=10)
+    flagged = await history.get_decision(decision.id)
+    assert flagged.decision.review_reason.value == "consulted_source_changed"
+
+    evidence_id, fetched = await _current_harbor_support(store, documents)
+    reaffirmed = await history.reaffirm_decision(
+        decision.id,
+        [DocumentSupportInput(evidence_id=evidence_id)],
+        fetched_evidence=fetched.outcomes,
+    )
+    assert reaffirmed.recorded
+    assert reaffirmed.decision.review_state is ReviewState.CLEAR
+    await documents.graph.add(
+        documents=[make_document(documents.keep, "Keep privacy notice revised twice.")]
+    )
+    await history.continue_decision_review(limit=10)
+    current = await history.get_decision(decision.id)
+    assert current.decision.review_state is ReviewState.CLEAR
+
+
+async def test_recording_after_read_document_changed_flags_decision(
+    store, project, documents
+):
+    """A decision recorded after a document it read changed is flagged on arrival."""
+    cited_id, cited = await _fetch_current_passage(store, documents.harbor, "harbor")
+    _, consulted = await _fetch_current_passage(store, documents.keep, "privacy")
+    await documents.graph.add(
+        documents=[make_document(documents.keep, "Keep privacy notice revised.")]
+    )
+    tasks = ConversationHistory(store, project_id=project, agent_id="agent")
+    await tasks.create_task("late-record", "decide after a read source changed")
+    await tasks.record_event("late-record", EventKind.NOTE, payload="review fixture")
+    history = DecisionTraces(store, project_id=project, agent_id="agent")
+    result = await history.record_decision(
+        "late-record",
+        "choice-late-record",
+        "use harbor",
+        "harbor support, keep read",
+        supports=[DocumentSupportInput(evidence_id=cited_id)],
+        fetched_evidence=[*cited, *consulted],
+    )
+    assert result.recorded and result.decision is not None
+    assert result.decision.review_state is ReviewState.NEEDS_REVIEW
+    assert result.decision.review_reason.value == "consulted_source_changed"
+    assert result.warnings == ["consulted_source_changed"]
+
+
+async def test_read_only_change_keeps_reason_of_cited_change(store, project, documents):
+    """A later change to a read-only document keeps a cited change's reason."""
+    history, decision = await _record_citing_harbor_and_reading_keep(
+        store, project, documents, "reason-kept"
+    )
+    await documents.graph.add(
+        documents=[
+            make_document(documents.harbor, "Harbor lighthouse replacement record.")
+        ]
+    )
+    await documents.graph.add(
+        documents=[make_document(documents.keep, "Keep privacy notice revised.")]
+    )
+
+    current = await history.get_decision(decision.id)
+    assert current.decision.review_state is ReviewState.NEEDS_REVIEW
+    assert current.decision.review_reason.value == "source_changed"

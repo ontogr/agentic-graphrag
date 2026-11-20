@@ -81,6 +81,8 @@ A flag means that someone should look again. It does not mean that the decision 
 
 A source can also change while a decision is being recorded. In that case the decision is saved with `needs_review` and the reason `source_changed_during_recording`, and the result carries a warning.
 
+A decision also keeps track of the documents it read through `fetch_evidence` without citing them. When one of those versions is later replaced or removed, the decision is flagged with `consulted_source_changed`, even though none of its cited supports changed. If a read version is already stale when the decision is recorded, the decision is saved with the same reason and the result carries the same warning. Reaffirming the decision drops this tracking, so a later change to a document that was only read does not flag it again. The read set covers the fetches of the current agent run. On the MCP server it covers every fetch made in the same server session, including fetches made for other tasks.
+
 The built-in agent uses only decisions whose review state is `clear` in its precedent search. It cannot cite a flagged decision as support. The MCP search tool and `DecisionTraces.search_decisions` return active decisions with their review state, flagged or not, so the caller decides how to use them.
 
 ## Retention
