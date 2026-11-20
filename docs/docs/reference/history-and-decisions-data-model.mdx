@@ -206,7 +206,7 @@ These models are the arguments that a write accepts.
 
 | Model | Extra fields | Returned by |
 | --- | --- | --- |
-| `RecordDecisionResult` | `decision: Decision \| None`, `warnings: list[str]` | `record_decision` and `supersede_decision`. `warnings` holds `source_changed_during_recording` when a cited source changed. |
+| `RecordDecisionResult` | `decision: Decision \| None`, `warnings: list[str]` | `record_decision` and `supersede_decision`. `warnings` holds `source_changed_during_recording` when a cited source changed, or `consulted_source_changed` when a document the decision read was already stale. |
 | `RejectDecisionResult` | `decision: Decision \| None` | `reject_decision` |
 | `ReaffirmDecisionResult` | `decision: Decision \| None` | `reaffirm_decision` |
 
@@ -281,6 +281,7 @@ Each value is the string that is stored and returned.
 | `ReviewReason` | `source_changed` | A cited document version was replaced. Set by the document update path. |
 | `ReviewReason` | `source_removed` | A cited document was deleted or purged, a cited event was redacted, or a task with cited records was deleted. |
 | `ReviewReason` | `source_changed_during_recording` | A cited document changed while the decision was recorded. The result carries a warning. |
+| `ReviewReason` | `consulted_source_changed` | A document the decision read without citing was replaced or removed, or it was already stale when the decision was recorded. Set by the document update path and by `record_decision`. |
 | `ReviewReason` | `dependency_review` | A decision the record depends on was flagged. Set by review propagation, which `continue_decision_review` runs. |
 | `SupportKind` | `document` | A `DocumentSupport`. |
 | `SupportKind` | `event` | An `EventSupport`. |

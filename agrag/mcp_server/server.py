@@ -23,6 +23,7 @@ from agrag.common.data_models.evidence import (
     EvidenceSearchMode,
     EvidenceSearchResult,
     EvidenceSearchStatus,
+    FetchOutcome,
     FetchResult,
     FetchStatus,
 )
@@ -73,10 +74,17 @@ class _Session:
         fetched_ids: Evidence ids that fetch returned in full. Citation checks
             trace against this record. It is not persisted, so a restart clears
             it.
+        fetched_evidence: Complete fetch outcomes used by history and decision
+            citation checks.
+        consulted_evidence: Text-bearing fetch outcomes used to track sources
+            read without making them citation-eligible.
     """
 
     fetched_ids: set[str] = field(default_factory=set)
     fetched_evidence: dict[str, Any] = field(default_factory=dict)
+    consulted_evidence: dict[tuple[str, int | None], FetchOutcome] = field(
+        default_factory=dict
+    )
 
 
 def _store_lifespan(
@@ -156,6 +164,7 @@ def _register_history_tools(
         store,
         settings,
         fetched_evidence_for=lambda ctx: list(_session(ctx).fetched_evidence.values()),
+        consulted_for=lambda ctx: list(_session(ctx).consulted_evidence.values()),
     )
 
 
@@ -363,6 +372,13 @@ def build_server(  # noqa: PLR0915
                 outcome.evidence_id: outcome
                 for outcome in kept
                 if outcome.status is FetchStatus.OK and not outcome.partial
+            }
+        )
+        session.consulted_evidence.update(
+            {
+                (outcome.evidence_id, outcome.observed_activation_seq): outcome
+                for outcome in kept
+                if outcome.text is not None
             }
         )
         session.fetched_ids.update(

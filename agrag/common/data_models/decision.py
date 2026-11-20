@@ -44,11 +44,16 @@ class ReviewState(StrEnum):
 
 
 class ReviewReason(StrEnum):
-    """Why a decision needs review."""
+    """Why a decision needs review.
+
+    ``consulted_source_changed`` means a document the decision read while
+    deciding, but did not cite, changed or was removed.
+    """
 
     SOURCE_CHANGED_DURING_RECORDING = "source_changed_during_recording"
     SOURCE_CHANGED = "source_changed"
     SOURCE_REMOVED = "source_removed"
+    CONSULTED_SOURCE_CHANGED = "consulted_source_changed"
     DEPENDENCY_REVIEW = "dependency_review"
 
 

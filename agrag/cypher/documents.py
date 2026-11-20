@@ -34,6 +34,16 @@ def find_document_query() -> str:
     )
 
 
+def lock_current_document_query() -> str:
+    """Build Cypher that locks and reads a document's current version."""
+    return (
+        f"MATCH (doc:{NODE_IDENTITY_LABEL}:Document {{id: $id}}) "
+        "SET doc._agrag_decision_lock = true "
+        "REMOVE doc._agrag_decision_lock "
+        "RETURN doc.current_content_hash AS hash, doc.activation_seq AS seq"
+    )
+
+
 def update_document_dates_query() -> str:
     """Build Cypher to replace only the two stored document date properties."""
     return (
@@ -139,6 +149,13 @@ def record_activation_query() -> str:
 def flag_decisions_for_activation_query() -> str:
     """Build a project-independent direct flag for one committed activation.
 
+    A decision is flagged when it cites the document through a current support,
+    or when it read the document without citing it and recorded a version
+    that this activation replaces or removes (``consulted_refs`` holds
+    ``document_node_id:activation_seq`` entries). A cited match gives the
+    reason ``source_changed`` or ``source_removed``. A read-only match gives
+    ``consulted_source_changed``.
+
     Each decision records the activation that flagged it, and its project's
     review epoch moves only on the first flag from that activation. A repeated
     run therefore leaves the epoch as the first run left it.
@@ -148,24 +165,33 @@ def flag_decisions_for_activation_query() -> str:
         f"(a:{DOCUMENT_ACTIVATION_LABEL} {{id: $activation_id}}) "
         f"MATCH (d:Decision {{{HISTORY_RECORD_PROPERTY}: true, "
         "status: 'active'}) "
-        f"-[:{HAS_SUPPORT}]->"
+        f"OPTIONAL MATCH (d)-[:{HAS_SUPPORT}]->"
         f"(s:DecisionSupport {{{HISTORY_RECORD_PROPERTY}: true, "
         "kind: 'document', current: true}) "
         "WHERE s.document_node_id = doc.id "
         "AND (a.verb IN ['delete', 'purge'] "
         "OR s.recorded_activation_seq <> a.activation_seq) "
-        "WITH DISTINCT d, a "
+        "WITH doc, a, d, count(s) > 0 AS cited "
+        "WITH doc, a, d, cited, any(ref IN coalesce(d.consulted_refs, []) "
+        "WHERE ref STARTS WITH (doc.id + ':') AND (a.verb IN ['delete', 'purge'] "
+        "OR ref <> doc.id + ':' + toString(a.activation_seq))) AS consulted "
+        "WHERE cited OR consulted "
+        "WITH DISTINCT d, a, cited "
         f"MATCH (t:Task {{{HISTORY_RECORD_PROPERTY}: true}})-[:MADE]->(d) "
         f"MATCH (p:Project {{{HISTORY_RECORD_PROPERTY}: true, "
         "project_id: t.project_id}) "
-        "WITH d, a, p, coalesce(d.review_activation_id, '') <> a.id AS first_flag "
+        "WITH d, a, cited, p, coalesce(d.review_activation_id, '') <> a.id "
+        "AS first_flag, d.review_state AS prior_state, "
+        "d.review_reason AS prior_reason "
         "SET p.review_incomplete = true, "
         "p.review_epoch = coalesce(p.review_epoch, 0) + CASE WHEN first_flag "
         "THEN 1 ELSE 0 END, "
         "d.review_activation_id = a.id, "
         "d.review_pending = true, d.review_state = 'needs_review', "
-        "d.review_reason = CASE WHEN a.verb IN ['delete', 'purge'] "
-        "THEN 'source_removed' ELSE 'source_changed' END "
+        "d.review_reason = CASE WHEN cited AND a.verb IN ['delete', 'purge'] "
+        "THEN 'source_removed' WHEN cited THEN 'source_changed' "
+        "WHEN prior_state = 'needs_review' AND prior_reason IS NOT NULL "
+        "THEN prior_reason ELSE 'consulted_source_changed' END "
         "RETURN count(DISTINCT d) AS flagged"
     )
 

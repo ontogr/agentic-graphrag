@@ -188,7 +188,7 @@ def clear_decision_review_query() -> str:
         f"(d:{DECISION_LABEL} {{{HISTORY_RECORD_PROPERTY}: true, "
         "id: $decision_id}) "
         "SET d.review_state = 'clear', d.review_reason = null, "
-        "d.review_reaffirmed = null "
+        "d.review_reaffirmed = null, d.consulted_refs = [] "
         "RETURN d.id AS id"
     )
 

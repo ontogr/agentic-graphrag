@@ -53,6 +53,7 @@ def register_write_tools(
     settings: McpServerSettings,
     *,
     fetched_evidence_for: Callable[[Context[Any, Any]], Sequence[FetchOutcome]],
+    consulted_for: Callable[[Context[Any, Any]], Sequence[FetchOutcome]],
 ) -> None:
     """Register task and decision operations with trusted project identity.
 
@@ -62,6 +63,8 @@ def register_write_tools(
         settings: Trusted project, author, access gates and limits.
         fetched_evidence_for: Returns complete evidence fetches from this
             server process, never from model-controlled arguments.
+        consulted_for: Returns text-bearing evidence outcomes from this server
+            process, including outcomes that are not citation-eligible.
     """
     history = ConversationHistory(
         store,
@@ -171,6 +174,7 @@ def register_write_tools(
     ) -> Annotated[CallToolResult, RecordDecisionResult]:
         """Record a supported decision with a safe retry key."""
         fetched = list(fetched_evidence_for(ctx))
+        consulted = list(consulted_for(ctx))
         return await bounded_result(
             deadline,
             settings.max_response_chars,
@@ -181,6 +185,7 @@ def register_write_tools(
                 rationale,
                 supports=supports,
                 fetched_evidence=fetched,
+                consulted=consulted,
                 assumptions=assumptions,
                 open_questions=open_questions,
                 request_id=request_id,
@@ -213,6 +218,7 @@ def register_write_tools(
                 explanation=explanation,
                 supports=supports,
                 fetched_evidence=list(fetched_evidence_for(ctx)),
+                consulted=list(consulted_for(ctx)),
                 assumptions=assumptions,
                 open_questions=open_questions,
                 request_id=request_id,

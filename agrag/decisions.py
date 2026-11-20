@@ -35,6 +35,7 @@ from agrag.common.data_models.decision import (
     ReaffirmDecisionResult,
     RecordDecisionResult,
     RejectDecisionResult,
+    ReviewReason,
     ReviewState,
     Support,
     SupportHistoryPage,
@@ -63,6 +64,7 @@ from agrag.cypher.decision_review import (
     replace_document_supports_query,
     support_history_query,
 )
+from agrag.cypher.documents import lock_current_document_query
 from agrag.cypher.history import (
     append_event_query,
     claim_request_query,
@@ -142,6 +144,7 @@ class DecisionTraces:
         *,
         supports: Sequence[SupportInput],
         fetched_evidence: Sequence[FetchOutcome] = (),
+        consulted: Sequence[FetchOutcome] = (),
         assumptions: Sequence[str] = (),
         open_questions: Sequence[str] = (),
         request_id: str | None = None,
@@ -149,7 +152,9 @@ class DecisionTraces:
         """Record a decision only when every support is valid and in scope.
 
         Document evidence must appear in ``fetched_evidence`` with status
-        ``ok``. All checks and writes share one graph transaction.
+        ``ok``. ``consulted`` contains text returned to the caller, including
+        outcomes that are not complete current fetches. All checks and writes
+        share one graph transaction.
         """
         if not supports:
             return RecordDecisionResult(
@@ -163,9 +168,6 @@ class DecisionTraces:
             "supports": [s.model_dump(mode="json") for s in supports],
             "assumptions": list(assumptions),
             "open_questions": list(open_questions),
-            "fetched_evidence": [
-                item.model_dump(mode="json") for item in fetched_evidence
-            ],
         }
         return await self._write(
             "record_decision",
@@ -180,6 +182,7 @@ class DecisionTraces:
                 rationale=rationale,
                 supports=supports,
                 fetched=fetched_evidence,
+                consulted=consulted,
                 assumptions=assumptions,
                 open_questions=open_questions,
                 supersedes=None,
@@ -196,11 +199,16 @@ class DecisionTraces:
         explanation: str,
         supports: Sequence[SupportInput],
         fetched_evidence: Sequence[FetchOutcome] = (),
+        consulted: Sequence[FetchOutcome] = (),
         assumptions: Sequence[str] = (),
         open_questions: Sequence[str] = (),
         request_id: str | None = None,
     ) -> RecordDecisionResult:
-        """Record a same-choice replacement and preserve the old decision."""
+        """Record a same-choice replacement and preserve the old decision.
+
+        ``fetched_evidence`` is used to validate cited documents. ``consulted``
+        records every text-bearing outcome that informed the replacement.
+        """
         if not explanation.strip():
             return RecordDecisionResult(
                 recorded=False, error=WriteErrorCode.EXPLANATION_REQUIRED
@@ -219,9 +227,6 @@ class DecisionTraces:
             "supports": [s.model_dump(mode="json") for s in supports],
             "assumptions": list(assumptions),
             "open_questions": list(open_questions),
-            "fetched_evidence": [
-                item.model_dump(mode="json") for item in fetched_evidence
-            ],
         }
         return await self._write(
             "supersede_decision",
@@ -236,6 +241,7 @@ class DecisionTraces:
                 rationale=rationale,
                 supports=supports,
                 fetched=fetched_evidence,
+                consulted=consulted,
                 assumptions=assumptions,
                 open_questions=open_questions,
                 supersedes=decision_id,
@@ -270,7 +276,9 @@ class DecisionTraces:
         Review means the decision needs a look. It does not mean the decision
         is false. Reaffirming records the caller as the reviewer, replaces the
         decision's document supports with ``evidence``, and clears the review
-        flag. It does not change the flags of dependent decisions.
+        flag. It does not change the flags of dependent decisions. It also drops
+        the documents the decision read without citing, so a later change to one
+        of them no longer flags the decision.
 
         Every document the decision cites must be fetched in its current
         version, and ``evidence`` must cite exactly those documents. A cited
@@ -577,6 +585,7 @@ class DecisionTraces:
         rationale: str,
         supports: Sequence[SupportInput],
         fetched: Sequence[FetchOutcome],
+        consulted: Sequence[FetchOutcome],
         assumptions: Sequence[str],
         open_questions: Sequence[str],
         supersedes: UUID | None,
@@ -644,12 +653,29 @@ class DecisionTraces:
         support_props, currency_changed = await self.resolve_supports(
             tx, supports, fetched
         )
+        cited_versions = {
+            (
+                support["document_node_id"],
+                support["recorded_activation_seq"],
+                support["content_hash"],
+            )
+            for support in support_props
+            if support["kind"] == "document"
+        }
+        consulted_refs, consulted_changed = await self._consulted_sources(
+            tx, consulted or fetched, cited_versions
+        )
         revision = max((int(item["revision"]) for item in revisions), default=0) + 1
         identity = str(_uuid("Decision", task["id"], choice_key, revision))
         created = datetime.now(UTC)
-        status_review = (
-            ReviewState.NEEDS_REVIEW if currency_changed else ReviewState.CLEAR
+        review_reason = (
+            ReviewReason.SOURCE_CHANGED_DURING_RECORDING
+            if currency_changed
+            else ReviewReason.CONSULTED_SOURCE_CHANGED
+            if consulted_changed
+            else None
         )
+        status_review = ReviewState.NEEDS_REVIEW if review_reason else ReviewState.CLEAR
         props = {
             "id": identity,
             "task_id": task["id"],
@@ -663,9 +689,8 @@ class DecisionTraces:
             "author": self._agent_id,
             "status": DecisionStatus.ACTIVE.value,
             "review_state": status_review.value,
-            "review_reason": "source_changed_during_recording"
-            if currency_changed
-            else None,
+            "review_reason": review_reason.value if review_reason else None,
+            "consulted_refs": consulted_refs,
             "rejection_reason": None,
             "rejected_by": None,
             "created_at": created.isoformat(),
@@ -712,7 +737,7 @@ class DecisionTraces:
         return RecordDecisionResult(
             recorded=True,
             decision=lookup,
-            warnings=["source_changed_during_recording"] if currency_changed else [],
+            warnings=[review_reason.value] if review_reason else [],
         )
 
     async def _reject(
@@ -1029,6 +1054,53 @@ class DecisionTraces:
             recorded_activation_seq=outcome.observed_activation_seq,
         ).model_dump(mode="json")
         return support, changed
+
+    async def _consulted_sources(
+        self,
+        tx: GraphStoreTransaction,
+        fetched: Sequence[FetchOutcome],
+        cited_versions: set[tuple[str, int, str]],
+    ) -> tuple[list[str], bool]:
+        """Record the versions of documents read but not cited, and detect changes.
+
+        Each entry is ``document_node_id:activation_seq`` for the version that
+        was read. The flag is True when one of those versions is no longer
+        the current version at record time.
+        """
+        refs: set[str] = set()
+        changed = False
+        candidates = [
+            (
+                outcome,
+                str(outcome.reference.document_node_id),
+            )
+            for outcome in fetched
+            if outcome.text is not None
+            and outcome.reference is not None
+            and outcome.observed_activation_seq is not None
+        ]
+        candidates.sort(key=lambda item: item[1])
+        for outcome, document_id in candidates:
+            version = (
+                document_id,
+                outcome.observed_activation_seq,
+                outcome.content_hash,
+            )
+            if version in cited_versions:
+                continue
+            refs.add(f"{document_id}:{outcome.observed_activation_seq}")
+            current_rows = await tx.execute_write(
+                lock_current_document_query(), {"id": document_id}
+            )
+            if not current_rows:
+                changed = True
+                continue
+            current = current_rows[0]
+            changed |= (
+                current["hash"] != outcome.content_hash
+                or current["seq"] != outcome.observed_activation_seq
+            )
+        return sorted(refs), changed
 
     async def _event_support(
         self, tx: GraphStoreTransaction, source: EventSupportInput
